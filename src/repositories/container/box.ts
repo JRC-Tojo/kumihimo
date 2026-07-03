@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import type { ContainerElement, ContainerElementFile, ContainerSkel } from 'src/models/container';
+import type { ContainerElement, ContainerElementFile, ContainerID, ContainerSkel } from 'src/models/container';
 import { type Container } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
@@ -55,6 +55,6 @@ export async function deleteFile(c: Container, element: ContainerElement): Promi
 /**
  * Boxにファイルの実態を読み込む
  */
-export async function loadSrcData(file: ContainerElementFile): Promise<Result<DocumentSource>> {
+export async function loadSrcData(cId: ContainerID, path: string): Promise<Result<DocumentSource>> {
   return new Promise((resolve) => resolve(Failure(new Error('Not implemented'))));
 }

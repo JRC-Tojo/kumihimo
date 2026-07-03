@@ -54,3 +54,23 @@ export function getBase64FileSize(base64String: string): number {
   // 計算式: (文字列の長さ * 0.75) - パディング数
   return base64.length * 0.75 - padding;
 }
+
+/** base64化された情報のハッシュ値を計算する */
+export async function calcBase64Hash(base64String: string, algorithm: 'SHA-256' | 'SHA-1' = 'SHA-256'): Promise<string> {
+  // 1. Base64文字列をバイナリ（Uint8Array）にデコード
+  const binaryString = atob(base64String);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  // 2. Web Crypto APIでハッシュ値を計算 (戻り値は ArrayBuffer)
+  const hashBuffer = await crypto.subtle.digest(algorithm, bytes.buffer);
+
+  // 3. ArrayBufferを16進数（Hex）文字列に変換
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+  return hashHex;
+}

@@ -1,6 +1,4 @@
 import z from 'zod';
-import { RelationalID } from './relational';
-import { ImageURI } from '../common';
 
 // TODO: 将来的にはAnnotationIDは一般要素として分離し、PDFAnnotationとして各ファイル別のアノテーション定義を出す
 export const AnnotationID = z.uuidv4().brand('AnnotationID');
@@ -29,7 +27,6 @@ const AnnotationBase = z.object({
   comment: z
     .object({
       chat: z.unknown().optional(), // TODO: チャットの形式は要検討
-      relationalID: RelationalID.optional(),
     })
     .default({}),
 });
@@ -52,6 +49,8 @@ export type CircleAnnotationStyle = z.infer<typeof CircleAnnotationStyle>;
 
 /**
  * アノテーション本体の情報
+ *
+ * TODO: これは文書一般のアノテーションとして再編し、現行のStyle実装は`PdfAnnotationStyle`などに変更する
  */
 export const AnnotationStyle = z.discriminatedUnion('type', [
   BoxAnnotationStyle,
@@ -59,12 +58,3 @@ export const AnnotationStyle = z.discriminatedUnion('type', [
   CircleAnnotationStyle,
 ]);
 export type AnnotationStyle = z.infer<typeof AnnotationStyle>;
-
-/**
- * アノテーション位置におけるPDF本体の情報
- */
-export const AnnotationContext = z.object({
-  img: ImageURI,
-  text: z.string(),
-});
-export type AnnotationContext = z.infer<typeof AnnotationContext>;
