@@ -4,13 +4,14 @@ import type { Relational, RelationalResponce } from 'src/models/relational/commo
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as docAnnotService from 'src/services/document/annotation';
+import * as relationalRepository from 'src/repositories/db/relational';
 import type { AnnotationID } from 'src/models/document/pdf';
 
 /**
  * 読み込み中の関係性情報をすべて管理するDBを定義
  */
 export async function initRelationalDB(): Promise<Result<void>> {
-  // TODO: 実装
+  return relationalRepository.initRelationalDB();
 }
 
 /**
@@ -22,10 +23,11 @@ export async function loadRelationals(cID: ContainerID): Promise<Result<Relation
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
 
-  // 当該アノテーションに紐づく関係性データを抽出する
   const relationals = await loadCachedRelationals(container.value);
+  if (!relationals.ok) return relationals;
 
-  // TODO: DBに読み込んだRelational情報を登録
+  const storeRes = await relationalRepository.addCachedRelationals(cID, relationals.value);
+  if (!storeRes.ok) return storeRes;
 
   return relationals;
 }
@@ -34,19 +36,17 @@ export async function loadRelationals(cID: ContainerID): Promise<Result<Relation
  * 特定のファイルをsource側とするRelational一覧をDBから取得して返す
  */
 export async function getRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
-  // TODO: DBから取得する処理を追加
+  return relationalRepository.getRelationalsByFile(file);
 }
 
 /**
  * 指定した関係性一覧を検証する
  */
 export async function checkRelational(r: Relational): Promise<Result<RelationalResponce>> {
-  // アノテーションが示す文書内容を返す
   const srcContent = await docAnnotService.getAnnotationInfo(r.srcID);
   if (!srcContent.ok) return srcContent;
   const targetContent = await docAnnotService.getAnnotationInfo(r.targetID);
   if (!targetContent.ok) return targetContent;
-  // TODO: ターゲット側のHash確認と再読み込み、DB登録は？
 
   const checkedRule = validRelational(
     r,
@@ -63,9 +63,9 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
 export async function registRelational(
   newRelational: Relational,
 ): Promise<Result<RelationalResponce>> {
-  // TODO: DBに登録する（仮フラグつき）
+  const saveRes = await relationalRepository.addRelational(newRelational);
+  if (!saveRes.ok) return saveRes;
 
-  // 作成したRelationalを検証して返す
   return checkRelational(newRelational);
 }
 
@@ -73,7 +73,7 @@ export async function registRelational(
  * 指定したアノテーションに紐づく関係性を仮フラグ付きでをすべて削除する
  */
 export async function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
-  // TODO: DBに削除の仮フラグを立てる
+  return relationalRepository.softRemoveRelationalsBySrcID(srcID);
 }
 
 /**
@@ -82,8 +82,7 @@ export async function removeRelationals(srcID: AnnotationID): Promise<Result<voi
  * 保存した関係性一覧を返す
  */
 export async function saveRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
-  // TODO: 特定ファイルの関係性一覧を取得し、その中の仮フラグを撤去して登録する
-  // 取得した一覧は戻り値として返す
+  return relationalRepository.commitRelationals(file);
 }
 
 /**

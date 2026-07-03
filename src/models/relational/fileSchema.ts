@@ -42,11 +42,12 @@ export type DocumentConfigFile = z.infer<typeof DocumentConfigFile>;
  *
  * フロントエンドとやり取りする型とは別にファイル保存用の型として定義する
  */
-const RelationalInFile = z.object({
+export const RelationalInFile = z.object({
   src: AnnotationID,
   target: AnnotationID,
   rule: RelationalRule,
 });
+export type RelationalInFile = z.infer<typeof RelationalInFile>
 
 /**
  * AnnotationIDとそのアノテーションが存在するファイルの位置を示す

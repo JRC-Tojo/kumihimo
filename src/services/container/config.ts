@@ -8,12 +8,13 @@ import * as containerService from './main';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import { Success, type Result } from 'src/models/error/result';
 import { calcBase64Hash } from 'src/utils/binary/base64';
-import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import type { AnnotationInfo, RelationalInFile } from 'src/models/relational/fileSchema';
 import { CachedRelationalFile, DocumentConfigFile } from 'src/models/relational/fileSchema';
 import * as textRepository from 'src/repositories/document/text';
 import type { Relational } from 'src/models/relational/common';
 import { CONFIG_FILE_EXTS } from 'src/models/document/common';
 import { fromEntries } from 'src/utils/obj/obj';
+import type { AnnotationID } from 'src/models/document/pdf';
 
 const CONTAINER_CONFIG_FOLDER = '.rd';
 
@@ -59,9 +60,82 @@ export async function getRelationalFile(cID: ContainerID): Promise<Result<Cached
   if (!src.ok) return src;
 
   // 取得したデータをデコードする
-  const fileContent = await textRepository.loadTextContents(src.value, CachedRelationalFile);
+  const fileContent = textRepository.loadTextContents(src.value, CachedRelationalFile);
 
   return fileContent;
+}
+
+/**
+ * 関係性をファイル保存用スキーマへ変換する
+ */
+export function buildCachedRelationalFile(
+  oldFile: CachedRelationalFile,
+  updateDocPath: string,
+  rs: Relational[],
+): CachedRelationalFile {
+  // 1. 更新対象ファイルに関わる既存の関係性を破棄する
+  const isUpdatedDocumentRelation = (relation: RelationalInFile): boolean => {
+    const srcInfo = oldFile.annotIdToFileInfo[relation.src];
+    if (srcInfo?.filePath === updateDocPath) return true;
+
+    const targetInfo = oldFile.annotIdToFileInfo[relation.target];
+    if (targetInfo?.filePath === updateDocPath) return true;
+
+    return false;
+  };
+
+  const preservedRelationals = oldFile.relationals.filter(
+    (relation) => !isUpdatedDocumentRelation(relation),
+  );
+
+  // 2. 実行中のRelational[]をファイル保存用の簡易ルール形式に変換する
+  const convertedRelationals = rs.map((relation) => ({
+    src: relation.srcID,
+    target: relation.targetID,
+    rule: relation.rule,
+  }));
+
+  // 3. 既存と新規を統合し、キー重複を排除する
+  const allRelationals = [...preservedRelationals, ...convertedRelationals];
+  const uniqueRelationals = Array.from(
+    allRelationals.reduce((map, relation) => {
+      const relationKey = `${relation.src}:${relation.target}:${JSON.stringify(relation.rule)}`;
+      if (!map.has(relationKey)) {
+        map.set(relationKey, relation);
+      }
+      return map;
+    }, new Map<string, RelationalInFile>()),
+  ).map(([, relation]) => relation);
+
+  // 4. 保存時に必要なAnnotationIDのファイル情報を再構築する
+  const referencedAnnotIDs = new Set<AnnotationID>();
+  uniqueRelationals.forEach((relation) => {
+    referencedAnnotIDs.add(relation.src);
+    referencedAnnotIDs.add(relation.target);
+  });
+
+  const annotIdToFileInfo: Record<string, { cID: ContainerID; filePath: string }> = {};
+
+  // 4a. まず新規Relationalから優先的にファイル情報を埋める
+  const assignFromRelation = (relation: Relational) => {
+    annotIdToFileInfo[relation.srcID] = relation.srcFile;
+    annotIdToFileInfo[relation.targetID] = relation.targetFile;
+  };
+  rs.forEach(assignFromRelation);
+
+  // 4b. 残ったAnnotationIDは旧ファイルから補完する
+  referencedAnnotIDs.forEach((annotID) => {
+    if (annotIdToFileInfo[annotID] !== undefined) return;
+    const oldFileInfo = oldFile.annotIdToFileInfo[annotID];
+    if (oldFileInfo !== undefined) {
+      annotIdToFileInfo[annotID] = oldFileInfo;
+    }
+  });
+
+  return {
+    annotIdToFileInfo,
+    relationals: uniqueRelationals,
+  };
 }
 
 /**
@@ -74,21 +148,23 @@ export async function updateRelationalFile(
   updateDocPath: string,
   rs: Relational[],
 ): Promise<Result<void>> {
+  // 1. 対象コンテナの取得
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
 
-  // TODO: 現在のRelationalFileを取得して、`updateDocPath`がsrc側の項目をすべて`rs`に置換する
-  // （CachedRelationalFileのうち、参照のなくなったannotは削除し、不足しているannotは追加する）
+  // 2. 既存のキャッシュ関係性ファイルを読み込む
   const oldRelationalFile = await getRelationalFile(cID);
   if (!oldRelationalFile.ok) return oldRelationalFile;
 
-  // ...
+  // 3. 更新要求に基づき、保存用のCachedRelationalFileを構築する
+  const convertedRelational = buildCachedRelationalFile(oldRelationalFile.value, updateDocPath, rs);
 
+  // 4. JSON化して保存形式に変換する
   const relFileStr = JSON.stringify(convertedRelational, null, 2);
-  const relFileSrc = await textRepository.encodeTextContents(relFileStr);
+  const relFileSrc = textRepository.encodeTextContents(relFileStr);
   if (!relFileSrc.ok) return relFileSrc;
 
-  // ファイルにデータを保存
+  // 5. コンテナルートの関係性ファイルを更新する
   const relationalFilePath = getRelationalFilePath(container.value.containerPath);
   const createRes = await containerService.createFile(cID, relationalFilePath, relFileSrc.value);
   if (!createRes.ok) return createRes;
@@ -115,7 +191,7 @@ export async function getDocumentConfigFile(
   const configSrc = await containerService.loadFileAsDocumentSource(cID, targetPath);
   if (!configSrc.ok) return configSrc;
 
-  const parsedConfig = await textRepository.loadTextContents(configSrc.value, DocumentConfigFile);
+  const parsedConfig = textRepository.loadTextContents(configSrc.value, DocumentConfigFile);
   return parsedConfig;
 }
 
@@ -134,7 +210,7 @@ export async function saveDocumentConfigFile(
     annots: fromEntries(annotInfos.map((aInfo) => [aInfo.style.id, aInfo])),
   };
   const docConfStr = JSON.stringify(docConf, null, 2);
-  const docConfSrc = await textRepository.encodeTextContents(docConfStr);
+  const docConfSrc = textRepository.encodeTextContents(docConfStr);
   if (!docConfSrc.ok) return docConfSrc;
 
   // ファイルにデータを保存
