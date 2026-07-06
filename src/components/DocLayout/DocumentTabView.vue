@@ -65,22 +65,23 @@ import DocumentLeftDrawer from 'src/components/DocLayout/DocumentLeftDrawer.vue'
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
 import DocumentRightDrawer from 'src/components/DocLayout/DocumentRightDrawer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
-import { nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import { generateThumbnail, loadPdf, renderPage } from '../Viewer/pdfManager';
-import * as annotationService from 'src/services/document/annotation';
 import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
 import { callEditorTools } from 'src/stores/editorTools';
-import { useI18n } from 'vue-i18n';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationStyle } from 'src/models/document/pdf';
+import { debounce } from 'quasar';
 
 interface Prop {
   file: ContainerElementFile;
 }
 const prop = defineProps<Prop>();
 const viewer = useTemplateRef('viewer');
+const api = useBackendApi();
 
 const editorStore = useEditorStore();
 
@@ -100,6 +101,14 @@ const pageCount = ref(0);
 let stopAnnotationObservation: (() => void) | undefined;
 let isHydratingAnnotations = true;
 let isApplyingDbAnnotations = false;
+
+const debouncedSyncAnnotations = debounce(async (): Promise<void> => {
+  if (isHydratingAnnotations || isApplyingDbAnnotations) return;
+  const syncRes = await api.syncAnnotationsByFile(prop.file, annotations.value);
+  if (!syncRes.ok) {
+    console.error('Failed to sync annotations', syncRes.error);
+  }
+}, 300);
 
 // for footer
 const zoomLevel = ref(100);
@@ -137,38 +146,32 @@ async function loadDocument() {
     ),
   );
 
-  const dbInitRes = await annotationService.initAnnotDB();
-  if (!dbInitRes.ok) {
-    console.error(dbInitRes.error);
-  }
-
-  const storedAnnotations = await annotationService.getAnnotationsByFile(prop.file);
-  if (storedAnnotations.ok && storedAnnotations.value.length > 0) {
+  const storedAnnotations = await api.getAnnotationsByFile(prop.file);
+  if (storedAnnotations.ok && storedAnnotations.data.length > 0) {
     isApplyingDbAnnotations = true;
-    annotations.value = storedAnnotations.value.map((info) => info.style);
+    annotations.value = storedAnnotations.data.map((info) => info.style);
     isApplyingDbAnnotations = false;
   } else {
     const annotationRes = await api.getAnnotationsBySource(docSrc.data);
     if (annotationRes.ok && annotationRes.data && annotationRes.data.length > 0) {
       annotations.value = annotationRes.data;
-      const saveRes = await annotationService.registerAnnotationInfo(
-        annotationRes.data.map((style) => ({
-          style,
-          context: { text: '' },
-        })),
-        prop.file,
-      );
-      if (!saveRes.ok) console.error(saveRes.error);
-      await annotationService.saveAnnotationInfo(prop.file);
+      const syncRes = await api.syncAnnotationsByFile(prop.file, annotationRes.data);
+      if (!syncRes.ok) console.error('Failed to save annotations to DB', syncRes.error);
     }
   }
 
   stopAnnotationObservation?.();
-  stopAnnotationObservation = annotationService.observeAnnotationsByFile(prop.file, (infos) => {
+  const observeRes = api.observeAnnotationsByFile(prop.file, (infos) => {
     isApplyingDbAnnotations = true;
     annotations.value = infos.map((info) => info.style);
     isApplyingDbAnnotations = false;
   });
+
+  if (!observeRes.ok) {
+    console.error('Failed to observe annotations', observeRes.error);
+  } else {
+    stopAnnotationObservation = observeRes.data;
+  }
 
   isHydratingAnnotations = false;
   loading.value = false;
@@ -176,29 +179,8 @@ async function loadDocument() {
 
 watch(
   annotations,
-  async (newAnnotations, oldAnnotations) => {
-    if (isHydratingAnnotations || isApplyingDbAnnotations) return;
-    if (oldAnnotations === undefined) return;
-
-    const oldIds = new Set(oldAnnotations.map((annotation) => annotation.id));
-    const newIds = new Set(newAnnotations.map((annotation) => annotation.id));
-    const removedIds = [...oldIds].filter((id) => !newIds.has(id));
-
-    for (const removedId of removedIds) {
-      await annotationService.removeAnnotationInfo(removedId);
-    }
-
-    const saveRes = await annotationService.registerAnnotationInfo(
-      newAnnotations.map((style) => ({
-        style,
-        context: { text: '' },
-      })),
-      prop.file,
-    );
-    if (!saveRes.ok) console.error(saveRes.error);
-
-    const commitRes = await annotationService.saveAnnotationInfo(prop.file);
-    if (!commitRes.ok) console.error(commitRes.error);
+  () => {
+    debouncedSyncAnnotations();
   },
   { deep: true },
 );
@@ -288,6 +270,10 @@ onMounted(async () => {
   const { t } = useI18n();
   editorStore.initStore(await callEditorTools(t));
   await loadDocument();
+});
+
+onBeforeUnmount(() => {
+  stopAnnotationObservation?.();
 });
 </script>
 

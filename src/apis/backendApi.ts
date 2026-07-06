@@ -19,6 +19,8 @@ import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Relational } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
+import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import * as annotationService from 'src/services/document/annotation';
 
 /**
  * バックエンド統合 API層
@@ -31,9 +33,11 @@ class BackendApi {
    */
   async initialize(): Promise<ApiResponse<void>> {
     const settings = await getSettings();
-    if (!settings.ok) {
-      return toApiResponse(settings, 'INIT_PROCESS_ERROR');
-    }
+    if (!settings.ok) return toApiResponse(settings, 'INIT_PROCESS_ERROR');
+    const annotDb = await annotationService.initAnnotDB();
+    if (!annotDb.ok) return toApiResponse(annotDb, 'INIT_PROCESS_ERROR')
+    const relDb = await relationalService.initRelationalDB()
+    if (!relDb.ok) return toApiResponse(relDb, 'INIT_PROCESS_ERROR')
 
     if (!settings.value.initialized) {
       const initRes = await initializeSettings();
@@ -218,6 +222,44 @@ class BackendApi {
   ): Promise<ApiResponse<DocumentSource>> {
     const packedSrc = await pdfRepo.embedAnnotationsIntoPdf(docSrc, annotations);
     return toApiResponse(packedSrc, 'DOC_ANNOT_EMBED_FAILED');
+  }
+
+  /**
+   * 指定ファイルのアノテーション情報をDBから取得する
+   */
+  async getAnnotationsByFile(file: ContainerElementFile): Promise<ApiResponse<AnnotationInfo[]>> {
+    const res = await annotationService.getAnnotationsByFile(file);
+    return toApiResponse(res, 'DOC_ANNOT_LOAD_FAILED');
+  }
+
+  /**
+   * 指定ファイルのアノテーションをDBの変更に応じて購読する
+   */
+  observeAnnotationsByFile(
+    file: ContainerElementFile,
+    onChange: (annotations: AnnotationInfo[]) => void,
+  ): ApiResponse<() => void> {
+    const unsubscribe = annotationService.observeAnnotationsByFile(file, onChange);
+    return toApiResponse(Success(unsubscribe));
+  }
+
+  /**
+   * 指定ファイルのアノテーションをDBに同期する
+   */
+  async syncAnnotationsByFile(
+    file: ContainerElementFile,
+    annotations: AnnotationStyle[],
+  ): Promise<ApiResponse<void>> {
+    const res = await annotationService.syncAnnotationInfos(file, annotations);
+    return toApiResponse(res, 'DOC_ANNOT_LOAD_FAILED');
+  }
+
+  /**
+   * 指定したアノテーションを削除する
+   */
+  async removeAnnotation(annotID: AnnotationID): Promise<ApiResponse<void>> {
+    const res = await annotationService.removeAnnotationInfo(annotID);
+    return toApiResponse(res, 'DOC_ANNOT_LOAD_FAILED');
   }
 
   // ============ 関係性操作 ============

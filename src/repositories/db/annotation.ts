@@ -105,7 +105,8 @@ export async function addAnnotationInfos(
   if (!ready.ok) return ready;
 
   try {
-    await db.annotations.bulkPut(aInfos.map((aInfo) => toAnnotationRecord(file, aInfo, true)));
+    const rawedRecords = JSON.parse(JSON.stringify(aInfos.map((aInfo) => toAnnotationRecord(file, aInfo, true))))
+    await db.annotations.bulkPut(rawedRecords);
     return Success();
   } catch (error) {
     return Failure(error instanceof Error ? error : new Error(String(error)));

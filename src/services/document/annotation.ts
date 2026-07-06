@@ -76,6 +76,43 @@ export function registerAnnotationInfo(
 }
 
 /**
+ * 指定ファイルのアノテーションをDBに差分同期する
+ * 
+ * TODO: 既存のservice内の関数で不要なものは削除する
+ * TODO: 保存処理をAPIに別で定義する
+ */
+export async function syncAnnotationInfos(
+  file: ContainerElementFile,
+  annotationStyles: AnnotationStyle[],
+): Promise<Result<void>> {
+  const loadedAnnotations = await annotationRepository.getAnnotationsByFile(file);
+  if (!loadedAnnotations.ok) return loadedAnnotations;
+
+  const existingIds = new Set(loadedAnnotations.value.map((info) => info.style.id));
+  const newIds = new Set(annotationStyles.map((style) => style.id));
+
+  const removedIds = [...existingIds].filter((id) => !newIds.has(id));
+  for (const removedId of removedIds) {
+    const removeRes = await annotationRepository.softRemoveAnnotation(removedId);
+    if (!removeRes.ok) return removeRes;
+  }
+
+  const storedInfos: AnnotationInfo[] = annotationStyles.map((style) => ({
+    style,
+    context: {
+      text: '',
+    },
+  }));
+  const saveRes = await annotationRepository.addAnnotationInfos(file, storedInfos);
+  if (!saveRes.ok) return saveRes;
+
+  // const commitRes = await annotationRepository.commitAnnotations(file);
+  // if (!commitRes.ok) return commitRes;
+
+  return Success();
+}
+
+/**
  * DBに格納されている特定ファイルのアノテーションを保存する（＝仮フラグを撤去する）
  *
  * 保存したアノテーション一覧を返す

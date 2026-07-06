@@ -90,7 +90,7 @@ export async function saveConfig(
   newSrc: DocumentSource,
 ): Promise<Result<void>> {
   // アノテーション情報をDBから取得する
-  const annotInfos = await annotationService.saveAnnotationInfo();
+  const annotInfos = await annotationService.saveAnnotationInfo(file);
   if (!annotInfos.ok) return annotInfos;
 
   // 関係性情報を取得する
