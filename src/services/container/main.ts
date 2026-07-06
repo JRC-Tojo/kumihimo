@@ -41,7 +41,10 @@ async function switchContainerProcess<T>(
 
 let cachedContainers: { [id: ContainerID]: Container | ContainerSkel } = {};
 
-function getContainer(id: ContainerID): Result<Container | ContainerSkel> {
+/**
+ * コンテナIDからコンテナ情報を取得する
+ */
+export function getContainer(id: ContainerID): Result<Container | ContainerSkel> {
   const c = cachedContainers[id];
   if (c === void 0) {
     return Failure(new Error(`Not Found Container (id: ${id})`));
@@ -249,11 +252,12 @@ export async function createFile(
   filePathStr: string,
   srcData: DocumentSource,
 ): Promise<Result<ContainerElementFile>> {
+  const fileSize = getBase64FileSize(srcData);
   const element: ContainerElementFile = {
     containerID: cId,
     type: 'File',
     path: filePathStr,
-    fileSize: getBase64FileSize(srcData),
+    fileSize: fileSize.ok ? fileSize.value : undefined,
     createdAt: new Date(),
     updatedAt: new Date(),
     description: '',
@@ -289,16 +293,20 @@ export async function deleteFile(
  * ファイルからドキュメントの本体データを読みこむ
  */
 export async function loadFileAsDocumentSource(
-  file: ContainerElementFile,
+  cId: ContainerID,
+  path: string,
 ): Promise<Result<DocumentSource>> {
-  const c = getContainer(file.containerID);
+  const c = getContainer(cId);
   if (!c.ok) return c;
+
+  // TODO: 実行中の内部キャッシュによる高速化が必須
+  // 毎回アクセスしてはいけない
 
   const srcData = await switchContainerProcess(
     c.value.type,
-    () => box.loadSrcData(file),
-    () => local.loadSrcData(file),
-    () => cache.loadSrcData(file),
+    () => box.loadSrcData(cId, path),
+    () => local.loadSrcData(cId, path),
+    () => cache.loadSrcData(cId, path),
   );
   if (!srcData.ok) return srcData;
 

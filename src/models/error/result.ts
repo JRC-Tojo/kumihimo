@@ -13,8 +13,13 @@ export interface Failure<E = Error> {
 export type Result<T, E = Error> = Success<T> | Failure<E>;
 
 // コンストラクタ関数
-export function Success<T = void>(value?: T): Success<T> {
-  return { ok: true, value: value as T };
+export function Success(): Success<void>;
+export function Success<T>(value: T): Success<T>;
+export function Success<T>(value?: T): Success<T | void> {
+  if (arguments.length === 0) {
+    return { ok: true, value: undefined };
+  }
+  return { ok: true, value };
 }
 
 export function Failure<E = Error>(error: E): Failure<E> {
@@ -30,4 +35,18 @@ export function unwrapOrThrow<T, E = Error>(r: Result<T, E>): T {
   const e = r.error;
   if (e instanceof Error) throw e as unknown as Error;
   throw new Error(String(e));
+}
+
+/** unknown の例外値を Error に正規化する。 */
+export function toError(e: unknown): Error {
+  if (e instanceof Error) return e;
+  if (typeof e === 'string') return new Error(e);
+  if (e !== null && typeof e === 'object') {
+    try {
+      return new Error(JSON.stringify(e) ?? Object.prototype.toString.call(e));
+    } catch {
+      return new Error(Object.prototype.toString.call(e));
+    }
+  }
+  return new Error(String(e));
 }

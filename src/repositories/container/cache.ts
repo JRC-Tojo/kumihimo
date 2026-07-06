@@ -3,7 +3,7 @@
  * （その場合、CacheはIndexedDBがすでにRepoにあるため、実装なし？）
  */
 
-import type { ContainerElementFile, Container } from 'src/models/container';
+import type { Container } from 'src/models/container';
 import { ContainerElement } from 'src/models/container';
 import { ContainerID } from 'src/models/container';
 import { ContainerSkel } from 'src/models/container';
@@ -113,7 +113,7 @@ export async function deleteFile(c: Container, element: ContainerElement): Promi
 /**
  * ファイルの実態を読み込む
  */
-export async function loadSrcData(file: ContainerElementFile): Promise<Result<DocumentSource>> {
-  const docKey = getDocKey(file.containerID, file.path);
+export async function loadSrcData(cId: ContainerID, path: string): Promise<Result<DocumentSource>> {
+  const docKey = getDocKey(cId, path);
   return db.getValue(SOURCE_STORE_NAME, DocumentSource, docKey);
 }
