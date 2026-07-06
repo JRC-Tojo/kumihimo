@@ -21,6 +21,25 @@ export function getAnnotationInfo(annotID: AnnotationID): Promise<Result<Annotat
 }
 
 /**
+ * 特定のファイルに紐づくアノテーション情報を取得する
+ */
+export function getAnnotationsByFile(
+  file: ContainerElementFile,
+): Promise<Result<AnnotationInfo[]>> {
+  return annotationRepository.getAnnotationsByFile(file);
+}
+
+/**
+ * DexieのLiveQueryを利用して特定ファイルのアノテーション情報を購読する
+ */
+export function observeAnnotationsByFile(
+  file: ContainerElementFile,
+  onChange: (annotations: AnnotationInfo[]) => void,
+): () => void {
+  return annotationRepository.observeAnnotationsByFile(file, onChange);
+}
+
+/**
  * アノテーション情報を登録する
  *
  * アノテーション位置やサイズの情報からアノテーションされているコンテンツを読み取る
@@ -61,8 +80,8 @@ export function registerAnnotationInfo(
  *
  * 保存したアノテーション一覧を返す
  */
-export function saveAnnotationInfo(): Promise<Result<AnnotationInfo[]>> {
-  return annotationRepository.commitAnnotations();
+export function saveAnnotationInfo(file?: ContainerElementFile): Promise<Result<AnnotationInfo[]>> {
+  return annotationRepository.commitAnnotations(file);
 }
 
 /**
