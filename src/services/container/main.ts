@@ -257,7 +257,7 @@ export async function createFile(
     containerID: cId,
     type: 'File',
     path: filePathStr,
-    fileSize: fileSize.ok ? fileSize.value : 0,
+    fileSize: fileSize.ok ? fileSize.value : undefined,
     createdAt: new Date(),
     updatedAt: new Date(),
     description: '',

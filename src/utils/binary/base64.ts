@@ -30,7 +30,6 @@ export function uint8ArrayToBase64(bytes: Uint8Array): Result<string> {
 
 /** ヘルパー：ArrayBuffer -> base64 */
 export function arrayBufferToBase64(buffer: ArrayBuffer): Promise<Result<string>> {
-  // TODO: Resultを返す実装に修正
   return new Promise((resolve) => {
     const blob = new Blob([buffer]);
     const reader = new FileReader();

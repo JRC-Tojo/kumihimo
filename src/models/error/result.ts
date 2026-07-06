@@ -41,10 +41,12 @@ export function unwrapOrThrow<T, E = Error>(r: Result<T, E>): T {
 export function toError(e: unknown): Error {
   if (e instanceof Error) return e;
   if (typeof e === 'string') return new Error(e);
-  if (e === null || typeof e !== 'object') return new Error(String(e));
-  try {
-    return new Error(JSON.stringify(e) ?? Object.prototype.toString.call(e));
-  } catch {
-    return new Error(Object.prototype.toString.call(e));
+  if (e !== null && typeof e === 'object') {
+    try {
+      return new Error(JSON.stringify(e) ?? Object.prototype.toString.call(e));
+    } catch {
+      return new Error(Object.prototype.toString.call(e));
+    }
   }
+  return new Error(String(e));
 }
