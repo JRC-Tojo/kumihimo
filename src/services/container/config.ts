@@ -7,7 +7,11 @@ import { Path } from 'src/utils/binary/path';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import { Success, type Result } from 'src/models/error/result';
 import { calcBase64Hash } from 'src/utils/binary/base64';
-import type { AnnotationInfo, RelationalInFile } from 'src/models/relational/fileSchema';
+import type {
+  AnnotationBaseAddress,
+  AnnotationInfo,
+  RelationalInFile,
+} from 'src/models/relational/fileSchema';
 import { CachedRelationalFile, DocumentConfigFile } from 'src/models/relational/fileSchema';
 import * as textRepository from 'src/repositories/document/text';
 import type { Relational } from 'src/models/relational/common';
@@ -69,6 +73,11 @@ export async function getRelationalFile(cID: ContainerID): Promise<Result<Cached
 
 /**
  * 関係性をファイル保存用スキーマへ変換する
+ *
+ * @param oldFile 関係性更新前である現状の関係性保存ファイルの中身
+ * @param updateDocPath 関係性保存ファイルのうち、ここで指定したファイルを起点とする関係性のみを更新する
+ * @param rs 今回の更新で反映したい関係性一覧
+ * @returns `updateDocPath`で指定したファイルに関連する関係性を更新した保存ファイルの中身を返す
  */
 export function buildCachedRelationalFile(
   oldFile: CachedRelationalFile,
@@ -90,8 +99,15 @@ export function buildCachedRelationalFile(
     (relation) => !isUpdatedDocumentRelation(relation),
   );
 
-  // 2. 実行中のRelational[]をファイル保存用の簡易ルール形式に変換する
-  const convertedRelationals = rs.map((relation) => ({
+  // 2. 実行中のRelational[]を更新対象ファイルに関わるものだけに絞り、
+  //    ファイル保存用の簡易ルール形式に変換する
+  const filteredRs = rs.filter((relation) => {
+    const srcPath = relation.srcFile?.filePath;
+    const targetPath = relation.targetFile?.filePath;
+    return srcPath === updateDocPath || targetPath === updateDocPath;
+  });
+
+  const convertedRelationals = filteredRs.map((relation) => ({
     src: relation.srcID,
     target: relation.targetID,
     rule: relation.rule,
@@ -116,14 +132,14 @@ export function buildCachedRelationalFile(
     referencedAnnotIDs.add(relation.target);
   });
 
-  const annotIdToFileInfo: Record<string, { cID: ContainerID; filePath: string }> = {};
+  const annotIdToFileInfo: AnnotationBaseAddress = {};
 
   // 4a. まず新規Relationalから優先的にファイル情報を埋める
   const assignFromRelation = (relation: Relational) => {
     annotIdToFileInfo[relation.srcID] = relation.srcFile;
     annotIdToFileInfo[relation.targetID] = relation.targetFile;
   };
-  rs.forEach(assignFromRelation);
+  filteredRs.forEach(assignFromRelation);
 
   // 4b. 残ったAnnotationIDは旧ファイルから補完する
   referencedAnnotIDs.forEach((annotID) => {
@@ -220,8 +236,8 @@ export async function saveDocumentConfigFile(
 
   // ファイルにデータを保存
   const containerService = await import('./main');
-  const relationalFilePath = getConfigPath(filePath);
-  const createRes = await containerService.createFile(cID, relationalFilePath, docConfSrc.value);
+  const configFilePath = getConfigPath(filePath);
+  const createRes = await containerService.createFile(cID, configFilePath, docConfSrc.value);
   if (!createRes.ok) return createRes;
 
   return Success();
