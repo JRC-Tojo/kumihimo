@@ -4,7 +4,6 @@
 
 import type { DocumentSource } from 'src/models/document/common';
 import { Path } from 'src/utils/binary/path';
-import * as containerService from './main';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import { Success, type Result } from 'src/models/error/result';
 import { calcBase64Hash } from 'src/utils/binary/base64';
@@ -53,6 +52,7 @@ function getBackupFilePath(cPath: string, fileHash: string): string {
  * コンテナルートに保存されている関係性ファイルを取得
  */
 export async function getRelationalFile(cID: ContainerID): Promise<Result<CachedRelationalFile>> {
+  const containerService = await import('./main');
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
 
@@ -150,6 +150,8 @@ export async function updateRelationalFile(
   updateDocPath: string,
   rs: Relational[],
 ): Promise<Result<void>> {
+  const containerService = await import('./main');
+
   // 1. 対象コンテナの取得
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
@@ -189,6 +191,7 @@ export async function getDocumentConfigFile(
   cID: ContainerID,
   filePath: ContainerElementFile | string,
 ): Promise<Result<DocumentConfigFile>> {
+  const containerService = await import('./main');
   const targetPath = typeof filePath === 'string' ? filePath : getConfigPath(filePath.path);
   const configSrc = await containerService.loadFileAsDocumentSource(cID, targetPath);
   if (!configSrc.ok) return configSrc;
@@ -216,6 +219,7 @@ export async function saveDocumentConfigFile(
   if (!docConfSrc.ok) return docConfSrc;
 
   // ファイルにデータを保存
+  const containerService = await import('./main');
   const relationalFilePath = getConfigPath(filePath);
   const createRes = await containerService.createFile(cID, relationalFilePath, docConfSrc.value);
   if (!createRes.ok) return createRes;
@@ -230,6 +234,8 @@ export async function getBackupSrc(
   cID: ContainerID,
   fileHash: string,
 ): Promise<Result<DocumentSource>> {
+  const containerService = await import('./main');
+
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
 
@@ -246,6 +252,8 @@ export async function saveBackupSrc(
   src: DocumentSource,
   newFileHash: string,
 ): Promise<Result<void>> {
+  const containerService = await import('./main');
+
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
 
