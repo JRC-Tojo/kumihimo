@@ -252,11 +252,12 @@ export async function createFile(
   filePathStr: string,
   srcData: DocumentSource,
 ): Promise<Result<ContainerElementFile>> {
+  const fileSize = getBase64FileSize(srcData);
   const element: ContainerElementFile = {
     containerID: cId,
     type: 'File',
     path: filePathStr,
-    fileSize: getBase64FileSize(srcData),
+    fileSize: fileSize.ok ? fileSize.value : 0,
     createdAt: new Date(),
     updatedAt: new Date(),
     description: '',

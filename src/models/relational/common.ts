@@ -17,7 +17,7 @@ export type RelationalLinkRule = z.infer<typeof RelationalLinkRule>;
  */
 export const RelationalEqRule = z.object({
   type: z.literal('equal'),
-  // 定数比較する際に用いるプロパティ（未指定の時にはtargetIDsとの比較）
+  // 定数比較する際に用いるプロパティ（未指定の時にはtargetIDとの比較）
   constVal: z.string().optional(),
 });
 export type RelationalEqRule = z.infer<typeof RelationalEqRule>;

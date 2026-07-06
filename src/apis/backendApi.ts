@@ -161,8 +161,8 @@ class BackendApi {
   /**
    * ファイルと同一階層に存在する、依存先のファイルが見つからない（＝浮いている）設定ファイルパス一覧
    */
-  async getFloatingConfigPaths(file: ContainerElementFile): Promise<ApiResponse<string[]>> {
-    const floatingPaths = await documentService.getFloatingConfigPaths(file);
+  getFloatingConfigPaths(file: ContainerElementFile): ApiResponse<string[]> {
+    const floatingPaths = documentService.getFloatingConfigPaths(file);
     return toApiResponse(floatingPaths, 'DOC_LIST_FAILED');
   }
 

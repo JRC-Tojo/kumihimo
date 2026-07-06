@@ -36,3 +36,15 @@ export function unwrapOrThrow<T, E = Error>(r: Result<T, E>): T {
   if (e instanceof Error) throw e as unknown as Error;
   throw new Error(String(e));
 }
+
+/** unknown の例外値を Error に正規化する。 */
+export function toError(e: unknown): Error {
+  if (e instanceof Error) return e;
+  if (typeof e === 'string') return new Error(e);
+  if (e === null || typeof e !== 'object') return new Error(String(e));
+  try {
+    return new Error(JSON.stringify(e) ?? Object.prototype.toString.call(e));
+  } catch {
+    return new Error(Object.prototype.toString.call(e));
+  }
+}

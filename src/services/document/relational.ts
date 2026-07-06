@@ -10,7 +10,7 @@ import type { AnnotationID } from 'src/models/document/pdf';
 /**
  * 読み込み中の関係性情報をすべて管理するDBを定義
  */
-export async function initRelationalDB(): Promise<Result<void>> {
+export function initRelationalDB(): Promise<Result<void>> {
   return relationalRepository.initRelationalDB();
 }
 
@@ -35,7 +35,7 @@ export async function loadRelationals(cID: ContainerID): Promise<Result<Relation
 /**
  * 特定のファイルをsource側とするRelational一覧をDBから取得して返す
  */
-export async function getRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
+export function getRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
   return relationalRepository.getRelationalsByFile(file);
 }
 
@@ -72,7 +72,7 @@ export async function registRelational(
 /**
  * 指定したアノテーションに紐づく関係性を仮フラグ付きでをすべて削除する
  */
-export async function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
+export function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
   return relationalRepository.softRemoveRelationalsBySrcID(srcID);
 }
 
@@ -81,7 +81,7 @@ export async function removeRelationals(srcID: AnnotationID): Promise<Result<voi
  *
  * 保存した関係性一覧を返す
  */
-export async function saveRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
+export function saveRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
   return relationalRepository.commitRelationals(file);
 }
 

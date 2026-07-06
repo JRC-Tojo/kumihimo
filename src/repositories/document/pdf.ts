@@ -13,27 +13,17 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { PDFDocument, rgb } from 'pdf-lib';
 import { DocumentSource } from '../../models/document/common';
 import type { Result } from '../../models/error/result';
-import { Success, Failure } from '../../models/error/result';
+import { Success, Failure, toError } from '../../models/error/result';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 
-/** unknown の例外値を Error に正規化する。 */
-function toError(e: unknown): Error {
-  if (e instanceof Error) return e;
-  if (typeof e === 'string') return new Error(e);
-  if (e === null || typeof e !== 'object') return new Error(String(e));
-  try {
-    return new Error(JSON.stringify(e) ?? Object.prototype.toString.call(e));
-  } catch {
-    return new Error(Object.prototype.toString.call(e));
-  }
-}
-
 /** PDF をロードして PDFDocumentProxy を返す（Result でラップ） */
 export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PDFDocumentProxy>> {
+  const data = base64ToUint8Array(src64);
+  if (!data.ok) return data;
+
   try {
-    const data = base64ToUint8Array(src64);
-    const pdf = await getDocument({ data }).promise;
+    const pdf = await getDocument({ data: data.value }).promise;
     return Success(pdf);
   } catch (e) {
     return Failure(toError(e));
@@ -152,8 +142,10 @@ export async function extractImageFromRegion(
 }
 
 /** PDF バイナリを base64 にして返す */
-function uint8ToDocSrc(bytes: Uint8Array): DocumentSource {
-  return DocumentSource.parse(uint8ArrayToBase64(bytes));
+function uint8ToDocSrc(bytes: Uint8Array): Result<DocumentSource> {
+  const convertedSrc = uint8ArrayToBase64(bytes);
+  if (!convertedSrc.ok) return convertedSrc;
+  return Success(DocumentSource.parse(convertedSrc.value));
 }
 
 /** ページの追加 */
@@ -162,12 +154,14 @@ export async function addBlankPageToPdf(
   width = 595,
   height = 842,
 ): Promise<Result<DocumentSource>> {
+  const bytes = base64ToUint8Array(src64);
+  if (!bytes.ok) return bytes;
+
   try {
-    const bytes = base64ToUint8Array(src64);
-    const pdfDoc = await PDFDocument.load(bytes);
+    const pdfDoc = await PDFDocument.load(bytes.value);
     pdfDoc.addPage([width, height]);
     const out = await pdfDoc.save();
-    return Success(uint8ToDocSrc(out));
+    return uint8ToDocSrc(out);
   } catch (e) {
     return Failure(toError(e));
   }
@@ -178,15 +172,17 @@ export async function removePageFromPdf(
   src64: DocumentSource,
   pageIndexZeroBased: number,
 ): Promise<Result<DocumentSource>> {
+  const bytes = base64ToUint8Array(src64);
+  if (!bytes.ok) return bytes;
+
   try {
-    const bytes = base64ToUint8Array(src64);
-    const pdfDoc = await PDFDocument.load(bytes);
+    const pdfDoc = await PDFDocument.load(bytes.value);
     const pageCount = pdfDoc.getPageCount();
     if (pageIndexZeroBased < 0 || pageIndexZeroBased >= pageCount)
       return Failure(new Error('page index out of range'));
     pdfDoc.removePage(pageIndexZeroBased);
     const out = await pdfDoc.save();
-    return Success(uint8ToDocSrc(out));
+    return uint8ToDocSrc(out);
   } catch (e) {
     return Failure(toError(e));
   }
@@ -413,7 +409,7 @@ export async function embedAnnotationsIntoPdf(
     }
 
     const out = await pdfDoc.save();
-    return Success(uint8ToDocSrc(out));
+    return uint8ToDocSrc(out);
   } catch (e) {
     return Failure(toError(e));
   }

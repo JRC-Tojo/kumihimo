@@ -22,9 +22,11 @@ const CONTAINER_CONFIG_FOLDER = '.rd';
  * 文書設定ファイルのパスを取得する
  */
 function getConfigPath(filePath: string): string {
-  const pathExt = new Path(filePath).extname();
-  const configPath = filePath.slice(0, -pathExt.length) + CONFIG_FILE_EXTS;
-  return configPath;
+  const pathObj = new Path(filePath);
+  const parentPath = pathObj.parent();
+  const pathName = pathObj.basename();
+  const configPath = parentPath.child(pathName + CONFIG_FILE_EXTS);
+  return configPath.path;
 }
 
 /**
@@ -269,13 +271,14 @@ export async function saveDocumentConfigs(
 ): Promise<Result<void>> {
   // 新ファイルのハッシュ値を取得
   const newSrcHash = await calcBase64Hash(newSrc);
+  if (!newSrcHash.ok) return newSrcHash
 
   // バックアップファイルを作成
-  const backupRes = await saveBackupSrc(cID, oldSrc, newSrcHash);
+  const backupRes = await saveBackupSrc(cID, oldSrc, newSrcHash.value);
   if (!backupRes.ok) return backupRes;
 
   // 文書設定ファイルの更新
-  const docConfRes = await saveDocumentConfigFile(cID, filePath, annotInfos, newSrcHash);
+  const docConfRes = await saveDocumentConfigFile(cID, filePath, annotInfos, newSrcHash.value);
   if (!docConfRes.ok) return docConfRes;
 
   return Success();

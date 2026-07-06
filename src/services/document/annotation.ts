@@ -9,14 +9,14 @@ import * as annotationRepository from 'src/repositories/db/annotation';
 /**
  * 読み込み中の文書におけるアノテーション一覧を格納するDBを初期化する
  */
-export async function initAnnotDB(): Promise<Result<void>> {
+export function initAnnotDB(): Promise<Result<void>> {
   return annotationRepository.initAnnotDB();
 }
 
 /**
  * DBからアノテーション情報を取得する
  */
-export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
+export function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
   return annotationRepository.getAnnotationInfo(annotID);
 }
 
@@ -49,7 +49,7 @@ export async function registerAnnotationStyle(
 /**
  * DBにアノテーション情報を仮フラグ付きで追加する
  */
-export async function registerAnnotationInfo(
+export function registerAnnotationInfo(
   aInfo: AnnotationInfo[],
   file: ContainerElementFile,
 ): Promise<Result<void>> {
@@ -61,13 +61,13 @@ export async function registerAnnotationInfo(
  *
  * 保存したアノテーション一覧を返す
  */
-export async function saveAnnotaionInfo(): Promise<Result<AnnotationInfo[]>> {
+export function saveAnnotationInfo(): Promise<Result<AnnotationInfo[]>> {
   return annotationRepository.commitAnnotations();
 }
 
 /**
  * 指定したアノテーションを仮フラグ付きで削除する
  */
-export async function removeAnnotationInfo(annotID: AnnotationID): Promise<Result<void>> {
+export function removeAnnotationInfo(annotID: AnnotationID): Promise<Result<void>> {
   return annotationRepository.softRemoveAnnotation(annotID);
 }

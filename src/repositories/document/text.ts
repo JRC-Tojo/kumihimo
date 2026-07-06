@@ -14,7 +14,7 @@ export function loadTextContents<T extends z.ZodType>(
 ): Result<z.infer<T>>;
 export function loadTextContents(
   src: DocumentSource,
-  targetZodType?: z.ZodType<z.ZodAny>,
+  targetZodType?: z.ZodType,
 ): Result<unknown> {
   try {
     // 1. BASE64文字列をUTF-8のテキストにデコード

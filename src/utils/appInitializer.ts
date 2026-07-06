@@ -50,7 +50,12 @@ export async function createDemoData() {
   // タイトルは違うが内容は同じドキュメントを生成するため、読み込みデータは１つだけ
   const targetURL = new URL('../assets/sampleDocs/sampleArticle.pdf', import.meta.url).href;
   const bufferedSrc = await fetch(targetURL).then((res) => res.arrayBuffer());
-  const docSrc = DocumentSource.parse(await arrayBufferToBase64(bufferedSrc));
+  const base64Src = await arrayBufferToBase64(bufferedSrc);
+  if (!base64Src.ok) {
+    console.error(base64Src.error);
+    return;
+  }
+  const docSrc = DocumentSource.parse(base64Src.value);
 
   for (const doc of sampleDocs) {
     const genedAnnots = generateRandomAnnots();
