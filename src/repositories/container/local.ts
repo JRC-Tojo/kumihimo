@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import type { ContainerElement, ContainerElementFile, ContainerID, ContainerSkel } from 'src/models/container';
+import type {
+  ContainerElement,
+  ContainerElementFile,
+  ContainerID,
+  ContainerSkel,
+} from 'src/models/container';
 import { type Container } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';

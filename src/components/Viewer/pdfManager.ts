@@ -25,7 +25,7 @@ function initWorker() {
 export async function loadPdf(docSrc: DocumentSource): Promise<PdfDocument> {
   try {
     const typedArray = base64ToUint8Array(docSrc);
-    if (!typedArray.ok) throw typedArray.error
+    if (!typedArray.ok) throw typedArray.error;
     return await pdfjsLib.getDocument({ data: typedArray.value }).promise;
   } catch (error) {
     throw new Error(`PDF読み込みエラー: ${error instanceof Error ? error.message : 'Unknown'}`);

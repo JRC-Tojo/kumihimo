@@ -271,7 +271,7 @@ export async function saveDocumentConfigs(
 ): Promise<Result<void>> {
   // 新ファイルのハッシュ値を取得
   const newSrcHash = await calcBase64Hash(newSrc);
-  if (!newSrcHash.ok) return newSrcHash
+  if (!newSrcHash.ok) return newSrcHash;
 
   // バックアップファイルを作成
   const backupRes = await saveBackupSrc(cID, oldSrc, newSrcHash.value);

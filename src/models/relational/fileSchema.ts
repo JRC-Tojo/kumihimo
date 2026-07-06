@@ -47,7 +47,7 @@ export const RelationalInFile = z.object({
   target: AnnotationID,
   rule: RelationalRule,
 });
-export type RelationalInFile = z.infer<typeof RelationalInFile>
+export type RelationalInFile = z.infer<typeof RelationalInFile>;
 
 /**
  * AnnotationIDとそのアノテーションが存在するファイルの位置を示す

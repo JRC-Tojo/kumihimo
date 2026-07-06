@@ -12,10 +12,7 @@ export function loadTextContents<T extends z.ZodType>(
   src: DocumentSource,
   targetZodType: T,
 ): Result<z.infer<T>>;
-export function loadTextContents(
-  src: DocumentSource,
-  targetZodType?: z.ZodType,
-): Result<unknown> {
+export function loadTextContents(src: DocumentSource, targetZodType?: z.ZodType): Result<unknown> {
   try {
     // 1. BASE64文字列をUTF-8のテキストにデコード
     const binaryString = atob(src);
