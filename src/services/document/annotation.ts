@@ -77,7 +77,7 @@ export function registerAnnotationInfo(
 
 /**
  * 指定ファイルのアノテーションをDBに差分同期する
- * 
+ *
  * TODO: 既存のservice内の関数で不要なものは削除する
  * TODO: 保存処理をAPIに別で定義する
  */

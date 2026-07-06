@@ -35,9 +35,9 @@ class BackendApi {
     const settings = await getSettings();
     if (!settings.ok) return toApiResponse(settings, 'INIT_PROCESS_ERROR');
     const annotDb = await annotationService.initAnnotDB();
-    if (!annotDb.ok) return toApiResponse(annotDb, 'INIT_PROCESS_ERROR')
-    const relDb = await relationalService.initRelationalDB()
-    if (!relDb.ok) return toApiResponse(relDb, 'INIT_PROCESS_ERROR')
+    if (!annotDb.ok) return toApiResponse(annotDb, 'INIT_PROCESS_ERROR');
+    const relDb = await relationalService.initRelationalDB();
+    if (!relDb.ok) return toApiResponse(relDb, 'INIT_PROCESS_ERROR');
 
     if (!settings.value.initialized) {
       const initRes = await initializeSettings();
