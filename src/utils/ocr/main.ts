@@ -1,6 +1,4 @@
 import Tesseract, { PSM } from 'tesseract.js';
-// import type { Canvas } from 'canvas';
-// import { createCanvas, Image } from 'canvas';
 
 // パイプライン実行用ヘルパー
 const pipe = (
@@ -22,51 +20,54 @@ export async function Image2Text(imageSource: string): Promise<string> {
  * `@returns` 描画済みのCanvasオブジェクト
  */
 const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement> => {
-  // 入力形式を判別してデータを取得する
-  let uint8Array: Uint8Array<ArrayBuffer>;
+  // 画像ソースのデータを準備する（形式に応じて異なる型）
+  let imageData: string | Buffer;
 
   if (/^data:image\/[a-zA-Z+]+;base64,/.test(imageSource)) {
-    // データURL (例: data:image/png;base64,...) をデコードする
-    const base64Data = imageSource.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
-    const binaryString = atob(base64Data);
-    uint8Array = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      uint8Array[i] = binaryString.charCodeAt(i);
-    }
+    // データURL：そのまま使用
+    imageData = imageSource;
   } else if (/^https?:\/\//i.test(imageSource)) {
-    // HTTP(S) URLをフェッチしてBufferに変換する
-    const response = await fetch(imageSource);
-    if (!response.ok) {
-      throw new Error(`画像の取得に失敗しました: ${response.status} ${response.statusText}`);
-    }
-    uint8Array = new Uint8Array(await response.arrayBuffer());
+    // HTTP(S) URL：そのまま使用
+    imageData = imageSource;
   } else {
-    // ローカルファイルパスとして読み込む
-    const fs = await import('fs');
-    const buffer = fs.readFileSync(imageSource);
-    uint8Array = new Uint8Array(buffer);
+    // ファイルパスとして読み込む（Node.js環境のみ）
+    try {
+      const fs = await import('fs');
+      const buffer = fs.readFileSync(imageSource);
+      // Canvas ライブラリが Buffer を直接受け入れる
+      imageData = buffer;
+    } catch {
+      throw new Error(
+        `ファイルの読み込みに失敗しました: ${imageSource}。パスまたはファイルが存在しません。`,
+      );
+    }
   }
 
   return new Promise((resolve, reject) => {
-    // 1. Imageオブジェクトを生成
+    // Imageオブジェクトを生成
     const img = new Image();
 
-    // 2. ロード完了後の処理
+    // ロード完了後の処理
     img.onload = () => {
       const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
       const ctx = canvas.getContext('2d');
-      ctx?.drawImage(img, 0, 0);
+      if (!ctx) {
+        reject(new Error('Canvas 2D context を取得できません'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0);
       resolve(canvas);
     };
 
-    // 3. エラーハンドリング
+    // エラーハンドリング
     img.onerror = (err) => {
       reject(new Error(typeof err === 'string' ? err : 'Failed to load Image in OCR'));
     };
 
-    // 4. Bufferをsrcにセット
-    const blob = new Blob([uint8Array], { type: 'image/png' });
-    img.src = URL.createObjectURL(blob);
+    // Canvas ライブラリに対応した形式（Buffer、パス、HTTP(S)、データURL）を直接渡す
+    img.src = imageData as unknown as string;
   });
 };
 
@@ -93,8 +94,9 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
     } = await worker.recognize(canvas.toDataURL());
 
     // 前処理済みの画像を見るときに使用する
-    // const filePath = __dirname + '/processed.png'
+    // const filePath = `${__dirname}/processed(${text.length}).png`;
     // const buffer = canvas.toBuffer('image/png');
+    // const fs = await import('fs');
     // fs.writeFileSync(filePath, buffer);
 
     return text.replace(/\s+/g, '');
@@ -172,11 +174,15 @@ export const deskew = (ctx: CanvasRenderingContext2D) => {
 
   // 一時的なCanvasを作成 (サイズは新サイズ)
   const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = newW;
+  tempCanvas.height = newH;
   const tCtx = tempCanvas.getContext('2d');
 
-  // 背景を透明にする場合（OCRに影響が出るなら白でfillRectする）
-  // tCtx.fillStyle = 'white'; // 必要に応じて背景を白にする
-  // tCtx.fillRect(0, 0, newW, newH);
+  // 背景を白で塗りつぶす
+  // if (tCtx) {
+  //   tCtx.fillStyle = 'white';
+  //   tCtx.fillRect(0, 0, newW, newH);
+  // }
 
   // --- 3. 【描画処理】新しい中心点で回転して描画 ---
   tCtx?.save();
