@@ -54,12 +54,12 @@ async function loadAnnotContent(
 
     // TODO: 本来は文書種別をもとに処理を分岐すべき
     const img = await extractImageFromRegion(fileSrc.value, annotationInfo.style, 4);
-    return img
-  }
+    return img;
+  };
 
   // 画像から文字情報を読み取り
   // TODO: 処理高速化のために、事前にOCRをかけておいて、ここでは位置情報から直接テキストを取得する方が良い？
-  const img = await loadImg()
+  const img = await loadImg();
   // 画像化処理が失敗した場合は空文字列を与える
   const text = img.ok ? await Image2Text(img.value) : '';
   annotationInfo.context.text = text;
