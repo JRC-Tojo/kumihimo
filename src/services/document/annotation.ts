@@ -59,7 +59,7 @@ async function loadAnnotContent(
   // TODO: 処理高速化のために、事前にOCRをかけておいて、ここでは位置情報から直接テキストを取得する方が良い？
   const text = await Image2Text(img.value);
   annotationInfo.context.text = text;
-  console.log(text)
+  console.log(text);
 
   // 更新版のアノテーション情報を登録する
   const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
