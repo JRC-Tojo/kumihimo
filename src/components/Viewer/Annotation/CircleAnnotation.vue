@@ -13,7 +13,7 @@
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import dayjs from 'dayjs';
-import type { AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
 
@@ -27,7 +27,7 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
   update: [annotation: AnnotationStyle];
-  delete: [id: string];
+  delete: [id: AnnotationID];
 }>();
 
 const circleRef = ref<{ getNode: () => Konva.Circle | null } | null>(null);

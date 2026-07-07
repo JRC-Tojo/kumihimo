@@ -15,7 +15,7 @@
       <!-- タブコンテンツ：文書とアノテーション表示 -->
       <div ref="viewer" class="document-viewer-wrapper">
         <DocumentViewer
-          v-if="!loading && onRender"
+          v-if="!loading && onRender && annotations"
           :file="file"
           :page-count="pageCount"
           :view-mode="viewMode"
@@ -65,7 +65,7 @@ import DocumentLeftDrawer from 'src/components/DocLayout/DocumentLeftDrawer.vue'
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
 import DocumentRightDrawer from 'src/components/DocLayout/DocumentRightDrawer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
-import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import { generateThumbnail, loadPdf, renderPage } from '../Viewer/pdfManager';
@@ -74,7 +74,9 @@ import { useEditorStore } from 'src/stores/editorStore';
 import { callEditorTools } from 'src/stores/editorTools';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationStyle } from 'src/models/document/pdf';
-import { debounce } from 'quasar';
+import { useObservable } from '@vueuse/rxjs';
+import type { Observable } from 'rxjs';
+import type { ApiResponse } from 'src/models/error/api';
 
 interface Prop {
   file: ContainerElementFile;
@@ -94,21 +96,15 @@ const thumbnails = ref<string[]>([]);
 // for document
 type RenderFunc = (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<void>;
 const onRender = ref<RenderFunc>();
-const annotations = ref<AnnotationStyle[]>([]);
 const selectedAnnotations = ref<AnnotationStyle[]>([]);
 const currentPage = ref(1);
 const pageCount = ref(0);
 let stopAnnotationObservation: (() => void) | undefined;
-let isHydratingAnnotations = true;
-let isApplyingDbAnnotations = false;
 
-const debouncedSyncAnnotations = debounce(async (): Promise<void> => {
-  if (isHydratingAnnotations || isApplyingDbAnnotations) return;
-  const syncRes = await api.syncAnnotationsByFile(prop.file, annotations.value);
-  if (!syncRes.ok) {
-    console.error('Failed to sync annotations', syncRes.error);
-  }
-}, 300);
+const observed = api.observedAnnotationStylesByFile(prop.file) as unknown as ApiResponse<
+  Observable<AnnotationStyle[]>
+>;
+const annotations = observed.ok ? useObservable(observed.data) : ref([]);
 
 // for footer
 const zoomLevel = ref(100);
@@ -146,44 +142,8 @@ async function loadDocument() {
     ),
   );
 
-  const storedAnnotations = await api.getAnnotationsByFile(prop.file);
-  if (storedAnnotations.ok && storedAnnotations.data.length > 0) {
-    isApplyingDbAnnotations = true;
-    annotations.value = storedAnnotations.data.map((info) => info.style);
-    isApplyingDbAnnotations = false;
-  } else {
-    const annotationRes = await api.getAnnotationsBySource(docSrc.data);
-    if (annotationRes.ok && annotationRes.data && annotationRes.data.length > 0) {
-      annotations.value = annotationRes.data;
-      const syncRes = await api.syncAnnotationsByFile(prop.file, annotationRes.data);
-      if (!syncRes.ok) console.error('Failed to save annotations to DB', syncRes.error);
-    }
-  }
-
-  stopAnnotationObservation?.();
-  const observeRes = api.observeAnnotationsByFile(prop.file, (infos) => {
-    isApplyingDbAnnotations = true;
-    annotations.value = infos.map((info) => info.style);
-    isApplyingDbAnnotations = false;
-  });
-
-  if (!observeRes.ok) {
-    console.error('Failed to observe annotations', observeRes.error);
-  } else {
-    stopAnnotationObservation = observeRes.data;
-  }
-
-  isHydratingAnnotations = false;
   loading.value = false;
 }
-
-watch(
-  annotations,
-  () => {
-    debouncedSyncAnnotations();
-  },
-  { deep: true },
-);
 
 // ================================
 

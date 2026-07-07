@@ -21,6 +21,7 @@ import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as annotationService from 'src/services/document/annotation';
+import type { Observable } from 'dexie';
 
 /**
  * バックエンド統合 API層
@@ -235,23 +236,22 @@ class BackendApi {
   /**
    * 指定ファイルのアノテーションをDBの変更に応じて購読する
    */
-  observeAnnotationsByFile(
+  observedAnnotationStylesByFile(
     file: ContainerElementFile,
-    onChange: (annotations: AnnotationInfo[]) => void,
-  ): ApiResponse<() => void> {
-    const unsubscribe = annotationService.observeAnnotationsByFile(file, onChange);
-    return toApiResponse(Success(unsubscribe));
+  ): ApiResponse<Observable<AnnotationStyle[]>> {
+    const observed = annotationService.observedAnnotationStylesByFile(file);
+    return toApiResponse(Success(observed));
   }
 
   /**
-   * 指定ファイルのアノテーションをDBに同期する
+   * 指定したアノテーションを登録する
    */
-  async syncAnnotationsByFile(
+  async registerAnnotationStyle(
     file: ContainerElementFile,
-    annotations: AnnotationStyle[],
-  ): Promise<ApiResponse<void>> {
-    const res = await annotationService.syncAnnotationInfos(file, annotations);
-    return toApiResponse(res, 'DOC_ANNOT_LOAD_FAILED');
+    aStyle: AnnotationStyle,
+  ): Promise<ApiResponse<AnnotationInfo>> {
+    const res = await annotationService.registerAnnotationStyle(file, aStyle);
+    return toApiResponse(res, 'DOC_ANNOT_REGIST_FAILED');
   }
 
   /**

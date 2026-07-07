@@ -1,6 +1,7 @@
+import type { Observable } from 'dexie';
 import Dexie, { liveQuery, type Table } from 'dexie';
 import type { ContainerElementFile } from 'src/models/container';
-import type { AnnotationID } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success } from 'src/models/error/result';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
@@ -79,24 +80,6 @@ export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<A
 /**
  * アノテーション情報を仮フラグ付きで追加する
  */
-export async function addAnnotationInfo(
-  file: ContainerElementFile,
-  aInfo: AnnotationInfo,
-): Promise<Result<void>> {
-  const ready = await ensureReady();
-  if (!ready.ok) return ready;
-
-  try {
-    await db.annotations.put(toAnnotationRecord(file, aInfo, true));
-    return Success();
-  } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
-  }
-}
-
-/**
- * アノテーション情報を仮フラグ付きで追加する
- */
 export async function addAnnotationInfos(
   file: ContainerElementFile,
   aInfos: AnnotationInfo[],
@@ -139,26 +122,18 @@ export async function getAnnotationsByFile(
 /**
  * DexieのLiveQueryを利用して特定ファイルのアノテーション情報を購読する
  */
-export function observeAnnotationsByFile(
+export function observedAnnotationStylesByFile(
   file: ContainerElementFile,
-  onChange: (aInfos: AnnotationInfo[]) => void,
-): () => void {
-  const subscription = liveQuery(() =>
+): Observable<AnnotationStyle[]> {
+  const observed = liveQuery(() =>
     db.annotations
       .where('containerID')
       .equals(file.containerID)
       .filter((row) => row.filePath === file.path && !row.isDeleted)
-      .toArray(),
-  ).subscribe({
-    next: (rows) => {
-      onChange(rows.map((row) => row.annotationInfo));
-    },
-    error: (error) => {
-      console.error('Failed to observe annotations', error);
-    },
-  });
+      .toArray((annotRec) => annotRec.map((annot) => annot.annotationInfo.style)),
+  );
 
-  return () => subscription.unsubscribe();
+  return observed;
 }
 
 /**

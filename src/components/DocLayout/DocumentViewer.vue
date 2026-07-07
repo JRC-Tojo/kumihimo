@@ -9,9 +9,11 @@
       <!-- 単一ページまたは見開き表示 -->
       <div v-if="viewMode === 'single'" class="pages-container">
         <PdfPage
+          :annotations="annotations"
           v-model:page="currentPage"
-          v-model:annotations="annotations"
           v-model:scale="scale"
+          @register-annot="registAnnotation"
+          @remove-annot="removeAnnotation"
           @render="onRender"
         />
       </div>
@@ -29,8 +31,10 @@
           >
             <PdfPage
               :page="page"
-              v-model:annotations="annotations"
+              :annotations="annotations"
               v-model:scale="scale"
+              @register-annot="registAnnotation"
+              @remove-annot="removeAnnotation"
               @render="onRender"
             />
           </div>
@@ -44,12 +48,16 @@
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
 import PdfPage from 'src/components/Viewer/PdfPage.vue';
 import type { ViewMode } from 'src/models/docPage';
-import type { AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import { useBackendApi } from 'src/apis/backendApi';
+import type { ContainerElementFile } from 'src/models/container';
 
 type RenderFunc = (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<void>;
 interface Prop {
   pageCount: number;
   viewMode: ViewMode;
+  file: ContainerElementFile;
+  annotations: AnnotationStyle[];
   onRender: RenderFunc;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -57,7 +65,8 @@ interface Prop {
 }
 const prop = defineProps<Prop>();
 
-const annotations = defineModel<AnnotationStyle[]>('annotations', { required: true });
+const api = useBackendApi();
+
 const currentPage = defineModel<number>('currentPage', { required: true });
 const zoomLevel = defineModel<number>('zoomLevel', { required: true });
 
@@ -80,6 +89,22 @@ function handleZoomWheel(event: WheelEvent) {
       prop.onZoomOut();
     }
   }
+}
+
+/**
+ * アノテーションを登録
+ */
+async function registAnnotation(annot: AnnotationStyle): Promise<void> {
+  const registRes = await api.registerAnnotationStyle(prop.file, annot);
+  if (!registRes.ok) console.log(registRes.error); // TODO: エラーハンドリング
+}
+
+/**
+ * アノテーションを削除
+ */
+async function removeAnnotation(annotID: AnnotationID): Promise<void> {
+  const removeRes = await api.removeAnnotation(annotID);
+  if (!removeRes.ok) console.log(removeRes.error); // TODO: エラーハンドリング
 }
 
 watch(currentPage, () => {
