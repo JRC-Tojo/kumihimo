@@ -48,10 +48,11 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
   const targetContent = await docAnnotService.getAnnotationInfo(r.targetID);
   if (!targetContent.ok) return targetContent;
 
+  // .text=undefinedは読み込み中を示しているが、関係性としては失敗扱いにする必要がないため空文字列で処理する
   const checkedRule = validRelational(
     r,
-    srcContent.value.context.text,
-    targetContent.value.context.text,
+    srcContent.value.context.text ?? '',
+    targetContent.value.context.text ?? '',
   );
 
   return Success(checkedRule);

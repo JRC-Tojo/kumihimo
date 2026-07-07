@@ -48,18 +48,21 @@ async function loadAnnotContent(
   file: ContainerElementFile,
   annotationInfo: AnnotationInfo,
 ): Promise<Result<void>> {
-  const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
-  if (!fileSrc.ok) return fileSrc;
+  const loadImg = async () => {
+    const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+    if (!fileSrc.ok) return fileSrc;
 
-  // TODO: 本来は文書種別をもとに処理を分岐すべき
-  const img = await extractImageFromRegion(fileSrc.value, annotationInfo.style);
-  if (!img.ok) return img;
+    // TODO: 本来は文書種別をもとに処理を分岐すべき
+    const img = await extractImageFromRegion(fileSrc.value, annotationInfo.style, 4);
+    return img
+  }
 
   // 画像から文字情報を読み取り
   // TODO: 処理高速化のために、事前にOCRをかけておいて、ここでは位置情報から直接テキストを取得する方が良い？
-  const text = await Image2Text(img.value);
+  const img = await loadImg()
+  // 画像化処理が失敗した場合は空文字列を与える
+  const text = img.ok ? await Image2Text(img.value) : '';
   annotationInfo.context.text = text;
-  console.log(text);
 
   // 更新版のアノテーション情報を登録する
   const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
@@ -80,7 +83,7 @@ export async function registerAnnotationStyle(
   const annotationInfo: AnnotationInfo = {
     style: aStyle,
     context: {
-      text: '', // TODO: 未読み込みの時はnullなどを与えて区別するべき？
+      text: undefined,
     },
   };
 
