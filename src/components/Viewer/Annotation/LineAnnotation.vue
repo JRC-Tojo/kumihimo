@@ -7,8 +7,8 @@
       y: props.annotation.y,
       id: props.annotation.id,
       draggable: props.isEditing && !!props.isSelected,
+      onDragend: onDragEnd
     }"
-    @dragend="onDragEnd"
   >
     <v-line
       ref="lineRef"
