@@ -6,6 +6,8 @@ import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as containerService from 'src/services/container/main';
 import * as annotationRepository from 'src/repositories/db/annotation';
 import type { Observable } from 'dexie';
+import { extractImageFromRegion } from 'src/repositories/document/pdf';
+import { Image2Text } from 'src/utils/ocr/main';
 
 /**
  * 読み込み中の文書におけるアノテーション一覧を格納するDBを初期化する
@@ -40,6 +42,33 @@ export function observedAnnotationStylesByFile(
 }
 
 /**
+ * コンテンツ未読み込みのアノテーションにコンテンツを読み込んで付与する
+ */
+async function loadAnnotContent(
+  file: ContainerElementFile,
+  annotationInfo: AnnotationInfo,
+): Promise<Result<void>> {
+  const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+  if (!fileSrc.ok) return fileSrc;
+
+  // TODO: 本来は文書種別をもとに処理を分岐すべき
+  const img = await extractImageFromRegion(fileSrc.value, annotationInfo.style);
+  if (!img.ok) return img;
+
+  // 画像から文字情報を読み取り
+  // TODO: 処理高速化のために、事前にOCRをかけておいて、ここでは位置情報から直接テキストを取得する方が良い？
+  const text = await Image2Text(img.value);
+  annotationInfo.context.text = text;
+  console.log(text)
+
+  // 更新版のアノテーション情報を登録する
+  const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
+  if (!saveRes.ok) return saveRes;
+
+  return Success();
+}
+
+/**
  * アノテーション情報を登録する
  *
  * アノテーション位置やサイズの情報からアノテーションされているコンテンツを読み取る
@@ -48,16 +77,15 @@ export async function registerAnnotationStyle(
   file: ContainerElementFile,
   aStyle: AnnotationStyle,
 ): Promise<Result<AnnotationInfo>> {
-  const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
-  if (!fileSrc.ok) return fileSrc;
-
-  // TODO: 内容の読み取り処理を追加
   const annotationInfo: AnnotationInfo = {
     style: aStyle,
     context: {
-      text: '',
+      text: '', // TODO: 未読み込みの時はnullなどを与えて区別するべき？
     },
   };
+
+  // コンテンツの読み込みは投げっぱなし（失敗しても空文字列がコンテンツとして格納されるだけ）
+  void loadAnnotContent(file, annotationInfo);
 
   const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
   if (!saveRes.ok) return saveRes;

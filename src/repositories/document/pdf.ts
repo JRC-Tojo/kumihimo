@@ -104,36 +104,91 @@ export async function renderPageToCanvas(
   }
 }
 
-/** 指定ページの矩形領域を切り出して PNG の dataURL を返す。Result でラップ。
- * rect は PDF のページ座標系 (left, top) を想定する（0,0 は左上）
+/**
+ * 指定ページの矩形領域を切り出して PNG の dataURL を返す。Result でラップ。
+ * annotStyle で指定された領域の外接矩形を計算して切り出す
+ * 直線の場合は線幅を考慮する
  */
 export async function extractImageFromRegion(
   src64: DocumentSource,
-  pageNumber: number,
-  rect: { x: number; y: number; width: number; height: number },
+  annotStyle: AnnotationStyle,
   scale = 2,
 ): Promise<Result<string>> {
+  /** annotStyle の種類に応じて外接矩形を計算する */
+  function calculateBoundingBox(style: AnnotationStyle): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    const padding = 2; // 矩形の外側に少し余白を付与
+
+    switch (style.type) {
+      case 'box': {
+        const { x, y, width, height } = style;
+        return {
+          x: Math.max(0, x - padding),
+          y: Math.max(0, y - padding),
+          width: width + padding * 2,
+          height: height + padding * 2,
+        };
+      }
+      case 'line': {
+        const { x, y, points, strokeWidth = 2 } = style;
+        const [, , dx, dy] = points; // points: [0, 0, x2-x, y2-y]
+        const x2 = x + (dx ?? 2);
+        const y2 = y + (dy ?? 2);
+
+        // 線幅を考慮した外接矩形を計算
+        const halfStroke = strokeWidth / 2 + padding;
+        const minX = Math.min(x, x2) - halfStroke;
+        const maxX = Math.max(x, x2) + halfStroke;
+        const minY = Math.min(y, y2) - halfStroke;
+        const maxY = Math.max(y, y2) + halfStroke;
+
+        return {
+          x: Math.max(0, minX),
+          y: Math.max(0, minY),
+          width: maxX - minX,
+          height: maxY - minY,
+        };
+      }
+      case 'circle': {
+        const { x, y, radius } = style;
+        const extent = radius + padding;
+        return {
+          x: Math.max(0, x - extent),
+          y: Math.max(0, y - extent),
+          width: extent * 2,
+          height: extent * 2,
+        };
+      }
+    }
+  }
+
+  const targetRect = calculateBoundingBox(annotStyle);
+
   try {
-    const rendered = await renderPageToCanvas(src64, pageNumber, scale);
+    const rendered = await renderPageToCanvas(src64, annotStyle.pageNumber, scale);
     if (!rendered.ok) return Failure(rendered.error);
     const canvas = rendered.value;
 
     const tmp = document.createElement('canvas');
-    tmp.width = Math.round(rect.width * scale);
-    tmp.height = Math.round(rect.height * scale);
+    tmp.width = Math.round(targetRect.width * scale);
+    tmp.height = Math.round(targetRect.height * scale);
     const tctx = tmp.getContext('2d');
     if (!tctx) return Failure(new Error('Canvas 2D context is not available'));
 
     tctx.drawImage(
       canvas,
-      Math.round(rect.x * scale),
-      Math.round(rect.y * scale),
-      Math.round(rect.width * scale),
-      Math.round(rect.height * scale),
+      Math.round(targetRect.x * scale),
+      Math.round(targetRect.y * scale),
+      Math.round(targetRect.width * scale),
+      Math.round(targetRect.height * scale),
       0,
       0,
-      Math.round(rect.width * scale),
-      Math.round(rect.height * scale),
+      Math.round(targetRect.width * scale),
+      Math.round(targetRect.height * scale),
     );
     return Success(tmp.toDataURL('image/png'));
   } catch (e) {
