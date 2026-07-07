@@ -1,5 +1,11 @@
 <template>
-  <v-rect ref="rectRef" :config="rectConfig" @dragend="onDragEnd" @transformend="onTransformEnd" />
+  <v-rect
+    ref="rectRef"
+    :config="rectConfig"
+    @dragend="onDragEnd"
+    @transform="onTransform"
+    @transformend="onTransformEnd"
+  />
 </template>
 
 <script setup lang="ts">
@@ -59,18 +65,42 @@ function onDragEnd(e: KonvaEvent) {
   emit('update', updatedAnnotation);
 }
 
+/**
+ * 変形中の形状を制御する
+ */
+function syncNodeGeometry(node: Konva.Rect) {
+  const nextWidth = Math.max(5, node.width() * node.scaleX());
+  const nextHeight = Math.max(5, node.height() * node.scaleY());
+
+  node.setAttrs({
+    x: node.x(),
+    y: node.y(),
+    width: nextWidth,
+    height: nextHeight,
+    scaleX: 1,
+    scaleY: 1,
+  });
+
+  return { width: nextWidth, height: nextHeight };
+}
+
+function onTransform(e: KonvaEvent) {
+  const node = e.target as Konva.Rect;
+  syncNodeGeometry(node);
+}
+
 function onTransformEnd(e: KonvaEvent) {
   const node = e.target as Konva.Rect;
+  const { width, height } = syncNodeGeometry(node);
+
   const updatedAnnotation = {
     ...props.annotation,
     x: node.x(),
     y: node.y(),
-    width: Math.max(5, node.width() * node.scaleX()),
-    height: Math.max(5, node.height() * node.scaleY()),
+    width,
+    height,
     updatedAt: dayjs().toISOString(),
   };
-  node.scaleX(1);
-  node.scaleY(1);
   emit('update', updatedAnnotation);
 }
 </script>

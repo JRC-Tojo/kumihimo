@@ -5,6 +5,7 @@
     @mouseenter="onMouseEnter"
     @mouseleave="onMouseLeave"
     @dragend="onDragEnd"
+    @transform="onTransform"
     @transformend="onTransformEnd"
   />
 </template>
@@ -74,15 +75,34 @@ function onDragEnd(e: KonvaEvent) {
   emit('update', updatedAnnotation);
 }
 
+function syncNodeGeometry(node: Konva.Circle) {
+  const nextRadius = Math.max(5, node.radius() * Math.max(node.scaleX(), node.scaleY()));
+
+  node.setAttrs({
+    x: node.x(),
+    y: node.y(),
+    radius: nextRadius,
+    scaleX: 1,
+    scaleY: 1,
+  });
+}
+
+function onTransform(e: KonvaEvent) {
+  const node = e.target as Konva.Circle;
+  syncNodeGeometry(node);
+}
+
 function onTransformEnd(e: KonvaEvent) {
   const node = e.target as Konva.Circle;
+  syncNodeGeometry(node);
+
   const updatedAnnotation = {
     ...props.annotation,
-    radius: Math.max(5, node.radius() * Math.max(node.scaleX(), node.scaleY())),
+    x: node.x(),
+    y: node.y(),
+    radius: node.radius(),
     updatedAt: dayjs().toISOString(),
   };
-  node.scaleX(1);
-  node.scaleY(1);
   emit('update', updatedAnnotation);
 }
 </script>
