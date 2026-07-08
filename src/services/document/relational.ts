@@ -48,13 +48,13 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
   const targetContent = await docAnnotService.getAnnotationInfo(r.targetID);
   if (!targetContent.ok) return targetContent;
 
+  // .textが読み込み中の場合はundefinedのため、関係性の検証を省略する
   const srcContentTxt = srcContent.value.context.text;
   const targetContentTxt = targetContent.value.context.text;
   if (!srcContentTxt || !targetContentTxt) {
     return Failure(new Error('An annotation content is not loaded yet'));
   }
 
-  // .text=undefinedは読み込み中を示しているが、関係性としては失敗扱いにする必要がないため空文字列で処理する
   const checkedRule = validRelational(r, srcContentTxt, targetContentTxt);
 
   return Success(checkedRule);
