@@ -15,7 +15,7 @@
       <!-- タブコンテンツ：文書とアノテーション表示 -->
       <div ref="viewer" class="document-viewer-wrapper">
         <DocumentViewer
-          v-if="!loading && onRender && annotations"
+          v-if="!loading && onRender"
           :file="file"
           :page-count="pageCount"
           :view-mode="viewMode"
@@ -74,9 +74,6 @@ import { useEditorStore } from 'src/stores/editorStore';
 import { callEditorTools } from 'src/stores/editorTools';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationStyle } from 'src/models/document/pdf';
-import { useObservable } from '@vueuse/rxjs';
-import type { Observable } from 'rxjs';
-import type { ApiResponse } from 'src/models/error/api';
 
 interface Prop {
   file: ContainerElementFile;
@@ -101,10 +98,14 @@ const currentPage = ref(1);
 const pageCount = ref(0);
 let stopAnnotationObservation: (() => void) | undefined;
 
-const observed = api.observedAnnotationStylesByFile(prop.file) as unknown as ApiResponse<
-  Observable<AnnotationStyle[]>
->;
-const annotations = observed.ok ? useObservable(observed.data) : ref([]);
+const annotations = ref<AnnotationStyle[]>([]);
+const observed = api.observedAnnotationStylesByFile(prop.file);
+if (observed.ok) {
+  const subscription = observed.data.subscribe((value) => {
+    annotations.value = value;
+  });
+  stopAnnotationObservation = () => subscription.unsubscribe();
+}
 
 // for footer
 const zoomLevel = ref(100);
@@ -115,7 +116,6 @@ const viewMode = ref<ViewMode>('single');
 async function loadDocument() {
   loading.value = true;
 
-  const api = useBackendApi();
   const docSrc = await api.getDocumentSource(prop.file);
   if (!docSrc.ok) {
     loading.value = false;

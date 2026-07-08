@@ -259,7 +259,7 @@ class BackendApi {
    */
   async removeAnnotation(annotID: AnnotationID): Promise<ApiResponse<void>> {
     const res = await annotationService.removeAnnotationInfo(annotID);
-    return toApiResponse(res, 'DOC_ANNOT_LOAD_FAILED');
+    return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
   }
 
   // ============ 関係性操作 ============
