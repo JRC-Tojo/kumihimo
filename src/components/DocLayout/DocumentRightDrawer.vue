@@ -99,22 +99,24 @@ import type { AnnotationStyle } from 'src/models/document/pdf';
 import { computed, ref } from 'vue';
 
 interface Prop {
-  selectedAnnots: AnnotationStyle[]
+  selectedAnnots: AnnotationStyle[];
 }
-const prop = defineProps<Prop>()
+const prop = defineProps<Prop>();
 
-const api = useBackendApi()
+const api = useBackendApi();
 
 const drawerOpen = defineModel<boolean>('drawerOpen', { required: true });
 
 // アノテーションのプロパティ（初期値は単一選択の場合はプロパティを反映し、その他はundefinedを与える）
-const getDefault = <K extends keyof AnnotationStyle>(styleKey: K): AnnotationStyle[K] | undefined => {
+const getDefault = <K extends keyof AnnotationStyle>(
+  styleKey: K,
+): AnnotationStyle[K] | undefined => {
   if (prop.selectedAnnots.length === 1) {
-    return prop.selectedAnnots[0]?.[styleKey]
+    return prop.selectedAnnots[0]?.[styleKey];
   } else {
-    return undefined
+    return undefined;
   }
-}
+};
 const annotationColor = ref(getDefault('color'));
 const annotationStrokeWidth = ref(getDefault('strokeWidth'));
 const annotationOpacity = ref(getDefault('opacity'));
@@ -145,10 +147,14 @@ const updateAnnotationOpacity = () => {
  * アノテーションを削除
  */
 const deleteAnnot = async () => {
-  const removeRes = await Promise.all(prop.selectedAnnots.map(annot => api.removeAnnotation(annot.id)))
+  const removeRes = await Promise.all(
+    prop.selectedAnnots.map((annot) => api.removeAnnotation(annot.id)),
+  );
   // TODO: エラーハンドリング
- removeRes.forEach(res =>{ if (!res.ok) console.error(res.error)})
-}
+  removeRes.forEach((res) => {
+    if (!res.ok) console.error(res.error);
+  });
+};
 </script>
 
 <style scoped lang="scss">

@@ -90,7 +90,7 @@ const editorStore = useEditorStore();
 const page = defineModel<number>('page', { required: true });
 const canvasSize = defineModel<{ width: number; height: number }>('canvasSize', { required: true });
 const scale = defineModel<number>('scale', { required: true });
-const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true })
+const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);

@@ -30,7 +30,7 @@ interface Props {
 const props = defineProps<Props>();
 const page = defineModel<number>('page', { required: true });
 const scale = defineModel<number>('scale', { required: true });
-const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true })
+const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
 
 const $q = useQuasar();
 

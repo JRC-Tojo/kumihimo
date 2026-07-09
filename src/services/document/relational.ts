@@ -34,7 +34,7 @@ export async function loadRelationals(cID: ContainerID): Promise<Result<Relation
   const storeRes = await relationalRepository.addCachedRelationals(relationalWithAddresses);
   if (!storeRes.ok) return storeRes;
 
-  return Success(relationalWithAddresses.map(r => r.relational));
+  return Success(relationalWithAddresses.map((r) => r.relational));
 }
 
 /**

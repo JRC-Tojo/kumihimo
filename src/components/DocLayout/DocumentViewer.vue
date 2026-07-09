@@ -71,7 +71,7 @@ const api = useBackendApi();
 
 const currentPage = defineModel<number>('currentPage', { required: true });
 const zoomLevel = defineModel<number>('zoomLevel', { required: true });
-const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true })
+const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
 
 // ズーム制御
 const scale = computed(() => zoomLevel.value / 100);
