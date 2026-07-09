@@ -2,7 +2,7 @@ import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Success } from 'src/models/error/result';
-import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as containerService from 'src/services/container/main';
 import * as annotationRepository from 'src/repositories/db/annotation';
 import type { Observable } from 'dexie';
@@ -21,6 +21,15 @@ export function initAnnotDB(): Promise<Result<void>> {
  */
 export function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
   return annotationRepository.getAnnotationInfo(annotID);
+}
+
+/**
+ * DBからアノテーションの保存パスを取得する
+ */
+export async function getAnnotationAddress(
+  annotID: AnnotationID,
+): Promise<Result<AnnotationBaseAddress>> {
+  return annotationRepository.getAnnotationAddress(annotID);
 }
 
 /**

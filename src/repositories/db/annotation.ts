@@ -1,14 +1,14 @@
 import type { Observable } from 'dexie';
 import Dexie, { liveQuery, type Table } from 'dexie';
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success } from 'src/models/error/result';
-import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import { Failure, Success, toError } from 'src/models/error/result';
+import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
 
 interface AnnotationRecord {
-  id: string;
-  containerID: string;
+  id: AnnotationID;
+  containerID: ContainerID;
   filePath: string;
   annotationInfo: AnnotationInfo;
   isTemporary: boolean;
@@ -73,7 +73,25 @@ export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<A
     if (!record || record.isDeleted) return Failure(new Error('annotation not found'));
     return Success(record.annotationInfo);
   } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
+    return Failure(toError(error));
+  }
+}
+
+/**
+ * DBからアノテーションの保存パスを取得する
+ */
+export async function getAnnotationAddress(
+  annotID: AnnotationID,
+): Promise<Result<AnnotationBaseAddress>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const record = await db.annotations.get(annotID);
+    if (!record || record.isDeleted) return Failure(new Error('annotation not found'));
+    return Success({ cID: record.containerID, filePath: record.filePath });
+  } catch (error) {
+    return Failure(toError(error));
   }
 }
 

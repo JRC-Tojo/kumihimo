@@ -1,6 +1,10 @@
 import type { ContainerElementFile, ContainerID, ContainerSkel } from 'src/models/container';
 import { Failure, Success, type Result } from 'src/models/error/result';
-import type { Relational, RelationalResponce } from 'src/models/relational/common';
+import type {
+  Relational,
+  RelationalResponce,
+  RelationalWithAddress,
+} from 'src/models/relational/common';
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as docAnnotService from 'src/services/document/annotation';
@@ -23,13 +27,14 @@ export async function loadRelationals(cID: ContainerID): Promise<Result<Relation
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
 
-  const relationals = await loadCachedRelationals(container.value);
-  if (!relationals.ok) return relationals;
+  const loadRes = await loadCachedRelationals(container.value);
+  if (!loadRes.ok) return loadRes;
 
-  const storeRes = await relationalRepository.addCachedRelationals(cID, relationals.value);
+  const relationalWithAddresses = loadRes.value;
+  const storeRes = await relationalRepository.addCachedRelationals(relationalWithAddresses);
   if (!storeRes.ok) return storeRes;
 
-  return relationals;
+  return Success(relationalWithAddresses.map(r => r.relational));
 }
 
 /**
@@ -66,7 +71,15 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
 export async function registRelational(
   newRelational: Relational,
 ): Promise<Result<RelationalResponce>> {
-  const saveRes = await relationalRepository.addRelational(newRelational);
+  const srcAddress = await docAnnotService.getAnnotationAddress(newRelational.srcID);
+  if (!srcAddress.ok) return srcAddress;
+  const targetAddress = await docAnnotService.getAnnotationAddress(newRelational.targetID);
+  if (!targetAddress.ok) return targetAddress;
+  const saveRes = await relationalRepository.addRelational(
+    newRelational,
+    srcAddress.value,
+    targetAddress.value,
+  );
   if (!saveRes.ok) return saveRes;
 
   return checkRelational(newRelational);
@@ -84,21 +97,23 @@ export function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
  *
  * 保存した関係性一覧を返す
  */
-export function saveRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
+export function saveRelationals(
+  file: ContainerElementFile,
+): Promise<Result<RelationalWithAddress[]>> {
   return relationalRepository.commitRelationals(file);
 }
 
 /**
  * コンテナルートにキャッシュされた関係性情報を読み込む
  */
-async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relational[]>> {
+async function loadCachedRelationals(c: ContainerSkel): Promise<Result<RelationalWithAddress[]>> {
   // 関係性情報の元データを取得
   const relFileContent = await containerConfigService.getRelationalFile(c.id);
   if (!relFileContent.ok) return relFileContent;
 
   // 取得したデータの中からtargetAnnotIDの情報に絞る
   const relationalsFromFile = relFileContent.value.relationals;
-  const relationals = relationalsFromFile
+  const relationals: RelationalWithAddress[] = relationalsFromFile
     .map((r) => {
       const srcFile = relFileContent.value.annotIdToFileInfo[r.src];
       const targetFile = relFileContent.value.annotIdToFileInfo[r.target];
@@ -108,11 +123,13 @@ async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relationa
       if (!srcFile || !targetFile) return '';
 
       return {
-        srcFile,
-        srcID: r.src,
-        targetFile,
-        targetID: r.target,
-        rule: r.rule,
+        relational: {
+          srcID: r.src,
+          targetID: r.target,
+          rule: r.rule,
+        },
+        srcAddress: srcFile,
+        targetAddress: targetFile,
       };
     })
     .filter((r) => r !== '');
