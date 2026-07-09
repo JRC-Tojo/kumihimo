@@ -1,7 +1,7 @@
 <template>
   <div v-show="drawerOpen" class="document-right-drawer">
     <!-- アノテーション選択時の詳細 -->
-    <div v-if="selectedAnnotations.length === 1" class="drawer-section q-pa-md">
+    <div v-if="selectedAnnots.length > 0" class="drawer-section q-pa-md">
       <h6 class="q-my-none q-mb-md">{{ $t('pdfEditor.rightDrawer.annotation.title') }}</h6>
       <div class="annotation-properties">
         <!-- アノテーション型 -->
@@ -79,6 +79,7 @@
           color="negative"
           icon="delete"
           :label="$t('pdfEditor.rightDrawer.annotation.delete')"
+          @click="deleteAnnot"
           class="full-width"
         />
       </div>
@@ -93,11 +94,18 @@
 </template>
 
 <script setup lang="ts">
+import { useBackendApi } from 'src/apis/backendApi';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { computed, ref } from 'vue';
 
+interface Prop {
+  selectedAnnots: AnnotationStyle[]
+}
+const prop = defineProps<Prop>()
+
+const api = useBackendApi()
+
 const drawerOpen = defineModel<boolean>('drawerOpen', { required: true });
-const selectedAnnotations = defineModel<AnnotationStyle[]>('selectedAnt', { required: true });
 
 // アノテーションのプロパティ（デモ用）
 const annotationColor = ref('#000000');
@@ -129,6 +137,15 @@ const updateAnnotationStrokeWidth = () => {
 const updateAnnotationOpacity = () => {
   // TODO: バックエンドに反映
 };
+
+/**
+ * アノテーションを削除
+ */
+const deleteAnnot = async () => {
+  const removeRes = await Promise.all(prop.selectedAnnots.map(annot => api.removeAnnotation(annot.id)))
+  // TODO: エラーハンドリング
+ removeRes.forEach(res =>{ if (!res.ok) console.error(res.error)})
+}
 </script>
 
 <style scoped lang="scss">

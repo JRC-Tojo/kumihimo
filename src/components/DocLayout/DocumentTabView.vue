@@ -19,11 +19,12 @@
           :file="file"
           :page-count="pageCount"
           :view-mode="viewMode"
+          :annotations="annotations"
           @render="onRender"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
           @scroll-to-current-page="scrollToCurrentPage"
-          v-model:annotations="annotations"
+          v-model:selected-annot-ids="selectedAnnotationIds"
           v-model:current-page="currentPage"
           v-model:zoom-level="zoomLevel"
         />
@@ -53,8 +54,8 @@
 
     <!-- 右Drawer：アノテーションプロパティ -->
     <DocumentRightDrawer
+      :selected-annots="selectedAnnotations"
       v-model:drawer-open="editorStore.rightDrawerModel"
-      v-model:selected-ant="selectedAnnotations"
       class="col-1"
     />
   </div>
@@ -65,7 +66,7 @@ import DocumentLeftDrawer from 'src/components/DocLayout/DocumentLeftDrawer.vue'
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
 import DocumentRightDrawer from 'src/components/DocLayout/DocumentRightDrawer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
-import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import { generateThumbnail, loadPdf, renderPage } from '../Viewer/pdfManager';
@@ -73,7 +74,7 @@ import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
 import { callEditorTools } from 'src/stores/editorTools';
 import type { ContainerElementFile } from 'src/models/container';
-import type { AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 
 interface Prop {
   file: ContainerElementFile;
@@ -93,16 +94,26 @@ const thumbnails = ref<string[]>([]);
 // for document
 type RenderFunc = (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<void>;
 const onRender = ref<RenderFunc>();
-const selectedAnnotations = ref<AnnotationStyle[]>([]);
 const currentPage = ref(1);
 const pageCount = ref(0);
 let stopAnnotationObservation: (() => void) | undefined;
 
+// for annotations
 const annotations = ref<AnnotationStyle[]>([]);
+const selectedAnnotationIds = ref<AnnotationID[]>([]);
+const selectedAnnotations = computed(() =>
+  selectedAnnotationIds.value
+    .map((aId) => annotations.value.find((annot) => annot.id === aId))
+    .filter((annot) => annot !== void 0),
+);
+// バックエンド側のアノテーション情報の更新を反映する
 const observed = api.observedAnnotationStylesByFile(prop.file);
 if (observed.ok) {
   const subscription = observed.data.subscribe((value) => {
     annotations.value = value;
+    selectedAnnotationIds.value = selectedAnnotationIds.value.filter((aId) =>
+      value.some((annot) => annot.id === aId),
+    );
   });
   stopAnnotationObservation = () => subscription.unsubscribe();
 }
