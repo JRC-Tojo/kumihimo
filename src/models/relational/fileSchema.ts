@@ -11,7 +11,7 @@ import { RelationalRule } from './common';
  * アノテーション位置における文書本体の情報
  */
 export const AnnotationContext = z.object({
-  text: z.string(),
+  text: z.string().optional(),
 });
 export type AnnotationContext = z.infer<typeof AnnotationContext>;
 

@@ -1,7 +1,4 @@
 import Tesseract, { PSM } from 'tesseract.js';
-import type { Canvas, CanvasRenderingContext2D } from 'canvas';
-import { createCanvas, Image } from 'canvas';
-import fs from 'fs';
 
 // パイプライン実行用ヘルパー
 const pipe = (
@@ -22,49 +19,61 @@ export async function Image2Text(imageSource: string): Promise<string> {
  * `@param` imageSource - 画像ソース文字列
  * `@returns` 描画済みのCanvasオブジェクト
  */
-const imageUrlToCanvas = async (imageSource: string): Promise<Canvas> => {
-  // 入力形式を判別してBufferを取得する
-  let buffer: Buffer;
+const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement> => {
+  // 画像ソースのデータを準備する（形式に応じて異なる型）
+  let imageData: string | Buffer;
+
   if (/^data:image\/[a-zA-Z+]+;base64,/.test(imageSource)) {
-    // データURL (例: data:image/png;base64,...) をデコードする
-    const base64Data = imageSource.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
-    buffer = Buffer.from(base64Data, 'base64');
+    // データURL：そのまま使用
+    imageData = imageSource;
   } else if (/^https?:\/\//i.test(imageSource)) {
-    // HTTP(S) URLをフェッチしてBufferに変換する
-    const response = await fetch(imageSource);
-    if (!response.ok) {
-      throw new Error(`画像の取得に失敗しました: ${response.status} ${response.statusText}`);
-    }
-    buffer = Buffer.from(await response.arrayBuffer());
+    // HTTP(S) URL：そのまま使用
+    imageData = imageSource;
   } else {
-    // ローカルファイルパスとして読み込む
-    buffer = fs.readFileSync(imageSource);
+    // ファイルパスとして読み込む（Node.js環境のみ）
+    try {
+      const fs = await import('fs');
+      const buffer = fs.readFileSync(imageSource);
+      // Canvas ライブラリが Buffer を直接受け入れる
+      imageData = buffer;
+    } catch {
+      throw new Error(
+        `ファイルの読み込みに失敗しました: ${imageSource}。パスまたはファイルが存在しません。`,
+      );
+    }
   }
 
   return new Promise((resolve, reject) => {
-    // 1. Imageオブジェクトを生成
+    // Imageオブジェクトを生成
     const img = new Image();
 
-    // 2. ロード完了後の処理
+    // ロード完了後の処理
     img.onload = () => {
-      const canvas = createCanvas(img.width, img.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
       const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas 2D context を取得できません'));
+        return;
+      }
       ctx.drawImage(img, 0, 0);
       resolve(canvas);
     };
 
-    // 3. エラーハンドリング
+    // エラーハンドリング
     img.onerror = (err) => {
-      reject(err);
+      reject(new Error(typeof err === 'string' ? err : 'Failed to load Image in OCR'));
     };
 
-    // 4. Bufferをsrcにセット
-    img.src = buffer;
+    // Canvas ライブラリに対応した形式（Buffer、パス、HTTP(S)、データURL）を直接渡す
+    img.src = imageData as unknown as string;
   });
 };
 
-export const runOCR = async (canvas: Canvas): Promise<string> => {
+export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   const ctx = canvas.getContext('2d');
+  if (ctx === null) return '';
 
   // 前処理のパイプライン実行
   pipe(
@@ -85,8 +94,9 @@ export const runOCR = async (canvas: Canvas): Promise<string> => {
     } = await worker.recognize(canvas.toDataURL());
 
     // 前処理済みの画像を見るときに使用する
-    // const filePath = __dirname + '/processed.png'
+    // const filePath = `${__dirname}/processed(${text.length}).png`;
     // const buffer = canvas.toBuffer('image/png');
+    // const fs = await import('fs');
     // fs.writeFileSync(filePath, buffer);
 
     return text.replace(/\s+/g, '');
@@ -163,22 +173,26 @@ export const deskew = (ctx: CanvasRenderingContext2D) => {
   const newH = oldW * absSin + oldH * absCos;
 
   // 一時的なCanvasを作成 (サイズは新サイズ)
-  const tempCanvas = createCanvas(newW, newH);
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = newW;
+  tempCanvas.height = newH;
   const tCtx = tempCanvas.getContext('2d');
 
-  // 背景を透明にする場合（OCRに影響が出るなら白でfillRectする）
-  // tCtx.fillStyle = 'white'; // 必要に応じて背景を白にする
-  // tCtx.fillRect(0, 0, newW, newH);
+  // 背景を白で塗りつぶす
+  // if (tCtx) {
+  //   tCtx.fillStyle = 'white';
+  //   tCtx.fillRect(0, 0, newW, newH);
+  // }
 
   // --- 3. 【描画処理】新しい中心点で回転して描画 ---
-  tCtx.save();
+  tCtx?.save();
   // 3-1. 新しいキャンバスの中心へ移動
-  tCtx.translate(newW / 2, newH / 2);
+  tCtx?.translate(newW / 2, newH / 2);
   // 3-2. 回転
-  tCtx.rotate(angle);
+  tCtx?.rotate(angle);
   // 3-3. 元の画像の中心が原点になるようにオフセットして描画
-  tCtx.drawImage(ctx.canvas, -oldW / 2, -oldH / 2);
-  tCtx.restore();
+  tCtx?.drawImage(ctx.canvas, -oldW / 2, -oldH / 2);
+  tCtx?.restore();
 
   // --- 4. 元のCanvasへ書き戻し ---
   // 元のCanvasのサイズも新サイズに変更

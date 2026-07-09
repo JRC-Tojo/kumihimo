@@ -5,6 +5,9 @@ import { Success } from 'src/models/error/result';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as containerService from 'src/services/container/main';
 import * as annotationRepository from 'src/repositories/db/annotation';
+import type { Observable } from 'dexie';
+import { extractImageFromRegion } from 'src/repositories/document/pdf';
+import { Image2Text } from 'src/utils/ocr/main';
 
 /**
  * 読み込み中の文書におけるアノテーション一覧を格納するDBを初期化する
@@ -21,6 +24,54 @@ export function getAnnotationInfo(annotID: AnnotationID): Promise<Result<Annotat
 }
 
 /**
+ * 特定のファイルに紐づくアノテーション情報を取得する
+ */
+export function getAnnotationsByFile(
+  file: ContainerElementFile,
+): Promise<Result<AnnotationInfo[]>> {
+  return annotationRepository.getAnnotationsByFile(file);
+}
+
+/**
+ * DexieのLiveQueryを利用して特定ファイルのアノテーション情報を購読する
+ */
+export function observedAnnotationStylesByFile(
+  file: ContainerElementFile,
+): Observable<AnnotationStyle[]> {
+  return annotationRepository.observedAnnotationStylesByFile(file);
+}
+
+/**
+ * コンテンツ未読み込みのアノテーションにコンテンツを読み込んで付与する
+ */
+async function loadAnnotContent(
+  file: ContainerElementFile,
+  annotationInfo: AnnotationInfo,
+): Promise<Result<void>> {
+  const loadImg = async () => {
+    const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+    if (!fileSrc.ok) return fileSrc;
+
+    // TODO: 本来は文書種別をもとに処理を分岐すべき
+    const img = await extractImageFromRegion(fileSrc.value, annotationInfo.style, 4);
+    return img;
+  };
+
+  // 画像から文字情報を読み取り
+  // TODO: 処理高速化のために、事前にOCRをかけておいて、ここでは位置情報から直接テキストを取得する方が良い？
+  const img = await loadImg();
+  // 画像化・OCR処理が失敗した場合は空文字列を与える
+  const text = img.ok ? await Image2Text(img.value).catch(() => '') : '';
+  annotationInfo.context.text = text;
+
+  // 更新版のアノテーション情報を登録する
+  const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
+  if (!saveRes.ok) return saveRes;
+
+  return Success();
+}
+
+/**
  * アノテーション情報を登録する
  *
  * アノテーション位置やサイズの情報からアノテーションされているコンテンツを読み取る
@@ -29,19 +80,19 @@ export async function registerAnnotationStyle(
   file: ContainerElementFile,
   aStyle: AnnotationStyle,
 ): Promise<Result<AnnotationInfo>> {
-  const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
-  if (!fileSrc.ok) return fileSrc;
-
-  // TODO: 内容の読み取り処理を追加
   const annotationInfo: AnnotationInfo = {
     style: aStyle,
     context: {
-      text: '',
+      text: undefined,
     },
   };
 
-  const saveRes = await annotationRepository.addAnnotationInfo(file, annotationInfo);
+  // アノテーション基本情報を保存
+  const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
   if (!saveRes.ok) return saveRes;
+
+  // コンテンツの読み込みは投げっぱなし（失敗しても空文字列がコンテンツとして格納されるだけ）
+  void loadAnnotContent(file, annotationInfo);
 
   return Success(annotationInfo);
 }
@@ -61,8 +112,8 @@ export function registerAnnotationInfo(
  *
  * 保存したアノテーション一覧を返す
  */
-export function saveAnnotationInfo(): Promise<Result<AnnotationInfo[]>> {
-  return annotationRepository.commitAnnotations();
+export function saveAnnotationInfo(file?: ContainerElementFile): Promise<Result<AnnotationInfo[]>> {
+  return annotationRepository.commitAnnotations(file);
 }
 
 /**

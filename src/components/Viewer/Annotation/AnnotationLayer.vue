@@ -16,8 +16,8 @@
             :annotation="annotation"
             :is-editing="isEditing"
             :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="(newAnnot) => updateAnnotation(newAnnot, annotation.id)"
-            @delete="deleteAnnotation(annotation.id)"
+            @update="onRegisterAnnot"
+            @delete="onRemoveAnnot"
           />
 
           <LineAnnotation
@@ -26,8 +26,8 @@
             :annotation="annotation"
             :is-editing="isEditing"
             :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="(newAnnot) => updateAnnotation(newAnnot, annotation.id)"
-            @delete="deleteAnnotation(annotation.id)"
+            @update="onRegisterAnnot"
+            @delete="onRemoveAnnot"
           />
 
           <CircleAnnotation
@@ -36,8 +36,8 @@
             :annotation="annotation"
             :is-editing="isEditing"
             :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="(newAnnot) => updateAnnotation(newAnnot, annotation.id)"
-            @delete="deleteAnnotation(annotation.id)"
+            @update="onRegisterAnnot"
+            @delete="onRemoveAnnot"
           />
         </template>
 
@@ -73,13 +73,15 @@ import CircleAnnotation from './CircleAnnotation.vue';
 import type Konva from 'konva';
 import { startDrawingAnnotation } from './annotationDrawingManager';
 import { useEditorStore } from 'src/stores/editorStore';
-import type { AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
 
 interface Props {
   annotations: AnnotationStyle[];
+  onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
+  onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
 }
 
 const props = defineProps<Props>();
@@ -88,12 +90,6 @@ const editorStore = useEditorStore();
 const page = defineModel<number>('page', { required: true });
 const canvasSize = defineModel<{ width: number; height: number }>('canvasSize', { required: true });
 const scale = defineModel<number>('scale', { required: true });
-
-const emit = defineEmits<{
-  addAnnotation: [newAnnot: AnnotationStyle];
-  updateAnnotation: [newAnnot: AnnotationStyle, targetId: string];
-  deleteAnnotation: [targetId: string];
-}>();
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
@@ -308,7 +304,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
     if (endDrawingAnnotation) {
       const annotation = endDrawingAnnotation(adjustedPos.x, adjustedPos.y);
       if (annotation) {
-        emit('addAnnotation', annotation);
+        void props.onRegisterAnnot(annotation);
       }
     }
 
@@ -429,14 +425,6 @@ function updateDrawingPreview(endX: number, endY: number) {
       },
     };
   }
-}
-
-function updateAnnotation(annotation: AnnotationStyle, targetId: string) {
-  emit('updateAnnotation', annotation, targetId);
-}
-
-function deleteAnnotation(targetId: string) {
-  emit('deleteAnnotation', targetId);
 }
 
 function syncTransformerSelection() {

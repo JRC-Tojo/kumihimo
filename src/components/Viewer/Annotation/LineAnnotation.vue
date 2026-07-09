@@ -7,8 +7,8 @@
       y: props.annotation.y,
       id: props.annotation.id,
       draggable: props.isEditing && !!props.isSelected,
+      onDragend: onDragEnd,
     }"
-    @dragend="onDragEnd"
   >
     <v-line
       ref="lineRef"
@@ -41,7 +41,7 @@
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import dayjs from 'dayjs';
-import type { LineAnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, LineAnnotationStyle } from 'src/models/document/pdf';
 
 type KonvaEvent = Konva.KonvaEventObject<MouseEvent>;
 
@@ -55,7 +55,7 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
   update: [annotation: LineAnnotationStyle];
-  delete: [id: string];
+  delete: [id: AnnotationID];
 }>();
 
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);

@@ -8,9 +8,8 @@
       v-model:page="page"
       v-model:scale="scale"
       v-model:canvas-size="canvasSize"
-      @add-annotation="addAnnotation"
-      @update-annotation="updateAnnotation"
-      @delete-annotation="deleteAnnotation"
+      @register-annot="onRegisterAnnot"
+      @remove-annot="onRemoveAnnot"
     />
   </div>
 </template>
@@ -19,14 +18,16 @@
 import { computed, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AnnotationLayer from './Annotation/AnnotationLayer.vue';
 import { debounce, useQuasar } from 'quasar';
-import type { AnnotationStyle } from 'src/models/document/pdf.js';
+import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf.js';
 
 interface Props {
+  annotations: AnnotationStyle[];
   onRender: (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<void>;
+  onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
+  onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
 }
 const props = defineProps<Props>();
 const page = defineModel<number>('page', { required: true });
-const annotations = defineModel<AnnotationStyle[]>('annotations', { required: true });
 const scale = defineModel<number>('scale', { required: true });
 
 const $q = useQuasar();
@@ -36,7 +37,7 @@ const canvasRendered = ref(false);
 const canvasSize = ref({ width: 0, height: 0, scaleX: 1, scaleY: 1 });
 
 const currentPageAnnotations = computed(() => {
-  return annotations.value.filter((a) => a.pageNumber === page.value);
+  return props.annotations.filter((a) => a.pageNumber === page.value);
 });
 
 async function render(scale: number) {
@@ -49,26 +50,6 @@ async function render(scale: number) {
     scaleY: scale,
   };
 }
-
-// ================= TODO: 暫定実装（本来はコマンド化して呼び出し）=================
-function addAnnotation(annotation: AnnotationStyle) {
-  annotations.value.push(annotation);
-}
-
-function updateAnnotation(newAnnot: AnnotationStyle, targetId: string) {
-  const targetIdx = annotations.value.findIndex((annotation) => annotation.id === targetId);
-  if (targetIdx >= 0) {
-    annotations.value[targetIdx] = newAnnot;
-  }
-}
-
-function deleteAnnotation(targetId: string) {
-  const targetIdx = annotations.value.findIndex((annotation) => annotation.id === targetId);
-  if (targetIdx >= 0) {
-    annotations.value.splice(targetIdx, 1);
-  }
-}
-// ================= TODO: 暫定実装（本来はコマンド化して呼び出し）=================
 
 onMounted(async () => {
   try {

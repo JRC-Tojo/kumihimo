@@ -65,13 +65,13 @@ import DocumentLeftDrawer from 'src/components/DocLayout/DocumentLeftDrawer.vue'
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
 import DocumentRightDrawer from 'src/components/DocLayout/DocumentRightDrawer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
-import { nextTick, onMounted, ref, useTemplateRef } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import { generateThumbnail, loadPdf, renderPage } from '../Viewer/pdfManager';
 import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
 import { callEditorTools } from 'src/stores/editorTools';
-import { useI18n } from 'vue-i18n';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 
@@ -80,6 +80,7 @@ interface Prop {
 }
 const prop = defineProps<Prop>();
 const viewer = useTemplateRef('viewer');
+const api = useBackendApi();
 
 const editorStore = useEditorStore();
 
@@ -92,10 +93,19 @@ const thumbnails = ref<string[]>([]);
 // for document
 type RenderFunc = (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<void>;
 const onRender = ref<RenderFunc>();
-const annotations = ref<AnnotationStyle[]>([]);
 const selectedAnnotations = ref<AnnotationStyle[]>([]);
 const currentPage = ref(1);
 const pageCount = ref(0);
+let stopAnnotationObservation: (() => void) | undefined;
+
+const annotations = ref<AnnotationStyle[]>([]);
+const observed = api.observedAnnotationStylesByFile(prop.file);
+if (observed.ok) {
+  const subscription = observed.data.subscribe((value) => {
+    annotations.value = value;
+  });
+  stopAnnotationObservation = () => subscription.unsubscribe();
+}
 
 // for footer
 const zoomLevel = ref(100);
@@ -106,7 +116,6 @@ const viewMode = ref<ViewMode>('single');
 async function loadDocument() {
   loading.value = true;
 
-  const api = useBackendApi();
   const docSrc = await api.getDocumentSource(prop.file);
   if (!docSrc.ok) {
     loading.value = false;
@@ -132,10 +141,6 @@ async function loadDocument() {
       generateThumbnail(loadDocument, idx + 1, 120),
     ),
   );
-
-  // PDFマネージャーからアノテーションを読み込む
-  const annotationRes = await api.getAnnotationsBySource(docSrc.data);
-  if (annotationRes.ok) annotations.value = annotationRes.data || [];
 
   loading.value = false;
 }
@@ -225,6 +230,10 @@ onMounted(async () => {
   const { t } = useI18n();
   editorStore.initStore(await callEditorTools(t));
   await loadDocument();
+});
+
+onBeforeUnmount(() => {
+  stopAnnotationObservation?.();
 });
 </script>
 
