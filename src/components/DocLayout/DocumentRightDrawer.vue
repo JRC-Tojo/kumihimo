@@ -107,15 +107,18 @@ const api = useBackendApi()
 
 const drawerOpen = defineModel<boolean>('drawerOpen', { required: true });
 
-// アノテーションのプロパティ（デモ用）
-const annotationColor = ref('#000000');
-const annotationStrokeWidth = ref(2);
-const annotationOpacity = ref(1);
-
-const selectedAnnotationType = computed(() => {
-  // TODO: 実装時には選択されたアノテーションから型を取得
-  return 'Line';
-});
+// アノテーションのプロパティ（初期値は単一選択の場合はプロパティを反映し、その他はundefinedを与える）
+const getDefault = <K extends keyof AnnotationStyle>(styleKey: K): AnnotationStyle[K] | undefined => {
+  if (prop.selectedAnnots.length === 1) {
+    return prop.selectedAnnots[0]?.[styleKey]
+  } else {
+    return undefined
+  }
+}
+const annotationColor = ref(getDefault('color'));
+const annotationStrokeWidth = ref(getDefault('strokeWidth'));
+const annotationOpacity = ref(getDefault('opacity'));
+const selectedAnnotationType = computed(() => getDefault('type'));
 
 /**
  * アノテーションの色を更新

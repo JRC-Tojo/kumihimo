@@ -54,6 +54,7 @@
 
     <!-- 右Drawer：アノテーションプロパティ -->
     <DocumentRightDrawer
+      :key="JSON.stringify(selectedAnnotations)"
       :selected-annots="selectedAnnotations"
       v-model:drawer-open="editorStore.rightDrawerModel"
       class="col-1"
