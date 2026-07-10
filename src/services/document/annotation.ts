@@ -33,6 +33,29 @@ export async function getAnnotationAddress(
 }
 
 /**
+ * アノテーションIDから、その領域のプレビュー画像（PNG dataURL）を取得する
+ *
+ * loadAnnotContentのOCR前処理と同じ組み立てだが、画像そのものを返す点が異なる
+ */
+export async function getAnnotationPreviewImage(
+  annotID: AnnotationID,
+  scale = 2,
+): Promise<Result<string>> {
+  const info = await getAnnotationInfo(annotID);
+  if (!info.ok) return info;
+  const address = await getAnnotationAddress(annotID);
+  if (!address.ok) return address;
+
+  const fileSrc = await containerService.loadFileAsDocumentSource(
+    address.value.cID,
+    address.value.filePath,
+  );
+  if (!fileSrc.ok) return fileSrc;
+
+  return extractImageFromRegion(fileSrc.value, info.value.style, scale);
+}
+
+/**
  * 特定のファイルに紐づくアノテーション情報を取得する
  */
 export function getAnnotationsByFile(

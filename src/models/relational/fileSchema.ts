@@ -35,6 +35,7 @@ export const RelationalCheckedRule = z.object({
   rule: RelationalRule,
   isOK: z.boolean(),
 });
+export type RelationalCheckedRule = z.infer<typeof RelationalCheckedRule>;
 
 /**
  * 関係性データの戻り値として用いる簡易なファイル情報型

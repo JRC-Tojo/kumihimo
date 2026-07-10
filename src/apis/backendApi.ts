@@ -16,7 +16,7 @@ import type {
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import type { Relational } from 'src/models/relational/common';
+import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
@@ -256,20 +256,48 @@ class BackendApi {
 
   /**
    * 指定したアノテーションを削除する
+   *
+   * 紐づく関係性（src・target問わず）もあわせて削除し、孤立した関係性が残らないようにする
    */
   async removeAnnotation(annotID: AnnotationID): Promise<ApiResponse<void>> {
     const res = await annotationService.removeAnnotationInfo(annotID);
+    if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
+
+    const relRes = await relationalService.removeRelationalsForAnnotation(annotID);
+    if (!relRes.ok) console.error(relRes.error); // ベストエフォート：アノテーション削除自体は成功として返す
+
     return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
+  }
+
+  /**
+   * アノテーションの領域のプレビュー画像（PNG dataURL）を取得する
+   */
+  async getAnnotationPreviewImage(
+    annotID: AnnotationID,
+    scale?: number,
+  ): Promise<ApiResponse<string>> {
+    const res = await annotationService.getAnnotationPreviewImage(annotID, scale);
+    return toApiResponse(res, 'DOC_ANNOT_PREVIEW_FAILED');
   }
 
   // ============ 関係性操作 ============
 
   /**
-   * 当該ファイルに紐づく関係性一覧を取得する
+   * 当該ファイルをsrc側とする関係性一覧を取得する
    */
   async getRelationalsInFile(file: ContainerElementFile): Promise<ApiResponse<Relational[]>> {
     const fileConfig = await relationalService.getRelationals(file);
     return toApiResponse(fileConfig, 'RELATIONAL_GET_FAILED');
+  }
+
+  /**
+   * 当該ファイルがsrc・target問わずどちらかの側で関わる関係性一覧を取得する
+   */
+  async getRelationalsForFile(
+    file: ContainerElementFile,
+  ): Promise<ApiResponse<RelationalWithAddress[]>> {
+    const res = await relationalService.getRelationalsInvolvingFile(file);
+    return toApiResponse(res, 'RELATIONAL_GET_FAILED');
   }
 
   /**
@@ -278,6 +306,16 @@ class BackendApi {
   async checkRelationals(relational: Relational): Promise<ApiResponse<RelationalResponce>> {
     const res = await relationalService.checkRelational(relational);
     return toApiResponse(res, 'RELATIONAL_CHECK_FAILED');
+  }
+
+  /**
+   * 指定した関係性を検証する（アノテーション内容が未読み込みでも失敗しない版）
+   *
+   * checkedRule: undefinedは「検証保留中」を意味する
+   */
+  async checkRelationalsSafe(relational: Relational): Promise<ApiResponse<RelationalResponce>> {
+    const res = await relationalService.checkRelationalSafe(relational);
+    return toApiResponse(Success(res));
   }
 
   /**
@@ -291,11 +329,30 @@ class BackendApi {
   }
 
   /**
-   * 関係性を削除する
+   * 指定したアノテーションに紐づく関係性（src側）をすべて削除する
    */
   async removeRelationals(sourceAnnotID: AnnotationID): Promise<ApiResponse<void>> {
     const res = await relationalService.removeRelationals(sourceAnnotID);
     return toApiResponse(res, 'RELATIONAL_REMOVE_FAILED');
+  }
+
+  /**
+   * srcID・targetIDが一致する1本の関係性のみを削除する（リンクの変更・個別削除用）
+   */
+  async removeRelationalEdge(
+    srcID: AnnotationID,
+    targetID: AnnotationID,
+  ): Promise<ApiResponse<void>> {
+    const res = await relationalService.removeRelationalEdge(srcID, targetID);
+    return toApiResponse(res, 'RELATIONAL_REMOVE_FAILED');
+  }
+
+  /**
+   * アノテーションIDから、そのアノテーションが属するファイル情報を解決する
+   */
+  async resolveAnnotationFile(annotID: AnnotationID): Promise<ApiResponse<ContainerElementFile>> {
+    const res = await relationalService.resolveAnnotationFile(annotID);
+    return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
   }
 
   // ============ 設定操作 ============

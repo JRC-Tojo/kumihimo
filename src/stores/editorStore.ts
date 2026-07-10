@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 import { defineStore, acceptHMRUpdate } from 'pinia';
-import type { ContainerElement, ContainerElementFile } from 'src/models/container';
+import type { ContainerElement, ContainerElementFile, ContainerID } from 'src/models/container';
 import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
@@ -11,6 +11,15 @@ export type LayoutSide = keyof Layouts<never>;
 export type TileMode = 'single' | 'dubble' | 'grid';
 
 export type RelationalType = RelationalRule['type'] | undefined;
+
+/**
+ * タブの同一性判定に用いるキー
+ *
+ * pathだけでは別コンテナの同一パスファイルを区別できないため、containerIDと組み合わせる
+ */
+function tabKey(f: { containerID: ContainerID; path: string }): string {
+  return `${f.containerID}|${f.path}`;
+}
 
 /**
  * デフォルトのアノテーションスタイル
@@ -104,16 +113,20 @@ export const useEditorStore = defineStore('editor', {
      */
     getActiveTab(side: LayoutSide): ContainerElementFile | null {
       if (!this.activeTabPaths[side]) return null;
-      return this.tabs[side].find((tab) => tab.path === this.activeTabPaths[side]) ?? null;
+      return this.tabs[side].find((tab) => tabKey(tab) === this.activeTabPaths[side]) ?? null;
     },
 
     /**
      * 選択された文書のタブを開く
+     *
+     * containerIDまで含めて同一性判定するため、別コンテナの同名パスファイルも正しく別タブとして開かれる
      */
     openTab(elem: ContainerElement): void {
       if (elem.type !== 'File') return;
 
-      const isAlreadyOpened = this.tabs[this.activeSide].some((tab) => tab.path === elem.path);
+      const isAlreadyOpened = this.tabs[this.activeSide].some(
+        (tab) => tabKey(tab) === tabKey(elem),
+      );
       if (!isAlreadyOpened) {
         this.tabs[this.activeSide].push(elem);
       }
@@ -125,7 +138,7 @@ export const useEditorStore = defineStore('editor', {
      * @param isFocus: Trueの時にactiveSideを更新する
      */
     selectTab(elem: ContainerElement, layoutSide: LayoutSide, isFocus: boolean): void {
-      this.activeTabPaths[layoutSide] = elem.path;
+      this.activeTabPaths[layoutSide] = tabKey(elem);
       if (isFocus) this.activeSide = layoutSide;
     },
 
@@ -133,17 +146,18 @@ export const useEditorStore = defineStore('editor', {
      * タブを閉じる
      */
     closeTab(elem: ContainerElement, layoutSide: LayoutSide): void {
-      const targetIdx = this.tabs[layoutSide].findIndex((tab) => tab.path === elem.path);
+      const targetIdx = this.tabs[layoutSide].findIndex((tab) => tabKey(tab) === tabKey(elem));
       if (targetIdx === -1) return;
 
       // 開いているタブ一覧から除外
       this.tabs[layoutSide].splice(targetIdx, 1);
-      this.pinedTabPaths[layoutSide].delete(elem.path);
+      this.pinedTabPaths[layoutSide].delete(tabKey(elem));
 
       // アクティブタブが削除された場合は直前のタブをアクティブに
-      if (this.activeTabPaths[layoutSide] === elem.path) {
+      if (this.activeTabPaths[layoutSide] === tabKey(elem)) {
         const nextIdx = Math.max(0, targetIdx - 1);
-        this.activeTabPaths[layoutSide] = this.tabs[layoutSide][nextIdx]?.path ?? null;
+        const nextTab = this.tabs[layoutSide][nextIdx];
+        this.activeTabPaths[layoutSide] = nextTab ? tabKey(nextTab) : null;
       }
     },
 
@@ -151,14 +165,14 @@ export const useEditorStore = defineStore('editor', {
      * タブをピンする
      */
     pinTab(elem: ContainerElement, layoutSide: LayoutSide): void {
-      this.pinedTabPaths[layoutSide].add(elem.path);
+      this.pinedTabPaths[layoutSide].add(tabKey(elem));
     },
 
     /**
      * タブのピンを解除する
      */
     unPinTab(elem: ContainerElement, layoutSide: LayoutSide): void {
-      this.pinedTabPaths[layoutSide].delete(elem.path);
+      this.pinedTabPaths[layoutSide].delete(tabKey(elem));
     },
   },
 });

@@ -89,6 +89,15 @@ export default {
     sortBy: 'ソート',
     language: '言語',
     save: '設定を保存',
+    relationalVerification: {
+      title: '関係性検証スタイル',
+      ok: 'OK（検証成功）',
+      ng: 'NG（検証失敗）',
+      strokeColor: '線の色',
+      fillColor: '塗りの色',
+      strokeWidth: '線の太さ',
+      fillOpacity: '塗りの不透明度',
+    },
   },
 
   // エラーメッセージ
@@ -139,6 +148,12 @@ export default {
       noDocumentSelected: '表示する文書を選択してください',
       loading: '読み込み中 ...',
     },
+    peek: {
+      title: '関係性の簡易閲覧',
+      linkedAnnotations: '関連アノテーション',
+      previewUnavailable: 'プレビューを取得できませんでした',
+      openHint: 'ダブルクリックでファイルを新規タブで開きます',
+    },
     leftDrawer: {
       title: 'サムネイル / ブックマーク',
       thumbnail: {
@@ -160,6 +175,7 @@ export default {
         opacity: '透明度',
         relations: 'リンク',
         addRelation: 'リンクを追加',
+        noRelations: 'リンクはありません',
         delete: '削除',
         notSelected: 'アノテーションを選択してください',
       },

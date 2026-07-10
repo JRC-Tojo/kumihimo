@@ -66,6 +66,25 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
 }
 
 /**
+ * 関係性を検証する（失敗しないバージョン）
+ *
+ * アノテーション内容（OCR結果等）の読み込みが完了していない場合、checkRelationalは失敗するが
+ * それは「検証保留」を意味するだけなので、checkedRule: undefinedとして常に成功を返す
+ */
+export async function checkRelationalSafe(r: Relational): Promise<RelationalResponce> {
+  const checkedRes = await checkRelational(r);
+  if (checkedRes.ok) return checkedRes.value;
+
+  return {
+    srcID: r.srcID,
+    targetID: r.targetID,
+    srcVal: '',
+    targetVal: '',
+    checkedRule: undefined,
+  };
+}
+
+/**
  * 関係性を仮フラグを付けて新しく定義する
  */
 export async function registRelational(
@@ -82,20 +101,16 @@ export async function registRelational(
   );
   if (!saveRes.ok) return saveRes;
 
-  // アノテーション内容（OCR結果等）の読み込みが完了していない場合、checkRelationalは失敗するが
-  // 関係性自体の登録は既に完了しているため、検証は保留（checkedRule: undefined）扱いとして成功を返す
-  const checkedRes = await checkRelational(newRelational);
-  if (!checkedRes.ok) {
-    return Success({
-      srcID: newRelational.srcID,
-      targetID: newRelational.targetID,
-      srcVal: '',
-      targetVal: '',
-      checkedRule: undefined,
-    });
-  }
+  return Success(await checkRelationalSafe(newRelational));
+}
 
-  return checkedRes;
+/**
+ * 指定ファイルがsrc・target問わずどちらかの側で関わっているRelational一覧を取得する
+ */
+export function getRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<RelationalWithAddress[]>> {
+  return relationalRepository.getRelationalsInvolvingFile(file);
 }
 
 /**
@@ -103,6 +118,48 @@ export async function registRelational(
  */
 export function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
   return relationalRepository.softRemoveRelationalsBySrcID(srcID);
+}
+
+/**
+ * srcID・targetIDが一致する1本の関係性のみを削除する（リンクの変更・個別削除用）
+ */
+export function removeRelationalEdge(
+  srcID: AnnotationID,
+  targetID: AnnotationID,
+): Promise<Result<void>> {
+  return relationalRepository.softRemoveRelationalEdge(srcID, targetID);
+}
+
+/**
+ * 指定したアノテーションがsrc・target問わずどちらかの側で関わる関係性をすべて削除する
+ *
+ * アノテーション自体が削除された際、紐づく関係性を孤立させないためのクリーンアップ用
+ */
+export function removeRelationalsForAnnotation(annotID: AnnotationID): Promise<Result<void>> {
+  return relationalRepository.softRemoveRelationalsByAnnotationID(annotID);
+}
+
+/**
+ * アノテーションIDから、そのアノテーションが属するファイル情報を解決する
+ *
+ * 関係性は別コンテナのアノテーション同士でも定義できるため、対象コンテナが
+ * まだ読み込まれていない場合はcontainerService.loadContainerで読み込む
+ */
+export async function resolveAnnotationFile(
+  annotID: AnnotationID,
+): Promise<Result<ContainerElementFile>> {
+  const address = await docAnnotService.getAnnotationAddress(annotID);
+  if (!address.ok) return address;
+
+  const container = await containerService.loadContainer(address.value.cID);
+  if (!container.ok) return container;
+
+  const elem = container.value.elements[address.value.filePath];
+  if (elem === undefined || elem.type !== 'File') {
+    return Failure(new Error(`Not Found File (path: ${address.value.filePath})`));
+  }
+
+  return Success(elem);
 }
 
 /**

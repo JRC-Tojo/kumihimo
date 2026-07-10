@@ -16,7 +16,7 @@
           :key="`${tab.containerID}/${tab.path}`"
           :class="[
             'tab-item',
-            { active: tab.path === activeTabFile?.path && activeLayout === layoutSide },
+            { active: isSameFile(tab, activeTabFile) && activeLayout === layoutSide },
           ]"
           @click="selectTab(tab, true)"
         >
@@ -39,7 +39,12 @@
 
     <!-- コンテンツエリア -->
     <div class="tabs-content">
-      <DocumentTabView v-if="activeTabFile" :file="activeTabFile" :key="activeTabFile.path" />
+      <DocumentTabView
+        v-if="activeTabFile"
+        :file="activeTabFile"
+        :layout-side="prop.layoutSide"
+        :key="`${activeTabFile.containerID}/${activeTabFile.path}`"
+      />
       <div v-else class="empty-state">
         <q-icon name="description" size="3rem" color="grey-5" />
         <p class="q-mt-md text-grey-6">{{ $t('pdfEditor.document.noDocumentSelected') }}</p>
@@ -75,6 +80,13 @@ const activeLayout = computed(() => editorStore.activeSide);
 
 function tabTitle(path: string) {
   return new Path(path).basename();
+}
+
+/**
+ * 同一ファイルかどうかをcontainerID込みで判定する（別コンテナの同名パスファイルを区別するため）
+ */
+function isSameFile(a: ContainerElementFile, b: ContainerElementFile | null | undefined): boolean {
+  return b !== null && b !== undefined && a.containerID === b.containerID && a.path === b.path;
 }
 
 function selectTab(file: ContainerElementFile, isFocus: boolean) {

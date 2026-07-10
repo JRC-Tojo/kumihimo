@@ -42,6 +42,9 @@ import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import dayjs from 'dayjs';
 import type { AnnotationID, LineAnnotationStyle } from 'src/models/document/pdf';
+import { useRelationalStore } from 'src/stores/relationalStore';
+import { useSettingsStore } from 'src/stores/settingsStore';
+import { getRelationalStyleOverride } from './relationalStyleOverride';
 
 type KonvaEvent = Konva.KonvaEventObject<MouseEvent>;
 
@@ -58,11 +61,22 @@ const emit = defineEmits<{
   delete: [id: AnnotationID];
 }>();
 
+const relationalStore = useRelationalStore();
+const settingsStore = useSettingsStore();
+
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
 const lineRef = ref<{ getNode: () => Konva.Line | null } | null>(null);
 const anchor1Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const anchor2Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const isHovered = ref(false);
+
+// 関係性の検証結果（OK/NG）による表示上書き。線には塗りがないためstroke系のみ用いる
+const relationalOverride = computed(() =>
+  getRelationalStyleOverride(
+    relationalStore.statusForAnnotation(props.annotation.id),
+    settingsStore.relationalVerificationStyle,
+  ),
+);
 
 const linePoints = computed(() => {
   if (props.annotation.type !== 'line') return [0, 0, 0, 0] as const;
@@ -80,8 +94,8 @@ const lineConfig = computed(() => {
     id: props.annotation.id,
     name: 'annotation-shape',
     points: linePoints.value,
-    stroke: props.annotation.color,
-    strokeWidth: props.annotation.strokeWidth || 2,
+    stroke: relationalOverride.value?.stroke ?? props.annotation.color,
+    strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth || 2),
     draggable: false,
     opacity: props.annotation.opacity || 1,
     hitStrokeWidth: 8,

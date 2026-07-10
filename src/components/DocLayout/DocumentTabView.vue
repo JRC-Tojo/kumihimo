@@ -56,8 +56,17 @@
     <DocumentRightDrawer
       :key="JSON.stringify(selectedAnnotations)"
       :selected-annots="selectedAnnotations"
+      :file="prop.file"
       v-model:drawer-open="editorStore.rightDrawerModel"
+      @add-relation="startRelationalFromDrawer"
       class="col-1"
+    />
+
+    <!-- 関係性の簡易閲覧ダイアログ（Spaceキーで表示） -->
+    <RelationalPeekDialog
+      v-if="peekAnnotId"
+      v-model:open="peekDialogOpen"
+      :annot-id="peekAnnotId"
     />
   </div>
 </template>
@@ -73,15 +82,18 @@ import { useBackendApi } from 'src/apis/backendApi';
 import { generateThumbnail, loadPdf, renderPage } from '../Viewer/pdfManager';
 import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
-import type { RelationalType } from 'src/stores/editorStore';
+import type { LayoutSide } from 'src/stores/editorStore';
+import { useRelationalStore } from 'src/stores/relationalStore';
 import { callEditorTools } from 'src/stores/editorTools';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import type { RelationalRule } from 'src/models/relational/fileSchema';
+import { buildRelationalRule } from 'src/models/relational/ruleUtils';
+import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
 import { useQuasar } from 'quasar';
 
 interface Prop {
   file: ContainerElementFile;
+  layoutSide: LayoutSide;
 }
 const prop = defineProps<Prop>();
 const viewer = useTemplateRef('viewer');
@@ -90,6 +102,7 @@ const api = useBackendApi();
 const $q = useQuasar();
 const { t } = useI18n();
 const editorStore = useEditorStore();
+const relationalStore = useRelationalStore();
 
 // TODO: PDFの読み込みに失敗した場合、Loading画面を抜けてエラーが起きた旨を通知する仕様に修正
 const loading = ref<boolean>(true);
@@ -127,6 +140,10 @@ if (observed.ok) {
 // for footer
 const zoomLevel = ref(100);
 const viewMode = ref<ViewMode>('single');
+
+// for relational peek dialog
+const peekAnnotId = ref<AnnotationID>();
+const peekDialogOpen = ref(false);
 
 // ================================
 
@@ -306,26 +323,12 @@ function showRelationalWaitingNotify() {
 }
 
 /**
- * 選択中の関係性モードからRelationalRuleを組み立てる
- *
- * mode: 'equal' | 'link'のユニオン型のまま`{ type: mode }`とすると判別可能ユニオンとして
- * 型解決できないため、分岐によりリテラル型を確定させている
- */
-function buildRelationalRule(mode: NonNullable<RelationalType>): RelationalRule {
-  switch (mode) {
-    case 'equal':
-      return { type: 'equal' };
-    case 'link':
-      return { type: 'link' };
-  }
-}
-
-/**
  * 待機中の基準アノテーションと対象アノテーションの間に関係性を登録する
  */
 async function finishRelational(targetId: AnnotationID) {
   const srcId = editorStore.relationalPendingId;
   const mode = editorStore.relationalMode;
+  const pendingFile = editorStore.relationalPendingFile;
   if (srcId === undefined || mode === undefined) return;
   if (srcId === targetId) return; // 自分自身との関係性は無視
 
@@ -342,6 +345,28 @@ async function finishRelational(targetId: AnnotationID) {
     return;
   }
   $q.notify({ type: 'positive', message: t('pdfEditor.tools.relational.registerSuccess') });
+
+  // 新規登録した関係性を検証状態キャッシュに反映する（基準アノテーションが別タブのファイルの場合はそちらも）
+  void relationalStore.refreshFile(prop.file);
+  if (pendingFile !== undefined && !isSameFile(pendingFile, prop.file)) {
+    void relationalStore.refreshFile(pendingFile);
+  }
+}
+
+/**
+ * RightDrawerの「リンクを追加」ボタンから関係性登録の待機を開始する
+ */
+function startRelationalFromDrawer(annotId: AnnotationID) {
+  editorStore.relationalMode ??= 'link';
+  editorStore.startRelationalPending(annotId, prop.file);
+  showRelationalWaitingNotify();
+}
+
+/**
+ * 2つのファイルがcontainerID込みで同一かどうか
+ */
+function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
+  return a.containerID === b.containerID && a.path === b.path;
 }
 
 /**
@@ -349,11 +374,7 @@ async function finishRelational(targetId: AnnotationID) {
  */
 function isRelationalPendingFile(): boolean {
   const pendingFile = editorStore.relationalPendingFile;
-  return (
-    pendingFile !== undefined &&
-    pendingFile.containerID === prop.file.containerID &&
-    pendingFile.path === prop.file.path
-  );
+  return pendingFile !== undefined && isSameFile(pendingFile, prop.file);
 }
 
 /**
@@ -409,6 +430,33 @@ async function handleAnnotationsChanged(
   }
 
   await registRelationalByAdd(newAnnots, oldAnnots);
+
+  // アノテーション内容（OCR結果）の読み込み完了時にもこのイベントが発火するため、
+  // ここで再検証しておくことで「検証保留」から自動的にOK/NGへ遷移する
+  void relationalStore.refreshFile(prop.file);
+}
+
+// ================================
+
+/**
+ * Spaceキーで関係性の簡易閲覧ダイアログを開く（単一選択時のみ、テキスト入力中は無視）
+ * 複数ペイン表示時は、フォーカスされているペイン（layoutSide）でのみ反応する
+ */
+function handleGlobalKeydown(e: KeyboardEvent) {
+  if (e.code !== 'Space') return;
+  if (editorStore.activeSide !== prop.layoutSide) return;
+
+  const activeEl = document.activeElement;
+  const isTextInput =
+    activeEl instanceof HTMLElement &&
+    (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+  if (isTextInput) return;
+
+  if (selectedAnnotationIds.value.length !== 1) return;
+
+  e.preventDefault();
+  peekAnnotId.value = selectedAnnotationIds.value[0];
+  peekDialogOpen.value = true;
 }
 
 // ================================
@@ -416,6 +464,8 @@ async function handleAnnotationsChanged(
 onMounted(async () => {
   editorStore.initStore(await callEditorTools(t));
   await loadDocument();
+  void relationalStore.refreshFile(prop.file);
+  window.addEventListener('keydown', handleGlobalKeydown);
 });
 
 watch(annotations, (newAnnots, oldAnnots) => {
@@ -436,6 +486,7 @@ watch(
 );
 onBeforeUnmount(() => {
   stopAnnotationObservation?.();
+  window.removeEventListener('keydown', handleGlobalKeydown);
 });
 </script>
 

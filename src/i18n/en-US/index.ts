@@ -90,6 +90,15 @@ export default {
     sortBy: 'Sort By',
     language: 'Language',
     save: 'Save Settings',
+    relationalVerification: {
+      title: 'Relational Verification Style',
+      ok: 'OK (Verified)',
+      ng: 'NG (Failed)',
+      strokeColor: 'Stroke Color',
+      fillColor: 'Fill Color',
+      strokeWidth: 'Stroke Width',
+      fillOpacity: 'Fill Opacity',
+    },
   },
 
   // Error messages
@@ -140,6 +149,12 @@ export default {
       noDocumentSelected: 'No document selected',
       loading: 'Loading...',
     },
+    peek: {
+      title: 'Relational Peek',
+      linkedAnnotations: 'Linked Annotations',
+      previewUnavailable: 'Preview unavailable',
+      openHint: 'Double-click a row to open the file in a new tab',
+    },
     leftDrawer: {
       title: 'Thumbnails / Bookmarks',
       thumbnail: {
@@ -161,6 +176,7 @@ export default {
         opacity: 'Fill Opacity',
         relations: 'Registered Relations',
         addRelation: 'Add Relation',
+        noRelations: 'No relations',
         delete: 'Delete',
         notSelected: 'Select any annotations',
       },

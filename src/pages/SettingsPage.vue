@@ -58,6 +58,76 @@
       </q-card-actions>
     </q-card>
 
+    <!-- 関係性検証スタイル -->
+    <q-card v-if="settings" class="q-mb-lg" style="max-width: 600px">
+      <q-card-section class="q-pb-none">
+        <div class="text-h6">{{ $t('settings.relationalVerification.title') }}</div>
+      </q-card-section>
+
+      <q-card-section>
+        <div
+          v-for="status in ['ok', 'ng'] as const"
+          :key="status"
+          class="q-mb-lg relational-status-editor"
+        >
+          <label class="text-subtitle2">{{
+            $t(`settings.relationalVerification.${status}`)
+          }}</label>
+
+          <div class="row items-center q-gutter-md q-mt-sm">
+            <div class="color-field">
+              <span class="text-caption">{{
+                $t('settings.relationalVerification.strokeColor')
+              }}</span>
+              <input
+                v-model="settings.relationalVerificationStyle[status].strokeColor"
+                type="color"
+              />
+            </div>
+            <div class="color-field">
+              <span class="text-caption">{{
+                $t('settings.relationalVerification.fillColor')
+              }}</span>
+              <input
+                v-model="settings.relationalVerificationStyle[status].fillColor"
+                type="color"
+              />
+            </div>
+          </div>
+
+          <div class="q-mt-sm">
+            <span class="text-caption">
+              {{ $t('settings.relationalVerification.strokeWidth') }}:
+              {{ settings.relationalVerificationStyle[status].strokeWidth }}
+            </span>
+            <q-slider
+              v-model="settings.relationalVerificationStyle[status].strokeWidth"
+              :min="1"
+              :max="10"
+              :step="0.5"
+            />
+          </div>
+
+          <div class="q-mt-sm">
+            <span class="text-caption">
+              {{ $t('settings.relationalVerification.fillOpacity') }}:
+              {{ settings.relationalVerificationStyle[status].fillOpacity }}
+            </span>
+            <q-slider
+              v-model="settings.relationalVerificationStyle[status].fillOpacity"
+              :min="0"
+              :max="1"
+              :step="0.05"
+            />
+          </div>
+        </div>
+      </q-card-section>
+
+      <q-card-actions>
+        <q-btn unelevated color="primary" :label="$t('settings.save')" @click="saveAllSettings" />
+      </q-card-actions>
+    </q-card>
+
     <!-- テストデータ -->
     <q-card class="q-mb-lg" style="max-width: 600px">
       <q-card-section class="q-pb-none">
@@ -83,10 +153,12 @@ import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
 import { toEntries } from 'src/utils/obj/obj';
+import { useSettingsStore } from 'src/stores/settingsStore';
 
 const { locale, t: $t } = useI18n();
 const $q = useQuasar();
 const api = useBackendApi();
+const settingsStore = useSettingsStore();
 
 let beforeChangedSettings: { [key: string]: unknown } = {};
 const settings = ref<AppSettings>();
@@ -156,6 +228,9 @@ async function saveAllSettings() {
   // 更新後、beforeChangedSettingsを現在の設定で上書き
   beforeChangedSettings = { ...settings.value };
 
+  // 開いている文書タブなど、設定をリアクティブに参照している箇所にも反映する
+  await settingsStore.loadSettings();
+
   $q.notify({
     type: 'positive',
     message: $t('message.success'),
@@ -208,4 +283,23 @@ onMounted(async () => {
 });
 </script>
 
-<style scoped lang="scss"></style>
+<style scoped lang="scss">
+.relational-status-editor {
+  border-left: 3px solid $grey-4;
+  padding-left: 0.75rem;
+}
+
+.color-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+
+  input[type='color'] {
+    width: 48px;
+    height: 32px;
+    border: 1px solid $grey-4;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+}
+</style>
