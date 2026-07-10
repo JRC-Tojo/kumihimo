@@ -16,6 +16,9 @@ export type RelationalStatus = 'ok' | 'ng' | 'pending' | undefined;
 export interface RelationalEdge {
   relational: Relational;
   checkedRule: RelationalCheckedRule | undefined;
+  // 検証に用いた実際の値（OCR結果等）。判定基準を画面上で確認できるようにするため保持する
+  srcVal: string;
+  targetVal: string;
 }
 
 /**
@@ -29,6 +32,20 @@ function edgeKey(r: Relational): string {
   return `${r.srcID}|${r.targetID}|${JSON.stringify(r.rule)}`;
 }
 
+/**
+ * 指定アノテーション側から見た比較値を返す（src側ならsrcVal、target側ならtargetVal）
+ */
+export function edgeValueFor(edge: RelationalEdge, annotId: AnnotationID): string {
+  return edge.relational.srcID === annotId ? edge.srcVal : edge.targetVal;
+}
+
+/**
+ * 指定アノテーションの「相手側」の比較値を返す
+ */
+export function otherEdgeValueFor(edge: RelationalEdge, annotId: AnnotationID): string {
+  return edge.relational.srcID === annotId ? edge.targetVal : edge.srcVal;
+}
+
 export const useRelationalStore = defineStore('relational', {
   state: () => ({
     // ファイル単位で読み込んだ関係性エッジ（src・target問わずそのファイルが関わるもの）
@@ -38,10 +55,13 @@ export const useRelationalStore = defineStore('relational', {
   getters: {
     /**
      * 指定アノテーションがsrc・target問わず関わるエッジ一覧（重複除去済み）
+     *
+     * state.edgesByFileKeyへの依存はこのgetter自身の評価時点で読み取っておく
+     * （返り値の関数の中で読むと、Piniaのgetterの依存追跡が曖昧になるため）
      */
     edgesForAnnotation(state): (annotId: AnnotationID) => RelationalEdge[] {
+      const allEdges = Object.values(state.edgesByFileKey).flat();
       return (annotId: AnnotationID) => {
-        const allEdges = Object.values(state.edgesByFileKey).flat();
         const relevant = allEdges.filter(
           (edge) => edge.relational.srcID === annotId || edge.relational.targetID === annotId,
         );
@@ -55,8 +75,10 @@ export const useRelationalStore = defineStore('relational', {
      * 指定アノテーションの検証状態（優先度: ng > pending > ok、関連なしはundefined）
      */
     statusForAnnotation(): (annotId: AnnotationID) => RelationalStatus {
+      // this.edgesForAnnotationへのアクセスをここで行い、getter間の依存を明示的に確立する
+      const getEdgesForAnnotation = this.edgesForAnnotation;
       return (annotId: AnnotationID) => {
-        const edges = this.edgesForAnnotation(annotId);
+        const edges = getEdgesForAnnotation(annotId);
         if (edges.length === 0) return undefined;
         if (edges.some((edge) => edge.checkedRule?.isOK === false)) return 'ng';
         if (edges.some((edge) => edge.checkedRule === undefined)) return 'pending';
@@ -81,6 +103,8 @@ export const useRelationalStore = defineStore('relational', {
           return {
             relational,
             checkedRule: checkedRes.ok ? checkedRes.data.checkedRule : undefined,
+            srcVal: checkedRes.ok ? checkedRes.data.srcVal : '',
+            targetVal: checkedRes.ok ? checkedRes.data.targetVal : '',
           };
         }),
       );

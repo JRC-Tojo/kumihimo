@@ -78,38 +78,52 @@
             <p v-if="relationEdges.length === 0" class="text-caption text-grey-6 q-mb-none">
               {{ $t('pdfEditor.rightDrawer.annotation.noRelations') }}
             </p>
-            <div v-for="edge in relationEdges" :key="edgeKey(edge)" class="relation-row q-mb-sm">
-              <div class="relation-row-main">
-                <q-icon
-                  :name="statusIcon(edge)"
-                  :color="statusColor(edge)"
-                  size="1.2rem"
-                  class="q-mr-sm"
-                />
-                <span class="relation-target-label">{{ otherFileLabel(edge) }}</span>
+            <template v-else>
+              <!-- 自身の値（比較のもう一方の基準として、一覧とは別に一度だけ表示） -->
+              <div class="self-value q-mb-sm">
+                <span class="text-caption text-grey-6">
+                  {{ $t('pdfEditor.rightDrawer.annotation.selfValue') }}:
+                </span>
+                <span class="self-value-text">{{ selfValueDisplay }}</span>
               </div>
-              <div class="relation-row-actions q-mt-xs">
-                <q-select
-                  :model-value="edge.relational.rule.type"
-                  :options="ruleTypeOptions"
-                  emit-value
-                  map-options
-                  dense
-                  outlined
-                  class="rule-select"
-                  @update:model-value="(v: RelationalRuleType) => onChangeRuleType(edge, v)"
-                />
-                <q-btn
-                  flat
-                  round
-                  dense
-                  icon="link_off"
-                  size="sm"
-                  color="negative"
-                  @click="onRemoveRelation(edge)"
-                />
+
+              <div v-for="edge in relationEdges" :key="edgeKey(edge)" class="relation-row q-mb-sm">
+                <div class="relation-row-main">
+                  <q-icon
+                    :name="statusIcon(edge)"
+                    :color="statusColor(edge)"
+                    size="1.2rem"
+                    class="q-mr-sm"
+                  />
+                  <span class="relation-target-label">{{ otherFileLabel(edge) }}</span>
+                </div>
+                <div class="relation-row-value q-mt-xs text-caption text-grey-7">
+                  {{ $t('pdfEditor.rightDrawer.annotation.otherValue') }}:
+                  {{ otherValueDisplay(edge) }}
+                </div>
+                <div class="relation-row-actions q-mt-xs">
+                  <q-select
+                    :model-value="edge.relational.rule.type"
+                    :options="ruleTypeOptions"
+                    emit-value
+                    map-options
+                    dense
+                    outlined
+                    class="rule-select"
+                    @update:model-value="(v: RelationalRuleType) => onChangeRuleType(edge, v)"
+                  />
+                  <q-btn
+                    flat
+                    round
+                    dense
+                    icon="link_off"
+                    size="sm"
+                    color="negative"
+                    @click="onRemoveRelation(edge)"
+                  />
+                </div>
               </div>
-            </div>
+            </template>
           </div>
         </div>
 
@@ -139,7 +153,12 @@ import { useBackendApi } from 'src/apis/backendApi';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { ContainerElementFile } from 'src/models/container';
 import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
-import { useRelationalStore, type RelationalEdge } from 'src/stores/relationalStore';
+import {
+  useRelationalStore,
+  edgeValueFor,
+  otherEdgeValueFor,
+  type RelationalEdge,
+} from 'src/stores/relationalStore';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
@@ -197,8 +216,15 @@ const updateAnnotationOpacity = () => {
 
 /**
  * アノテーションを削除
+ *
+ * 削除前に紐づいていた関係性の相手ファイルも合わせて再検証し、
+ * 開いていないタブ側に孤立した関係性が古いキャッシュとして残らないようにする
  */
 const deleteAnnot = async () => {
+  const edgesBeforeDelete = prop.selectedAnnots.flatMap((annot) =>
+    relationalStore.edgesForAnnotation(annot.id).map((edge) => ({ edge, selfId: annot.id })),
+  );
+
   const removeRes = await Promise.all(
     prop.selectedAnnots.map((annot) => api.removeAnnotation(annot.id)),
   );
@@ -206,7 +232,11 @@ const deleteAnnot = async () => {
   removeRes.forEach((res) => {
     if (!res.ok) console.error(res.error);
   });
+
   await relationalStore.refreshFile(prop.file);
+  await Promise.all(
+    edgesBeforeDelete.map(({ edge, selfId }) => refreshBothEndpoints(edge, selfId)),
+  );
 };
 
 // ================================ 関係性 ================================
@@ -231,12 +261,10 @@ function edgeKey(edge: RelationalEdge): string {
 }
 
 /**
- * エッジの相手側（選択中アノテーションではない側）のアノテーションIDを返す
+ * エッジの相手側（selfId側ではない側）のアノテーションIDを返す
  */
-function otherAnnotId(edge: RelationalEdge): AnnotationID {
-  return edge.relational.srcID === selectedAnnotId.value
-    ? edge.relational.targetID
-    : edge.relational.srcID;
+function otherAnnotId(edge: RelationalEdge, selfId: AnnotationID): AnnotationID {
+  return edge.relational.srcID === selfId ? edge.relational.targetID : edge.relational.srcID;
 }
 
 function statusIcon(edge: RelationalEdge): string {
@@ -249,14 +277,35 @@ function statusColor(edge: RelationalEdge): string {
   return edge.checkedRule.isOK ? 'positive' : 'negative';
 }
 
+/**
+ * 検証結果の値を表示用の文字列に変換する（検証中は明示し、空文字列は空であることが分かるようにする）
+ */
+function displayValue(rawValue: string, edge: RelationalEdge): string {
+  if (edge.checkedRule === undefined) return t('pdfEditor.rightDrawer.annotation.verifying');
+  return rawValue === '' ? t('pdfEditor.rightDrawer.annotation.emptyValue') : rawValue;
+}
+
+// 自身（選択中のアノテーション）の値。どのエッジも同じ自身の値を返すため先頭のエッジから取得する
+const selfValueDisplay = computed<string>(() => {
+  const firstEdge = relationEdges.value[0];
+  if (selectedAnnotId.value === undefined || firstEdge === undefined) return '';
+  return displayValue(edgeValueFor(firstEdge, selectedAnnotId.value), firstEdge);
+});
+
+function otherValueDisplay(edge: RelationalEdge): string {
+  if (selectedAnnotId.value === undefined) return '';
+  return displayValue(otherEdgeValueFor(edge, selectedAnnotId.value), edge);
+}
+
 // 相手アノテーションが属するファイル名（解決できるまでは"..."を表示）
 const otherFileLabelCache = ref<Record<AnnotationID, string>>({});
 
 watch(
   relationEdges,
   async (edges) => {
+    if (selectedAnnotId.value === undefined) return;
     for (const edge of edges) {
-      const otherId = otherAnnotId(edge);
+      const otherId = otherAnnotId(edge, selectedAnnotId.value);
       if (otherFileLabelCache.value[otherId] !== undefined) continue;
 
       const fileRes = await api.resolveAnnotationFile(otherId);
@@ -269,7 +318,8 @@ watch(
 );
 
 function otherFileLabel(edge: RelationalEdge): string {
-  return otherFileLabelCache.value[otherAnnotId(edge)] ?? '...';
+  if (selectedAnnotId.value === undefined) return '...';
+  return otherFileLabelCache.value[otherAnnotId(edge, selectedAnnotId.value)] ?? '...';
 }
 
 /**
@@ -281,10 +331,28 @@ function onAddRelationClicked() {
 }
 
 /**
+ * 編集対象のエッジについて、このファイルだけでなく相手側アノテーションのファイルの
+ * 関係性キャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
+ * キャッシュに古い情報が残ったままにならないようにする）
+ */
+async function refreshBothEndpoints(edge: RelationalEdge, selfId: AnnotationID) {
+  await relationalStore.refreshFile(prop.file);
+
+  const otherFileRes = await api.resolveAnnotationFile(otherAnnotId(edge, selfId));
+  if (otherFileRes.ok && !isSameFile(otherFileRes.data, prop.file)) {
+    await relationalStore.refreshFile(otherFileRes.data);
+  }
+}
+
+function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
+  return a.containerID === b.containerID && a.path === b.path;
+}
+
+/**
  * ルール種別の変更：既存の1本を削除してから新しいルールで登録し直す
  */
 async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleType) {
-  if (newType === edge.relational.rule.type) return;
+  if (newType === edge.relational.rule.type || selectedAnnotId.value === undefined) return;
 
   await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
   await api.registRelationals({
@@ -292,15 +360,16 @@ async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleTyp
     targetID: edge.relational.targetID,
     rule: buildRelationalRule(newType),
   });
-  await relationalStore.refreshFile(prop.file);
+  await refreshBothEndpoints(edge, selectedAnnotId.value);
 }
 
 /**
  * リンクの削除
  */
 async function onRemoveRelation(edge: RelationalEdge) {
+  if (selectedAnnotId.value === undefined) return;
   await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
-  await relationalStore.refreshFile(prop.file);
+  await refreshBothEndpoints(edge, selectedAnnotId.value);
 }
 </script>
 
@@ -399,10 +468,23 @@ async function onRemoveRelation(edge: RelationalEdge) {
     }
 
     .relation-list {
+      .self-value {
+        font-size: 0.85rem;
+
+        .self-value-text {
+          font-family: monospace;
+          word-break: break-all;
+        }
+      }
+
       .relation-row {
         padding: 0.5rem;
         background-color: $grey-2;
         border-radius: 6px;
+
+        .relation-row-value {
+          word-break: break-all;
+        }
 
         .relation-row-main {
           display: flex;

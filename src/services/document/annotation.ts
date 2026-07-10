@@ -6,7 +6,10 @@ import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relationa
 import * as containerService from 'src/services/container/main';
 import * as annotationRepository from 'src/repositories/db/annotation';
 import type { Observable } from 'dexie';
-import { extractImageFromRegion } from 'src/repositories/document/pdf';
+import {
+  extractImageFromRegion,
+  extractAnnotationContextPreview,
+} from 'src/repositories/document/pdf';
 import { Image2Text } from 'src/utils/ocr/main';
 
 /**
@@ -33,9 +36,10 @@ export async function getAnnotationAddress(
 }
 
 /**
- * アノテーションIDから、その領域のプレビュー画像（PNG dataURL）を取得する
+ * アノテーションIDから、その周辺の文脈も確認できるプレビュー画像（PNG dataURL）を取得する
  *
- * loadAnnotContentのOCR前処理と同じ組み立てだが、画像そのものを返す点が異なる
+ * アノテーション自体の領域のみではなく、そのページの周辺領域も含めて描画し、
+ * アノテーション位置には強調枠を付与する
  */
 export async function getAnnotationPreviewImage(
   annotID: AnnotationID,
@@ -52,7 +56,7 @@ export async function getAnnotationPreviewImage(
   );
   if (!fileSrc.ok) return fileSrc;
 
-  return extractImageFromRegion(fileSrc.value, info.value.style, scale);
+  return extractAnnotationContextPreview(fileSrc.value, info.value.style, scale);
 }
 
 /**

@@ -22,6 +22,11 @@ function tabKey(f: { containerID: ContainerID; path: string }): string {
 }
 
 /**
+ * 設定タブを表す特別なアクティブタブキー（ContainerElementFileのtabKeyとは絶対に衝突しない形式）
+ */
+export const SETTINGS_TAB_KEY = '__settings__';
+
+/**
  * デフォルトのアノテーションスタイル
  */
 const DEFAULT_ANNOTATION_STYLE: DrawingAnnotationStyle = {
@@ -50,6 +55,8 @@ export const useEditorStore = defineStore('editor', {
     } as Layouts<Set<string>>,
     activeTabPaths: { ul: null, ur: null, ll: null, lr: null } as Layouts<string | null>,
     activeSide: 'ul' as LayoutSide,
+    // 各ペインで設定タブが開かれているか（設定はContainerElementFileではないため別管理する）
+    settingsOpenSides: { ul: false, ur: false, ll: false, lr: false } as Layouts<boolean>,
 
     // アノテーションの表示状態
     visibleAnnotations: true,
@@ -173,6 +180,35 @@ export const useEditorStore = defineStore('editor', {
      */
     unPinTab(elem: ContainerElement, layoutSide: LayoutSide): void {
       this.pinedTabPaths[layoutSide].delete(tabKey(elem));
+    },
+
+    /**
+     * 設定タブを開く（現在アクティブなペインに、文書タブと同様の見た目で開かれる）
+     */
+    openSettingsTab(): void {
+      this.settingsOpenSides[this.activeSide] = true;
+      this.activeTabPaths[this.activeSide] = SETTINGS_TAB_KEY;
+    },
+
+    /**
+     * 設定タブを選択する
+     */
+    selectSettingsTab(layoutSide: LayoutSide, isFocus: boolean): void {
+      this.activeTabPaths[layoutSide] = SETTINGS_TAB_KEY;
+      if (isFocus) this.activeSide = layoutSide;
+    },
+
+    /**
+     * 設定タブを閉じる
+     */
+    closeSettingsTab(layoutSide: LayoutSide): void {
+      this.settingsOpenSides[layoutSide] = false;
+
+      // アクティブタブが設定タブだった場合は、そのペインの最後の文書タブをアクティブにする
+      if (this.activeTabPaths[layoutSide] === SETTINGS_TAB_KEY) {
+        const lastTab = this.tabs[layoutSide][this.tabs[layoutSide].length - 1];
+        this.activeTabPaths[layoutSide] = lastTab ? tabKey(lastTab) : null;
+      }
     },
   },
 });

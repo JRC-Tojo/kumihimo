@@ -1,149 +1,186 @@
 <template>
-  <q-page class="q-pa-md">
-    <h1 class="text-h4 q-mb-lg">{{ $t('settings.title') }}</h1>
+  <div class="settings-page">
+    <!-- 目次サイドバー -->
+    <div class="settings-toc">
+      <q-input
+        v-model="searchQuery"
+        dense
+        outlined
+        clearable
+        :placeholder="$t('settings.searchPlaceholder')"
+        class="q-mb-md"
+      >
+        <template #prepend>
+          <q-icon name="search" />
+        </template>
+      </q-input>
 
-    <q-card class="q-mb-lg" style="max-width: 600px">
-      <q-card-section class="q-pb-none">
-        <div class="text-h6">{{ $t('settings.title') }}</div>
-      </q-card-section>
-
-      <q-card-section>
-        <div class="q-mb-lg">
-          <q-toggle
-            v-if="settings"
-            v-model="isDarkMode"
-            :label="$t('settings.darkMode')"
-            @update:model-value="updateSettings"
-          />
-        </div>
-
-        <div class="q-mb-lg">
-          <label class="text-body1">{{ $t('settings.viewMode') }}</label>
-          <q-select
-            v-if="settings"
-            v-model="viewMode"
-            :options="viewModes"
-            outlined
-            class="q-mt-md"
-            @update:model-value="updateSettings"
-          />
-        </div>
-
-        <div class="q-mb-lg">
-          <label class="text-body1">{{ $t('settings.sortBy') }}</label>
-          <q-select
-            v-if="settings"
-            v-model="sortBy"
-            :options="sortOptions"
-            outlined
-            class="q-mt-md"
-            @update:model-value="updateSettings"
-          />
-        </div>
-
-        <div class="q-mb-lg">
-          <label class="text-body1">{{ $t('settings.language') }}</label>
-          <q-select
-            v-model="currentLocale"
-            :options="languages"
-            outlined
-            class="q-mt-md"
-            @update:model-value="changeLanguage"
-          />
-        </div>
-      </q-card-section>
-
-      <q-card-actions>
-        <q-btn unelevated color="primary" :label="$t('settings.save')" @click="saveAllSettings" />
-      </q-card-actions>
-    </q-card>
-
-    <!-- 関係性検証スタイル -->
-    <q-card v-if="settings" class="q-mb-lg" style="max-width: 600px">
-      <q-card-section class="q-pb-none">
-        <div class="text-h6">{{ $t('settings.relationalVerification.title') }}</div>
-      </q-card-section>
-
-      <q-card-section>
-        <div
-          v-for="status in ['ok', 'ng'] as const"
-          :key="status"
-          class="q-mb-lg relational-status-editor"
+      <q-list>
+        <q-item
+          v-for="section in visibleSections"
+          :key="section.id"
+          clickable
+          dense
+          class="toc-item"
+          @click="scrollToSection(section.id)"
         >
-          <label class="text-subtitle2">{{
-            $t(`settings.relationalVerification.${status}`)
-          }}</label>
+          <q-item-section>{{ section.title }}</q-item-section>
+        </q-item>
+        <q-item v-if="visibleSections.length === 0" dense>
+          <q-item-section class="text-grey-6">{{
+            $t('settings.searchPlaceholder')
+          }}</q-item-section>
+        </q-item>
+      </q-list>
+    </div>
 
-          <div class="row items-center q-gutter-md q-mt-sm">
-            <div class="color-field">
-              <span class="text-caption">{{
-                $t('settings.relationalVerification.strokeColor')
-              }}</span>
-              <input
-                v-model="settings.relationalVerificationStyle[status].strokeColor"
-                type="color"
-              />
-            </div>
-            <div class="color-field">
-              <span class="text-caption">{{
-                $t('settings.relationalVerification.fillColor')
-              }}</span>
-              <input
-                v-model="settings.relationalVerificationStyle[status].fillColor"
-                type="color"
-              />
-            </div>
-          </div>
+    <!-- 設定本体 -->
+    <div ref="contentRef" class="settings-content">
+      <h1 class="text-h5 q-mb-lg">{{ $t('settings.title') }}</h1>
 
-          <div class="q-mt-sm">
-            <span class="text-caption">
-              {{ $t('settings.relationalVerification.strokeWidth') }}:
-              {{ settings.relationalVerificationStyle[status].strokeWidth }}
-            </span>
-            <q-slider
-              v-model="settings.relationalVerificationStyle[status].strokeWidth"
-              :min="1"
-              :max="10"
-              :step="0.5"
+      <template v-if="settings">
+        <!-- 一般 -->
+        <section
+          v-if="visibleSections.some((s) => s.id === 'general')"
+          id="general"
+          class="settings-section"
+        >
+          <h6 class="settings-section-title">{{ $t('settings.sections.general') }}</h6>
+
+          <SettingsItemRow
+            v-show="isVisible('darkMode')"
+            :title="$t('settings.darkMode')"
+            :description="$t('settings.darkModeDesc')"
+          >
+            <q-toggle v-model="settings.darkMode" />
+          </SettingsItemRow>
+
+          <SettingsItemRow
+            v-show="isVisible('language')"
+            :title="$t('settings.language')"
+            :description="$t('settings.languageDesc')"
+          >
+            <q-select
+              v-model="currentLocale"
+              :options="languages"
+              emit-value
+              map-options
+              dense
+              outlined
+              style="min-width: 160px"
+              @update:model-value="changeLanguage"
             />
-          </div>
+          </SettingsItemRow>
+        </section>
 
-          <div class="q-mt-sm">
-            <span class="text-caption">
-              {{ $t('settings.relationalVerification.fillOpacity') }}:
-              {{ settings.relationalVerificationStyle[status].fillOpacity }}
-            </span>
-            <q-slider
-              v-model="settings.relationalVerificationStyle[status].fillOpacity"
-              :min="0"
-              :max="1"
-              :step="0.05"
+        <!-- 表示 -->
+        <section
+          v-if="visibleSections.some((s) => s.id === 'display')"
+          id="display"
+          class="settings-section"
+        >
+          <h6 class="settings-section-title">{{ $t('settings.sections.display') }}</h6>
+
+          <SettingsItemRow
+            v-show="isVisible('viewMode')"
+            :title="$t('settings.viewMode')"
+            :description="$t('settings.viewModeDesc')"
+          >
+            <q-select
+              v-model="settings.viewMode"
+              :options="viewModes"
+              emit-value
+              map-options
+              dense
+              outlined
+              style="min-width: 160px"
             />
-          </div>
-        </div>
-      </q-card-section>
+          </SettingsItemRow>
 
-      <q-card-actions>
+          <SettingsItemRow
+            v-show="isVisible('sortBy')"
+            :title="$t('settings.sortBy')"
+            :description="$t('settings.sortByDesc')"
+          >
+            <q-select
+              v-model="settings.sortBy"
+              :options="sortOptions"
+              emit-value
+              map-options
+              dense
+              outlined
+              style="min-width: 160px"
+            />
+          </SettingsItemRow>
+        </section>
+
+        <!-- 関係性検証スタイル -->
+        <section
+          v-if="visibleSections.some((s) => s.id === 'relational')"
+          id="relational"
+          class="settings-section"
+        >
+          <h6 class="settings-section-title">{{ $t('settings.relationalVerification.title') }}</h6>
+
+          <SettingsItemRow
+            v-show="isVisible('relationalOk')"
+            :title="$t('settings.relationalVerification.ok')"
+            :description="$t('settings.relationalVerification.okDesc')"
+          >
+            <RelationalStatusStyleEditor v-model="settings.relationalVerificationStyle.ok" />
+          </SettingsItemRow>
+
+          <SettingsItemRow
+            v-show="isVisible('relationalNg')"
+            :title="$t('settings.relationalVerification.ng')"
+            :description="$t('settings.relationalVerification.ngDesc')"
+          >
+            <RelationalStatusStyleEditor v-model="settings.relationalVerificationStyle.ng" />
+          </SettingsItemRow>
+        </section>
+
+        <!-- データ -->
+        <section
+          v-if="visibleSections.some((s) => s.id === 'data')"
+          id="data"
+          class="settings-section"
+        >
+          <h6 class="settings-section-title">{{ $t('settings.sections.data') }}</h6>
+
+          <SettingsItemRow
+            v-show="isVisible('sampleData')"
+            :title="$t('settings.sampleData.create')"
+            :description="$t('settings.sampleData.createDesc')"
+          >
+            <q-btn
+              color="primary"
+              dense
+              :label="$t('settings.sampleData.create')"
+              @click="createSampleData"
+            />
+          </SettingsItemRow>
+
+          <SettingsItemRow
+            v-show="isVisible('clearData')"
+            :title="$t('settings.sampleData.clear')"
+            :description="$t('settings.sampleData.clearDesc')"
+          >
+            <q-btn
+              flat
+              dense
+              color="negative"
+              :label="$t('settings.sampleData.clear')"
+              @click="clearAllData"
+            />
+          </SettingsItemRow>
+        </section>
+      </template>
+
+      <div class="save-bar">
         <q-btn unelevated color="primary" :label="$t('settings.save')" @click="saveAllSettings" />
-      </q-card-actions>
-    </q-card>
-
-    <!-- テストデータ -->
-    <q-card class="q-mb-lg" style="max-width: 600px">
-      <q-card-section class="q-pb-none">
-        <div class="text-h6">Test Data</div>
-      </q-card-section>
-
-      <q-card-section>
-        <p class="text-body2">Create sample documents for testing:</p>
-      </q-card-section>
-
-      <q-card-actions>
-        <q-btn color="primary" label="Create Sample Documents" @click="createSampleData" />
-        <q-btn flat color="negative" label="Clear All Data" @click="clearAllData" />
-      </q-card-actions>
-    </q-card>
-  </q-page>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -154,6 +191,8 @@ import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
 import { toEntries } from 'src/utils/obj/obj';
 import { useSettingsStore } from 'src/stores/settingsStore';
+import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
+import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
 
 const { locale, t: $t } = useI18n();
 const $q = useQuasar();
@@ -164,9 +203,6 @@ let beforeChangedSettings: { [key: string]: unknown } = {};
 const settings = ref<AppSettings>();
 
 const currentLocale = ref('en-US');
-const isDarkMode = computed(() => settings.value?.darkMode);
-const viewMode = computed(() => settings.value?.viewMode);
-const sortBy = computed(() => settings.value?.sortBy);
 
 const viewModes = [
   { label: $t('viewMode.rich'), value: 'rich' },
@@ -186,19 +222,110 @@ const languages = [
 ];
 
 onMounted(async () => {
-  const response = await api.getSettings();
-  if (response.ok) {
-    settings.value = response.data;
+  const apiRes = await api.getSettings();
+  if (apiRes.ok) {
+    settings.value = apiRes.data;
+    beforeChangedSettings = { ...apiRes.data };
   }
   currentLocale.value = locale.value;
 });
 
-/**
- * 設定を更新
- */
-async function updateSettings() {
-  // 設定の自動保存（オプション）
+// ================================ 検索・目次 ================================
+
+interface SettingsItemMeta {
+  id: string;
+  sectionId: string;
+  title: string;
+  description: string;
 }
+
+const itemMetas = computed<SettingsItemMeta[]>(() => [
+  {
+    id: 'darkMode',
+    sectionId: 'general',
+    title: $t('settings.darkMode'),
+    description: $t('settings.darkModeDesc'),
+  },
+  {
+    id: 'language',
+    sectionId: 'general',
+    title: $t('settings.language'),
+    description: $t('settings.languageDesc'),
+  },
+  {
+    id: 'viewMode',
+    sectionId: 'display',
+    title: $t('settings.viewMode'),
+    description: $t('settings.viewModeDesc'),
+  },
+  {
+    id: 'sortBy',
+    sectionId: 'display',
+    title: $t('settings.sortBy'),
+    description: $t('settings.sortByDesc'),
+  },
+  {
+    id: 'relationalOk',
+    sectionId: 'relational',
+    title: $t('settings.relationalVerification.ok'),
+    description: $t('settings.relationalVerification.okDesc'),
+  },
+  {
+    id: 'relationalNg',
+    sectionId: 'relational',
+    title: $t('settings.relationalVerification.ng'),
+    description: $t('settings.relationalVerification.ngDesc'),
+  },
+  {
+    id: 'sampleData',
+    sectionId: 'data',
+    title: $t('settings.sampleData.create'),
+    description: $t('settings.sampleData.createDesc'),
+  },
+  {
+    id: 'clearData',
+    sectionId: 'data',
+    title: $t('settings.sampleData.clear'),
+    description: $t('settings.sampleData.clearDesc'),
+  },
+]);
+
+const sectionDefs = computed(() => [
+  { id: 'general', title: $t('settings.sections.general') },
+  { id: 'display', title: $t('settings.sections.display') },
+  { id: 'relational', title: $t('settings.relationalVerification.title') },
+  { id: 'data', title: $t('settings.sections.data') },
+]);
+
+const searchQuery = ref('');
+
+const matchedItemIds = computed<Set<string>>(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return new Set(itemMetas.value.map((m) => m.id));
+  return new Set(
+    itemMetas.value
+      .filter((m) => m.title.toLowerCase().includes(q) || m.description.toLowerCase().includes(q))
+      .map((m) => m.id),
+  );
+});
+
+function isVisible(itemId: string): boolean {
+  return matchedItemIds.value.has(itemId);
+}
+
+const visibleSections = computed(() =>
+  sectionDefs.value.filter((s) =>
+    itemMetas.value.some((m) => m.sectionId === s.id && matchedItemIds.value.has(m.id)),
+  ),
+);
+
+const contentRef = ref<HTMLElement>();
+
+function scrollToSection(id: string) {
+  contentRef.value?.querySelector(`#${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ================================ 保存・その他操作 ================================
 
 /**
  * すべての設定を保存
@@ -273,33 +400,61 @@ function clearAllData() {
     });
   });
 }
-
-onMounted(async () => {
-  const apiRes = await api.getSettings();
-  if (apiRes.ok) {
-    settings.value = apiRes.data;
-    beforeChangedSettings = { ...apiRes.data };
-  }
-});
 </script>
 
 <style scoped lang="scss">
-.relational-status-editor {
-  border-left: 3px solid $grey-4;
-  padding-left: 0.75rem;
+.settings-page {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: white;
 }
 
-.color-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+.body--dark .settings-page {
+  background: $dark;
+}
 
-  input[type='color'] {
-    width: 48px;
-    height: 32px;
-    border: 1px solid $grey-4;
-    border-radius: 4px;
-    cursor: pointer;
+.settings-toc {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid $grey-3;
+  padding: 1rem;
+  overflow-y: auto;
+
+  .toc-item {
+    border-radius: 6px;
   }
+}
+
+.body--dark .settings-toc {
+  border-right-color: $grey-8;
+}
+
+.settings-content {
+  flex: 1 1 0;
+  overflow-y: auto;
+  padding: 1.5rem 2rem;
+  max-width: 720px;
+
+  .settings-section {
+    margin-bottom: 2rem;
+
+    .settings-section-title {
+      font-weight: 600;
+      color: $primary;
+      margin: 0 0 0.25rem;
+    }
+  }
+
+  .save-bar {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid $grey-3;
+  }
+}
+
+.body--dark .settings-content .save-bar {
+  border-top-color: $grey-8;
 }
 </style>

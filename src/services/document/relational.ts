@@ -54,9 +54,10 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
   if (!targetContent.ok) return targetContent;
 
   // .textが読み込み中の場合はundefinedのため、関係性の検証を省略する
+  // （OCR結果が空文字列''になるケースは「読み込み済みだが内容が空」であり、これは未読み込み(undefined)とは区別する）
   const srcContentTxt = srcContent.value.context.text;
   const targetContentTxt = targetContent.value.context.text;
-  if (!srcContentTxt || !targetContentTxt) {
+  if (srcContentTxt === undefined || targetContentTxt === undefined) {
     return Failure(new Error('An annotation content is not loaded yet'));
   }
 

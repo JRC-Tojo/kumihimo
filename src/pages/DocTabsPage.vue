@@ -2,6 +2,27 @@
   <div class="doc-tabs-page">
     <!-- タブバー -->
     <div class="tabs-bar">
+      <!-- 設定タブ（開いている場合のみ、文書タブの前に固定表示） -->
+      <div
+        v-if="editorStore.settingsOpenSides[prop.layoutSide]"
+        :class="['tab-item', 'settings-tab-item', { active: isSettingsActive }]"
+        @click="selectSettingsTab"
+      >
+        <div class="tab-content">
+          <q-icon name="settings" class="tab-icon" />
+          <span class="tab-title">{{ $t('settings.title') }}</span>
+        </div>
+        <q-btn
+          flat
+          dense
+          round
+          icon="close"
+          size="xs"
+          class="tab-close-btn"
+          @click.stop="editorStore.closeSettingsTab(prop.layoutSide)"
+        />
+      </div>
+
       <VueDraggable
         v-model="tabs"
         :animation="0"
@@ -16,7 +37,10 @@
           :key="`${tab.containerID}/${tab.path}`"
           :class="[
             'tab-item',
-            { active: isSameFile(tab, activeTabFile) && activeLayout === layoutSide },
+            {
+              active:
+                !isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide,
+            },
           ]"
           @click="selectTab(tab, true)"
         >
@@ -39,8 +63,9 @@
 
     <!-- コンテンツエリア -->
     <div class="tabs-content">
+      <SettingsPage v-if="isSettingsActive" />
       <DocumentTabView
-        v-if="activeTabFile"
+        v-else-if="activeTabFile"
         :file="activeTabFile"
         :layout-side="prop.layoutSide"
         :key="`${activeTabFile.containerID}/${activeTabFile.path}`"
@@ -55,8 +80,9 @@
 
 <script setup lang="ts">
 import DocumentTabView from 'src/components/DocLayout/DocumentTabView.vue';
+import SettingsPage from 'src/pages/SettingsPage.vue';
 import type { ContainerElementFile } from 'src/models/container';
-import { useEditorStore } from 'src/stores/editorStore';
+import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
 import { Path } from 'src/utils/binary/path';
 import { computed } from 'vue';
@@ -77,6 +103,13 @@ const tabs = computed({
 });
 const activeTabFile = computed(() => editorStore.getActiveTab(prop.layoutSide));
 const activeLayout = computed(() => editorStore.activeSide);
+const isSettingsActive = computed(
+  () => editorStore.activeTabPaths[prop.layoutSide] === SETTINGS_TAB_KEY,
+);
+
+function selectSettingsTab() {
+  editorStore.selectSettingsTab(prop.layoutSide, true);
+}
 
 function tabTitle(path: string) {
   return new Path(path).basename();
