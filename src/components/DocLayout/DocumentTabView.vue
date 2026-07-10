@@ -67,15 +67,18 @@ import DocumentLeftDrawer from 'src/components/DocLayout/DocumentLeftDrawer.vue'
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
 import DocumentRightDrawer from 'src/components/DocLayout/DocumentRightDrawer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import { generateThumbnail, loadPdf, renderPage } from '../Viewer/pdfManager';
 import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
+import type { RelationalType } from 'src/stores/editorStore';
 import { callEditorTools } from 'src/stores/editorTools';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type { RelationalRule } from 'src/models/relational/fileSchema';
+import { useQuasar } from 'quasar';
 
 interface Prop {
   file: ContainerElementFile;
@@ -84,6 +87,8 @@ const prop = defineProps<Prop>();
 const viewer = useTemplateRef('viewer');
 const api = useBackendApi();
 
+const $q = useQuasar();
+const { t } = useI18n();
 const editorStore = useEditorStore();
 
 // TODO: PDFの読み込みに失敗した場合、Loading画面を抜けてエラーが起きた旨を通知する仕様に修正
@@ -238,12 +243,197 @@ async function scrollToCurrentPage(viewerContainerHeight: number) {
 
 // ================================
 
+/**
+ * 関係性登録の待機中に表示する通知（q.Notify）のハンドル
+ *
+ * 呼び出すと通知内容を更新でき、引数なしで呼び出すと通知を閉じられる
+ * cf) https://quasar.dev/quasar-plugins/notify#updating-a-notification
+ */
+let relationalNotifyHandle: ((props?: Record<string, unknown>) => void) | undefined;
+
+/**
+ * 待機中の関係性モードに応じた通知メッセージを組み立てる
+ */
+function relationalWaitingMessage(): string {
+  const modeLabel =
+    editorStore.relationalMode === 'equal'
+      ? t('pdfEditor.tools.relational.equal')
+      : t('pdfEditor.tools.relational.link');
+  return t('pdfEditor.tools.relational.waitingMessage', { mode: modeLabel });
+}
+
+/**
+ * 対になるアノテーションの待機通知を表示・更新する
+ * モード変更ボタンから再度呼び出すことで通知内容を最新化する
+ */
+function showRelationalWaitingNotify() {
+  const notifyProps = {
+    message: relationalWaitingMessage(),
+    color: 'primary',
+    position: 'bottom-right' as const,
+    timeout: 0,
+    actions: [
+      {
+        label: t('pdfEditor.tools.relational.equal'),
+        noDismiss: true,
+        handler: () => {
+          editorStore.relationalMode = 'equal';
+          showRelationalWaitingNotify();
+        },
+      },
+      {
+        label: t('pdfEditor.tools.relational.link'),
+        noDismiss: true,
+        handler: () => {
+          editorStore.relationalMode = 'link';
+          showRelationalWaitingNotify();
+        },
+      },
+      {
+        label: t('pdfEditor.tools.relational.cancel'),
+        handler: () => {
+          editorStore.cancelRelationalPending();
+        },
+      },
+    ],
+  };
+
+  if (relationalNotifyHandle) {
+    relationalNotifyHandle(notifyProps);
+  } else {
+    relationalNotifyHandle = $q.notify(notifyProps);
+  }
+}
+
+/**
+ * 選択中の関係性モードからRelationalRuleを組み立てる
+ *
+ * mode: 'equal' | 'link'のユニオン型のまま`{ type: mode }`とすると判別可能ユニオンとして
+ * 型解決できないため、分岐によりリテラル型を確定させている
+ */
+function buildRelationalRule(mode: NonNullable<RelationalType>): RelationalRule {
+  switch (mode) {
+    case 'equal':
+      return { type: 'equal' };
+    case 'link':
+      return { type: 'link' };
+  }
+}
+
+/**
+ * 待機中の基準アノテーションと対象アノテーションの間に関係性を登録する
+ */
+async function finishRelational(targetId: AnnotationID) {
+  const srcId = editorStore.relationalPendingId;
+  const mode = editorStore.relationalMode;
+  if (srcId === undefined || mode === undefined) return;
+  if (srcId === targetId) return; // 自分自身との関係性は無視
+
+  // 通知や待機状態は結果を待たずに解除し、モード自体は次の登録に備えて維持する
+  editorStore.cancelRelationalPending();
+
+  const res = await api.registRelationals({
+    srcID: srcId,
+    targetID: targetId,
+    rule: buildRelationalRule(mode),
+  });
+  if (!res.ok) {
+    $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.registerFailed') });
+    return;
+  }
+  $q.notify({ type: 'positive', message: t('pdfEditor.tools.relational.registerSuccess') });
+}
+
+/**
+ * 現在のファイルが、待機中の基準アノテーションが属するファイルと同一かどうか
+ */
+function isRelationalPendingFile(): boolean {
+  const pendingFile = editorStore.relationalPendingFile;
+  return (
+    pendingFile !== undefined &&
+    pendingFile.containerID === prop.file.containerID &&
+    pendingFile.path === prop.file.path
+  );
+}
+
+/**
+ * アノテーションの追加を検知し、関係性登録の待機開始・確定を制御する
+ * 1つ目の追加で待機モードへ、待機中の2つ目の追加で関係性を確定する
+ */
+async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: AnnotationStyle[]) {
+  if (editorStore.relationalMode === void 0) return;
+  const oldAnnotIds = new Set(oldAnnots.map((annot) => annot.id));
+  const addedAnnots = newAnnots.filter((annot) => !oldAnnotIds.has(annot.id));
+  if (addedAnnots.length !== 1) return; // アノテーションが1つ増えたときのみ対象
+  const addedId = addedAnnots[0]?.id;
+  if (addedId === undefined) return;
+
+  if (editorStore.relationalPendingId === undefined) {
+    // 1つ目のアノテーション：対になるアノテーションの待機モードへ移行
+    editorStore.startRelationalPending(addedId, prop.file);
+    showRelationalWaitingNotify();
+    return;
+  }
+
+  // 2つ目のアノテーション：待機中の関係性を確定
+  await finishRelational(addedId);
+}
+
+/**
+ * アノテーションの選択を検知し、待機中の関係性を確定する
+ */
+async function registRelationalBySelect(selectedIds: AnnotationID[]) {
+  if (editorStore.relationalMode === void 0) return;
+  if (editorStore.relationalPendingId === undefined) return;
+  const targetId = selectedIds.find((id) => id !== editorStore.relationalPendingId);
+  if (targetId === undefined) return;
+
+  await finishRelational(targetId);
+}
+
+/**
+ * アノテーション一覧の変化に応じて、待機解除・待機開始・関係性確定を判断する
+ */
+async function handleAnnotationsChanged(
+  newAnnots: AnnotationStyle[],
+  oldAnnots: AnnotationStyle[],
+) {
+  // 待機中の基準アノテーションが（このファイル内で）削除された場合は待機を解除する
+  if (
+    editorStore.relationalPendingId !== undefined &&
+    isRelationalPendingFile() &&
+    !newAnnots.some((annot) => annot.id === editorStore.relationalPendingId)
+  ) {
+    editorStore.cancelRelationalPending();
+    return;
+  }
+
+  await registRelationalByAdd(newAnnots, oldAnnots);
+}
+
+// ================================
+
 onMounted(async () => {
-  const { t } = useI18n();
   editorStore.initStore(await callEditorTools(t));
   await loadDocument();
 });
 
+watch(annotations, (newAnnots, oldAnnots) => {
+  void handleAnnotationsChanged(newAnnots, oldAnnots);
+});
+watch(selectedAnnotationIds, (selectedIds) => {
+  void registRelationalBySelect(selectedIds);
+});
+// 待機状態がストア側から解除された場合（キャンセル操作やモードオフなど）に通知を閉じる
+watch(
+  () => editorStore.relationalPendingId,
+  (pendingId) => {
+    if (pendingId === undefined) {
+      relationalNotifyHandle?.();
+      relationalNotifyHandle = undefined;
+    }
+  },
+);
 onBeforeUnmount(() => {
   stopAnnotationObservation?.();
 });

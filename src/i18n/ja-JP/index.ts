@@ -106,6 +106,7 @@ export default {
       line: '直線',
       box: '四角形',
       circle: '円',
+      relationalToggle: '関係性登録モード',
       annotationToggle: 'アノテーションの表示切替',
       handMode: 'ハンドモード',
       selectMode: '選択モード',
@@ -122,6 +123,16 @@ export default {
         noGrid: '分割なし',
         split: '左右2分割',
         grid: '上下左右4分割',
+      },
+      relational: {
+        equal: '等しい',
+        link: 'リンク',
+        off: 'オフ',
+        cancel: 'キャンセル',
+        waitingMessage:
+          '対になるアノテーションを待機しています（{mode}モード）。描画または選択するとリンクされます。',
+        registerSuccess: '関係性を登録しました。',
+        registerFailed: '関係性の登録に失敗しました。',
       },
     },
     document: {

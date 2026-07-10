@@ -82,7 +82,20 @@ export async function registRelational(
   );
   if (!saveRes.ok) return saveRes;
 
-  return checkRelational(newRelational);
+  // アノテーション内容（OCR結果等）の読み込みが完了していない場合、checkRelationalは失敗するが
+  // 関係性自体の登録は既に完了しているため、検証は保留（checkedRule: undefined）扱いとして成功を返す
+  const checkedRes = await checkRelational(newRelational);
+  if (!checkedRes.ok) {
+    return Success({
+      srcID: newRelational.srcID,
+      targetID: newRelational.targetID,
+      srcVal: '',
+      targetVal: '',
+      checkedRule: undefined,
+    });
+  }
+
+  return checkedRes;
 }
 
 /**

@@ -2,11 +2,15 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
 import type { ContainerElement, ContainerElementFile } from 'src/models/container';
 import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
+import type { AnnotationID } from 'src/models/document/pdf';
+import type { RelationalRule } from 'src/models/relational/fileSchema';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
 export type Layouts<T> = { ul: T; ur: T; ll: T; lr: T };
 export type LayoutSide = keyof Layouts<never>;
 export type TileMode = 'single' | 'dubble' | 'grid';
+
+export type RelationalType = RelationalRule['type'] | undefined;
 
 /**
  * デフォルトのアノテーションスタイル
@@ -48,9 +52,41 @@ export const useEditorStore = defineStore('editor', {
 
     // タブ表示のタイルモード
     tileMode: 'single' as TileMode,
+
+    // 関係性機能の状態
+    relationalMode: undefined as RelationalType,
+    // 関係性登録で基準となるアノテーションID（対になるアノテーションの待機中のみ設定される）
+    relationalPendingId: undefined as AnnotationID | undefined,
+    // 待機中の基準アノテーションが属するファイル（複数タブ表示時に待機の発生元を判別するために保持）
+    relationalPendingFile: undefined as ContainerElementFile | undefined,
   }),
 
   actions: {
+    /**
+     * 関係性登録モードを終了する（待機中の状態も解除する）
+     */
+    cancelRelationalMode(): void {
+      this.relationalMode = undefined;
+      this.relationalPendingId = undefined;
+      this.relationalPendingFile = undefined;
+    },
+
+    /**
+     * 対になるアノテーションの待機状態を開始する
+     */
+    startRelationalPending(annotId: AnnotationID, file: ContainerElementFile): void {
+      this.relationalPendingId = annotId;
+      this.relationalPendingFile = file;
+    },
+
+    /**
+     * 対になるアノテーションの待機状態を解除する（関係性登録モード自体は維持する）
+     */
+    cancelRelationalPending(): void {
+      this.relationalPendingId = undefined;
+      this.relationalPendingFile = undefined;
+    },
+
     /**
      * ストアの初期化（初回のみ実行）
      */

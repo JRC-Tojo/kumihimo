@@ -107,6 +107,7 @@ export default {
       line: 'Line',
       box: 'Box',
       circle: 'Circle',
+      relationalToggle: 'Relational Annotations',
       annotationToggle: 'Show / Hide Annotations',
       handMode: 'Hand Mode',
       selectMode: 'Select Mode',
@@ -123,6 +124,16 @@ export default {
         noGrid: 'Single View',
         split: 'Split View',
         grid: 'Grid View',
+      },
+      relational: {
+        equal: 'Equal',
+        link: 'Linked',
+        off: 'Off',
+        cancel: 'Cancel',
+        waitingMessage:
+          'Waiting for the paired annotation ({mode} mode). Draw or select it to link them.',
+        registerSuccess: 'Relationship registered.',
+        registerFailed: 'Failed to register the relationship.',
       },
     },
     document: {
