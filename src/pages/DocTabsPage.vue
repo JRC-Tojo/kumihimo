@@ -5,7 +5,7 @@
       <!-- 設定タブ（開いている場合のみ、文書タブの前に固定表示） -->
       <div
         v-if="editorStore.settingsOpenSides[prop.layoutSide]"
-        :class="['tab-item', 'settings-tab-item', { active: isSettingsActive }]"
+        :class="['tabs-container', 'tab-item', { active: isSettingsActive }]"
         @click="selectSettingsTab"
       >
         <div class="tab-content">

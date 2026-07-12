@@ -62,19 +62,28 @@ export async function initAnnotDB(): Promise<Result<void>> {
 }
 
 /**
- * DBからアノテーション情報を取得する
+ * DBに記録されているアノテーションの元データを取得する
  */
-export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
+async function getAnnotationRecord(annotID: AnnotationID): Promise<Result<AnnotationRecord>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
 
   try {
     const record = await db.annotations.get(annotID);
     if (!record || record.isDeleted) return Failure(new Error('annotation not found'));
-    return Success(record.annotationInfo);
+    return Success(record);
   } catch (error) {
     return Failure(toError(error));
   }
+}
+
+/**
+ * DBからアノテーション情報を取得する
+ */
+export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
+  const record = await getAnnotationRecord(annotID)
+  if (!record.ok) return record
+  return Success(record.value.annotationInfo)
 }
 
 /**
@@ -83,16 +92,9 @@ export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<A
 export async function getAnnotationAddress(
   annotID: AnnotationID,
 ): Promise<Result<AnnotationBaseAddress>> {
-  const ready = await ensureReady();
-  if (!ready.ok) return ready;
-
-  try {
-    const record = await db.annotations.get(annotID);
-    if (!record || record.isDeleted) return Failure(new Error('annotation not found'));
-    return Success({ cID: record.containerID, filePath: record.filePath });
-  } catch (error) {
-    return Failure(toError(error));
-  }
+  const record = await getAnnotationRecord(annotID)
+  if (!record.ok) return record
+  return Success({ cID: record.value.containerID, filePath: record.value.filePath });
 }
 
 /**

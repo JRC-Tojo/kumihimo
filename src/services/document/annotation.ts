@@ -29,7 +29,7 @@ export function getAnnotationInfo(annotID: AnnotationID): Promise<Result<Annotat
 /**
  * DBからアノテーションの保存パスを取得する
  */
-export async function getAnnotationAddress(
+export function getAnnotationAddress(
   annotID: AnnotationID,
 ): Promise<Result<AnnotationBaseAddress>> {
   return annotationRepository.getAnnotationAddress(annotID);

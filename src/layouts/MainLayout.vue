@@ -18,11 +18,11 @@
         >
           <div class="rail-container">
             <q-tabs v-model="selectedTab" vertical switch-indicator class="rail-tabs">
-              <q-tab name="docs" icon="library_books" />
-              <q-tab name="exts" icon="extension" />
+              <q-tab name="docs" icon="library_books" class="rail-tab" />
+              <q-tab name="exts" icon="extension" class="rail-tab" />
             </q-tabs>
 
-            <q-space />
+            <!-- <q-space /> -->
 
             <!-- 設定：ドキュメントタブと同様に、設定タブをタブ領域に開く -->
             <q-btn
@@ -30,7 +30,7 @@
               dense
               icon="settings"
               size="md"
-              class="rail-settings-btn"
+              class="rail-tab"
               @click="editorStore.openSettingsTab()"
             >
               <q-tooltip>{{ $t('settings.title') }}</q-tooltip>
@@ -96,12 +96,11 @@ const compPadding = computed(() => (showLeftDrawer.value ? { paddingLeft: '0px' 
   height: 100%;
 
   .rail-tabs {
-    flex: 0 0 auto;
+    height: 100%;
   }
 
-  .rail-settings-btn {
-    flex: 0 0 auto;
-    margin-bottom: 8px;
+  .rail-tab {
+    min-height: 48pt;
   }
 }
 </style>

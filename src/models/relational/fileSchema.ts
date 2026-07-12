@@ -38,15 +38,6 @@ export const RelationalCheckedRule = z.object({
 export type RelationalCheckedRule = z.infer<typeof RelationalCheckedRule>;
 
 /**
- * 関係性データの戻り値として用いる簡易なファイル情報型
- */
-export const RelationalFile = z.object({
-  cID: ContainerID,
-  filePath: z.string(),
-});
-export type RelationalFile = z.infer<typeof RelationalFile>;
-
-/**
  * アノテーション位置における文書本体の情報
  */
 export const AnnotationContext = z.object({

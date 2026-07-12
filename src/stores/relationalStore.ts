@@ -5,6 +5,7 @@ import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { Relational } from 'src/models/relational/common';
 import type { RelationalCheckedRule } from 'src/models/relational/fileSchema';
+import { runConcurrently } from 'src/utils/promise/concurrent';
 
 /**
  * 関係性の検証状態
@@ -94,22 +95,21 @@ export const useRelationalStore = defineStore('relational', {
     async refreshFile(file: ContainerElementFile): Promise<void> {
       const api = useBackendApi();
 
+      // TODO: エラーハンドリング
       const relRes = await api.getRelationalsForFile(file);
       if (!relRes.ok) return;
 
-      const edges = await Promise.all(
-        relRes.data.map(async ({ relational }): Promise<RelationalEdge> => {
-          const checkedRes = await api.checkRelationalsSafe(relational);
-          return {
-            relational,
-            checkedRule: checkedRes.ok ? checkedRes.data.checkedRule : undefined,
-            srcVal: checkedRes.ok ? checkedRes.data.srcVal : '',
-            targetVal: checkedRes.ok ? checkedRes.data.targetVal : '',
-          };
-        }),
-      );
+      const edgeCheckers = relRes.data.map(({ relational }) => async (): Promise<RelationalEdge> => {
+        const checkedRes = await api.checkRelationalsSafe(relational);
+        return {
+          relational,
+          checkedRule: checkedRes.ok ? checkedRes.data.checkedRule : undefined,
+          srcVal: checkedRes.ok ? checkedRes.data.srcVal : '',
+          targetVal: checkedRes.ok ? checkedRes.data.targetVal : '',
+        };
+      });
 
-      this.edgesByFileKey[fileKey(file)] = edges;
+      this.edgesByFileKey[fileKey(file)] = await runConcurrently(edgeCheckers, 5);
     },
   },
 });

@@ -1,5 +1,5 @@
 <template>
-  <q-dialog v-model="open" @hide="onHide">
+  <q-dialog v-model="open">
     <q-card class="relational-peek-card">
       <q-card-section class="row items-center q-pb-none">
         <div class="text-h6">{{ $t('pdfEditor.peek.title') }}</div>
@@ -189,11 +189,6 @@ async function openPreviewedFile() {
   open.value = false;
 }
 
-function onHide() {
-  previewSrc.value = undefined;
-  previewedAnnotId.value = undefined;
-}
-
 // プレビュー対象が未選択の場合、先頭の相手アノテーションを既定のプレビュー対象にする
 watch(
   edges,
@@ -222,6 +217,13 @@ watch(
 );
 
 watch(edges, (newEdges) => void resolveOtherFileLabels(newEdges), { immediate: true });
+
+// ダイアログを開くたびに、未選択なら先頭の相手アノテーションを既定のプレビュー対象にする
+watch(open, (isOpen) => {
+  if (!isOpen || previewedAnnotId.value !== undefined) return;
+  const firstEdge = edges.value[0];
+  if (firstEdge !== undefined) previewedAnnotId.value = otherAnnotId(firstEdge);
+});
 </script>
 
 <style scoped lang="scss">

@@ -354,6 +354,7 @@ function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
 async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleType) {
   if (newType === edge.relational.rule.type || selectedAnnotId.value === undefined) return;
 
+  // TODO: エラーハンドリング
   await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
   await api.registRelationals({
     srcID: edge.relational.srcID,

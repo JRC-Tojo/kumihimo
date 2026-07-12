@@ -9,6 +9,7 @@
         clearable
         :placeholder="$t('settings.searchPlaceholder')"
         class="q-mb-md"
+        @clear="() => searchQuery = ''"
       >
         <template #prepend>
           <q-icon name="search" />
@@ -28,7 +29,7 @@
         </q-item>
         <q-item v-if="visibleSections.length === 0" dense>
           <q-item-section class="text-grey-6">{{
-            $t('settings.searchPlaceholder')
+            $t('settings.noResults')
           }}</q-item-section>
         </q-item>
       </q-list>
@@ -52,7 +53,7 @@
             :title="$t('settings.darkMode')"
             :description="$t('settings.darkModeDesc')"
           >
-            <q-toggle v-model="settings.darkMode" />
+            <q-toggle v-model="settings.darkMode" @update:model-value="changeColorThema" />
           </SettingsItemRow>
 
           <SettingsItemRow
@@ -226,6 +227,8 @@ onMounted(async () => {
   if (apiRes.ok) {
     settings.value = apiRes.data;
     beforeChangedSettings = { ...apiRes.data };
+  } else {
+    console.error(apiRes.error)
   }
   currentLocale.value = locale.value;
 });
@@ -362,6 +365,13 @@ async function saveAllSettings() {
     type: 'positive',
     message: $t('message.success'),
   });
+}
+
+/**
+ * 描画モードを変更
+ */
+function changeColorThema(isDark: boolean) {
+  $q.dark.set(isDark)
 }
 
 /**

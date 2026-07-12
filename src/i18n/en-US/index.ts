@@ -86,6 +86,7 @@ export default {
   settings: {
     title: 'Settings',
     searchPlaceholder: 'Search settings',
+    noResults: 'No settings found',
     darkMode: 'Dark Mode',
     darkModeDesc: 'Switch the whole app color scheme to dark mode.',
     viewMode: 'View Mode',

@@ -85,6 +85,7 @@ export default {
   settings: {
     title: '設定',
     searchPlaceholder: '設定を検索',
+    noResults: '設定が見つかりませんでした',
     darkMode: 'ダークモード',
     darkModeDesc: 'アプリ全体の配色をダークモードに切り替えます。',
     viewMode: '表示モード',
