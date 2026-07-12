@@ -81,9 +81,9 @@ async function getAnnotationRecord(annotID: AnnotationID): Promise<Result<Annota
  * DBからアノテーション情報を取得する
  */
 export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
-  const record = await getAnnotationRecord(annotID)
-  if (!record.ok) return record
-  return Success(record.value.annotationInfo)
+  const record = await getAnnotationRecord(annotID);
+  if (!record.ok) return record;
+  return Success(record.value.annotationInfo);
 }
 
 /**
@@ -92,8 +92,8 @@ export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<A
 export async function getAnnotationAddress(
   annotID: AnnotationID,
 ): Promise<Result<AnnotationBaseAddress>> {
-  const record = await getAnnotationRecord(annotID)
-  if (!record.ok) return record
+  const record = await getAnnotationRecord(annotID);
+  if (!record.ok) return record;
   return Success({ cID: record.value.containerID, filePath: record.value.filePath });
 }
 

@@ -9,7 +9,7 @@
         clearable
         :placeholder="$t('settings.searchPlaceholder')"
         class="q-mb-md"
-        @clear="() => searchQuery = ''"
+        @clear="() => (searchQuery = '')"
       >
         <template #prepend>
           <q-icon name="search" />
@@ -28,9 +28,7 @@
           <q-item-section>{{ section.title }}</q-item-section>
         </q-item>
         <q-item v-if="visibleSections.length === 0" dense>
-          <q-item-section class="text-grey-6">{{
-            $t('settings.noResults')
-          }}</q-item-section>
+          <q-item-section class="text-grey-6">{{ $t('settings.noResults') }}</q-item-section>
         </q-item>
       </q-list>
     </div>
@@ -228,7 +226,7 @@ onMounted(async () => {
     settings.value = apiRes.data;
     beforeChangedSettings = { ...apiRes.data };
   } else {
-    console.error(apiRes.error)
+    console.error(apiRes.error);
   }
   currentLocale.value = locale.value;
 });
@@ -371,7 +369,7 @@ async function saveAllSettings() {
  * 描画モードを変更
  */
 function changeColorThema(isDark: boolean) {
-  $q.dark.set(isDark)
+  $q.dark.set(isDark);
 }
 
 /**

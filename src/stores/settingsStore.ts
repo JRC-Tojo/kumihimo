@@ -31,9 +31,9 @@ export const useSettingsStore = defineStore('settings', {
       const api = useBackendApi();
       const res = await api.getSettings();
       if (res.ok) {
-        this.appSettings = res.data
+        this.appSettings = res.data;
       } else {
-        console.error(res.error)
+        console.error(res.error);
       }
     },
   },

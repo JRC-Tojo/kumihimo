@@ -1,7 +1,10 @@
 /**
  * 指定されたタスクを指定された並列数で実行する
  */
-export async function runConcurrently<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
+export async function runConcurrently<T>(
+  tasks: (() => Promise<T>)[],
+  concurrency: number,
+): Promise<T[]> {
   const results = new Array<T>(tasks.length);
   let nextIndex = 0;
 
@@ -12,9 +15,7 @@ export async function runConcurrently<T>(tasks: (() => Promise<T>)[], concurrenc
     }
   };
 
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()),
-  );
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
 
-  return results
+  return results;
 }
