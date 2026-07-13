@@ -264,7 +264,7 @@ class BackendApi {
     if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
 
     const relRes = await relationalService.removeRelationalsForAnnotation(annotID);
-    if (!relRes.ok) return toApiResponse(relRes, 'RELATIONAL_REMOVE_FAILED')
+    if (!relRes.ok) return toApiResponse(relRes, 'RELATIONAL_REMOVE_FAILED');
 
     return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
   }
