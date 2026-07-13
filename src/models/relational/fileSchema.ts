@@ -5,7 +5,37 @@
 import z from 'zod';
 import { AnnotationID, AnnotationStyle } from '../document/pdf';
 import { ContainerID } from '../container';
-import { RelationalRule } from './common';
+
+/**
+ * リンクのみの関係性
+ */
+export const RelationalLinkRule = z.object({
+  type: z.literal('link'),
+});
+export type RelationalLinkRule = z.infer<typeof RelationalLinkRule>;
+/**
+ * 値が等しいことを保証する関係性
+ */
+export const RelationalEqRule = z.object({
+  type: z.literal('equal'),
+  // 定数比較する際に用いるプロパティ（未指定の時にはtargetIDとの比較）
+  constVal: z.string().optional(),
+});
+export type RelationalEqRule = z.infer<typeof RelationalEqRule>;
+/**
+ * 関係性のルール
+ */
+export const RelationalRule = z.discriminatedUnion('type', [RelationalLinkRule, RelationalEqRule]);
+export type RelationalRule = z.infer<typeof RelationalRule>;
+
+/**
+ * 関係性ルールの検証結果
+ */
+export const RelationalCheckedRule = z.object({
+  rule: RelationalRule,
+  isOK: z.boolean(),
+});
+export type RelationalCheckedRule = z.infer<typeof RelationalCheckedRule>;
 
 /**
  * アノテーション位置における文書本体の情報
@@ -52,13 +82,10 @@ export type RelationalInFile = z.infer<typeof RelationalInFile>;
 /**
  * AnnotationIDとそのアノテーションが存在するファイルの位置を示す
  */
-export const AnnotationBaseAddress = z.record(
-  AnnotationID,
-  z.object({
-    cID: ContainerID,
-    filePath: z.string(),
-  }),
-);
+export const AnnotationBaseAddress = z.object({
+  cID: ContainerID,
+  filePath: z.string(),
+});
 export type AnnotationBaseAddress = z.infer<typeof AnnotationBaseAddress>;
 
 /**
@@ -68,7 +95,7 @@ export type AnnotationBaseAddress = z.infer<typeof AnnotationBaseAddress>;
  */
 export const CachedRelationalFile = z.object({
   // 関係性を定義したアノテーションの位置のみ保存
-  annotIdToFileInfo: AnnotationBaseAddress,
+  annotIdToFileInfo: z.record(AnnotationID, AnnotationBaseAddress),
   relationals: RelationalInFile.array(),
 });
 export type CachedRelationalFile = z.infer<typeof CachedRelationalFile>;

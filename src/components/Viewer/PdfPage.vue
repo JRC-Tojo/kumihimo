@@ -5,6 +5,7 @@
     <AnnotationLayer
       v-if="canvasRendered"
       :annotations="currentPageAnnotations"
+      v-model:selected-annot-ids="selectedAnnotIds"
       v-model:page="page"
       v-model:scale="scale"
       v-model:canvas-size="canvasSize"
@@ -29,6 +30,7 @@ interface Props {
 const props = defineProps<Props>();
 const page = defineModel<number>('page', { required: true });
 const scale = defineModel<number>('scale', { required: true });
+const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
 
 const $q = useQuasar();
 

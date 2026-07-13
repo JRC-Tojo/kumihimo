@@ -90,13 +90,13 @@ const editorStore = useEditorStore();
 const page = defineModel<number>('page', { required: true });
 const canvasSize = defineModel<{ width: number; height: number }>('canvasSize', { required: true });
 const scale = defineModel<number>('scale', { required: true });
+const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
 const boxRefs = ref<AnnotationNodeHandle[]>([]);
 const lineRefs = ref<AnnotationNodeHandle[]>([]);
 const circleRefs = ref<AnnotationNodeHandle[]>([]);
-const selectedAnnotIds = ref<string[]>([]);
 const pendingPointerTarget = ref<{ id: string; wasSelected: boolean } | null>(null);
 
 const isDrawing = ref(false);
@@ -362,7 +362,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
         );
         return intersects ? (node.attrs.id as string) : null;
       })
-      .filter(Boolean) as string[];
+      .filter(Boolean) as AnnotationID[];
 
     const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
     if (!metaPressed) {

@@ -10,6 +10,7 @@
       <div v-if="viewMode === 'single'" class="pages-container">
         <PdfPage
           :annotations="annotations"
+          v-model:selected-annot-ids="selectedAnnotIds"
           v-model:page="currentPage"
           v-model:scale="scale"
           @register-annot="registAnnotation"
@@ -32,6 +33,7 @@
             <PdfPage
               :page="page"
               :annotations="annotations"
+              v-model:selected-annot-ids="selectedAnnotIds"
               v-model:scale="scale"
               @register-annot="registAnnotation"
               @remove-annot="removeAnnotation"
@@ -69,6 +71,7 @@ const api = useBackendApi();
 
 const currentPage = defineModel<number>('currentPage', { required: true });
 const zoomLevel = defineModel<number>('zoomLevel', { required: true });
+const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
 
 // ズーム制御
 const scale = computed(() => zoomLevel.value / 100);

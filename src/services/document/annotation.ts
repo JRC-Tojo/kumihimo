@@ -2,11 +2,14 @@ import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Success } from 'src/models/error/result';
-import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as containerService from 'src/services/container/main';
 import * as annotationRepository from 'src/repositories/db/annotation';
 import type { Observable } from 'dexie';
-import { extractImageFromRegion } from 'src/repositories/document/pdf';
+import {
+  extractImageFromRegion,
+  extractAnnotationContextPreview,
+} from 'src/repositories/document/pdf';
 import { Image2Text } from 'src/utils/ocr/main';
 
 /**
@@ -21,6 +24,39 @@ export function initAnnotDB(): Promise<Result<void>> {
  */
 export function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
   return annotationRepository.getAnnotationInfo(annotID);
+}
+
+/**
+ * DBからアノテーションの保存パスを取得する
+ */
+export function getAnnotationAddress(
+  annotID: AnnotationID,
+): Promise<Result<AnnotationBaseAddress>> {
+  return annotationRepository.getAnnotationAddress(annotID);
+}
+
+/**
+ * アノテーションIDから、その周辺の文脈も確認できるプレビュー画像（PNG dataURL）を取得する
+ *
+ * アノテーション自体の領域のみではなく、そのページの周辺領域も含めて描画し、
+ * アノテーション位置には強調枠を付与する
+ */
+export async function getAnnotationPreviewImage(
+  annotID: AnnotationID,
+  scale = 2,
+): Promise<Result<string>> {
+  const info = await getAnnotationInfo(annotID);
+  if (!info.ok) return info;
+  const address = await getAnnotationAddress(annotID);
+  if (!address.ok) return address;
+
+  const fileSrc = await containerService.loadFileAsDocumentSource(
+    address.value.cID,
+    address.value.filePath,
+  );
+  if (!fileSrc.ok) return fileSrc;
+
+  return extractAnnotationContextPreview(fileSrc.value, info.value.style, scale);
 }
 
 /**

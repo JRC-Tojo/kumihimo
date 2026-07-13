@@ -1,14 +1,14 @@
 import type { Observable } from 'dexie';
 import Dexie, { liveQuery, type Table } from 'dexie';
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success } from 'src/models/error/result';
-import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import { Failure, Success, toError } from 'src/models/error/result';
+import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
 
 interface AnnotationRecord {
-  id: string;
-  containerID: string;
+  id: AnnotationID;
+  containerID: ContainerID;
   filePath: string;
   annotationInfo: AnnotationInfo;
   isTemporary: boolean;
@@ -62,19 +62,39 @@ export async function initAnnotDB(): Promise<Result<void>> {
 }
 
 /**
- * DBからアノテーション情報を取得する
+ * DBに記録されているアノテーションの元データを取得する
  */
-export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
+async function getAnnotationRecord(annotID: AnnotationID): Promise<Result<AnnotationRecord>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
 
   try {
     const record = await db.annotations.get(annotID);
     if (!record || record.isDeleted) return Failure(new Error('annotation not found'));
-    return Success(record.annotationInfo);
+    return Success(record);
   } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
+    return Failure(toError(error));
   }
+}
+
+/**
+ * DBからアノテーション情報を取得する
+ */
+export async function getAnnotationInfo(annotID: AnnotationID): Promise<Result<AnnotationInfo>> {
+  const record = await getAnnotationRecord(annotID);
+  if (!record.ok) return record;
+  return Success(record.value.annotationInfo);
+}
+
+/**
+ * DBからアノテーションの保存パスを取得する
+ */
+export async function getAnnotationAddress(
+  annotID: AnnotationID,
+): Promise<Result<AnnotationBaseAddress>> {
+  const record = await getAnnotationRecord(annotID);
+  if (!record.ok) return record;
+  return Success({ cID: record.value.containerID, filePath: record.value.filePath });
 }
 
 /**

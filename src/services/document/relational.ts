@@ -1,6 +1,10 @@
 import type { ContainerElementFile, ContainerID, ContainerSkel } from 'src/models/container';
 import { Failure, Success, type Result } from 'src/models/error/result';
-import type { Relational, RelationalResponce } from 'src/models/relational/common';
+import type {
+  Relational,
+  RelationalResponce,
+  RelationalWithAddress,
+} from 'src/models/relational/common';
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as docAnnotService from 'src/services/document/annotation';
@@ -23,13 +27,14 @@ export async function loadRelationals(cID: ContainerID): Promise<Result<Relation
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
 
-  const relationals = await loadCachedRelationals(container.value);
-  if (!relationals.ok) return relationals;
+  const loadRes = await loadCachedRelationals(container.value);
+  if (!loadRes.ok) return loadRes;
 
-  const storeRes = await relationalRepository.addCachedRelationals(cID, relationals.value);
+  const relationalWithAddresses = loadRes.value;
+  const storeRes = await relationalRepository.addCachedRelationals(relationalWithAddresses);
   if (!storeRes.ok) return storeRes;
 
-  return relationals;
+  return Success(relationalWithAddresses.map((r) => r.relational));
 }
 
 /**
@@ -49,9 +54,10 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
   if (!targetContent.ok) return targetContent;
 
   // .textが読み込み中の場合はundefinedのため、関係性の検証を省略する
+  // （OCR結果が空文字列''になるケースは「読み込み済みだが内容が空」であり、これは未読み込み(undefined)とは区別する）
   const srcContentTxt = srcContent.value.context.text;
   const targetContentTxt = targetContent.value.context.text;
-  if (!srcContentTxt || !targetContentTxt) {
+  if (srcContentTxt === undefined || targetContentTxt === undefined) {
     return Failure(new Error('An annotation content is not loaded yet'));
   }
 
@@ -61,15 +67,51 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
 }
 
 /**
+ * 関係性を検証する（失敗しないバージョン）
+ *
+ * アノテーション内容（OCR結果等）の読み込みが完了していない場合、checkRelationalは失敗するが
+ * それは「検証保留」を意味するだけなので、checkedRule: undefinedとして常に成功を返す
+ */
+export async function checkRelationalSafe(r: Relational): Promise<RelationalResponce> {
+  const checkedRes = await checkRelational(r);
+  if (checkedRes.ok) return checkedRes.value;
+
+  return {
+    srcID: r.srcID,
+    targetID: r.targetID,
+    srcVal: '',
+    targetVal: '',
+    checkedRule: undefined,
+  };
+}
+
+/**
  * 関係性を仮フラグを付けて新しく定義する
  */
 export async function registRelational(
   newRelational: Relational,
 ): Promise<Result<RelationalResponce>> {
-  const saveRes = await relationalRepository.addRelational(newRelational);
+  const srcAddress = await docAnnotService.getAnnotationAddress(newRelational.srcID);
+  if (!srcAddress.ok) return srcAddress;
+  const targetAddress = await docAnnotService.getAnnotationAddress(newRelational.targetID);
+  if (!targetAddress.ok) return targetAddress;
+  const saveRes = await relationalRepository.addRelational(
+    newRelational,
+    srcAddress.value,
+    targetAddress.value,
+  );
   if (!saveRes.ok) return saveRes;
 
-  return checkRelational(newRelational);
+  return Success(await checkRelationalSafe(newRelational));
+}
+
+/**
+ * 指定ファイルがsrc・target問わずどちらかの側で関わっているRelational一覧を取得する
+ */
+export function getRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<RelationalWithAddress[]>> {
+  return relationalRepository.getRelationalsInvolvingFile(file);
 }
 
 /**
@@ -80,25 +122,69 @@ export function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
 }
 
 /**
+ * srcID・targetIDが一致する1本の関係性のみを削除する（リンクの変更・個別削除用）
+ */
+export function removeRelationalEdge(
+  srcID: AnnotationID,
+  targetID: AnnotationID,
+): Promise<Result<void>> {
+  return relationalRepository.softRemoveRelationalEdge(srcID, targetID);
+}
+
+/**
+ * 指定したアノテーションがsrc・target問わずどちらかの側で関わる関係性をすべて削除する
+ *
+ * アノテーション自体が削除された際、紐づく関係性を孤立させないためのクリーンアップ用
+ */
+export function removeRelationalsForAnnotation(annotID: AnnotationID): Promise<Result<void>> {
+  return relationalRepository.softRemoveRelationalsByAnnotationID(annotID);
+}
+
+/**
+ * アノテーションIDから、そのアノテーションが属するファイル情報を解決する
+ *
+ * 関係性は別コンテナのアノテーション同士でも定義できるため、対象コンテナが
+ * まだ読み込まれていない場合はcontainerService.loadContainerで読み込む
+ */
+export async function resolveAnnotationFile(
+  annotID: AnnotationID,
+): Promise<Result<ContainerElementFile>> {
+  const address = await docAnnotService.getAnnotationAddress(annotID);
+  if (!address.ok) return address;
+
+  const container = await containerService.loadContainer(address.value.cID);
+  if (!container.ok) return container;
+
+  const elem = container.value.elements[address.value.filePath];
+  if (elem === undefined || elem.type !== 'File') {
+    return Failure(new Error(`Not Found File (path: ${address.value.filePath})`));
+  }
+
+  return Success(elem);
+}
+
+/**
  * DBに格納されている特定ファイルの関係性を保存する（＝仮フラグを撤去する）
  *
  * 保存した関係性一覧を返す
  */
-export function saveRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
+export function saveRelationals(
+  file: ContainerElementFile,
+): Promise<Result<RelationalWithAddress[]>> {
   return relationalRepository.commitRelationals(file);
 }
 
 /**
  * コンテナルートにキャッシュされた関係性情報を読み込む
  */
-async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relational[]>> {
+async function loadCachedRelationals(c: ContainerSkel): Promise<Result<RelationalWithAddress[]>> {
   // 関係性情報の元データを取得
   const relFileContent = await containerConfigService.getRelationalFile(c.id);
   if (!relFileContent.ok) return relFileContent;
 
   // 取得したデータの中からtargetAnnotIDの情報に絞る
   const relationalsFromFile = relFileContent.value.relationals;
-  const relationals = relationalsFromFile
+  const relationals: RelationalWithAddress[] = relationalsFromFile
     .map((r) => {
       const srcFile = relFileContent.value.annotIdToFileInfo[r.src];
       const targetFile = relFileContent.value.annotIdToFileInfo[r.target];
@@ -108,11 +194,13 @@ async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relationa
       if (!srcFile || !targetFile) return '';
 
       return {
-        srcFile,
-        srcID: r.src,
-        targetFile,
-        targetID: r.target,
-        rule: r.rule,
+        relational: {
+          srcID: r.src,
+          targetID: r.target,
+          rule: r.rule,
+        },
+        srcAddress: srcFile,
+        targetAddress: targetFile,
       };
     })
     .filter((r) => r !== '');

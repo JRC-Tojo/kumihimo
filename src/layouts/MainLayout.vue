@@ -16,11 +16,26 @@
           :breakpoint="0"
           class="row"
         >
-          <q-tabs v-model="selectedTab" vertical switch-indicator>
-            <q-tab name="docs" icon="library_books" />
-            <q-tab name="exts" icon="extension" />
-            <q-tab name="settings" icon="settings" />
-          </q-tabs>
+          <div class="rail-container">
+            <q-tabs v-model="selectedTab" vertical switch-indicator class="rail-tabs">
+              <q-tab name="docs" icon="library_books" class="rail-tab" />
+              <q-tab name="exts" icon="extension" class="rail-tab" />
+            </q-tabs>
+
+            <!-- <q-space /> -->
+
+            <!-- 設定：ドキュメントタブと同様に、設定タブをタブ領域に開く -->
+            <q-btn
+              flat
+              dense
+              icon="settings"
+              size="md"
+              class="rail-tab"
+              @click="editorStore.openSettingsTab()"
+            >
+              <q-tooltip>{{ $t('settings.title') }}</q-tooltip>
+            </q-btn>
+          </div>
 
           <q-separator vertical />
 
@@ -29,7 +44,6 @@
               <explorer-view />
             </q-tab-panel>
             <q-tab-panel name="exts"> This is Extensions </q-tab-panel>
-            <q-tab-panel name="settings"> This is Settings </q-tab-panel>
           </q-tab-panels>
         </q-drawer>
       </template>
@@ -49,8 +63,10 @@ import ExplorerView from 'src/components/MainLayout/ExplorerView.vue';
 import EditorPage from 'src/pages/EditorPage.vue';
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useEditorStore } from 'src/stores/editorStore';
 
 const { t: $t } = useI18n();
+const editorStore = useEditorStore();
 const showLeftDrawer = ref(true);
 const selectedTab = ref('docs');
 
@@ -72,5 +88,19 @@ const compPadding = computed(() => (showLeftDrawer.value ? { paddingLeft: '0px' 
 .panels {
   flex: 1 1 0;
   overflow-x: hidden;
+}
+
+.rail-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+
+  .rail-tabs {
+    height: 100%;
+  }
+
+  .rail-tab {
+    min-height: 48pt;
+  }
 }
 </style>

@@ -14,7 +14,7 @@ import type {
 } from 'src/models/relational/fileSchema';
 import { CachedRelationalFile, DocumentConfigFile } from 'src/models/relational/fileSchema';
 import * as textRepository from 'src/repositories/document/text';
-import type { Relational } from 'src/models/relational/common';
+import type { RelationalWithAddress } from 'src/models/relational/common';
 import { CONFIG_FILE_EXTS } from 'src/models/document/common';
 import { fromEntries } from 'src/utils/obj/obj';
 import type { AnnotationID } from 'src/models/document/pdf';
@@ -82,7 +82,7 @@ export async function getRelationalFile(cID: ContainerID): Promise<Result<Cached
 export function buildCachedRelationalFile(
   oldFile: CachedRelationalFile,
   updateDocPath: string,
-  rs: Relational[],
+  rsWithAdrs: RelationalWithAddress[],
 ): CachedRelationalFile {
   // 1. 更新対象ファイルに関わる既存の関係性を破棄する
   const isUpdatedDocumentRelation = (relation: RelationalInFile): boolean => {
@@ -101,16 +101,16 @@ export function buildCachedRelationalFile(
 
   // 2. 実行中のRelational[]を更新対象ファイルに関わるものだけに絞り、
   //    ファイル保存用の簡易ルール形式に変換する
-  const filteredRs = rs.filter((relation) => {
-    const srcPath = relation.srcFile?.filePath;
-    const targetPath = relation.targetFile?.filePath;
+  const filteredRs = rsWithAdrs.filter((relation) => {
+    const srcPath = relation.srcAddress.filePath;
+    const targetPath = relation.targetAddress.filePath;
     return srcPath === updateDocPath || targetPath === updateDocPath;
   });
 
   const convertedRelationals = filteredRs.map((relation) => ({
-    src: relation.srcID,
-    target: relation.targetID,
-    rule: relation.rule,
+    src: relation.relational.srcID,
+    target: relation.relational.targetID,
+    rule: relation.relational.rule,
   }));
 
   // 3. 既存と新規を統合し、キー重複を排除する
@@ -132,12 +132,12 @@ export function buildCachedRelationalFile(
     referencedAnnotIDs.add(relation.target);
   });
 
-  const annotIdToFileInfo: AnnotationBaseAddress = {};
+  const annotIdToFileInfo: Record<AnnotationID, AnnotationBaseAddress> = {};
 
   // 4a. まず新規Relationalから優先的にファイル情報を埋める
-  const assignFromRelation = (relation: Relational) => {
-    annotIdToFileInfo[relation.srcID] = relation.srcFile;
-    annotIdToFileInfo[relation.targetID] = relation.targetFile;
+  const assignFromRelation = (relation: RelationalWithAddress) => {
+    annotIdToFileInfo[relation.relational.srcID] = relation.srcAddress;
+    annotIdToFileInfo[relation.relational.targetID] = relation.targetAddress;
   };
   filteredRs.forEach(assignFromRelation);
 
@@ -164,7 +164,7 @@ export function buildCachedRelationalFile(
 export async function updateRelationalFile(
   cID: ContainerID,
   updateDocPath: string,
-  rs: Relational[],
+  rsWithAdrs: RelationalWithAddress[],
 ): Promise<Result<void>> {
   const containerService = await import('./main');
 
@@ -177,7 +177,11 @@ export async function updateRelationalFile(
   if (!oldRelationalFile.ok) return oldRelationalFile;
 
   // 3. 更新要求に基づき、保存用のCachedRelationalFileを構築する
-  const convertedRelational = buildCachedRelationalFile(oldRelationalFile.value, updateDocPath, rs);
+  const convertedRelational = buildCachedRelationalFile(
+    oldRelationalFile.value,
+    updateDocPath,
+    rsWithAdrs,
+  );
 
   // 4. JSON化して保存形式に変換する
   const relFileStr = JSON.stringify(convertedRelational, null, 2);

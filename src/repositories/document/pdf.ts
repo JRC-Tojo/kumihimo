@@ -104,6 +104,58 @@ export async function renderPageToCanvas(
   }
 }
 
+/** annotStyle の種類に応じて外接矩形を計算する（アノテーション自体のタイトな範囲） */
+function calculateBoundingBox(style: AnnotationStyle): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const padding = 2; // 矩形の外側に少し余白を付与
+
+  switch (style.type) {
+    case 'box': {
+      const { x, y, width, height } = style;
+      return {
+        x: Math.max(0, x - padding),
+        y: Math.max(0, y - padding),
+        width: width + padding * 2,
+        height: height + padding * 2,
+      };
+    }
+    case 'line': {
+      const { x, y, points, strokeWidth = 2 } = style;
+      const [, , dx, dy] = points; // points: [0, 0, x2-x, y2-y]
+      const x2 = x + (dx ?? 2);
+      const y2 = y + (dy ?? 2);
+
+      // 線幅を考慮した外接矩形を計算
+      const halfStroke = strokeWidth / 2 + padding;
+      const minX = Math.min(x, x2) - halfStroke;
+      const maxX = Math.max(x, x2) + halfStroke;
+      const minY = Math.min(y, y2) - halfStroke;
+      const maxY = Math.max(y, y2) + halfStroke;
+
+      return {
+        x: Math.max(0, minX),
+        y: Math.max(0, minY),
+        width: maxX - minX,
+        height: maxY - minY,
+      };
+    }
+    case 'circle': {
+      const { x, y, radius } = style;
+      const extent = radius + padding;
+      return {
+        x: Math.max(0, x - extent),
+        y: Math.max(0, y - extent),
+        width: extent * 2,
+        height: extent * 2,
+      };
+    }
+  }
+}
+
 /**
  * 指定ページの矩形領域を切り出して PNG の dataURL を返す。Result でラップ。
  * annotStyle で指定された領域の外接矩形を計算して切り出す
@@ -114,58 +166,6 @@ export async function extractImageFromRegion(
   annotStyle: AnnotationStyle,
   scale = 2,
 ): Promise<Result<string>> {
-  /** annotStyle の種類に応じて外接矩形を計算する */
-  function calculateBoundingBox(style: AnnotationStyle): {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  } {
-    const padding = 2; // 矩形の外側に少し余白を付与
-
-    switch (style.type) {
-      case 'box': {
-        const { x, y, width, height } = style;
-        return {
-          x: Math.max(0, x - padding),
-          y: Math.max(0, y - padding),
-          width: width + padding * 2,
-          height: height + padding * 2,
-        };
-      }
-      case 'line': {
-        const { x, y, points, strokeWidth = 2 } = style;
-        const [, , dx, dy] = points; // points: [0, 0, x2-x, y2-y]
-        const x2 = x + (dx ?? 2);
-        const y2 = y + (dy ?? 2);
-
-        // 線幅を考慮した外接矩形を計算
-        const halfStroke = strokeWidth / 2 + padding;
-        const minX = Math.min(x, x2) - halfStroke;
-        const maxX = Math.max(x, x2) + halfStroke;
-        const minY = Math.min(y, y2) - halfStroke;
-        const maxY = Math.max(y, y2) + halfStroke;
-
-        return {
-          x: Math.max(0, minX),
-          y: Math.max(0, minY),
-          width: maxX - minX,
-          height: maxY - minY,
-        };
-      }
-      case 'circle': {
-        const { x, y, radius } = style;
-        const extent = radius + padding;
-        return {
-          x: Math.max(0, x - extent),
-          y: Math.max(0, y - extent),
-          width: extent * 2,
-          height: extent * 2,
-        };
-      }
-    }
-  }
-
   const targetRect = calculateBoundingBox(annotStyle);
 
   try {
@@ -189,6 +189,79 @@ export async function extractImageFromRegion(
       0,
       Math.round(targetRect.width * scale),
       Math.round(targetRect.height * scale),
+    );
+    return Success(tmp.toDataURL('image/png'));
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
+/**
+ * アノテーションの周辺の文脈も確認できるようにするためのプレビュー画像を生成する。
+ * アノテーション自体の領域のみを切り出すのではなく、そのページの一部を広めに切り出し、
+ * アノテーション位置に強調枠を描画した上で返す（ページ全体ではなく、アノテーション周辺にズームする）
+ */
+export async function extractAnnotationContextPreview(
+  src64: DocumentSource,
+  annotStyle: AnnotationStyle,
+  scale = 2,
+): Promise<Result<string>> {
+  const tightRect = calculateBoundingBox(annotStyle);
+
+  try {
+    const rendered = await renderPageToCanvas(src64, annotStyle.pageNumber, scale);
+    if (!rendered.ok) return Failure(rendered.error);
+    const pageCanvas = rendered.value;
+    const pageWidthPt = pageCanvas.width / scale;
+    const pageHeightPt = pageCanvas.height / scale;
+
+    // アノテーション位置を強調する枠線をページ描画済みキャンバス上に描画する
+    const highlightCtx = pageCanvas.getContext('2d');
+    if (highlightCtx) {
+      const highlightPadding = 4;
+      highlightCtx.save();
+      highlightCtx.strokeStyle = '#2196f3';
+      highlightCtx.lineWidth = 3;
+      highlightCtx.setLineDash([6, 4]);
+      highlightCtx.strokeRect(
+        (tightRect.x - highlightPadding) * scale,
+        (tightRect.y - highlightPadding) * scale,
+        (tightRect.width + highlightPadding * 2) * scale,
+        (tightRect.height + highlightPadding * 2) * scale,
+      );
+      highlightCtx.restore();
+    }
+
+    // アノテーション周辺を含む「ズームした」範囲を計算する（タイトな範囲を拡張し、ページ範囲内にクランプ）
+    const zoomPaddingX = Math.max(tightRect.width * 1.5, 80);
+    const zoomPaddingY = Math.max(tightRect.height * 1.5, 80);
+    const zoomX = Math.max(0, tightRect.x - zoomPaddingX);
+    const zoomY = Math.max(0, tightRect.y - zoomPaddingY);
+    const zoomRight = Math.min(pageWidthPt, tightRect.x + tightRect.width + zoomPaddingX);
+    const zoomBottom = Math.min(pageHeightPt, tightRect.y + tightRect.height + zoomPaddingY);
+    const zoomRect = {
+      x: zoomX,
+      y: zoomY,
+      width: zoomRight - zoomX,
+      height: zoomBottom - zoomY,
+    };
+
+    const tmp = document.createElement('canvas');
+    tmp.width = Math.round(zoomRect.width * scale);
+    tmp.height = Math.round(zoomRect.height * scale);
+    const tctx = tmp.getContext('2d');
+    if (!tctx) return Failure(new Error('Canvas 2D context is not available'));
+
+    tctx.drawImage(
+      pageCanvas,
+      Math.round(zoomRect.x * scale),
+      Math.round(zoomRect.y * scale),
+      Math.round(zoomRect.width * scale),
+      Math.round(zoomRect.height * scale),
+      0,
+      0,
+      Math.round(zoomRect.width * scale),
+      Math.round(zoomRect.height * scale),
     );
     return Success(tmp.toDataURL('image/png'));
   } catch (e) {

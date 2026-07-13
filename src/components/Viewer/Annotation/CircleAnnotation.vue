@@ -15,6 +15,9 @@ import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import dayjs from 'dayjs';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import { useRelationalStore } from 'src/stores/relationalStore';
+import { useSettingsStore } from 'src/stores/settingsStore';
+import { getRelationalStyleOverride } from './relationalStyleOverride';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
 
@@ -31,8 +34,19 @@ const emit = defineEmits<{
   delete: [id: AnnotationID];
 }>();
 
+const relationalStore = useRelationalStore();
+const settingsStore = useSettingsStore();
+
 const circleRef = ref<{ getNode: () => Konva.Circle | null } | null>(null);
 const isHovered = ref(false);
+
+// 関係性の検証結果（OK/NG）による表示上書き。関連なし・検証保留中は元のスタイルを維持する
+const relationalOverride = computed(() =>
+  getRelationalStyleOverride(
+    relationalStore.statusForAnnotation(props.annotation.id),
+    settingsStore.relationalVerificationStyle,
+  ),
+);
 
 const circleConfig = computed(() => {
   if (props.annotation.type !== 'circle') return;
@@ -42,9 +56,9 @@ const circleConfig = computed(() => {
     x: props.annotation.x,
     y: props.annotation.y,
     radius: props.annotation.radius || 20,
-    fill: 'transparent',
-    stroke: props.annotation.color,
-    strokeWidth: props.annotation.strokeWidth || 2,
+    fill: relationalOverride.value?.fill ?? 'transparent',
+    stroke: relationalOverride.value?.stroke ?? props.annotation.color,
+    strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth || 2),
     draggable: props.isEditing,
     opacity: props.annotation.opacity || 1,
   };

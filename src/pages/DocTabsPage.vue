@@ -2,6 +2,27 @@
   <div class="doc-tabs-page">
     <!-- タブバー -->
     <div class="tabs-bar">
+      <!-- 設定タブ（開いている場合のみ、文書タブの前に固定表示） -->
+      <div
+        v-if="editorStore.settingsOpenSides[prop.layoutSide]"
+        :class="['tabs-container', 'tab-item', { active: isSettingsActive }]"
+        @click="selectSettingsTab"
+      >
+        <div class="tab-content">
+          <q-icon name="settings" class="tab-icon" />
+          <span class="tab-title">{{ $t('settings.title') }}</span>
+        </div>
+        <q-btn
+          flat
+          dense
+          round
+          icon="close"
+          size="xs"
+          class="tab-close-btn"
+          @click.stop="editorStore.closeSettingsTab(prop.layoutSide)"
+        />
+      </div>
+
       <VueDraggable
         v-model="tabs"
         :animation="0"
@@ -16,7 +37,10 @@
           :key="`${tab.containerID}/${tab.path}`"
           :class="[
             'tab-item',
-            { active: tab.path === activeTabFile?.path && activeLayout === layoutSide },
+            {
+              active:
+                !isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide,
+            },
           ]"
           @click="selectTab(tab, true)"
         >
@@ -39,7 +63,13 @@
 
     <!-- コンテンツエリア -->
     <div class="tabs-content">
-      <DocumentTabView v-if="activeTabFile" :file="activeTabFile" :key="activeTabFile.path" />
+      <SettingsPage v-if="isSettingsActive" />
+      <DocumentTabView
+        v-else-if="activeTabFile"
+        :file="activeTabFile"
+        :layout-side="prop.layoutSide"
+        :key="`${activeTabFile.containerID}/${activeTabFile.path}`"
+      />
       <div v-else class="empty-state">
         <q-icon name="description" size="3rem" color="grey-5" />
         <p class="q-mt-md text-grey-6">{{ $t('pdfEditor.document.noDocumentSelected') }}</p>
@@ -50,8 +80,9 @@
 
 <script setup lang="ts">
 import DocumentTabView from 'src/components/DocLayout/DocumentTabView.vue';
+import SettingsPage from 'src/pages/SettingsPage.vue';
 import type { ContainerElementFile } from 'src/models/container';
-import { useEditorStore } from 'src/stores/editorStore';
+import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
 import { Path } from 'src/utils/binary/path';
 import { computed } from 'vue';
@@ -72,9 +103,23 @@ const tabs = computed({
 });
 const activeTabFile = computed(() => editorStore.getActiveTab(prop.layoutSide));
 const activeLayout = computed(() => editorStore.activeSide);
+const isSettingsActive = computed(
+  () => editorStore.activeTabPaths[prop.layoutSide] === SETTINGS_TAB_KEY,
+);
+
+function selectSettingsTab() {
+  editorStore.selectSettingsTab(prop.layoutSide, true);
+}
 
 function tabTitle(path: string) {
   return new Path(path).basename();
+}
+
+/**
+ * 同一ファイルかどうかをcontainerID込みで判定する（別コンテナの同名パスファイルを区別するため）
+ */
+function isSameFile(a: ContainerElementFile, b: ContainerElementFile | null | undefined): boolean {
+  return b !== null && b !== undefined && a.containerID === b.containerID && a.path === b.path;
 }
 
 function selectTab(file: ContainerElementFile, isFocus: boolean) {

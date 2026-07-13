@@ -1,22 +1,25 @@
 import { describe, test, expect } from 'bun:test';
 import { buildCachedRelationalFile } from '../config';
-import type { CachedRelationalFile } from '../../../models/relational/fileSchema';
-import type { Relational } from '../../../models/relational/common';
-import type { ContainerID } from '../../../models/container';
-import type { AnnotationID } from '../../../models/document/pdf';
+import type { CachedRelationalFile } from 'src/models/relational/fileSchema';
+import type { RelationalWithAddress } from 'src/models/relational/common';
+import type { ContainerID } from 'src/models/container';
+import type { AnnotationID } from 'src/models/document/pdf';
 
 describe('buildCachedRelationalFile', () => {
   const cID = '00000000-0000-0000-0000-000000000000' as ContainerID;
   const a = '00000000-0000-0000-0000-000000000001' as AnnotationID;
   const b = '00000000-0000-0000-0000-000000000002' as AnnotationID;
   const c = '00000000-0000-0000-0000-000000000003' as AnnotationID;
+  const aAdrs = { cID, filePath: 'file1.pdf' };
+  const bAdrs = { cID, filePath: 'file2.pdf' };
+  const cAdrs = { cID, filePath: 'file3.pdf' };
 
   test('removes relationals referencing the updated document and preserves unrelated ones', () => {
     const oldFile: CachedRelationalFile = {
       annotIdToFileInfo: {
-        [a]: { cID, filePath: 'file1.pdf' },
-        [b]: { cID, filePath: 'file2.pdf' },
-        [c]: { cID, filePath: 'file3.pdf' },
+        [a]: aAdrs,
+        [b]: bAdrs,
+        [c]: cAdrs,
       },
       relationals: [
         { src: a, target: b, rule: { type: 'link' } },
@@ -24,13 +27,15 @@ describe('buildCachedRelationalFile', () => {
       ],
     };
 
-    const rs: Relational[] = [
+    const rs: RelationalWithAddress[] = [
       {
-        srcFile: { cID, filePath: 'file3.pdf' },
-        srcID: c,
-        targetFile: { cID, filePath: 'file1.pdf' },
-        targetID: a,
-        rule: { type: 'link' },
+        relational: {
+          srcID: c,
+          targetID: a,
+          rule: { type: 'link' },
+        },
+        srcAddress: cAdrs,
+        targetAddress: aAdrs,
       },
     ];
 
@@ -41,35 +46,39 @@ describe('buildCachedRelationalFile', () => {
       { src: c, target: a, rule: { type: 'link' } },
     ]);
     expect(saved.annotIdToFileInfo).toEqual({
-      [a]: { cID, filePath: 'file1.pdf' },
-      [b]: { cID, filePath: 'file2.pdf' },
-      [c]: { cID, filePath: 'file3.pdf' },
+      [a]: aAdrs,
+      [b]: bAdrs,
+      [c]: cAdrs,
     });
   });
 
   test('deduplicates duplicate relation entries when building the cached file', () => {
     const oldFile: CachedRelationalFile = {
       annotIdToFileInfo: {
-        [a]: { cID, filePath: 'file1.pdf' },
-        [b]: { cID, filePath: 'file2.pdf' },
+        [a]: aAdrs,
+        [b]: bAdrs,
       },
       relationals: [{ src: a, target: b, rule: { type: 'link' } }],
     };
 
-    const rs: Relational[] = [
+    const rs: RelationalWithAddress[] = [
       {
-        srcFile: { cID, filePath: 'file1.pdf' },
-        srcID: a,
-        targetFile: { cID, filePath: 'file2.pdf' },
-        targetID: b,
-        rule: { type: 'link' },
+        relational: {
+          srcID: a,
+          targetID: b,
+          rule: { type: 'link' },
+        },
+        srcAddress: aAdrs,
+        targetAddress: bAdrs,
       },
       {
-        srcFile: { cID, filePath: 'file1.pdf' },
-        srcID: a,
-        targetFile: { cID, filePath: 'file2.pdf' },
-        targetID: b,
-        rule: { type: 'link' },
+        relational: {
+          srcID: a,
+          targetID: b,
+          rule: { type: 'link' },
+        },
+        srcAddress: aAdrs,
+        targetAddress: bAdrs,
       },
     ];
 
@@ -77,34 +86,38 @@ describe('buildCachedRelationalFile', () => {
 
     expect(saved.relationals).toEqual([{ src: a, target: b, rule: { type: 'link' } }]);
     expect(saved.annotIdToFileInfo).toEqual({
-      [a]: { cID, filePath: 'file1.pdf' },
-      [b]: { cID, filePath: 'file2.pdf' },
+      [a]: aAdrs,
+      [b]: bAdrs,
     });
   });
 
   test('apply links from a same annotation', () => {
     const oldFile: CachedRelationalFile = {
       annotIdToFileInfo: {
-        [a]: { cID, filePath: 'file1.pdf' },
+        [a]: aAdrs,
       },
       relationals: [],
     };
 
-    const rs: Relational[] = [
+    const rs: RelationalWithAddress[] = [
       {
-        srcFile: { cID, filePath: 'file1.pdf' },
-        srcID: a,
-        targetFile: { cID, filePath: 'file2.pdf' },
-        targetID: b,
-        rule: { type: 'equal' },
+        relational: {
+          srcID: a,
+          targetID: b,
+          rule: { type: 'equal' },
+        },
+        srcAddress: aAdrs,
+        targetAddress: bAdrs,
       },
       // file2.pdfは今回の更新対象ではないため、登録されないはず
       {
-        srcFile: { cID, filePath: 'file2.pdf' },
-        srcID: b,
-        targetFile: { cID, filePath: 'file3.pdf' },
-        targetID: c,
-        rule: { type: 'link' },
+        relational: {
+          srcID: b,
+          targetID: c,
+          rule: { type: 'link' },
+        },
+        srcAddress: bAdrs,
+        targetAddress: cAdrs,
       },
     ];
 
@@ -112,17 +125,17 @@ describe('buildCachedRelationalFile', () => {
 
     expect(saved.relationals).toEqual([{ src: a, target: b, rule: { type: 'equal' } }]);
     expect(saved.annotIdToFileInfo).toEqual({
-      [a]: { cID, filePath: 'file1.pdf' },
-      [b]: { cID, filePath: 'file2.pdf' },
+      [a]: aAdrs,
+      [b]: bAdrs,
     });
   });
 
   test('remove links from a same annotation', () => {
     const oldFile: CachedRelationalFile = {
       annotIdToFileInfo: {
-        [a]: { cID, filePath: 'file1.pdf' },
-        [b]: { cID, filePath: 'file2.pdf' },
-        [c]: { cID, filePath: 'file3.pdf' },
+        [a]: aAdrs,
+        [b]: bAdrs,
+        [c]: cAdrs,
       },
       relationals: [
         { src: a, target: b, rule: { type: 'equal' } },
@@ -132,14 +145,14 @@ describe('buildCachedRelationalFile', () => {
     };
 
     // file1.pdfからすべての関係性を削除した想定
-    const rs: Relational[] = [];
+    const rs: RelationalWithAddress[] = [];
 
     const saved = buildCachedRelationalFile(oldFile, 'file1.pdf', rs);
 
     expect(saved.relationals).toEqual([{ src: b, target: c, rule: { type: 'link' } }]);
     expect(saved.annotIdToFileInfo).toEqual({
-      [b]: { cID, filePath: 'file2.pdf' },
-      [c]: { cID, filePath: 'file3.pdf' },
+      [b]: bAdrs,
+      [c]: cAdrs,
     });
   });
 });

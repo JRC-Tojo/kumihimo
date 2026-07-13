@@ -77,24 +77,6 @@
       }
     }
   }
-
-  input,
-  textarea {
-    &:not([type='color']) {
-      background: $grey-8;
-      color: $grey-2;
-      border-color: $grey-7;
-
-      &::placeholder {
-        color: $grey-6;
-      }
-
-      &:focus {
-        border-color: $primary;
-        background: color.adjust($grey-8, $lightness: -5%);
-      }
-    }
-  }
 }
 
 // スクロールバーの共通スタイル

@@ -94,8 +94,8 @@ export async function saveConfig(
   if (!annotInfos.ok) return annotInfos;
 
   // 関係性情報を取得する
-  const relationas = await relationalService.saveRelationals(file);
-  if (!relationas.ok) return relationas;
+  const rsWithAdrs = await relationalService.saveRelationals(file);
+  if (!rsWithAdrs.ok) return rsWithAdrs;
 
   // 取得した情報をマージして実ファイルに保存する
   const annotSavedRes = await containerConfigService.saveDocumentConfigs(
@@ -109,7 +109,7 @@ export async function saveConfig(
   const relationalSavedRes = await containerConfigService.updateRelationalFile(
     file.containerID,
     file.path,
-    relationas.value,
+    rsWithAdrs.value,
   );
   if (!relationalSavedRes.ok) return relationalSavedRes;
 

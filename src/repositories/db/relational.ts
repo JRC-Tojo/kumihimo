@@ -1,19 +1,19 @@
 import Dexie, { type Table } from 'dexie';
+import type { ContainerElementFile } from 'src/models/container';
 import { ContainerID } from 'src/models/container';
-import type { ContainerElementFile, ContainerID as ContainerIDType } from 'src/models/container';
+import type { AnnotationID } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success } from 'src/models/error/result';
-import type { Relational } from 'src/models/relational/common';
+import { Failure, Success, toError } from 'src/models/error/result';
+import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
+import type { AnnotationBaseAddress } from 'src/models/relational/fileSchema';
 
 interface RelationalRecord {
   id: string;
-  containerID: string;
-  filePath: string;
-  srcID: string;
-  srcContainerID: string;
+  srcID: AnnotationID;
+  srcContainerID: ContainerID;
   srcFilePath: string;
-  targetID: string;
-  targetContainerID: string;
+  targetID: AnnotationID;
+  targetContainerID: ContainerID;
   targetFilePath: string;
   rule: Relational['rule'];
   isTemporary: boolean;
@@ -37,34 +37,50 @@ const db = new RelationalDexieDB();
 
 function toRelationalRecord(
   relational: Relational,
+  srcAddress: AnnotationBaseAddress,
+  targetAddress: AnnotationBaseAddress,
   isTemporary = true,
-  containerID?: ContainerIDType,
-  filePath?: string,
 ): RelationalRecord {
   const compositeKey = [
     relational.srcID,
     relational.targetID,
-    relational.srcFile.cID,
-    relational.srcFile.filePath,
-    relational.targetFile.cID,
-    relational.targetFile.filePath,
+    srcAddress.cID,
+    srcAddress.filePath,
+    targetAddress.cID,
+    targetAddress.filePath,
     JSON.stringify(relational.rule),
   ].join('|');
 
   return {
     id: compositeKey,
-    containerID: containerID ?? relational.srcFile.cID,
-    filePath: filePath ?? relational.srcFile.filePath,
     srcID: relational.srcID,
-    srcContainerID: relational.srcFile.cID,
-    srcFilePath: relational.srcFile.filePath,
+    srcContainerID: srcAddress.cID,
+    srcFilePath: srcAddress.filePath,
     targetID: relational.targetID,
-    targetContainerID: relational.targetFile.cID,
-    targetFilePath: relational.targetFile.filePath,
+    targetContainerID: targetAddress.cID,
+    targetFilePath: targetAddress.filePath,
     rule: relational.rule,
     isTemporary,
     isDeleted: false,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function toRelationalWithAddress(row: RelationalRecord): RelationalWithAddress {
+  return {
+    relational: {
+      srcID: row.srcID,
+      targetID: row.targetID,
+      rule: row.rule,
+    },
+    srcAddress: {
+      cID: ContainerID.parse(row.srcContainerID),
+      filePath: row.srcFilePath,
+    },
+    targetAddress: {
+      cID: ContainerID.parse(row.targetContainerID),
+      filePath: row.targetFilePath,
+    },
   };
 }
 
@@ -73,7 +89,7 @@ async function ensureReady(): Promise<Result<void>> {
     await db.open();
     return Success();
   } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
+    return Failure(toError(error));
   }
 }
 
@@ -88,21 +104,20 @@ export async function initRelationalDB(): Promise<Result<void>> {
  * キャッシュから読み込んだ関係性情報をDBに登録する
  */
 export async function addCachedRelationals(
-  cID: ContainerIDType,
-  relationals: Relational[],
+  relationalWithAddresses: RelationalWithAddress[],
 ): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
 
   try {
     await db.relationals.bulkPut(
-      relationals.map((relational) =>
-        toRelationalRecord(relational, false, cID, relational.srcFile.filePath),
+      relationalWithAddresses.map(({ relational, srcAddress, targetAddress }) =>
+        toRelationalRecord(relational, srcAddress, targetAddress, false),
       ),
     );
     return Success();
   } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
+    return Failure(toError(error));
   }
 }
 
@@ -124,30 +139,64 @@ export async function getRelationalsByFile(
 
     return Success(
       rows.map((row) => ({
-        srcFile: { cID: ContainerID.parse(row.srcContainerID), filePath: row.srcFilePath },
-        srcID: row.srcID as Relational['srcID'],
-        targetFile: { cID: ContainerID.parse(row.targetContainerID), filePath: row.targetFilePath },
-        targetID: row.targetID as Relational['targetID'],
+        srcID: row.srcID,
+        targetID: row.targetID,
         rule: row.rule,
       })),
     );
   } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
+    return Failure(toError(error));
+  }
+}
+
+/**
+ * 指定ファイルがsrc・target問わずどちらかの側で関わっているRelational一覧をDBから取得して返す
+ */
+export async function getRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<RelationalWithAddress[]>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const [srcRows, targetRows] = await Promise.all([
+      db.relationals
+        .where('srcContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.srcFilePath === file.path && !row.isDeleted)
+        .toArray(),
+      db.relationals
+        .where('targetContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.targetFilePath === file.path && !row.isDeleted)
+        .toArray(),
+    ]);
+
+    // src・target両方が同一ファイル内の場合に重複するため、行idでユニーク化する
+    const rowsById = new Map([...srcRows, ...targetRows].map((row) => [row.id, row]));
+
+    return Success(Array.from(rowsById.values()).map(toRelationalWithAddress));
+  } catch (error) {
+    return Failure(toError(error));
   }
 }
 
 /**
  * 関係性を仮フラグつきで新規登録する
  */
-export async function addRelational(relational: Relational): Promise<Result<void>> {
+export async function addRelational(
+  relational: Relational,
+  srcAddress: AnnotationBaseAddress,
+  targetAddress: AnnotationBaseAddress,
+): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
 
   try {
-    await db.relationals.put(toRelationalRecord(relational, true));
+    await db.relationals.put(toRelationalRecord(relational, srcAddress, targetAddress, true));
     return Success();
   } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
+    return Failure(toError(error));
   }
 }
 
@@ -166,14 +215,74 @@ export async function softRemoveRelationalsBySrcID(srcID: string): Promise<Resul
     });
     return Success();
   } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
+    return Failure(toError(error));
+  }
+}
+
+/**
+ * srcID・targetIDが一致する1本の関係性のみを仮削除としてマークする
+ *
+ * softRemoveRelationalsBySrcIDは対象アノテーションが持つ全ての関係性を削除するが、
+ * こちらは特定の1エッジのみを対象にする（リンクの変更・個別削除用）
+ */
+export async function softRemoveRelationalEdge(
+  srcID: AnnotationID,
+  targetID: AnnotationID,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.relationals
+      .where('srcID')
+      .equals(srcID)
+      .filter((row) => row.targetID === targetID && !row.isDeleted)
+      .modify({
+        isDeleted: true,
+        isTemporary: true,
+        updatedAt: new Date().toISOString(),
+      });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
+ * 指定したアノテーションがsrc・target問わずどちらかの側で関わる関係性をすべて仮削除としてマークする
+ *
+ * アノテーション自体が削除された際に、紐づく関係性を孤立させないためのクリーンアップ用
+ */
+export async function softRemoveRelationalsByAnnotationID(
+  annotID: AnnotationID,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const updatedAt = new Date().toISOString();
+    await db.transaction('rw', db.relationals, async () => {
+      await db.relationals
+        .where('srcID')
+        .equals(annotID)
+        .modify({ isDeleted: true, isTemporary: true, updatedAt });
+      await db.relationals
+        .where('targetID')
+        .equals(annotID)
+        .modify({ isDeleted: true, isTemporary: true, updatedAt });
+    });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
   }
 }
 
 /**
  * 特定ファイルの関係性を本保存し、保存済みの一覧を返す
  */
-export async function commitRelationals(file: ContainerElementFile): Promise<Result<Relational[]>> {
+export async function commitRelationals(
+  file: ContainerElementFile,
+): Promise<Result<RelationalWithAddress[]>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
 
@@ -197,16 +306,8 @@ export async function commitRelationals(file: ContainerElementFile): Promise<Res
       );
     });
 
-    return Success(
-      rows.map((row) => ({
-        srcFile: { cID: ContainerID.parse(row.srcContainerID), filePath: row.srcFilePath },
-        srcID: row.srcID as Relational['srcID'],
-        targetFile: { cID: ContainerID.parse(row.targetContainerID), filePath: row.targetFilePath },
-        targetID: row.targetID as Relational['targetID'],
-        rule: row.rule,
-      })),
-    );
+    return Success(rows.map(toRelationalWithAddress));
   } catch (error) {
-    return Failure(error instanceof Error ? error : new Error(String(error)));
+    return Failure(toError(error));
   }
 }
