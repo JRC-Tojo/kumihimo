@@ -7,11 +7,13 @@ import {
   RelationalVerificationStyle,
   DEFAULT_RELATIONAL_VERIFICATION_STYLE,
 } from './relational/style';
+import { localeKeys } from 'src/i18n';
 
 /**
  * アプリケーション設定スキーマ
  */
 export const AppSettings = z.object({
+  locale: z.enum(localeKeys).default('ja-JP'),
   darkMode: z.boolean().default(false),
   viewMode: z.enum(['rich', 'list1', 'list2']).default('rich'),
   sortBy: z.enum(['name', 'updatedAt', 'genre']).default('updatedAt'),

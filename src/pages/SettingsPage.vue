@@ -60,7 +60,7 @@
             :description="$t('settings.languageDesc')"
           >
             <q-select
-              v-model="currentLocale"
+              v-model="settings.locale"
               :options="languages"
               emit-value
               map-options
@@ -201,8 +201,6 @@ const settingsStore = useSettingsStore();
 let beforeChangedSettings: { [key: string]: unknown } = {};
 const settings = ref<AppSettings>();
 
-const currentLocale = ref('en-US');
-
 const viewModes = [
   { label: $t('viewMode.rich'), value: 'rich' },
   { label: $t('viewMode.list1'), value: 'list1' },
@@ -228,7 +226,6 @@ onMounted(async () => {
   } else {
     console.error(apiRes.error);
   }
-  currentLocale.value = locale.value;
 });
 
 // ================================ 検索・目次 ================================
