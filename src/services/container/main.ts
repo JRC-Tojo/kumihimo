@@ -5,6 +5,7 @@
 import type {
   ContainerElement,
   ContainerElementFile,
+  ContainerElementFolder,
   ContainerSkel,
   ContainerType,
 } from 'src/models/container';
@@ -19,6 +20,15 @@ import { fromEntries } from 'src/utils/obj/obj';
 import { DocumentSource } from 'src/models/document/common';
 import { v4 as uuidv4 } from 'uuid';
 import { getBase64FileSize } from 'src/utils/binary/base64';
+import { Path } from 'src/utils/binary/path';
+
+/**
+ * リネーム・移動処理の結果として返す、旧パスと更新後要素の組
+ */
+export interface RenamedEntry {
+  oldPath: string;
+  element: ContainerElement;
+}
 
 /**
  * 処理をコンテナ種別ごとに振り分ける
@@ -91,13 +101,18 @@ export async function getAllContainers(): Promise<Result<ContainerSkel[]>> {
  *
  * コンテナ要素まですべて読み込む
  */
-export async function loadContainer(id: ContainerID): Promise<Result<Container>> {
+export async function loadContainer(
+  id: ContainerID,
+  forceReload: boolean = false,
+): Promise<Result<Container>> {
   const c = getContainer(id);
   if (!c.ok) return c;
 
-  // キャッシュがすでに入っている場合はそのデータを返す
-  const cached = parseContainer(c.value);
-  if (cached.success) return Success(cached.data);
+  // キャッシュがすでに入っている場合はそのデータを返す（forceReload時は実データを読み直す）
+  if (!forceReload) {
+    const cached = parseContainer(c.value);
+    if (cached.success) return Success(cached.data);
+  }
 
   // コンテナ要素情報の読み取り
   const loadedContainer = await switchContainerProcess(
@@ -110,6 +125,9 @@ export async function loadContainer(id: ContainerID): Promise<Result<Container>>
 
   // キャッシュの更新
   cachedContainers[c.value.id] = loadedContainer.value;
+
+  // 最近読み込んだコンテナ一覧を最新化する（ベストエフォート）
+  await settings.addRecentContainer(loadedContainer.value);
 
   return loadedContainer;
 }
@@ -149,6 +167,9 @@ export async function createContainer(
     await unloadContainer(newContainer.id, true);
     return settingsRes;
   }
+
+  // 最近読み込んだコンテナ一覧にも記録する（ベストエフォート：失敗してもコンテナ作成自体は成功とする）
+  await settings.addRecentContainer(newContainer);
 
   // コンテナ内部のElementsの読み取り
   return Success(newContainer);
@@ -311,4 +332,197 @@ export async function loadFileAsDocumentSource(
   if (!srcData.ok) return srcData;
 
   return Success(DocumentSource.parse(srcData.value));
+}
+
+/**
+ * コンテナ内にフォルダを追加する
+ */
+export async function createFolder(
+  cId: ContainerID,
+  folderPathStr: string,
+): Promise<Result<ContainerElementFolder>> {
+  const c = getContainer(cId);
+  if (!c.ok) return c;
+
+  const parsedContainer = parseContainer(c.value);
+  if (!parsedContainer.success) return Failure(new Error('Unloaded container elements'));
+
+  const element: ContainerElementFolder = {
+    containerID: cId,
+    type: 'Folder',
+    path: folderPathStr,
+    createdAt: new Date(),
+  };
+  parsedContainer.data.elements[element.path] = element;
+
+  const createRes = await switchContainerProcess(
+    parsedContainer.data.type,
+    () => box.createFolder(parsedContainer.data, element.path),
+    () => local.createFolder(parsedContainer.data, element.path),
+    () => cache.createFolder(parsedContainer.data, element.path),
+  );
+  if (!createRes.ok) return createRes;
+
+  cachedContainers[cId] = parsedContainer.data;
+
+  return Success(element);
+}
+
+/**
+ * コンテナ内のフォルダを削除する（配下の全要素も合わせて削除する）
+ */
+export async function deleteFolder(
+  cId: ContainerID,
+  folder: ContainerElementFolder,
+): Promise<Result<void>> {
+  const c = getContainer(cId);
+  if (!c.ok) return c;
+
+  const parsedContainer = parseContainer(c.value);
+  if (!parsedContainer.success) return Failure(new Error('This is not a filled container'));
+
+  const prefix = `${folder.path}/`;
+  const descendants = Object.values(parsedContainer.data.elements).filter((e) =>
+    e.path.startsWith(prefix),
+  );
+
+  // 子孫のファイル本体データを先に削除する
+  const descendantFiles = descendants.filter((e): e is ContainerElementFile => e.type === 'File');
+  for (const file of descendantFiles) {
+    delete parsedContainer.data.elements[file.path];
+    const delRes = await switchContainerProcess(
+      parsedContainer.data.type,
+      () => box.deleteFile(parsedContainer.data, file),
+      () => local.deleteFile(parsedContainer.data, file),
+      () => cache.deleteFile(parsedContainer.data, file),
+    );
+    if (!delRes.ok) return delRes;
+  }
+
+  // 子孫のフォルダ要素情報を削除（実データは持たないため要素マップからの除去のみでよい）
+  descendants
+    .filter((e) => e.type === 'Folder')
+    .forEach((e) => delete parsedContainer.data.elements[e.path]);
+
+  // フォルダ自体の要素情報を削除
+  delete parsedContainer.data.elements[folder.path];
+  cachedContainers[cId] = parsedContainer.data;
+
+  return switchContainerProcess(
+    parsedContainer.data.type,
+    () => box.deleteFolder(parsedContainer.data, folder.path),
+    () => local.deleteFolder(parsedContainer.data, folder.path),
+    () => cache.deleteFolder(parsedContainer.data, folder.path),
+  );
+}
+
+/**
+ * ファイル・フォルダのパスを変更する
+ *
+ * Fileの場合は1件、Folderの場合は配下の全要素も新パスに付け替えて返す
+ * （呼び出し側で`.rdcfg`・関係性キャッシュ等の副作用伝播に使えるよう、旧パスと新要素の組で返す）
+ */
+export async function renamePath(
+  cId: ContainerID,
+  elem: ContainerElement,
+  newPath: string,
+): Promise<Result<RenamedEntry[]>> {
+  const c = getContainer(cId);
+  if (!c.ok) return c;
+
+  const parsedContainer = parseContainer(c.value);
+  if (!parsedContainer.success) return Failure(new Error('Unloaded container elements'));
+
+  // Folderの場合、配下のファイル・フォルダを先に処理し終えてから最後にフォルダ自身を処理する
+  // （local実装ではフォルダのリネームを「空になったフォルダの付け替え」として扱うため、
+  //   配下を先に退避させておく必要がある）
+  const targets: ContainerElement[] =
+    elem.type === 'File'
+      ? [elem]
+      : [
+          ...Object.values(parsedContainer.data.elements)
+            .filter((e) => e.path.startsWith(`${elem.path}/`))
+            .sort((a, b) => b.path.split('/').length - a.path.split('/').length),
+          elem,
+        ];
+
+  const renamed: RenamedEntry[] = [];
+  for (const target of targets) {
+    const targetNewPath = newPath + target.path.slice(elem.path.length);
+    const isFolder = target.type === 'Folder';
+
+    delete parsedContainer.data.elements[target.path];
+    const newElement: ContainerElement = { ...target, path: targetNewPath };
+    parsedContainer.data.elements[targetNewPath] = newElement;
+
+    const renameRes = await switchContainerProcess(
+      parsedContainer.data.type,
+      () => box.renameEntry(parsedContainer.data, target.path, targetNewPath, isFolder),
+      () => local.renameEntry(parsedContainer.data, target.path, targetNewPath, isFolder),
+      () => cache.renameEntry(parsedContainer.data, target.path, targetNewPath, isFolder),
+    );
+    if (!renameRes.ok) return renameRes;
+
+    renamed.push({ oldPath: target.path, element: newElement });
+  }
+
+  cachedContainers[cId] = parsedContainer.data;
+
+  return Success(renamed);
+}
+
+/**
+ * ファイル・フォルダを別のフォルダ配下へ移動する
+ *
+ * 内部的にはリネーム（移動先フォルダ + 元の basename）として扱う
+ */
+export async function moveElement(
+  cId: ContainerID,
+  elem: ContainerElement,
+  newParentPath: string,
+): Promise<Result<RenamedEntry[]>> {
+  const basename = new Path(elem.path).basename();
+  const newPath = new Path(newParentPath).child(basename).path;
+  return renamePath(cId, elem, newPath);
+}
+
+/**
+ * ローカルフォルダを選択する（`createContainer('local', ...)`の直前にUIから呼ぶこと）
+ *
+ * ブラウザの「ユーザー操作直後のみディレクトリピッカーを開ける」という制約を満たすための入口
+ */
+export async function pickLocalDirectory(): Promise<Result<{ name: string }>> {
+  return local.pickDirectory();
+}
+
+/**
+ * 既に取得済みのディレクトリハンドルを登録する（`.code-workspace`読み込み等で使用）
+ */
+export function registerLocalDirectoryHandle(
+  handle: FileSystemDirectoryHandle,
+): Promise<Result<void>> {
+  local.registerHandle(handle);
+  return Promise.resolve(Success());
+}
+
+/**
+ * コンテナへのアクセス許可状態を確認する（local型のみ意味を持つ。それ以外は常にgranted扱い）
+ */
+export async function checkContainerPermission(
+  cId: ContainerID,
+): Promise<Result<'granted' | 'prompt' | 'denied'>> {
+  const c = getContainer(cId);
+  if (!c.ok) return c;
+  if (c.value.type !== 'local') return Success('granted');
+  return local.checkPermission(cId);
+}
+
+/**
+ * コンテナへのアクセス許可を再度要求する（再接続ボタン等のユーザー操作から呼ぶこと）
+ */
+export async function requestContainerPermission(cId: ContainerID): Promise<Result<void>> {
+  const c = getContainer(cId);
+  if (!c.ok) return c;
+  if (c.value.type !== 'local') return Success();
+  return local.requestPermission(cId);
 }

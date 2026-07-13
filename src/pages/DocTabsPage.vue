@@ -65,9 +65,19 @@
     <div class="tabs-content">
       <SettingsPage v-if="isSettingsActive" />
       <DocumentTabView
-        v-else-if="activeTabFile"
+        v-else-if="activeTabFile && activeDocumentKind === 'pdf'"
         :file="activeTabFile"
         :layout-side="prop.layoutSide"
+        :key="`${activeTabFile.containerID}/${activeTabFile.path}`"
+      />
+      <TextFileTabView
+        v-else-if="activeTabFile && activeDocumentKind === 'text'"
+        :file="activeTabFile"
+        :key="`${activeTabFile.containerID}/${activeTabFile.path}`"
+      />
+      <UnsupportedFileTabView
+        v-else-if="activeTabFile"
+        :file="activeTabFile"
         :key="`${activeTabFile.containerID}/${activeTabFile.path}`"
       />
       <div v-else class="empty-state">
@@ -80,11 +90,14 @@
 
 <script setup lang="ts">
 import DocumentTabView from 'src/components/DocLayout/DocumentTabView.vue';
+import TextFileTabView from 'src/components/DocLayout/TextFileTabView.vue';
+import UnsupportedFileTabView from 'src/components/DocLayout/UnsupportedFileTabView.vue';
 import SettingsPage from 'src/pages/SettingsPage.vue';
 import type { ContainerElementFile } from 'src/models/container';
 import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
 import { Path } from 'src/utils/binary/path';
+import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 import { computed } from 'vue';
 import type { DraggableEvent } from 'vue-draggable-plus';
 import { VueDraggable } from 'vue-draggable-plus';
@@ -102,6 +115,9 @@ const tabs = computed({
   },
 });
 const activeTabFile = computed(() => editorStore.getActiveTab(prop.layoutSide));
+const activeDocumentKind = computed(() =>
+  activeTabFile.value ? getSupportedDocumentKind(activeTabFile.value.path) : undefined,
+);
 const activeLayout = computed(() => editorStore.activeSide);
 const isSettingsActive = computed(
   () => editorStore.activeTabPaths[prop.layoutSide] === SETTINGS_TAB_KEY,

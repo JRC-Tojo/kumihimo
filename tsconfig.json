@@ -1,6 +1,6 @@
 {
   "extends": "./.quasar/tsconfig.json",
   "compilerOptions": {
-    "types": ["bun"]
+    "types": ["bun", "wicg-file-system-access"]
   }
 }

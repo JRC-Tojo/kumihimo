@@ -2,7 +2,7 @@
  * ユーザー固有の設定を保存しておく
  */
 
-import type { ContainerID, ContainerSkel } from 'src/models/container';
+import type { ContainerID, ContainerSkel, RecentContainerEntry } from 'src/models/container';
 import type { AnnotationTool } from 'src/models/docPage';
 import { Success, type Result } from 'src/models/error/result';
 import { AppSettings } from 'src/models/settings';
@@ -68,6 +68,41 @@ export async function removeLoadedContainer(cId: ContainerID): Promise<Result<vo
   const settings = settingsRes.value;
   const newContainers = settings.containerSkels.filter((c) => c.id !== cId);
   return saveSettings('containerSkels', newContainers);
+}
+
+/** 「最近読み込んだコンテナ一覧」に保持する最大件数 */
+const MAX_RECENT_CONTAINERS = 20;
+
+/**
+ * 「最近読み込んだコンテナ一覧」にコンテナを追加（既存の場合は最新化）する
+ *
+ * コンテナをアンロードしてもこの一覧からは消さない（再読込の選択肢として使うため）
+ */
+export async function addRecentContainer(c: ContainerSkel): Promise<Result<void>> {
+  const settingsRes = await getSettings();
+  if (!settingsRes.ok) return settingsRes;
+
+  const entry: RecentContainerEntry = { ...c, lastOpenedAt: new Date() };
+  const withoutSame = settingsRes.value.recentContainers.filter((r) => r.id !== c.id);
+  const newRecents = [entry, ...withoutSame]
+    .sort((a, b) => b.lastOpenedAt.getTime() - a.lastOpenedAt.getTime())
+    .slice(0, MAX_RECENT_CONTAINERS);
+
+  return saveSettings('recentContainers', newRecents);
+}
+
+/**
+ * 「最近読み込んだコンテナ一覧」を取得する（最新順）
+ */
+export async function getRecentContainers(): Promise<Result<RecentContainerEntry[]>> {
+  const settingsRes = await getSettings();
+  if (!settingsRes.ok) return settingsRes;
+
+  return Success(
+    [...settingsRes.value.recentContainers].sort(
+      (a, b) => b.lastOpenedAt.getTime() - a.lastOpenedAt.getTime(),
+    ),
+  );
 }
 
 const defaultAnnotationTools: AnnotationTool[] = [

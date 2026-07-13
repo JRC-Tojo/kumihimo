@@ -63,3 +63,29 @@ export async function deleteFile(c: Container, element: ContainerElement): Promi
 export async function loadSrcData(cId: ContainerID, path: string): Promise<Result<DocumentSource>> {
   return new Promise((resolve) => resolve(Failure(new Error('Not implemented'))));
 }
+
+/**
+ * Boxにフォルダの実態を追加する
+ */
+export async function createFolder(c: Container, folderPath: string): Promise<Result<void>> {
+  return new Promise((resolve) => resolve(Failure(new Error('Not implemented'))));
+}
+
+/**
+ * Boxからフォルダの実態を削除する
+ */
+export async function deleteFolder(c: Container, folderPath: string): Promise<Result<void>> {
+  return new Promise((resolve) => resolve(Failure(new Error('Not implemented'))));
+}
+
+/**
+ * Boxのファイル・フォルダのパスを付け替える
+ */
+export async function renameEntry(
+  c: Container,
+  oldPath: string,
+  newPath: string,
+  isFolder: boolean,
+): Promise<Result<void>> {
+  return new Promise((resolve) => resolve(Failure(new Error('Not implemented'))));
+}

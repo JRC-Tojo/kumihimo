@@ -1,17 +1,25 @@
-import { getSettings, initializeSettings, saveSettings } from 'src/settings/main';
+import {
+  getSettings,
+  getRecentContainers,
+  initializeSettings,
+  saveSettings,
+} from 'src/settings/main';
 import { toApiResponse, type ApiResponse } from 'src/models/error/api';
 import { Failure, Success } from 'src/models/error/result';
 import * as containerService from 'src/services/container/main';
 import * as relationalService from 'src/services/document/relational';
 import * as pdfRepo from 'src/repositories/document/pdf';
+import * as textRepo from 'src/repositories/document/text';
 import * as documentService from 'src/services/document/config';
 import type {
   Container,
   ContainerElement,
   ContainerElementFile,
+  ContainerElementFolder,
   ContainerID,
   ContainerSkel,
   ContainerType,
+  RecentContainerEntry,
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
@@ -73,9 +81,14 @@ class BackendApi {
 
   /**
    * コンテナの中身（ファイル群）を読み取る
+   *
+   * @param forceReload trueの場合、既に読み込み済みでも実データを読み直す（手動リロード用）
    */
-  async loadContainer(id: ContainerID): Promise<ApiResponse<Container>> {
-    const loadedContainers = await containerService.loadContainer(id);
+  async loadContainer(
+    id: ContainerID,
+    forceReload: boolean = false,
+  ): Promise<ApiResponse<Container>> {
+    const loadedContainers = await containerService.loadContainer(id, forceReload);
     if (loadedContainers.ok) {
       const initRelation = await relationalService.loadRelationals(id);
       if (!initRelation.ok) return toApiResponse(initRelation, 'CONTAINER_LOAD_FAILED');
@@ -83,32 +96,83 @@ class BackendApi {
     return toApiResponse(loadedContainers, 'CONTAINER_LOAD_FAILED');
   }
 
-  // ============ 文書操作 ============
+  /**
+   * コンテナの読み込みを中止する（`deleteContainer: true`の場合は実データの`.rd`管理情報も削除する）
+   */
+  async unloadContainer(
+    cId: ContainerID,
+    deleteContainer: boolean = false,
+  ): Promise<ApiResponse<void>> {
+    const res = await containerService.unloadContainer(cId, deleteContainer);
+    return toApiResponse(res, 'CONTAINER_UNLOAD_FAILED');
+  }
 
   /**
-   * 全コンテナ要素を取得
+   * 「最近読み込んだコンテナ一覧」を取得する（最新順）
    */
-  async getAllElements(): Promise<ApiResponse<ContainerElement[]>> {
-    // 保存済みのコンテナ情報を取得
-    const allContainers = await containerService.getAllContainers();
-    if (!allContainers.ok) return toApiResponse(allContainers, 'CONTAINER_LOAD_FAILED');
-
-    // TODO: 将来的には「コンテナ取得」と「コンテナ読み込み」は分離するが、現状はフロントエンドに媚びた実装
-    // コンテナの要素をすべて読み込む
-    const allContainersWithElements = await Promise.all(
-      allContainers.value.map((c) => containerService.loadContainer(c.id)),
-    );
-    const errContainer = allContainersWithElements.find((res) => !res.ok);
-    if (errContainer !== void 0) return toApiResponse(errContainer, 'DOC_LIST_FAILED');
-
-    // Resultをunwrapしてファイル要素を抽出
-    const containers = allContainersWithElements.filter((res) => res.ok).map((res) => res.value);
-    const elements = containers
-      .flatMap((c) => Object.values(c.elements ?? {}))
-      .filter((e) => e !== void 0);
-
-    return toApiResponse(Success(elements));
+  async getRecentContainers(): Promise<ApiResponse<RecentContainerEntry[]>> {
+    const res = await getRecentContainers();
+    return toApiResponse(res, 'CONTAINERS_GET_FAILED');
   }
+
+  /**
+   * ローカルフォルダを選択する（`createContainer('local', ...)`の直前にUIから呼ぶこと。
+   * ブラウザの「ユーザー操作直後のみ許可」という制約を満たすための入り口になる）
+   */
+  async pickLocalDirectory(): Promise<ApiResponse<{ name: string }>> {
+    const res = await containerService.pickLocalDirectory();
+    return toApiResponse(res, 'CONTAINER_CREATE_FAILED');
+  }
+
+  /**
+   * 既に取得済みのディレクトリハンドルを登録する（`.code-workspace`読み込み等、
+   * ディレクトリピッカー以外の経路でハンドルを取得した場合に使用する）
+   */
+  async registerLocalDirectoryHandle(
+    handle: FileSystemDirectoryHandle,
+  ): Promise<ApiResponse<void>> {
+    const res = await containerService.registerLocalDirectoryHandle(handle);
+    return toApiResponse(res, 'CONTAINER_CREATE_FAILED');
+  }
+
+  /**
+   * コンテナへのアクセス許可状態を確認する（local型のみ意味を持つ。それ以外は常にgranted扱い）
+   */
+  async checkContainerPermission(
+    cId: ContainerID,
+  ): Promise<ApiResponse<'granted' | 'prompt' | 'denied'>> {
+    const res = await containerService.checkContainerPermission(cId);
+    return toApiResponse(res, 'CONTAINER_PERMISSION_FAILED');
+  }
+
+  /**
+   * コンテナへのアクセス許可を再度要求する（再接続ボタン等のユーザー操作から呼ぶこと）
+   */
+  async requestContainerPermission(cId: ContainerID): Promise<ApiResponse<void>> {
+    const res = await containerService.requestContainerPermission(cId);
+    return toApiResponse(res, 'CONTAINER_PERMISSION_FAILED');
+  }
+
+  /**
+   * コンテナ内にフォルダを新規作成する
+   */
+  async createFolder(
+    cId: ContainerID,
+    folderPath: string,
+  ): Promise<ApiResponse<ContainerElementFolder>> {
+    const res = await containerService.createFolder(cId, folderPath);
+    return toApiResponse(res, 'FOLDER_CREATE_FAILED');
+  }
+
+  /**
+   * コンテナ内のフォルダを削除する（配下の全要素も合わせて削除する）
+   */
+  async deleteFolder(cId: ContainerID, folder: ContainerElementFolder): Promise<ApiResponse<void>> {
+    const res = await containerService.deleteFolder(cId, folder);
+    return toApiResponse(res, 'FOLDER_DELETE_FAILED');
+  }
+
+  // ============ 文書操作 ============
 
   /**
    * 文書を取得
@@ -121,6 +185,16 @@ class BackendApi {
       );
     const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
     return toApiResponse(docSrc, 'INVALID_DOCUMENT');
+  }
+
+  /**
+   * テキスト系文書（.txt/.md等）の内容を文字列として取得する
+   */
+  async getDocumentText(file: ContainerElementFile): Promise<ApiResponse<string>> {
+    const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+    if (!docSrc.ok) return toApiResponse(docSrc, 'INVALID_DOCUMENT');
+    const textRes = textRepo.loadTextContents(docSrc.value);
+    return toApiResponse(textRes, 'INVALID_DOCUMENT');
   }
 
   /**
@@ -185,20 +259,29 @@ class BackendApi {
   }
 
   /**
-   * パスのリネーム
+   * ファイル・フォルダのパスをリネームする
+   *
+   * 実データのパス変更に加え、`.rdcfg`サイドカー・関係性キャッシュ・読み込み中DBの
+   * ファイルパス参照もあわせて更新する（詳細は`documentService.renamePath`を参照）
    */
-  // async renamePath(
-  //   elem: ContainerElement,
-  //   newPath: string,
-  // ): Promise<ApiResponse<ContainerElement>> {
-  //   // 新規パスに更新したElementを返す
-  //   // TODO: 実データのファイルパスの更新と関係性データに記載のパス情報を両方更新する
-  //   const renameRes = await containerService.renamePath(elem, newPath);
-  //   if (!renameRes.ok) return toApiResponse(renameRes, 'PATH_RENAME_FAILED');
-  //   const relRes = await relationalService.renamePath(elem, newPath);
-  //   if (!relRes.ok) return toApiResponse(relRes, 'PATH_RENAME_FAILED');
-  //   return toApiResponse(renameRes, 'PATH_RENAME_FAILED');
-  // }
+  async renamePath(
+    elem: ContainerElement,
+    newPath: string,
+  ): Promise<ApiResponse<ContainerElement[]>> {
+    const renameRes = await documentService.renamePath(elem, newPath);
+    return toApiResponse(renameRes, 'PATH_RENAME_FAILED');
+  }
+
+  /**
+   * ファイル・フォルダを別のフォルダ配下へ移動する
+   */
+  async moveElement(
+    elem: ContainerElement,
+    newParentPath: string,
+  ): Promise<ApiResponse<ContainerElement[]>> {
+    const moveRes = await documentService.moveElement(elem, newParentPath);
+    return toApiResponse(moveRes, 'PATH_MOVE_FAILED');
+  }
 
   // ============ アノテーション操作 ============
 

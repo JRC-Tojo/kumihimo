@@ -1,4 +1,4 @@
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Success } from 'src/models/error/result';
@@ -157,4 +157,15 @@ export function saveAnnotationInfo(file?: ContainerElementFile): Promise<Result<
  */
 export function removeAnnotationInfo(annotID: AnnotationID): Promise<Result<void>> {
   return annotationRepository.softRemoveAnnotation(annotID);
+}
+
+/**
+ * ファイルのリネーム・移動に伴い、読み込み中のアノテーション記録のfilePathを付け替える
+ */
+export function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  return annotationRepository.remapFilePath(containerID, oldPath, newPath);
 }

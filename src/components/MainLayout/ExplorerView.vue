@@ -1,54 +1,62 @@
 <template>
-  <!-- TODO: 現状はコンテナ型が存在しないため、仮実装 -->
-  <!-- 現行実装のfileはコンテナ導入後は削除 -->
-  <!-- <ExpContainer v-for="container in containers" :container="container" :key="container.path" /> -->
+  <div class="explorer-view">
+    <div class="explorer-view-header">
+      <q-btn flat dense round icon="add" size="sm" @click="showNewContainerDialog = true">
+        <q-tooltip>{{ $t('explorer.addContainer') }}</q-tooltip>
+      </q-btn>
+    </div>
 
-  <template v-for="file in elems" :key="file.path">
-    <ExpFile v-if="file.type === 'File'" :file="file" />
-    <ExpFolder v-if="file.type === 'Folder'" :folder="file" />
-  </template>
+    <ExpContainer
+      v-for="container in containers"
+      :key="container.id"
+      :container="container"
+      @closed="loadContainers"
+    />
 
-  <q-btn
-    v-show="elems.length === 0"
-    outline
-    :label="$t('explorer.demo')"
-    color="primary"
-    class="full-width q-my-sm"
-    @click="onCreateDemo"
-  />
+    <q-btn
+      v-show="containers.length === 0"
+      outline
+      :label="$t('explorer.demo')"
+      color="primary"
+      class="full-width q-my-sm"
+      @click="onCreateDemo"
+    />
+
+    <NewContainerDialog v-model="showNewContainerDialog" @created="loadContainers" />
+  </div>
 </template>
 
 <script setup lang="ts">
 import { useBackendApi } from 'src/apis/backendApi';
-import { ref } from 'vue';
-import { onMounted } from 'vue';
-import ExpFile from './Explorer/ExpFile.vue';
+import { ref, onMounted } from 'vue';
+import ExpContainer from './Explorer/ExpContainer.vue';
+import NewContainerDialog from './Explorer/NewContainerDialog.vue';
 import { createDemoData } from 'src/utils/appInitializer.js';
-import type { ContainerElement } from 'src/models/container.js';
-import ExpFolder from './Explorer/ExpFolder.vue';
+import type { ContainerSkel } from 'src/models/container.js';
 
 const api = useBackendApi();
 
-const elems = ref<ContainerElement[]>([]);
-// const containers = ref();
+const containers = ref<ContainerSkel[]>([]);
+const showNewContainerDialog = ref(false);
 
-async function loadDocs() {
-  const apiRes = await api.getAllElements();
+async function loadContainers() {
+  const apiRes = await api.getAllContainers();
   if (apiRes.ok) {
-    elems.value = apiRes.data;
+    containers.value = apiRes.data;
   }
 }
 
 async function onCreateDemo() {
   await createDemoData();
-  await loadDocs();
+  await loadContainers();
 }
 
-onMounted(async () => {
-  // const apiRes = await api.getAllContainers();
-  // if (apiRes.success) {
-  //   containers.value = apiRes.data;
-  // }
-  await loadDocs();
-});
+onMounted(loadContainers);
 </script>
+
+<style lang="scss" scoped>
+.explorer-view-header {
+  display: flex;
+  justify-content: flex-end;
+}
+</style>

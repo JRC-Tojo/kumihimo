@@ -182,6 +182,59 @@ export async function getRelationalsInvolvingFile(
 }
 
 /**
+ * 特定ファイルに関わる関係性記録のfilePathを付け替える（リネーム・移動時の追従用）
+ *
+ * `id`はfilePathを含む複合キーのため、`.modify()`ではなく削除→再登録で付け替える
+ */
+export async function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.transaction('rw', db.relationals, async () => {
+      const asSrc = await db.relationals
+        .where('srcContainerID')
+        .equals(containerID)
+        .filter((row) => row.srcFilePath === oldPath)
+        .toArray();
+      const asTarget = await db.relationals
+        .where('targetContainerID')
+        .equals(containerID)
+        .filter((row) => row.targetFilePath === oldPath)
+        .toArray();
+      const rowsById = new Map([...asSrc, ...asTarget].map((row) => [row.id, row]));
+
+      for (const row of rowsById.values()) {
+        const updated: RelationalRecord = {
+          ...row,
+          srcFilePath: row.srcFilePath === oldPath ? newPath : row.srcFilePath,
+          targetFilePath: row.targetFilePath === oldPath ? newPath : row.targetFilePath,
+        };
+        updated.id = [
+          updated.srcID,
+          updated.targetID,
+          updated.srcContainerID,
+          updated.srcFilePath,
+          updated.targetContainerID,
+          updated.targetFilePath,
+          JSON.stringify(updated.rule),
+        ].join('|');
+
+        await db.relationals.delete(row.id);
+        await db.relationals.put(updated);
+      }
+    });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * 関係性を仮フラグつきで新規登録する
  */
 export async function addRelational(

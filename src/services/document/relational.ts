@@ -175,6 +175,17 @@ export function saveRelationals(
 }
 
 /**
+ * ファイルのリネーム・移動に伴い、読み込み中の関係性記録のfilePathを付け替える
+ */
+export function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  return relationalRepository.remapFilePath(containerID, oldPath, newPath);
+}
+
+/**
  * コンテナルートにキャッシュされた関係性情報を読み込む
  */
 async function loadCachedRelationals(c: ContainerSkel): Promise<Result<RelationalWithAddress[]>> {

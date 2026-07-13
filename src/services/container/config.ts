@@ -24,7 +24,7 @@ const CONTAINER_CONFIG_FOLDER = '.rd';
 /**
  * 文書設定ファイルのパスを取得する
  */
-function getConfigPath(filePath: string): string {
+export function getConfigPath(filePath: string): string {
   const pathObj = new Path(filePath);
   const parentPath = pathObj.parent();
   const pathName = pathObj.basename();
@@ -189,6 +189,58 @@ export async function updateRelationalFile(
   if (!relFileSrc.ok) return relFileSrc;
 
   // 5. コンテナルートの関係性ファイルを更新する
+  const relationalFilePath = getRelationalFilePath(container.value.containerPath);
+  const createRes = await containerService.createFile(cID, relationalFilePath, relFileSrc.value);
+  if (!createRes.ok) return createRes;
+
+  return Success();
+}
+
+/**
+ * `CachedRelationalFile`内の`annotIdToFileInfo[...].filePath`を、旧パス→新パスのマップに従って付け替える
+ *
+ * ファイルのリネーム・移動に伴う副作用伝播のための純粋関数（テストしやすいよう分離している）
+ */
+export function remapCachedRelationalFilePaths(
+  oldFile: CachedRelationalFile,
+  pathMap: Record<string, string>,
+): CachedRelationalFile {
+  const remappedAnnotIdToFileInfo: Record<AnnotationID, AnnotationBaseAddress> = {};
+  for (const [annotID, address] of Object.entries(oldFile.annotIdToFileInfo)) {
+    const newFilePath = pathMap[address.filePath];
+    remappedAnnotIdToFileInfo[annotID as AnnotationID] =
+      newFilePath !== undefined ? { ...address, filePath: newFilePath } : address;
+  }
+
+  return {
+    annotIdToFileInfo: remappedAnnotIdToFileInfo,
+    relationals: oldFile.relationals,
+  };
+}
+
+/**
+ * ファイルのリネーム・移動に伴い、コンテナルートの関係性キャッシュファイル内の
+ * `annotIdToFileInfo[...].filePath`を一括で付け替える
+ *
+ * @param pathMap 旧パス→新パスのマップ（リネーム対象になったFile要素の分のみ）
+ */
+export async function remapRelationalFilePaths(
+  cID: ContainerID,
+  pathMap: Record<string, string>,
+): Promise<Result<void>> {
+  const containerService = await import('./main');
+
+  const oldRelationalFile = await getRelationalFile(cID);
+  if (!oldRelationalFile.ok) return oldRelationalFile;
+
+  const updatedFile = remapCachedRelationalFilePaths(oldRelationalFile.value, pathMap);
+
+  const relFileStr = JSON.stringify(updatedFile, null, 2);
+  const relFileSrc = textRepository.encodeTextContents(relFileStr);
+  if (!relFileSrc.ok) return relFileSrc;
+
+  const container = containerService.getContainer(cID);
+  if (!container.ok) return container;
   const relationalFilePath = getRelationalFilePath(container.value.containerPath);
   const createRes = await containerService.createFile(cID, relationalFilePath, relFileSrc.value);
   if (!createRes.ok) return createRes;

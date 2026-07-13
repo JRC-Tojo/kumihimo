@@ -1,4 +1,4 @@
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElement, ContainerElementFile } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
 import { CONFIG_FILE_EXTS } from 'src/models/document/common';
 import { Failure, Success, type Result } from 'src/models/error/result';
@@ -165,6 +165,79 @@ export async function updateConfigForNewDoc(
   );
 
   return loadedConf;
+}
+
+/**
+ * ファイル・フォルダのパス変更（リネーム・移動）を行う
+ *
+ * 実データのパス変更に加えて、対応する`.rdcfg`サイドカー設定ファイル、コンテナルートの
+ * 関係性キャッシュファイル（`.rd/relational.json`）、読み込み中のアノテーション/関係性DBの
+ * ファイルパス参照もあわせて更新し、リネームによって整合性が崩れないようにする
+ */
+export async function renamePath(
+  elem: ContainerElement,
+  newPath: string,
+): Promise<Result<ContainerElement[]>> {
+  const cID = elem.containerID;
+
+  // Fileの場合、対応する.rdcfgサイドカーが存在するかをリネーム前に確認しておく
+  const containerBefore = containerService.getContainer(cID);
+  if (!containerBefore.ok) return containerBefore;
+  const elementsBefore = 'elements' in containerBefore.value ? containerBefore.value.elements : {};
+
+  // 1. 本体（Folderの場合は配下も含む）のリネーム
+  const mainRenameRes = await containerService.renamePath(cID, elem, newPath);
+  if (!mainRenameRes.ok) return mainRenameRes;
+
+  const allRenamed = [...mainRenameRes.value];
+
+  // 2. リネームされた各Fileについて、対応する.rdcfgサイドカーがあれば追従させる
+  const renamedFiles = mainRenameRes.value.filter((r) => r.element.type === 'File');
+  for (const renamedFile of renamedFiles) {
+    const oldSidecarPath = containerConfigService.getConfigPath(renamedFile.oldPath);
+    const sidecarElem = elementsBefore[oldSidecarPath];
+    if (sidecarElem === undefined) continue;
+
+    const newSidecarPath = containerConfigService.getConfigPath(renamedFile.element.path);
+    const sidecarRenameRes = await containerService.renamePath(cID, sidecarElem, newSidecarPath);
+    if (!sidecarRenameRes.ok) return sidecarRenameRes;
+    allRenamed.push(...sidecarRenameRes.value);
+  }
+
+  // 3. コンテナルートの関係性キャッシュ・読み込み中DBのファイルパス参照を更新する
+  //    （サイドカー自体は関係性の参照先にならないため、pathMapには含めない）
+  const pathMap: Record<string, string> = {};
+  renamedFiles.forEach((r) => {
+    pathMap[r.oldPath] = r.element.path;
+  });
+
+  if (Object.keys(pathMap).length > 0) {
+    const remapCacheRes = await containerConfigService.remapRelationalFilePaths(cID, pathMap);
+    if (!remapCacheRes.ok) return remapCacheRes;
+
+    for (const [oldPath, newPathStr] of Object.entries(pathMap)) {
+      const annotRemapRes = await annotationService.remapFilePath(cID, oldPath, newPathStr);
+      if (!annotRemapRes.ok) return annotRemapRes;
+      const relRemapRes = await relationalService.remapFilePath(cID, oldPath, newPathStr);
+      if (!relRemapRes.ok) return relRemapRes;
+    }
+  }
+
+  return Success(allRenamed.map((r) => r.element));
+}
+
+/**
+ * ファイル・フォルダを別のフォルダ配下へ移動する
+ *
+ * 内部的には`renamePath`（移動先フォルダ + 元のbasename）として扱う
+ */
+export function moveElement(
+  elem: ContainerElement,
+  newParentPath: string,
+): Promise<Result<ContainerElement[]>> {
+  const basename = new Path(elem.path).basename();
+  const newPath = new Path(newParentPath).child(basename).path;
+  return renamePath(elem, newPath);
 }
 
 /**

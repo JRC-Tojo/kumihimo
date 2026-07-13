@@ -194,6 +194,29 @@ export async function commitAnnotations(
 }
 
 /**
+ * 特定ファイルのアノテーション記録のfilePathを付け替える（リネーム・移動時の追従用）
+ */
+export async function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.annotations
+      .where('containerID')
+      .equals(containerID)
+      .filter((row) => row.filePath === oldPath)
+      .modify({ filePath: newPath, updatedAt: new Date().toISOString() });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * 指定したアノテーションを仮フラグ付きで削除する
  */
 export async function softRemoveAnnotation(annotID: AnnotationID): Promise<Result<void>> {

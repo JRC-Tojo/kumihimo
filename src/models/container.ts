@@ -42,3 +42,13 @@ export const Container = ContainerSkel.extend({
   elements: z.record(z.string(), ContainerElement),
 });
 export type Container = z.infer<typeof Container>;
+
+/**
+ * 「最近読み込んだコンテナ一覧」に保存するエントリ
+ *
+ * コンテナをアンロードしてもこの一覧からは消さず、再読込の選択肢として残す
+ */
+export const RecentContainerEntry = ContainerSkel.extend({
+  lastOpenedAt: z.coerce.date(),
+});
+export type RecentContainerEntry = z.infer<typeof RecentContainerEntry>;
