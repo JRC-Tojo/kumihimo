@@ -11,11 +11,15 @@
 import { getDocument } from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { PDFDocument, rgb } from 'pdf-lib';
-import { DocumentSource } from '../../models/document/common';
-import type { Result } from '../../models/error/result';
-import { Success, Failure, toError } from '../../models/error/result';
+import fontkit from '@pdf-lib/fontkit';
+import { DocumentSource } from 'src/models/document/common';
+import type { Result } from 'src/models/error/result';
+import { Success, Failure, toError } from 'src/models/error/result';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
+import { runOCR } from 'src/utils/ocr/main';
+import type { BoundingBox } from 'src/models/common';
+import { buildTesseractWorker, detectTextRegions } from '../../utils/ocr/main';
 
 /** PDF をロードして PDFDocumentProxy を返す（Result でラップ） */
 export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PDFDocumentProxy>> {
@@ -56,6 +60,53 @@ export async function extractTextByPage(
       typeof it.str === 'string' ? it.str : '',
     );
     return Success(strings.join(' '));
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
+/**
+ * 指定ページ内の、アノテーション領域に含まれるテキストを抽出する
+ */
+export async function extractTextByAnnot(
+  src64: DocumentSource,
+  pageNumber: number,
+  style: AnnotationStyle,
+): Promise<Result<string>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+
+  try {
+    const page = await loaded.value.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const bbox = calculateBoundingBox(style);
+
+    const extractedTexts: string[] = [];
+
+    for (const item of textContent.items) {
+      if (!('str' in item) || !('transform' in item)) continue;
+
+      // item.transform は [scaleX, skewY, skewX, scaleY, translateX, translateY] の配列
+      const tx = item.transform[4]; // X座標
+      const ty = item.transform[5]; // Y座標
+      const itemWidth = item.width;
+      const itemHeight = item.height;
+
+      // テキスト要素の中心点を計算（判定を少し緩くするため）
+      const centerX = tx + itemWidth / 2;
+      const centerY = ty + itemHeight / 2;
+
+      // 中心点がアノテーションの内部にあるか判定
+      const isInsideX = centerX >= bbox.x && centerX <= bbox.x + bbox.width;
+      const isInsideY = centerY >= bbox.y && centerY <= bbox.y + bbox.height;
+
+      if (isInsideX && isInsideY) {
+        extractedTexts.push(item.str);
+      }
+    }
+
+    // 抽出されたテキストを結合（必要に応じて改行などを調整）
+    return Success(extractedTexts.join(' '));
   } catch (e) {
     return Failure(toError(e));
   }
@@ -105,12 +156,7 @@ export async function renderPageToCanvas(
 }
 
 /** annotStyle の種類に応じて外接矩形を計算する（アノテーション自体のタイトな範囲） */
-function calculateBoundingBox(style: AnnotationStyle): {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} {
+function calculateBoundingBox(style: AnnotationStyle): BoundingBox {
   const padding = 2; // 矩形の外側に少し余白を付与
 
   switch (style.type) {
@@ -543,10 +589,140 @@ export async function embedAnnotationsIntoPdf(
   }
 }
 
+/**
+ * Tesseractでテキスト領域を検出し、ONNX(PaddleOCR)で高精度に読み取り、
+ * 透明なテキストレイヤーとして付与した検索可能なPDFを生成する
+ * * @param pdfBuffer - 元のPDFデータ (Uint8Array)
+ * @param fontArrayBuffer - 日本語フォントデータ (NotoSansJP等)
+ */
+export async function createSearchablePDFWithONNX(
+  pdfBuffer: Uint8Array,
+  fontArrayBuffer: ArrayBuffer,
+): Promise<Uint8Array> {
+  // 1. pdf-lib の初期化とフォントの埋め込み
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  pdfDoc.registerFontkit(fontkit);
+  const customFont = await pdfDoc.embedFont(fontArrayBuffer);
+
+  // 2. pdf.js の初期化
+  const loadingTask = getDocument({ data: pdfBuffer });
+  const pdfJsDoc = await loadingTask.promise;
+  const numPages = pdfJsDoc.numPages;
+
+  // 3. 【領域検出用】Tesseract Worker の初期化（ループ外で行い使い回す）
+  const tesseractWorker = await buildTesseractWorker()
+
+  try {
+    for (let i = 1; i <= numPages; i++) {
+      // --- A. ページをCanvasにレンダリング ---
+      const page = await pdfJsDoc.getPage(i);
+      const scale = 2.0; // 検出・認識の精度を上げるためにスケールアップ
+      const viewport = page.getViewport({ scale });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) continue;
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      // --- B. Tesseractでテキストが存在する「行」の座標を一括取得 ---
+      const bboxes = await detectTextRegions(canvas, tesseractWorker);
+
+      const pdfLibPage = pdfDoc.getPage(i - 1);
+      const pageHeight = pdfLibPage.getHeight();
+
+      // --- C. 取得した領域ごとにクロップし、ONNXで読み取ってPDFに書き込む ---
+      for (const box of bboxes) {
+        // パディングを少し設けて文字の端が切れるのを防ぐ（任意）
+        const paddedBox = addPaddingToBox(box, canvas.width, canvas.height, 2);
+
+        // 1. 座標に合わせて画像をクロップ
+        const croppedCanvas = cropCanvas(canvas, paddedBox);
+
+        // 2. ONNXモデル（PaddleOCR等）で文字認識を実行
+        const text = await runOCR(croppedCanvas);
+
+        if (!text || !text.trim()) continue;
+
+        // 3. PDFの座標系（左下原点・スケール補正）に変換
+        const pdfX = paddedBox.x / scale;
+        // pdf.jsの原点(左上)からpdf-libの原点(左下)への変換
+        const pdfY = pageHeight - (paddedBox.y + paddedBox.height) / scale;
+        const wordHeight = paddedBox.height / scale;
+
+        // 4. 透明なテキストを描画
+        pdfLibPage.drawText(text, {
+          x: pdfX,
+          y: pdfY,
+          size: wordHeight * 0.85, // 実際のハイライト領域に合うように微調整
+          font: customFont,
+          color: rgb(0, 0, 0),
+          opacity: 0, // 0に設定して画像に重ねる
+        });
+      }
+    }
+
+    // 編集済みのPDFを保存して返す
+    return await pdfDoc.save();
+  } finally {
+    // 処理が完了（またはエラー終了）したらTesseract Workerを破棄
+    await tesseractWorker.terminate();
+  }
+}
+
+/**
+ * 指定された座標でCanvasを切り抜いて新しいCanvasを返す
+ */
+function cropCanvas(sourceCanvas: HTMLCanvasElement, box: BoundingBox): HTMLCanvasElement {
+  const cropped = document.createElement('canvas');
+  cropped.width = box.width;
+  cropped.height = box.height;
+  const ctx = cropped.getContext('2d');
+
+  if (ctx) {
+    // 透過背景の場合は白で塗りつぶしておく（ONNX OCRの精度安定化のため）
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, box.width, box.height);
+
+    ctx.drawImage(
+      sourceCanvas,
+      box.x,
+      box.y,
+      box.width,
+      box.height, // 元画像の切り抜き範囲
+      0,
+      0,
+      box.width,
+      box.height, // 描画先Canvasへの配置
+    );
+  }
+  return cropped;
+}
+
+/**
+ * 領域がギリギリすぎると文字認識精度が落ちるため、数ピクセルの余白(Padding)を足すヘルパー
+ */
+function addPaddingToBox(
+  box: BoundingBox,
+  maxWidth: number,
+  maxHeight: number,
+  padding: number,
+): BoundingBox {
+  const x = Math.max(0, box.x - padding);
+  const y = Math.max(0, box.y - padding);
+  const width = Math.min(maxWidth - x, box.width + padding * 2);
+  const height = Math.min(maxHeight - y, box.height + padding * 2);
+
+  return { x, y, width, height };
+}
+
 // Export まとめ
 export default {
   loadPdfFromSrc64,
   getNumPages,
+  extractTextByAnnot,
   extractTextByPage,
   extractAllText,
   renderPageToCanvas,
@@ -554,4 +730,5 @@ export default {
   addBlankPageToPdf,
   removePageFromPdf,
   embedAnnotationsIntoPdf,
+  createSearchablePDFWithONNX
 };

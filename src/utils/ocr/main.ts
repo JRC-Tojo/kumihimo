@@ -1,4 +1,6 @@
-import Tesseract, { PSM } from 'tesseract.js';
+import * as ort from 'onnxruntime-web';
+import Tesseract, { PSM, Worker } from 'tesseract.js';
+import { BoundingBox } from '../../models/common';
 
 // パイプライン実行用ヘルパー
 const pipe = (
@@ -71,11 +73,101 @@ const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement>
   });
 };
 
+/**
+ * 辞書ファイルのロード（文字のインデックスマッピング用）
+ * ※ public/ppocr_keys_v1.txt に配置してある想定
+ */
+let characterDict: string[] | null = null;
+const loadCharacterDict = async () => {
+  if (characterDict) return characterDict;
+  const res = await fetch('/ppocr_keys_v1.txt');
+  const text = await res.text();
+  // PaddleOCRの辞書は、最初と最後に特殊トークン(blank)が入る仕様に合わせて調整が必要な場合があります
+  characterDict = ['blank', ...text.split('\n'), ' '];
+  return characterDict;
+};
+
+/**
+ * ONNXモデルに入力するための画像テンソル化処理
+ * Canvas(RGBA) -> Float32Array(CHW) + 正規化
+ */
+const prepareImageTensor = (canvas: HTMLCanvasElement): ort.Tensor => {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas context is null');
+
+  // PaddleOCRのRecognitionモデルは高さを48（または32）に固定し、幅をアスペクト比維持で可変とします
+  const targetHeight = 48;
+  const scale = targetHeight / canvas.height;
+  const targetWidth = Math.floor(canvas.width * scale);
+
+  const resizeCanvas = document.createElement('canvas');
+  resizeCanvas.width = targetWidth;
+  resizeCanvas.height = targetHeight;
+  const resizeCtx = resizeCanvas.getContext('2d');
+  resizeCtx?.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+
+  const imageData = resizeCtx!.getImageData(0, 0, targetWidth, targetHeight).data;
+  const float32Data = new Float32Array(3 * targetWidth * targetHeight);
+
+  // [HWC] -> [CHW] への変換と、正規化 (mean:0.5, std:0.5)
+  for (let y = 0; y < targetHeight; y++) {
+    for (let x = 0; x < targetWidth; x++) {
+      const idx = (y * targetWidth + x) * 4;
+      const r = imageData[idx] / 255.0;
+      const g = imageData[idx + 1] / 255.0;
+      const b = imageData[idx + 2] / 255.0;
+
+      float32Data[0 * targetWidth * targetHeight + y * targetWidth + x] = (r - 0.5) / 0.5;
+      float32Data[1 * targetWidth * targetHeight + y * targetWidth + x] = (g - 0.5) / 0.5;
+      float32Data[2 * targetWidth * targetHeight + y * targetWidth + x] = (b - 0.5) / 0.5;
+    }
+  }
+
+  // ONNX Runtime 用のテンソルオブジェクトを作成
+  return new ort.Tensor('float32', float32Data, [1, 3, targetHeight, targetWidth]);
+};
+
+/**
+ * CTC デコード処理
+ * モデルから出力された確率分布から、最も確率の高い文字を抽出する
+ */
+const ctcDecode = (outputData: Float32Array, seqLen: number, dictLen: number, dict: string[]): string => {
+  let result = '';
+  let lastIndex = 0;
+
+  for (let i = 0; i < seqLen; i++) {
+    let maxProb = 0;
+    let maxIdx = 0;
+
+    // 各タイムステップにおける最も確率の高い文字インデックスを探す
+    for (let j = 0; j < dictLen; j++) {
+      const prob = outputData[i * dictLen + j];
+      if (prob > maxProb) {
+        maxProb = prob;
+        maxIdx = j;
+      }
+    }
+
+    // CTCのルール: 連続する同じ文字、またはBlank(インデックス0)はスキップ
+    if (maxIdx !== 0 && maxIdx !== lastIndex) {
+      // 辞書の範囲外アクセスを防ぐ
+      if (maxIdx < dict.length) {
+        result += dict[maxIdx];
+      }
+    }
+    lastIndex = maxIdx;
+  }
+  return result;
+};
+
+/**
+ * ONNX Runtime を用いた OCR 実行関数
+ */
 export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   const ctx = canvas.getContext('2d');
   if (ctx === null) return '';
 
-  // 前処理のパイプライン実行
+  // 1. 既存の前処理パイプラインの実行（必要に応じて）
   pipe(
     ctx,
     grayscale,
@@ -84,24 +176,37 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
     (c) => autocrop(c, 10),
   );
 
-  // OCRエンジンへ渡す
-  const worker = await Tesseract.createWorker('jpn');
-  await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
-
   try {
-    const {
-      data: { text },
-    } = await worker.recognize(canvas.toDataURL());
+    // 2. 辞書とONNXモデルのロード
+    const dict = await loadCharacterDict();
+    // wasm バックエンドを使用するように指定
+    ort.env.wasm.numThreads = 1;
+    const session = await ort.InferenceSession.create('/ch_PP-OCRv3_rec_infer.onnx', {
+      executionProviders: ['wasm']
+    });
 
-    // 前処理済みの画像を見るときに使用する
-    // const filePath = `${__dirname}/processed(${text.length}).png`;
-    // const buffer = canvas.toBuffer('image/png');
-    // const fs = await import('fs');
-    // fs.writeFileSync(filePath, buffer);
+    // 3. 画像をテンソルに変換
+    const inputTensor = prepareImageTensor(canvas);
+
+    // 4. 推論実行（入力ノード名はモデルによって異なるため、Netron等で確認が必要。通常は 'x'）
+    const feeds: Record<string, ort.Tensor> = { x: inputTensor };
+    const results = await session.run(feeds);
+
+    // 5. 出力の取得とデコード
+    // 出力ノード名もモデル依存。通常は 'softmax_0.tmp_0' や 'save_infer_model/scale_0.tmp_1' など
+    const outputName = session.outputNames[0];
+    const outputTensor = results[outputName];
+
+    // 出力テンソルの形状は [batch_size, sequence_length, dictionary_size]
+    const seqLen = outputTensor.dims[1];
+    const dictLen = outputTensor.dims[2];
+
+    const text = ctcDecode(outputTensor.data as Float32Array, seqLen, dictLen, dict);
 
     return text.replace(/\s+/g, '');
-  } finally {
-    await worker.terminate();
+  } catch (error) {
+    console.error("ONNX OCR Error:", error);
+    return '';
   }
 };
 
@@ -242,3 +347,34 @@ export const autocrop = (ctx: CanvasRenderingContext2D, padding: number = 5) => 
   ctx.canvas.height = h;
   ctx.putImageData(cropped, 0, 0);
 };
+
+
+/**
+ * Tesseractのワーカーを定義する
+ */
+export async function buildTesseractWorker(): Promise<Worker> {
+  const tesseractWorker = await Tesseract.createWorker('jpn');
+  // ページ全体のレイアウトを解析し、行ブロックを見つけるモード
+  await tesseractWorker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+  return tesseractWorker
+}
+
+
+/**
+ * Tesseract.js を用いて画像からテキストのBounding Box（行単位）を抽出する
+ */
+export async function detectTextRegions(
+  canvas: HTMLCanvasElement,
+  worker: Worker
+): Promise<BoundingBox[]> {
+  // 軽量化のためJPEGデータとして渡す
+  const { data } = await worker.recognize(canvas.toDataURL('image/jpeg', 0.8));
+
+  // 単語(words)ではなく、行(lines)単位で取得することでONNX推論の回数を減らし高速化する
+  return data.lines.map(line => ({
+    x: line.bbox.x0,
+    y: line.bbox.y0,
+    width: line.bbox.x1 - line.bbox.x0,
+    height: line.bbox.y1 - line.bbox.y0,
+  }));
+}

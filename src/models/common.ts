@@ -5,3 +5,13 @@ import z from 'zod';
  */
 export const ImageURI = z.string().brand('ImageURI');
 export type ImageURI = z.infer<typeof ImageURI>;
+
+/**
+ * BoundingBoxの型定義
+ */
+export type BoundingBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
