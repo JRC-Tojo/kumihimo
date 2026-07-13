@@ -116,6 +116,48 @@ export const useExplorerStore = defineStore('explorer', {
     clearClipboard(): void {
       this.clipboard = null;
     },
+
+    /**
+     * リネーム・移動された要素のキー・パス参照を追従させる
+     *
+     * `expandedFolders`/`selectedKeys`/`lastSelectedKey`は`explorerKey`（containerID|path）で
+     * 管理しているため、リネーム後もキーを付け替えないと展開・選択状態が失われてしまう。
+     * `clipboard`はContainerElement自体を保持しているため、pathを直接書き換える
+     */
+    remapKeys(containerID: ContainerID, pathMap: Record<string, string>): void {
+      const remapSet = (keys: Set<string>): Set<string> => {
+        const updated = new Set<string>();
+        keys.forEach((key) => {
+          const [cID, path] = key.split('|');
+          if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+            updated.add(explorerKey(containerID, pathMap[path]));
+          } else {
+            updated.add(key);
+          }
+        });
+        return updated;
+      };
+
+      this.expandedFolders = remapSet(this.expandedFolders);
+      this.selectedKeys = remapSet(this.selectedKeys);
+
+      if (this.lastSelectedKey !== null) {
+        const [cID, path] = this.lastSelectedKey.split('|');
+        if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+          this.lastSelectedKey = explorerKey(containerID, pathMap[path]);
+        }
+      }
+
+      if (this.clipboard !== null) {
+        this.clipboard = {
+          ...this.clipboard,
+          items: this.clipboard.items.map((item) => {
+            const newPath = item.containerID === containerID ? pathMap[item.path] : undefined;
+            return newPath !== undefined ? { ...item, path: newPath } : item;
+          }),
+        };
+      }
+    },
   },
 });
 

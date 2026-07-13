@@ -8,6 +8,7 @@ import type {
   ContainerElementFolder,
   ContainerSkel,
   ContainerType,
+  RenamedEntry,
 } from 'src/models/container';
 import { Container } from 'src/models/container';
 import { ContainerID } from 'src/models/container';
@@ -22,13 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getBase64FileSize } from 'src/utils/binary/base64';
 import { Path } from 'src/utils/binary/path';
 
-/**
- * リネーム・移動処理の結果として返す、旧パスと更新後要素の組
- */
-export interface RenamedEntry {
-  oldPath: string;
-  element: ContainerElement;
-}
+export type { RenamedEntry };
 
 /**
  * 処理をコンテナ種別ごとに振り分ける
@@ -130,6 +125,25 @@ export async function loadContainer(
   await settings.addRecentContainer(loadedContainer.value);
 
   return loadedContainer;
+}
+
+/**
+ * コンテナ要素の最新状態を、共有キャッシュ（`cachedContainers`）を更新せずに読み取る
+ *
+ * 外部での変更検知（ポーリング等）のためだけに実データを覗きたい場合に使う。
+ * `loadContainer(id, true)`と異なりキャッシュへのコミットを行わないため、
+ * 呼び出し側が変更内容を確認してから明示的に`loadContainer(id, true)`等で確定できる
+ */
+export async function peekContainerElements(id: ContainerID): Promise<Result<Container>> {
+  const c = getContainer(id);
+  if (!c.ok) return c;
+
+  return switchContainerProcess(
+    c.value.type,
+    () => box.loadContainerElements(c.value),
+    () => local.loadContainerElements(c.value),
+    () => cache.loadContainerElements(c.value),
+  );
 }
 
 /**

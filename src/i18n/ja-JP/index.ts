@@ -234,6 +234,9 @@ export default {
     permissionNeeded: 'このフォルダへのアクセス許可が必要です',
     reconnect: '再接続',
     changesDetected: '変更が検出されました。クリックして更新',
+    changesConflict:
+      '外部で更新されたファイル（{names}）に未保存の変更があります。保存してから更新ボタンを押してください',
+    unsavedChanges: '未保存の変更があります',
     emptyContainer: 'ファイルがありません',
     unsupportedFile: 'このファイルは表示できません',
     localFolder: 'ローカルフォルダ',

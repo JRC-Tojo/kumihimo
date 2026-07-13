@@ -20,6 +20,7 @@ import type {
   ContainerSkel,
   ContainerType,
   RecentContainerEntry,
+  RenamedEntry,
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
@@ -29,6 +30,7 @@ import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as annotationService from 'src/services/document/annotation';
+import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { Observable } from 'dexie';
 
 /**
@@ -264,10 +266,7 @@ class BackendApi {
    * 実データのパス変更に加え、`.rdcfg`サイドカー・関係性キャッシュ・読み込み中DBの
    * ファイルパス参照もあわせて更新する（詳細は`documentService.renamePath`を参照）
    */
-  async renamePath(
-    elem: ContainerElement,
-    newPath: string,
-  ): Promise<ApiResponse<ContainerElement[]>> {
+  async renamePath(elem: ContainerElement, newPath: string): Promise<ApiResponse<RenamedEntry[]>> {
     const renameRes = await documentService.renamePath(elem, newPath);
     return toApiResponse(renameRes, 'PATH_RENAME_FAILED');
   }
@@ -278,9 +277,17 @@ class BackendApi {
   async moveElement(
     elem: ContainerElement,
     newParentPath: string,
-  ): Promise<ApiResponse<ContainerElement[]>> {
+  ): Promise<ApiResponse<RenamedEntry[]>> {
     const moveRes = await documentService.moveElement(elem, newParentPath);
     return toApiResponse(moveRes, 'PATH_MOVE_FAILED');
+  }
+
+  /**
+   * コンテナ要素の最新状態を、共有キャッシュを更新せずに読み取る（変更検知用）
+   */
+  async peekContainerElements(id: ContainerID): Promise<ApiResponse<Container>> {
+    const res = await containerService.peekContainerElements(id);
+    return toApiResponse(res, 'CONTAINER_LOAD_FAILED');
   }
 
   // ============ アノテーション操作 ============
@@ -323,6 +330,22 @@ class BackendApi {
     file: ContainerElementFile,
   ): ApiResponse<Observable<AnnotationStyle[]>> {
     const observed = annotationService.observedAnnotationStylesByFile(file);
+    return toApiResponse(Success(observed));
+  }
+
+  /**
+   * 指定ファイルに未保存の変更（アノテーション・関係性）があるかどうかを取得する
+   */
+  async hasUnsavedChangesByFile(file: ContainerElementFile): Promise<ApiResponse<boolean>> {
+    const res = await unsavedStateService.hasUnsavedChangesByFile(file);
+    return toApiResponse(res, 'DOC_ANNOT_LOAD_FAILED');
+  }
+
+  /**
+   * 指定ファイルの未保存状態をDBの変更に応じて購読する
+   */
+  observedHasUnsavedChangesByFile(file: ContainerElementFile): ApiResponse<Observable<boolean>> {
+    const observed = unsavedStateService.observedHasUnsavedChangesByFile(file);
     return toApiResponse(Success(observed));
   }
 
@@ -380,6 +403,17 @@ class BackendApi {
     file: ContainerElementFile,
   ): Promise<ApiResponse<RelationalWithAddress[]>> {
     const res = await relationalService.getRelationalsInvolvingFile(file);
+    return toApiResponse(res, 'RELATIONAL_GET_FAILED');
+  }
+
+  /**
+   * コンテナ内の関係性キャッシュが参照しているファイルパス一覧を取得する
+   *
+   * 開いているかどうかに関わらず、関係性でリンクされている全ファイルのパスを返す
+   * （変更検知バナーの表示要否を判定する際の「関連ファイル」の範囲として利用する）
+   */
+  async getRelationalReferencedPaths(cID: ContainerID): Promise<ApiResponse<string[]>> {
+    const res = await relationalService.getReferencedFilePaths(cID);
     return toApiResponse(res, 'RELATIONAL_GET_FAILED');
   }
 

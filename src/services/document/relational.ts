@@ -115,6 +115,29 @@ export function getRelationalsInvolvingFile(
 }
 
 /**
+ * 指定ファイルがsrc・target問わずどちらかの側で関わる未保存（仮登録）の関係性件数を取得する
+ */
+export function countTemporaryRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<number>> {
+  return relationalRepository.countTemporaryRelationalsInvolvingFile(file);
+}
+
+/**
+ * コンテナ内の関係性キャッシュ（`.rd/relational.json`）が参照しているファイルパス一覧を取得する
+ *
+ * 「関係性で関連づけられているファイル」を、実際に開いているかどうかに関わらず特定するために使う
+ * （変更検知バナーの表示要否を判定する際、関連ファイルの範囲として利用する）
+ */
+export async function getReferencedFilePaths(cID: ContainerID): Promise<Result<string[]>> {
+  const relFile = await containerConfigService.getRelationalFile(cID);
+  if (!relFile.ok) return relFile;
+
+  const paths = new Set(Object.values(relFile.value.annotIdToFileInfo).map((a) => a.filePath));
+  return Success(Array.from(paths));
+}
+
+/**
  * 指定したアノテーションに紐づく関係性を仮フラグ付きでをすべて削除する
  */
 export function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {

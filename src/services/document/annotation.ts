@@ -78,6 +78,13 @@ export function observedAnnotationStylesByFile(
 }
 
 /**
+ * 特定ファイルに紐づく未保存（仮登録）のアノテーション件数を取得する
+ */
+export function countTemporaryAnnotations(file: ContainerElementFile): Promise<Result<number>> {
+  return annotationRepository.countTemporaryAnnotations(file);
+}
+
+/**
  * コンテンツ未読み込みのアノテーションにコンテンツを読み込んで付与する
  */
 async function loadAnnotContent(

@@ -1,4 +1,4 @@
-import type { ContainerElement, ContainerElementFile } from 'src/models/container';
+import type { ContainerElement, ContainerElementFile, RenamedEntry } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
 import { CONFIG_FILE_EXTS } from 'src/models/document/common';
 import { Failure, Success, type Result } from 'src/models/error/result';
@@ -182,11 +182,14 @@ export async function updateConfigForNewDoc(
  * 実データのパス変更に加えて、対応する`.rdcfg`サイドカー設定ファイル、コンテナルートの
  * 関係性キャッシュファイル（`.rd/relational.json`）、読み込み中のアノテーション/関係性DBの
  * ファイルパス参照もあわせて更新し、リネームによって整合性が崩れないようにする
+ *
+ * 戻り値は旧パスを保持した`RenamedEntry[]`とする（呼び出し側でPiniaストア等の
+ * フロントエンド状態が保持する旧パス参照を新パスへ追従させるために必要なため）
  */
 export async function renamePath(
   elem: ContainerElement,
   newPath: string,
-): Promise<Result<ContainerElement[]>> {
+): Promise<Result<RenamedEntry[]>> {
   const cID = elem.containerID;
 
   // Fileの場合、対応する.rdcfgサイドカーが存在するかをリネーム前に確認しておく
@@ -232,7 +235,7 @@ export async function renamePath(
     }
   }
 
-  return Success(allRenamed.map((r) => r.element));
+  return Success(allRenamed);
 }
 
 /**
@@ -243,7 +246,7 @@ export async function renamePath(
 export function moveElement(
   elem: ContainerElement,
   newParentPath: string,
-): Promise<Result<ContainerElement[]>> {
+): Promise<Result<RenamedEntry[]>> {
   const basename = new Path(elem.path).basename();
   const newPath = new Path(newParentPath).child(basename).path;
   return renamePath(elem, newPath);

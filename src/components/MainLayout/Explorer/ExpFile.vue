@@ -21,6 +21,7 @@
       @click.stop
     />
     <p v-else class="q-ma-none file-name" :class="statusClass">{{ filePath.basename() }}</p>
+    <span v-if="hasUnsavedChanges" class="unsaved-dot" :title="$t('explorer.unsavedChanges')" />
 
     <q-menu context-menu v-model="showMenu" @hide="onMenuHide">
       <q-list dense style="min-width: 150px">
@@ -52,6 +53,8 @@ import { Path } from 'src/utils/binary/path';
 import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 import { startElementDrag } from './useExplorerDnd';
 import { ExplorerContextKey } from './explorerContext';
+import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
+import { useUnsavedIndicator } from 'src/composables/useUnsavedIndicator';
 
 interface Prop {
   file: ContainerElementFile;
@@ -85,6 +88,8 @@ const iconName = computed(() => {
   }
 });
 const iconColor = computed(() => (documentKind.value === 'unsupported' ? 'grey-6' : 'red'));
+
+const { hasUnsavedChanges } = useUnsavedIndicator(computed(() => prop.file));
 
 const status = computed(() => relationalStore.statusForFile(fileKey(prop.file)));
 const statusClass = computed(() => {
@@ -136,7 +141,8 @@ async function confirmRename() {
   if (newName === '' || newName === filePath.value.basename()) return;
 
   const newPath = filePath.value.parent().child(newName).path;
-  await api.renamePath(prop.file, newPath);
+  const renameRes = await api.renamePath(prop.file, newPath);
+  if (renameRes.ok) syncStoresAfterRename(prop.file.containerID, renameRes.data);
   await ctx?.reload();
 }
 
@@ -166,7 +172,7 @@ function confirmDelete() {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: max-content;
+  min-width: 0;
   padding: 2px 4px;
   cursor: pointer;
   transition: 0.2s;
@@ -181,10 +187,20 @@ function confirmDelete() {
   }
 
   .file-name {
+    flex: 1 1 auto;
+    min-width: 0;
     background: transparent;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+
+  .unsaved-dot {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: $warning;
   }
 
   .rename-input {

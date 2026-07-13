@@ -63,6 +63,11 @@
         <span>{{ $t('explorer.changesDetected') }}</span>
       </div>
 
+      <div v-if="conflictDetected" class="conflict-banner">
+        <q-icon name="error" size="16px" />
+        <span>{{ $t('explorer.changesConflict', { names: conflictFileNames.join(', ') }) }}</span>
+      </div>
+
       <template v-for="child in children" :key="child.path">
         <ExpFile v-if="child.type === 'File'" :file="child" />
         <ExpFolder v-else :folder="child" />
@@ -79,16 +84,19 @@
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 import { Dialog } from 'quasar';
 import { useI18n } from 'vue-i18n';
-import type { Container, ContainerSkel } from 'src/models/container';
+import type { Container, ContainerID, ContainerSkel, RenamedEntry } from 'src/models/container';
 import { useExplorerStore } from 'src/stores/explorerStore';
+import { useEditorStore } from 'src/stores/editorStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import { DocumentSource } from 'src/models/document/common';
 import { arrayBufferToBase64 } from 'src/utils/binary/base64';
+import { Path } from 'src/utils/binary/path';
 import { directChildrenOf, sortElements } from './explorerTree';
 import { useExplorerDnd } from './useExplorerDnd';
 import { ExplorerContextKey } from './explorerContext';
 import ExpFile from './ExpFile.vue';
 import ExpFolder from './ExpFolder.vue';
+import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
 
 interface Prop {
   container: ContainerSkel;
@@ -98,6 +106,7 @@ const emit = defineEmits<{ closed: [] }>();
 
 const { t: $t } = useI18n();
 const explorerStore = useExplorerStore();
+const editorStore = useEditorStore();
 const api = useBackendApi();
 
 const isLoading = ref(false);
@@ -105,6 +114,8 @@ const showMenu = ref(false);
 const uploadInputRef = ref<HTMLInputElement | null>(null);
 const needsReconnect = ref(false);
 const changesDetected = ref(false);
+const conflictDetected = ref(false);
+const conflictFileNames = ref<string[]>([]);
 const loadedContainer = ref<Container | null>(null);
 const loadError = ref<string | null>(null);
 
@@ -133,6 +144,8 @@ provide(ExplorerContextKey, {
 async function load(forceReload: boolean): Promise<void> {
   isLoading.value = true;
   changesDetected.value = false;
+  conflictDetected.value = false;
+  conflictFileNames.value = [];
 
   if (prop.container.type === 'local') {
     const permRes = await api.checkContainerPermission(prop.container.id);
@@ -185,9 +198,16 @@ async function onPaste() {
   const clipboard = explorerStore.clipboard;
   if (!clipboard) return;
 
+  const renamedByContainer = new Map<ContainerID, RenamedEntry[]>();
   for (const item of clipboard.items) {
-    await api.moveElement(item, '.');
+    const moveRes = await api.moveElement(item, '.');
+    if (!moveRes.ok) continue;
+    const list = renamedByContainer.get(item.containerID) ?? [];
+    list.push(...moveRes.data);
+    renamedByContainer.set(item.containerID, list);
   }
+  renamedByContainer.forEach((entries, cID) => syncStoresAfterRename(cID, entries));
+
   explorerStore.clearClipboard();
   await load(false);
 }
@@ -236,19 +256,75 @@ const { isDragOver, onDragOverTarget, onDragLeaveTarget, onDropTarget } = useExp
 // local型コンテナのみ、展開中はフォーカス復帰時に軽量な変更検知を行う
 let pollTimer: ReturnType<typeof setInterval> | undefined;
 
+/**
+ * 現在アプリ側が「関連している」と認識しているファイルパス一覧を返す
+ *
+ * 全ペインで開いているタブ ∪ 関係性キャッシュで参照されているファイルを対象とする。
+ * これに含まれないファイルの変更は、アプリの表示・データに影響しないため通知不要と判断する
+ */
+async function getRelevantPaths(): Promise<Set<string>> {
+  const relevant = new Set<string>();
+  (['ul', 'ur', 'll', 'lr'] as const).forEach((side) => {
+    editorStore.tabs[side].forEach((tab) => {
+      if (tab.containerID === prop.container.id) relevant.add(tab.path);
+    });
+  });
+
+  const refRes = await api.getRelationalReferencedPaths(prop.container.id);
+  if (refRes.ok) refRes.data.forEach((path) => relevant.add(path));
+
+  return relevant;
+}
+
+/**
+ * 外部での変更を検知し、関連ファイルの有無・未保存の変更との衝突有無に応じて挙動を分ける
+ *
+ * - 無関係なファイルの変更のみ：バナーを出さず静かに確定コミットする
+ * - 関連ファイルの変更で、未保存の変更との衝突が無い：既存のクリックして更新バナーを出す
+ * - 関連ファイルの変更が、そのファイル自身の未保存の変更と衝突する：コンフリクトバナーを出し、
+ *   ユーザーが保存の上で明示的に更新ボタンを押すまで一切コミットしない（両者の変更を保護する）
+ */
 async function checkForChanges(): Promise<void> {
   if (prop.container.type !== 'local' || !expanded.value || needsReconnect.value) return;
-  const res = await api.loadContainer(prop.container.id, true);
-  if (!res.ok) return;
+
+  // 検知のためだけに読み取る（共有キャッシュはコミットしない。コミットは`load()`経由のみで行う）
+  const peekRes = await api.peekContainerElements(prop.container.id);
+  if (!peekRes.ok) return;
 
   const before = elements.value;
-  const after = res.data.elements;
-  const isDifferent =
-    Object.keys(before).length !== Object.keys(after).length ||
-    Object.keys(after).some((path) => before[path] === undefined);
-  if (isDifferent) {
-    changesDetected.value = true;
+  const after = peekRes.data.elements;
+  const changedPaths = new Set(
+    [...Object.keys(before), ...Object.keys(after)].filter(
+      (path) => before[path] === undefined || after[path] === undefined,
+    ),
+  );
+  if (changedPaths.size === 0) return;
+
+  const relevantPaths = await getRelevantPaths();
+  const relevantChangedPaths = Array.from(changedPaths).filter((path) => relevantPaths.has(path));
+  if (relevantChangedPaths.length === 0) {
+    // 無関係なファイルの変更のみ：確認なしで静かに確定コミットする
+    await load(true);
+    return;
   }
+
+  // 変更された関連ファイルの中に、そのファイル自身が未保存の変更を持つものがあるか確認する
+  const conflictNames: string[] = [];
+  for (const path of relevantChangedPaths) {
+    const elem = before[path] ?? after[path];
+    if (elem === undefined || elem.type !== 'File') continue;
+
+    const unsavedRes = await api.hasUnsavedChangesByFile(elem);
+    if (unsavedRes.ok && unsavedRes.data) conflictNames.push(new Path(path).basename());
+  }
+
+  if (conflictNames.length > 0) {
+    conflictDetected.value = true;
+    conflictFileNames.value = conflictNames;
+    return;
+  }
+
+  changesDetected.value = true;
 }
 
 function onFocus() {
@@ -303,7 +379,8 @@ onBeforeUnmount(() => {
 }
 
 .reconnect-banner,
-.changes-banner {
+.changes-banner,
+.conflict-banner {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -316,6 +393,11 @@ onBeforeUnmount(() => {
 
 .changes-banner {
   cursor: pointer;
+}
+
+.conflict-banner {
+  background: rgba($negative, 0.15);
+  color: $negative;
 }
 
 .empty-hint {

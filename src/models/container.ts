@@ -52,3 +52,15 @@ export const RecentContainerEntry = ContainerSkel.extend({
   lastOpenedAt: z.coerce.date(),
 });
 export type RecentContainerEntry = z.infer<typeof RecentContainerEntry>;
+
+/**
+ * リネーム・移動処理の結果として返す、旧パスと更新後要素の組
+ *
+ * 呼び出し側（フロントエンドのPiniaストア等）が旧パス→新パスの対応を追跡できるよう、
+ * 更新後の要素だけでなく旧パスも保持したまま返す
+ */
+export const RenamedEntry = z.object({
+  oldPath: z.string(),
+  element: ContainerElement,
+});
+export type RenamedEntry = z.infer<typeof RenamedEntry>;

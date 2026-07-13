@@ -182,6 +182,36 @@ export async function getRelationalsInvolvingFile(
 }
 
 /**
+ * 指定ファイルがsrc・target問わずどちらかの側で関わる未保存（仮登録）の関係性件数を取得する
+ */
+export async function countTemporaryRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<number>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const [srcRows, targetRows] = await Promise.all([
+      db.relationals
+        .where('srcContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.srcFilePath === file.path && row.isTemporary && !row.isDeleted)
+        .toArray(),
+      db.relationals
+        .where('targetContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.targetFilePath === file.path && row.isTemporary && !row.isDeleted)
+        .toArray(),
+    ]);
+
+    const rowsById = new Map([...srcRows, ...targetRows].map((row) => [row.id, row]));
+    return Success(rowsById.size);
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * 特定ファイルに関わる関係性記録のfilePathを付け替える（リネーム・移動時の追従用）
  *
  * `id`はfilePathを含む複合キーのため、`.modify()`ではなく削除→再登録で付け替える

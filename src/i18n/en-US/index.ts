@@ -235,6 +235,9 @@ export default {
     permissionNeeded: 'Access permission is required for this folder',
     reconnect: 'Reconnect',
     changesDetected: 'Changes detected. Click to refresh',
+    changesConflict:
+      'File(s) changed externally ({names}) have unsaved changes. Save your work, then click refresh',
+    unsavedChanges: 'You have unsaved changes',
     emptyContainer: 'No files',
     unsupportedFile: 'This file cannot be displayed',
     localFolder: 'Local Folder',

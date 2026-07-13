@@ -140,6 +140,27 @@ export async function getAnnotationsByFile(
 }
 
 /**
+ * 特定ファイルに紐づく未保存（仮登録）のアノテーション件数を取得する
+ */
+export async function countTemporaryAnnotations(
+  file: ContainerElementFile,
+): Promise<Result<number>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const count = await db.annotations
+      .where('containerID')
+      .equals(file.containerID)
+      .filter((row) => row.filePath === file.path && row.isTemporary && !row.isDeleted)
+      .count();
+    return Success(count);
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * DexieのLiveQueryを利用して特定ファイルのアノテーション情報を購読する
  */
 export function observedAnnotationStylesByFile(

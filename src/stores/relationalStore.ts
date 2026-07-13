@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 import { defineStore, acceptHMRUpdate } from 'pinia';
 import { useBackendApi } from 'src/apis/backendApi';
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { Relational } from 'src/models/relational/common';
 import type { RelationalCheckedRule } from 'src/models/relational/fileSchema';
@@ -127,6 +127,25 @@ export const useRelationalStore = defineStore('relational', {
       );
 
       this.edgesByFileKey[fileKey(file)] = await runConcurrently(edgeCheckers, 5);
+    },
+
+    /**
+     * リネーム・移動されたファイルのキャッシュキーを付け替える
+     *
+     * `edgesByFileKey`は`containerID|path`をキーにしているため、リネーム後もキャッシュを
+     * 再利用できるようにキーだけ新パスへ書き換える（内容の再検証は不要）
+     */
+    remapFileKeys(containerID: ContainerID, pathMap: Record<string, string>): void {
+      const updated: Record<string, RelationalEdge[]> = {};
+      for (const [key, edges] of Object.entries(this.edgesByFileKey)) {
+        const [cID, path] = key.split('|');
+        if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+          updated[`${cID}|${pathMap[path]}`] = edges;
+        } else {
+          updated[key] = edges;
+        }
+      }
+      this.edgesByFileKey = updated;
     },
   },
 });

@@ -7,6 +7,7 @@ import type { ContainerElement, ContainerID } from 'src/models/container';
 import { DocumentSource } from 'src/models/document/common';
 import { arrayBufferToBase64 } from 'src/utils/binary/base64';
 import { explorerKey } from 'src/stores/explorerStore';
+import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
 
 /** 内部移動であることを識別するためのMIMEタイプ（値自体には移動元の要素キーを入れる） */
 const INTERNAL_DND_TYPE = 'application/x-rd-explorer-element';
@@ -117,8 +118,10 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
       return true;
     }
 
-    await api.moveElement(draggedElement, newParentPath);
+    const movedElement = draggedElement;
+    const moveRes = await api.moveElement(movedElement, newParentPath);
     draggedElement = null;
+    if (moveRes.ok) syncStoresAfterRename(movedElement.containerID, moveRes.data);
     await options.onChanged();
     return true;
   }

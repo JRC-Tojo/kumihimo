@@ -199,6 +199,48 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * リネーム・移動されたファイルのパス参照を、全ペインのタブ状態に追従させる
+     *
+     * `tabs`内オブジェクトのpathを直接書き換えることで、これをpropとして参照している
+     * DocumentTabView等のコンポーネントキー（containerID+path）が変わり、
+     * 新パスでの再マウント（＝アノテーションの正しい再購読）が自動的に発生する
+     */
+    remapPaths(containerID: ContainerID, pathMap: Record<string, string>): void {
+      (['ul', 'ur', 'll', 'lr'] as const).forEach((side) => {
+        this.tabs[side].forEach((tab) => {
+          if (tab.containerID !== containerID) return;
+          const newPath = pathMap[tab.path];
+          if (newPath !== undefined) tab.path = newPath;
+        });
+
+        const activeKey = this.activeTabPaths[side];
+        if (activeKey !== null && activeKey !== SETTINGS_TAB_KEY) {
+          const [cID, path] = activeKey.split('|');
+          if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+            this.activeTabPaths[side] = tabKey({ containerID, path: pathMap[path] });
+          }
+        }
+
+        const remappedPinned = new Set<string>();
+        this.pinedTabPaths[side].forEach((pinnedKey) => {
+          const [cID, path] = pinnedKey.split('|');
+          if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+            remappedPinned.add(tabKey({ containerID, path: pathMap[path] }));
+          } else {
+            remappedPinned.add(pinnedKey);
+          }
+        });
+        this.pinedTabPaths[side] = remappedPinned;
+      });
+
+      const pendingFile = this.relationalPendingFile;
+      if (pendingFile !== undefined && pendingFile.containerID === containerID) {
+        const newPendingPath = pathMap[pendingFile.path];
+        if (newPendingPath !== undefined) pendingFile.path = newPendingPath;
+      }
+    },
+
+    /**
      * 設定タブを閉じる
      */
     closeSettingsTab(layoutSide: LayoutSide): void {

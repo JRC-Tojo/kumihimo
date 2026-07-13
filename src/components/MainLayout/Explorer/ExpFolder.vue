@@ -74,7 +74,7 @@
 import { computed, inject, ref } from 'vue';
 import { Dialog } from 'quasar';
 import { useI18n } from 'vue-i18n';
-import type { ContainerElementFolder } from 'src/models/container';
+import type { ContainerElementFolder, ContainerID, RenamedEntry } from 'src/models/container';
 import { useExplorerStore } from 'src/stores/explorerStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import { Path } from 'src/utils/binary/path';
@@ -84,6 +84,7 @@ import { directChildrenOf, sortElements } from './explorerTree';
 import { startElementDrag, useExplorerDnd } from './useExplorerDnd';
 import { ExplorerContextKey } from './explorerContext';
 import ExpFile from './ExpFile.vue';
+import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
 
 interface Prop {
   folder: ContainerElementFolder;
@@ -165,7 +166,8 @@ async function confirmRename() {
   if (newName === '' || newName === folderPath.value.basename()) return;
 
   const newPath = folderPath.value.parent().child(newName).path;
-  await api.renamePath(prop.folder, newPath);
+  const renameRes = await api.renamePath(prop.folder, newPath);
+  if (renameRes.ok) syncStoresAfterRename(prop.folder.containerID, renameRes.data);
   await ctx?.reload();
 }
 
@@ -177,9 +179,16 @@ async function onPaste() {
   const clipboard = explorerStore.clipboard;
   if (!clipboard) return;
 
+  const renamedByContainer = new Map<ContainerID, RenamedEntry[]>();
   for (const item of clipboard.items) {
-    await api.moveElement(item, prop.folder.path);
+    const moveRes = await api.moveElement(item, prop.folder.path);
+    if (!moveRes.ok) continue;
+    const list = renamedByContainer.get(item.containerID) ?? [];
+    list.push(...moveRes.data);
+    renamedByContainer.set(item.containerID, list);
   }
+  renamedByContainer.forEach((entries, cID) => syncStoresAfterRename(cID, entries));
+
   explorerStore.clearClipboard();
   await ctx?.reload();
 }
@@ -242,7 +251,7 @@ async function onUploadSelected(e: Event) {
   display: flex;
   align-items: center;
   gap: 2px;
-  min-width: max-content;
+  min-width: 0;
   padding: 2px 4px;
   cursor: pointer;
   transition: 0.2s;
@@ -261,6 +270,8 @@ async function onUploadSelected(e: Event) {
   }
 
   .folder-name {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -273,7 +284,9 @@ async function onUploadSelected(e: Event) {
 }
 
 .exp-folder-children {
-  padding-left: 16px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(128, 128, 128, 0.3);
 }
 
 .hidden-upload-input {

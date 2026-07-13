@@ -32,32 +32,14 @@
         @remove="onTabRemoved"
       >
         <!-- タブを並べる -->
-        <div
+        <DocTabItem
           v-for="tab in tabs"
           :key="`${tab.containerID}/${tab.path}`"
-          :class="[
-            'tab-item',
-            {
-              active:
-                !isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide,
-            },
-          ]"
-          @click="selectTab(tab, true)"
-        >
-          <div class="tab-content">
-            <q-icon name="description" class="tab-icon" />
-            <span class="tab-title">{{ tabTitle(tab.path) }}</span>
-          </div>
-          <q-btn
-            flat
-            dense
-            round
-            icon="close"
-            size="xs"
-            class="tab-close-btn"
-            @click.stop="closeTab(tab)"
-          />
-        </div>
+          :file="tab"
+          :active="!isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide"
+          @select="selectTab(tab, true)"
+          @close="closeTab(tab)"
+        />
       </VueDraggable>
     </div>
 
@@ -92,11 +74,11 @@
 import DocumentTabView from 'src/components/DocLayout/DocumentTabView.vue';
 import TextFileTabView from 'src/components/DocLayout/TextFileTabView.vue';
 import UnsupportedFileTabView from 'src/components/DocLayout/UnsupportedFileTabView.vue';
+import DocTabItem from 'src/components/DocLayout/DocTabItem.vue';
 import SettingsPage from 'src/pages/SettingsPage.vue';
 import type { ContainerElementFile } from 'src/models/container';
 import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
-import { Path } from 'src/utils/binary/path';
 import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 import { computed } from 'vue';
 import type { DraggableEvent } from 'vue-draggable-plus';
@@ -125,10 +107,6 @@ const isSettingsActive = computed(
 
 function selectSettingsTab() {
   editorStore.selectSettingsTab(prop.layoutSide, true);
-}
-
-function tabTitle(path: string) {
-  return new Path(path).basename();
 }
 
 /**
