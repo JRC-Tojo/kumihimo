@@ -11,7 +11,12 @@
     >
       <q-icon :name="expanded ? 'expand_more' : 'chevron_right'" size="18px" />
       <q-icon :name="containerIcon" size="18px" color="primary" />
-      <p class="q-ma-none container-name">{{ container.name }}</p>
+      <p class="q-ma-none container-name" :class="{ 'text-negative': loadError }">
+        {{ container.name }}
+      </p>
+      <q-icon v-if="loadError" name="error" color="negative" size="16px">
+        <q-tooltip>{{ loadError }}</q-tooltip>
+      </q-icon>
       <q-space />
       <q-btn flat dense round size="sm" icon="refresh" :loading="isLoading" @click.stop="onReload">
         <q-tooltip>{{ $t('button.refresh') }}</q-tooltip>
@@ -101,6 +106,7 @@ const uploadInputRef = ref<HTMLInputElement | null>(null);
 const needsReconnect = ref(false);
 const changesDetected = ref(false);
 const loadedContainer = ref<Container | null>(null);
+const loadError = ref<string | null>(null);
 
 const expanded = computed(() => explorerStore.isContainerExpanded(prop.container.id));
 const hasClipboard = computed(() => explorerStore.clipboard !== null);
@@ -132,13 +138,19 @@ async function load(forceReload: boolean): Promise<void> {
     const permRes = await api.checkContainerPermission(prop.container.id);
     needsReconnect.value = permRes.ok && permRes.data !== 'granted';
     if (needsReconnect.value) {
+      loadError.value = null;
       isLoading.value = false;
       return;
     }
   }
 
   const res = await api.loadContainer(prop.container.id, forceReload);
-  if (res.ok) loadedContainer.value = res.data;
+  if (res.ok) {
+    loadedContainer.value = res.data;
+    loadError.value = null;
+  } else {
+    loadError.value = res.error.error.message || res.error.key;
+  }
   isLoading.value = false;
 }
 
@@ -244,11 +256,14 @@ function onFocus() {
 }
 
 watch(expanded, (isExpanded) => {
+  // 展開時に未読み込み・前回失敗のいずれかであれば再試行する
   if (isExpanded && loadedContainer.value === null) void load(false);
 });
 
 onMounted(() => {
-  if (expanded.value) void load(false);
+  // 展開状態に関わらず読み込みを試行する（折りたたみ中でもエラー状態を把握できるようにするため。
+  // 実データ内容は読まないメタ情報のみの取得のため、コストは小さい）
+  void load(false);
   window.addEventListener('focus', onFocus);
   pollTimer = setInterval(() => void checkForChanges(), 30000);
 });

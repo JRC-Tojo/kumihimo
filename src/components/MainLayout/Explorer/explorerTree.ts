@@ -1,4 +1,5 @@
 import type { ContainerElement } from 'src/models/container';
+import { Path } from 'src/utils/binary/path';
 
 /**
  * 指定した親パスの直下の子要素だけを抽出する（`parentPath`が`null`の場合はルート直下）
@@ -7,16 +8,10 @@ export function directChildrenOf(
   elements: Record<string, ContainerElement>,
   parentPath: string | null,
 ): ContainerElement[] {
-  const all = Object.values(elements);
+  // parentPathがnull（ルート直下）の場合、Pathの親は正規化された起点である"."になる
+  const targetParent = parentPath === null ? '.' : new Path(parentPath).path;
 
-  if (parentPath === null) {
-    return all.filter((e) => !e.path.includes('/'));
-  }
-
-  const prefix = `${parentPath}/`;
-  return all
-    .filter((e) => e.path.startsWith(prefix))
-    .filter((e) => !e.path.slice(prefix.length).includes('/'));
+  return Object.values(elements).filter((e) => new Path(e.path).parent().path === targetParent);
 }
 
 /**

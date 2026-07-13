@@ -27,7 +27,7 @@
       />
       <p v-else class="q-ma-none folder-name">{{ folderPath.basename() }}</p>
 
-      <q-menu context-menu v-model="showMenu">
+      <q-menu context-menu v-model="showMenu" @hide="onMenuHide">
         <q-list dense style="min-width: 170px">
           <q-item v-close-popup clickable @click="triggerUpload">
             <q-item-section>{{ $t('explorer.newFile') }}</q-item-section>
@@ -36,7 +36,7 @@
             <q-item-section>{{ $t('explorer.newFolder') }}</q-item-section>
           </q-item>
           <q-separator />
-          <q-item v-close-popup clickable @click="startRename">
+          <q-item v-close-popup clickable @click="requestRename">
             <q-item-section>{{ $t('explorer.rename') }}</q-item-section>
           </q-item>
           <q-item v-close-popup clickable @click="onCut">
@@ -83,6 +83,7 @@ import { arrayBufferToBase64 } from 'src/utils/binary/base64';
 import { directChildrenOf, sortElements } from './explorerTree';
 import { startElementDrag, useExplorerDnd } from './useExplorerDnd';
 import { ExplorerContextKey } from './explorerContext';
+import ExpFile from './ExpFile.vue';
 
 interface Prop {
   folder: ContainerElementFolder;
@@ -99,6 +100,7 @@ const showMenu = ref(false);
 const isRenaming = ref(false);
 const renameValue = ref('');
 const uploadInputRef = ref<HTMLInputElement | null>(null);
+const pendingRename = ref(false);
 
 const expanded = computed(() =>
   explorerStore.isFolderExpanded(prop.folder.containerID, prop.folder.path),
@@ -132,7 +134,21 @@ function onClick(e: MouseEvent) {
   explorerStore.toggleFolder(prop.folder.containerID, prop.folder.path);
 }
 
-function startRename() {
+/**
+ * 名前変更の予約のみ行う（メニュー項目クリック時点ではまだ入力欄を出さない）
+ *
+ * コンテキストメニューが閉じるアニメーション・フォーカス処理と同時に入力欄へautofocusすると、
+ * メニュー側が閉じる際にフォーカスを奪い返してすぐ`blur`が発生し、
+ * 入力欄が一瞬で消えてしまう（`confirmRename`が即座に呼ばれてしまう）ため、
+ * メニューが完全に閉じ切った後（`@hide`）に入力欄を表示するようにする
+ */
+function requestRename() {
+  pendingRename.value = true;
+}
+
+function onMenuHide() {
+  if (!pendingRename.value) return;
+  pendingRename.value = false;
   renameValue.value = folderPath.value.basename();
   isRenaming.value = true;
 }

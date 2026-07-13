@@ -145,6 +145,8 @@ export default {
         overwrite: 'Save Changes',
         saveAs: 'Save As',
         auto: 'Auto Save',
+        success: 'Saved',
+        failed: 'Failed to save',
       },
       print: 'Print',
       download: 'Download',

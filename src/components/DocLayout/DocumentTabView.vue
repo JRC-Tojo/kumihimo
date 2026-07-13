@@ -90,6 +90,7 @@ import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
 import { useQuasar } from 'quasar';
+import { saveDocument } from 'src/utils/document/saveDocument';
 
 interface Prop {
   file: ContainerElementFile;
@@ -351,6 +352,8 @@ async function finishRelational(targetId: AnnotationID) {
   if (pendingFile !== undefined && !isSameFile(pendingFile, prop.file)) {
     void relationalStore.refreshFile(pendingFile);
   }
+
+  scheduleAutoSave();
 }
 
 /**
@@ -434,6 +437,29 @@ async function handleAnnotationsChanged(
   // アノテーション内容（OCR結果）の読み込み完了時にもこのイベントが発火するため、
   // ここで再検証しておくことで「検証保留」から自動的にOK/NGへ遷移する
   void relationalStore.refreshFile(prop.file);
+
+  scheduleAutoSave();
+}
+
+// ================================
+
+/** 自動保存のデバウンス時間（ミリ秒）。編集操作のたびに保存すると重いため、少し待ってからまとめて保存する */
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
+let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let hasPendingAutoSave = false;
+
+/**
+ * 「自動保存」がオンの場合、一定時間後にこの文書を保存する（連続編集中は都度リセットする）
+ */
+function scheduleAutoSave() {
+  if (!editorStore.autoSaveAnnotations) return;
+
+  hasPendingAutoSave = true;
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    hasPendingAutoSave = false;
+    void saveDocument(prop.file);
+  }, AUTO_SAVE_DEBOUNCE_MS);
 }
 
 // ================================
@@ -485,6 +511,12 @@ watch(
   },
 );
 onBeforeUnmount(() => {
+  // 自動保存の待機中にタブが閉じられた場合、変更を失わないよう即座に保存する
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    if (hasPendingAutoSave) void saveDocument(prop.file);
+  }
+
   stopAnnotationObservation?.();
   window.removeEventListener('keydown', handleGlobalKeydown);
 });

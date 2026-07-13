@@ -64,6 +64,7 @@ src/repositories/**     ← ストレージアダプタ
 - 大きなページファイルよりも、再利用可能な小さなコンポーネント（`src/components/**`）への分割を優先する。`src/pages/**` は基本的にレイアウトの組み立てとコンポーネントの呼び出しに専念する。
 - 状態管理は Pinia（`src/stores/*.ts`）を使用
 - PDFの描画・アノテーション描画には `pdfjs-dist` と `konva`/`vue-konva` を使用（`src/components/Viewer/`）。
+- パスを扱う処理は`utils/binary/path`のPathオブジェクトを活用して処理すること。
 
 ## 境界（Boundaries）
 

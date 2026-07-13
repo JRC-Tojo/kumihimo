@@ -144,6 +144,8 @@ export default {
         overwrite: '上書き保存',
         saveAs: '名前を付けて保存',
         auto: '自動保存',
+        success: '保存しました',
+        failed: '保存に失敗しました',
       },
       print: '印刷',
       download: 'ダウンロード',

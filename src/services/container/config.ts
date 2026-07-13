@@ -53,7 +53,19 @@ function getBackupFilePath(cPath: string, fileHash: string): string {
 }
 
 /**
+ * 関係性ファイルがまだ作成されていない場合（コンテナの初回読み込み時等）の初期値
+ */
+const EMPTY_CACHED_RELATIONAL_FILE: CachedRelationalFile = {
+  annotIdToFileInfo: {},
+  relationals: [],
+};
+
+/**
  * コンテナルートに保存されている関係性ファイルを取得
+ *
+ * ファイルがまだ存在しない場合（コンテナの初回読み込み時等）は空の状態として扱う。
+ * 実データの読み込み自体に失敗した場合のみこれを空扱いとし、
+ * 読み込めた内容のデコード・検証に失敗した場合は本来のエラーとして返す
  */
 export async function getRelationalFile(cID: ContainerID): Promise<Result<CachedRelationalFile>> {
   const containerService = await import('./main');
@@ -63,7 +75,7 @@ export async function getRelationalFile(cID: ContainerID): Promise<Result<Cached
   // 関係性ファイルの本体データを取得
   const relationalFilePath = getRelationalFilePath(container.value.containerPath);
   const src = await containerService.loadFileAsDocumentSource(cID, relationalFilePath);
-  if (!src.ok) return src;
+  if (!src.ok) return Success(EMPTY_CACHED_RELATIONAL_FILE);
 
   // 取得したデータをデコードする
   const fileContent = textRepository.loadTextContents(src.value, CachedRelationalFile);

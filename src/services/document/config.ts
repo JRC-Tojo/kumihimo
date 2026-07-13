@@ -15,26 +15,35 @@ import type { AnnotationStyle } from 'src/models/document/pdf';
 
 /**
  * 指定したファイルに紐づく本システムの設定ファイルを読み込む
+ *
+ * `.rdcfg`がまだ存在しない場合（そのファイルに一度もアノテーションが保存されたことがない場合）は
+ * エラーにせず、現在のファイル内容のハッシュを持つ空の設定として扱う
  */
 export async function loadConfig(file: ContainerElementFile): Promise<Result<DocumentConfigFile>> {
-  // 設定ファイルの読み込み
-  const configFile = await containerConfigService.getDocumentConfigFile(file.containerID, file);
-  if (!configFile.ok) return configFile;
-
-  // ファイルハッシュの確認
+  // ファイルハッシュの算出（設定ファイルが無い場合の初期値としても使う）
   const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
   if (!fileSrc.ok) return fileSrc;
   const fileHash = await calcBase64Hash(fileSrc.value);
-  if (fileHash.ok && configFile.value.fileHash !== fileHash.value)
+  if (!fileHash.ok) return fileHash;
+
+  // 設定ファイルの読み込み
+  const configFileRes = await containerConfigService.getDocumentConfigFile(file.containerID, file);
+  const configFile: DocumentConfigFile = configFileRes.ok
+    ? configFileRes.value
+    : { fileHash: fileHash.value, annots: {} };
+
+  // 設定ファイルが存在していた場合のみ、ファイル内容が更新されていないか確認する
+  if (configFileRes.ok && configFile.fileHash !== fileHash.value) {
     return Failure(new Error('This file is updated (checksum is not same)'));
+  }
 
   // 返す前にConfigから読み取ったAnnotation情報をAnnotDBに保存する
-  const annotInfos = Object.values(configFile.value.annots);
+  const annotInfos = Object.values(configFile.annots);
   const registRes = await annotationService.registerAnnotationInfo(annotInfos, file);
   if (!registRes.ok) return registRes;
 
   // 更新版情報を返す
-  return configFile;
+  return Success(configFile);
 }
 
 /**

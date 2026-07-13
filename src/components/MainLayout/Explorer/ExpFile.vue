@@ -22,9 +22,9 @@
     />
     <p v-else class="q-ma-none file-name" :class="statusClass">{{ filePath.basename() }}</p>
 
-    <q-menu context-menu v-model="showMenu">
+    <q-menu context-menu v-model="showMenu" @hide="onMenuHide">
       <q-list dense style="min-width: 150px">
-        <q-item v-close-popup clickable @click="startRename">
+        <q-item v-close-popup clickable @click="requestRename">
           <q-item-section>{{ $t('explorer.rename') }}</q-item-section>
         </q-item>
         <q-item v-close-popup clickable @click="onCut">
@@ -69,6 +69,7 @@ const filePath = computed(() => new Path(prop.file.path));
 const showMenu = ref(false);
 const isRenaming = ref(false);
 const renameValue = ref('');
+const pendingRename = ref(false);
 
 const isSelected = computed(() => explorerStore.isSelected(prop.file.containerID, prop.file.path));
 
@@ -105,7 +106,20 @@ function onDragStart(e: DragEvent) {
   startElementDrag(e, prop.file);
 }
 
-function startRename() {
+/**
+ * 名前変更の予約のみ行う（メニュー項目クリック時点ではまだ入力欄を出さない）
+ *
+ * コンテキストメニューが閉じる処理と同時に入力欄へautofocusすると、メニュー側が
+ * フォーカスを奪い返して即座に`blur`（=`confirmRename`即時実行）が発生し、
+ * 入力欄が一瞬で消えてしまうため、メニューが完全に閉じた後（`@hide`）に表示する
+ */
+function requestRename() {
+  pendingRename.value = true;
+}
+
+function onMenuHide() {
+  if (!pendingRename.value) return;
+  pendingRename.value = false;
   renameValue.value = filePath.value.basename();
   isRenaming.value = true;
 }
