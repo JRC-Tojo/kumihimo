@@ -51,7 +51,10 @@
             :title="$t('settings.darkMode')"
             :description="$t('settings.darkModeDesc')"
           >
-            <q-toggle v-model="settings.darkMode" @update:model-value="changeColorThema" />
+            <q-toggle
+              v-model="settings.darkMode"
+              @update:model-value="(val) => updateSettings('darkMode')(val)"
+            />
           </SettingsItemRow>
 
           <SettingsItemRow
@@ -67,7 +70,7 @@
               dense
               outlined
               style="min-width: 160px"
-              @update:model-value="changeLanguage"
+              @update:model-value="(val) => updateSettings('locale')(val)"
             />
           </SettingsItemRow>
         </section>
@@ -87,6 +90,7 @@
           >
             <q-select
               v-model="settings.viewMode"
+              @update:model-value="(val) => updateSettings('viewMode')(val)"
               :options="viewModes"
               emit-value
               map-options
@@ -103,6 +107,7 @@
           >
             <q-select
               v-model="settings.sortBy"
+              @update:model-value="(val) => updateSettings('sortBy')(val)"
               :options="sortOptions"
               emit-value
               map-options
@@ -126,7 +131,16 @@
             :title="$t('settings.relationalVerification.ok')"
             :description="$t('settings.relationalVerification.okDesc')"
           >
-            <RelationalStatusStyleEditor v-model="settings.relationalVerificationStyle.ok" />
+            <RelationalStatusStyleEditor
+              v-model="settings.relationalVerificationStyle.ok"
+              @update:model-value="
+                (val) => {
+                  if (settings === void 0) return;
+                  const buildVal = { ok: val, ng: settings.relationalVerificationStyle.ng };
+                  updateSettings('relationalVerificationStyle')(buildVal);
+                }
+              "
+            />
           </SettingsItemRow>
 
           <SettingsItemRow
@@ -134,7 +148,16 @@
             :title="$t('settings.relationalVerification.ng')"
             :description="$t('settings.relationalVerification.ngDesc')"
           >
-            <RelationalStatusStyleEditor v-model="settings.relationalVerificationStyle.ng" />
+            <RelationalStatusStyleEditor
+              v-model="settings.relationalVerificationStyle.ng"
+              @update:model-value="
+                (val) => {
+                  if (settings === void 0) return;
+                  const buildVal = { ng: val, ok: settings.relationalVerificationStyle.ok };
+                  updateSettings('relationalVerificationStyle')(buildVal);
+                }
+              "
+            />
           </SettingsItemRow>
         </section>
 
@@ -174,10 +197,6 @@
           </SettingsItemRow>
         </section>
       </template>
-
-      <div class="save-bar">
-        <q-btn unelevated color="primary" :label="$t('settings.save')" @click="saveAllSettings" />
-      </div>
     </div>
   </div>
 </template>
@@ -188,17 +207,15 @@ import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
-import { toEntries } from 'src/utils/obj/obj';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
 
-const { locale, t: $t } = useI18n();
+const { t: $t } = useI18n();
 const $q = useQuasar();
 const api = useBackendApi();
 const settingsStore = useSettingsStore();
 
-let beforeChangedSettings: { [key: string]: unknown } = {};
 const settings = ref<AppSettings>();
 
 const viewModes = [
@@ -222,8 +239,8 @@ onMounted(async () => {
   const apiRes = await api.getSettings();
   if (apiRes.ok) {
     settings.value = apiRes.data;
-    beforeChangedSettings = { ...apiRes.data };
   } else {
+    // TODO: エラーハンドリング
     console.error(apiRes.error);
   }
 });
@@ -326,54 +343,15 @@ function scrollToSection(id: string) {
 // ================================ 保存・その他操作 ================================
 
 /**
- * すべての設定を保存
+ * 各設定を保存
  */
-async function saveAllSettings() {
-  if (settings.value === undefined) return;
-
-  // 変更があった設定のみをAPIに保存
-  const savePromises = toEntries(settings.value)
-    .filter(([k, afterValue]) => {
-      const beforeValue = beforeChangedSettings[k] ?? '';
-      // TODO: 比較方法は要検討（オブジェクトのハッシュ取得関数を作成？）
-      // 並び順などで問題ある場合は以下のようなライブラリの活用を検討
-      // https://www.npmjs.com/package/object-hash
-      return JSON.stringify(beforeValue) !== JSON.stringify(afterValue);
-    })
-    .map(([k, afterValue]) => api.saveSettings(k, afterValue));
-
-  // すべてのPromiseを待機
-  const res = await Promise.all(savePromises);
-  const errRes = res.find((r) => !r.ok);
-  if (res.length > 0 && errRes !== void 0) {
-    $q.notify({ type: 'negative', message: $t('message.error') });
-    return;
-  }
-
-  // 更新後、beforeChangedSettingsを現在の設定で上書き
-  beforeChangedSettings = { ...settings.value };
-
-  // 開いている文書タブなど、設定をリアクティブに参照している箇所にも反映する
-  await settingsStore.loadSettings();
-
-  $q.notify({
-    type: 'positive',
-    message: $t('message.success'),
-  });
-}
-
-/**
- * 描画モードを変更
- */
-function changeColorThema(isDark: boolean) {
-  $q.dark.set(isDark);
-}
-
-/**
- * 言語を変更
- */
-function changeLanguage(lang: string) {
-  locale.value = lang;
+function updateSettings<K extends keyof AppSettings>(key: K) {
+  return async (value: AppSettings[K]) => {
+    // 設定を保存する
+    await api.saveSettings(key, value);
+    // 開いている文書タブなど、設定をリアクティブに参照している箇所にも反映する
+    await settingsStore.loadSettings();
+  };
 }
 
 /**

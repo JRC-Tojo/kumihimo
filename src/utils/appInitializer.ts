@@ -3,7 +3,6 @@ import { useBackendApi } from '../apis/backendApi';
 import { DocumentSource } from 'src/models/document/common';
 import { AnnotationID, ColorCode, type AnnotationStyle } from 'src/models/document/pdf';
 import { arrayBufferToBase64 } from './binary/base64';
-import { useSettingsStore } from 'src/stores/settingsStore';
 
 /**
  * アプリケーション初期化用ユーティリティ
@@ -19,9 +18,6 @@ export async function initializeApp() {
     console.log(initRes);
     return;
   }
-
-  // 設定をリアクティブストアに読み込む（関係性検証スタイル等を全画面から参照できるようにする）
-  await useSettingsStore().loadSettings();
 }
 
 /**

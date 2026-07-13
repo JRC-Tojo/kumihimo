@@ -220,7 +220,7 @@ watch(edges, (newEdges) => void resolveOtherFileLabels(newEdges), { immediate: t
 
 // ダイアログを開くたびに、未選択なら先頭の相手アノテーションを既定のプレビュー対象にする
 watch(open, (isOpen) => {
-  if (!isOpen || previewedAnnotId.value !== undefined) return;
+  if (!isOpen) return;
   const firstEdge = edges.value[0];
   if (firstEdge !== undefined) previewedAnnotId.value = otherAnnotId(firstEdge);
 });

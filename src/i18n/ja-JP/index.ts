@@ -169,7 +169,7 @@ export default {
       loading: '読み込み中 ...',
     },
     peek: {
-      title: '関係性の簡易閲覧',
+      title: '関係性の一覧',
       linkedAnnotations: '関連アノテーション',
       previewUnavailable: 'プレビューを取得できませんでした',
       openDocument: '文書を開く',

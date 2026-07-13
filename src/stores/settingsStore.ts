@@ -3,6 +3,9 @@ import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
 import { DEFAULT_RELATIONAL_VERIFICATION_STYLE } from 'src/models/relational/style';
 import type { RelationalVerificationStyle } from 'src/models/relational/style';
+import { Dark } from 'quasar';
+import type { LocaleKey } from 'src/i18n';
+import { globalI18n } from 'src/boot/i18n';
 
 /**
  * アプリ設定をリアクティブに参照するためのストア
@@ -31,6 +34,8 @@ export const useSettingsStore = defineStore('settings', {
       const api = useBackendApi();
       const res = await api.getSettings();
       if (res.ok) {
+        setDarkMode(res.data.darkMode);
+        setLocale(res.data.locale);
         this.appSettings = res.data;
       } else {
         console.error(res.error);
@@ -38,6 +43,20 @@ export const useSettingsStore = defineStore('settings', {
     },
   },
 });
+
+/**
+ * ウェブページをダークデザインに変更する
+ */
+function setDarkMode(isDark: boolean) {
+  Dark.set(isDark);
+}
+
+/**
+ * 表示言語を設定
+ */
+function setLocale(localeKey: LocaleKey) {
+  globalI18n.locale.value = localeKey;
+}
 
 if (import.meta.hot) {
   import.meta.hot.accept(acceptHMRUpdate(useSettingsStore, import.meta.hot));
