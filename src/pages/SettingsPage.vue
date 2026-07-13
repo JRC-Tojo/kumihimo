@@ -218,17 +218,17 @@ const settingsStore = useSettingsStore();
 
 const settings = ref<AppSettings>();
 
-const viewModes = [
+const viewModes = computed(() => [
   { label: $t('viewMode.rich'), value: 'rich' },
   { label: $t('viewMode.list1'), value: 'list1' },
   { label: $t('viewMode.list2'), value: 'list2' },
-];
+]);
 
-const sortOptions = [
+const sortOptions = computed(() => [
   { label: $t('sort.byName'), value: 'name' },
   { label: $t('sort.byUpdatedAt'), value: 'updatedAt' },
   { label: $t('sort.byGenre'), value: 'genre' },
-];
+]);
 
 const languages = [
   { label: 'English', value: 'en-US' },
