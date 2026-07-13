@@ -1,5 +1,5 @@
 <template>
-  <div class="document-layout row">
+  <div class="document-layout row" @click="editorStore.selectTab(file, layoutSide, true)">
     <!-- 左Drawer：ドキュメント情報とサムネイル -->
     <DocumentLeftDrawer
       v-model:drawer-open="editorStore.leftDrawerModel"
