@@ -10,7 +10,13 @@
       </q-card-section>
 
       <q-card-section v-if="variant === 'prompt'" class="q-pt-none">
-        <q-input v-model="promptValue" dense autofocus :label="promptLabel" @keyup.enter="onConfirm" />
+        <q-input
+          v-model="promptValue"
+          dense
+          autofocus
+          :label="promptLabel"
+          @keyup.enter="onConfirm"
+        />
       </q-card-section>
 
       <q-card-actions align="right">

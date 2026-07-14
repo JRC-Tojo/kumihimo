@@ -26,7 +26,10 @@ export function collectOpenTabsForContainer(containerID: ContainerID): Container
 /**
  * 指定コンテナに属するタブをすべて閉じる（全ペイン対象）
  */
-export function closeTabsForContainer(containerID: ContainerID, files: ContainerElementFile[]): void {
+export function closeTabsForContainer(
+  containerID: ContainerID,
+  files: ContainerElementFile[],
+): void {
   if (files.length === 0) return;
   useEditorStore().closeTabsForPaths(
     containerID,

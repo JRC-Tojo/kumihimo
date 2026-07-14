@@ -11,7 +11,11 @@
         @click="onNewFile"
       >
         <q-tooltip>
-          {{ explorerStore.lastSelectedKey ? $t('explorer.newFile') : $t('explorer.selectLocationFirst') }}
+          {{
+            explorerStore.lastSelectedKey
+              ? $t('explorer.newFile')
+              : $t('explorer.selectLocationFirst')
+          }}
         </q-tooltip>
       </q-btn>
       <q-btn
@@ -25,7 +29,9 @@
       >
         <q-tooltip>
           {{
-            explorerStore.lastSelectedKey ? $t('explorer.newFolder') : $t('explorer.selectLocationFirst')
+            explorerStore.lastSelectedKey
+              ? $t('explorer.newFolder')
+              : $t('explorer.selectLocationFirst')
           }}
         </q-tooltip>
       </q-btn>
