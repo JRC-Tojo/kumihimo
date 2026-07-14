@@ -25,7 +25,9 @@
           v-for="tab in tabs"
           :key="`${tab.containerID}/${tab.path}`"
           :file="tab"
-          :active="!isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide"
+          :active="
+            !isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide
+          "
           @select="selectTab(tab, true)"
           @close="closeTab(tab)"
         />
