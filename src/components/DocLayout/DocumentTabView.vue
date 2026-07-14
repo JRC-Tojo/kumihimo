@@ -169,9 +169,9 @@ async function resolveConfigConflict(): Promise<boolean> {
   const updatedConfig = await api.updateDocumentConfig(prop.file);
   if (updatedConfig.ok) {
     const acceptRes = await api.acceptExternalDocumentConfig(prop.file, updatedConfig.data);
-    if (acceptRes.ok) return true
+    if (acceptRes.ok) return true;
   }
-  
+
   $q.notify({ type: 'warning', message: t('pdfEditor.document.conflictTrackFailed') });
   return true;
 }

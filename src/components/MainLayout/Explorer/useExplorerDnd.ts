@@ -143,7 +143,7 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
     );
     const allFolderPaths = collected.flatMap((c) => c.folderPaths);
     const allFiles = collected.flatMap((c) => c.files);
-    
+
     // 深い階層から作られないよう、浅い階層から順にフォルダを作成する
     const sortedFolderPaths = [...allFolderPaths].sort(
       (a, b) => a.split('/').length - b.split('/').length,
