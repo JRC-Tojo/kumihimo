@@ -198,6 +198,33 @@ export function saveRelationals(
 }
 
 /**
+ * 指定ファイルが関わる未保存（仮登録）の関係性を破棄し、最後に保存された状態へ戻す
+ *
+ * 仮登録・確定済み問わずこのファイルが関わる関係性DBレコードをすべて削除したうえで、
+ * コンテナルートのキャッシュ（`.rd/relational.json`）からこのファイルが関わる分だけを
+ * 読み直して確定済み状態として再登録する（新規追加・仮削除いずれのケースも区別なく正しく戻せる）
+ */
+export async function discardUnsavedRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<void>> {
+  const container = containerService.getContainer(file.containerID);
+  if (!container.ok) return container;
+
+  const deleteRes = await relationalRepository.deleteRelationalsInvolvingFile(file);
+  if (!deleteRes.ok) return deleteRes;
+
+  const cachedRes = await loadCachedRelationals(container.value);
+  if (!cachedRes.ok) return cachedRes;
+
+  const involvingFile = cachedRes.value.filter(
+    (r) => r.srcAddress.filePath === file.path || r.targetAddress.filePath === file.path,
+  );
+  if (involvingFile.length === 0) return Success();
+
+  return relationalRepository.addCachedRelationals(involvingFile);
+}
+
+/**
  * ファイルのリネーム・移動に伴い、読み込み中の関係性記録のfilePathを付け替える
  */
 export function remapFilePath(

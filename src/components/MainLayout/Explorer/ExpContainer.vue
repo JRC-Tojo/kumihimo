@@ -96,7 +96,9 @@ import { ExplorerContextKey } from './explorerContext';
 import ExpFile from './ExpFile.vue';
 import ExpFolder from './ExpFolder.vue';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
-import { confirmDialog, promptDialog } from 'src/utils/dialog/confirmDialog';
+import { confirmDialog, promptDialog, unsavedChangesDialog } from 'src/utils/dialog/confirmDialog';
+import { collectOpenTabsForContainer, closeTabsForContainer } from 'src/utils/document/closeContainerTabs';
+import { saveDocument } from 'src/utils/document/saveDocument';
 
 interface Prop {
   container: ContainerSkel;
@@ -188,6 +190,31 @@ async function onUnload() {
     message: $t('explorer.closeContainerConfirm', { name: prop.container.name }),
   });
   if (!ok) return;
+
+  // このコンテナに属する開いているタブがあれば、閉じる前に未保存の変更を確認する
+  const openFiles = collectOpenTabsForContainer(prop.container.id);
+  if (openFiles.length > 0) {
+    const unsavedResults = await Promise.all(
+      openFiles.map((file) => api.hasUnsavedChangesByFile(file)),
+    );
+    const hasUnsavedChanges = unsavedResults.some((res) => res.ok && res.data);
+
+    if (hasUnsavedChanges) {
+      const choice = await unsavedChangesDialog({
+        title: $t('explorer.unsavedChanges'),
+        message: $t('explorer.unsavedContainerTabsConfirm', { name: prop.container.name }),
+      });
+      if (choice === 'cancel') return;
+
+      if (choice === 'save') {
+        await Promise.all(openFiles.map((file) => saveDocument(file)));
+      } else {
+        await Promise.all(openFiles.map((file) => api.discardUnsavedChanges(file)));
+      }
+    }
+
+    closeTabsForContainer(prop.container.id, openFiles);
+  }
 
   await api.unloadContainer(prop.container.id, false);
   emit('closed');

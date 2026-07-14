@@ -309,8 +309,8 @@ async function onUploadSelected(e: Event) {
 }
 
 .exp-folder-children {
-  margin-left: 8px;
-  padding-left: 8px;
+  margin-left: 12px;
+  padding-left: 3px;
   border-left: 1px solid rgba(128, 128, 128, 0.3);
 }
 

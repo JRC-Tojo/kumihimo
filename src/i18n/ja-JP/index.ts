@@ -260,6 +260,8 @@ export default {
     copyAbsolutePath: '絶対パスのコピー',
     pathCopied: 'パスをクリップボードにコピーしました',
     unsavedTabConfirm: '「{name}」に未保存の変更があります。保存しますか？',
+    unsavedContainerTabsConfirm:
+      '「{name}」内の開いているファイルに未保存の変更があります。保存しますか？',
     saveAndClose: '保存して閉じる',
     discardAndClose: '保存せず閉じる',
   },

@@ -127,7 +127,12 @@ async function closeTab(file: ContainerElementFile) {
       message: $t('explorer.unsavedTabConfirm', { name: new Path(file.path).basename() }),
     });
     if (choice === 'cancel') return;
-    if (choice === 'save') await saveDocument(file);
+    if (choice === 'save') {
+      await saveDocument(file);
+    } else {
+      // 保存せず閉じる：仮登録されたアノテーション・関係性を破棄し、保存前の状態へ巻き戻す
+      await api.discardUnsavedChanges(file);
+    }
   }
 
   editorStore.closeTab(file, prop.layoutSide);

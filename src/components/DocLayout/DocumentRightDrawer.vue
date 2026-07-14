@@ -480,7 +480,6 @@ async function onRemoveRelation(edge: RelationalEdge) {
 
       .relation-row {
         padding: 0.5rem;
-        background-color: $grey-2;
         border-radius: 6px;
 
         .relation-row-value {
@@ -493,7 +492,6 @@ async function onRemoveRelation(edge: RelationalEdge) {
 
           .relation-target-label {
             font-size: 0.85rem;
-            color: $grey-8;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;

@@ -261,6 +261,8 @@ export default {
     copyAbsolutePath: 'Copy Absolute Path',
     pathCopied: 'Path copied to clipboard',
     unsavedTabConfirm: '"{name}" has unsaved changes. Do you want to save them?',
+    unsavedContainerTabsConfirm:
+      'Open files in "{name}" have unsaved changes. Do you want to save them?',
     saveAndClose: 'Save and Close',
     discardAndClose: 'Discard and Close',
   },

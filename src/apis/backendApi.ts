@@ -260,6 +260,15 @@ class BackendApi {
   }
 
   /**
+   * 「保存せず閉じる」選択時、このファイルの未保存（仮登録）のアノテーション・関係性を破棄し、
+   * 最後に保存された状態へ戻す
+   */
+  async discardUnsavedChanges(file: ContainerElementFile): Promise<ApiResponse<void>> {
+    const res = await documentService.discardUnsavedChanges(file);
+    return toApiResponse(res, 'DOC_SAVE_FAILED');
+  }
+
+  /**
    * ファイルと同一階層に存在する、依存先のファイルが見つからない（＝浮いている）設定ファイルパス一覧
    */
   getFloatingConfigPaths(file: ContainerElementFile): ApiResponse<string[]> {

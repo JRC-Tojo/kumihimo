@@ -52,8 +52,9 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
   }
 
   // 返す前にConfigから読み取ったAnnotation情報をAnnotDBに保存する
+  // （`.rdcfg`に記録済みの確定データであるため、仮フラグは付けない＝isTemporary: false）
   const annotInfos = Object.values(configFile.annots);
-  const registRes = await annotationService.registerAnnotationInfo(annotInfos, file);
+  const registRes = await annotationService.registerAnnotationInfo(annotInfos, file, false);
   if (!registRes.ok) return registRes;
 
   // 更新版情報を返す
@@ -81,7 +82,7 @@ export async function acceptExternalConfig(
   );
   if (!saveRes.ok) return saveRes;
 
-  return annotationService.registerAnnotationInfo(annotInfos, file);
+  return annotationService.registerAnnotationInfo(annotInfos, file, false);
 }
 
 /**
@@ -136,12 +137,18 @@ export async function saveConfig(
   oldSrc: DocumentSource,
   newSrc: DocumentSource,
 ): Promise<Result<void>> {
-  // アノテーション情報をDBから取得する
-  const annotInfos = await annotationService.saveAnnotationInfo(file);
-  if (!annotInfos.ok) return annotInfos;
+  // 仮登録中のアノテーション・関係性を確定する（isTemporaryフラグの解除。以降は未保存扱いされない）
+  const commitAnnotRes = await annotationService.saveAnnotationInfo(file);
+  if (!commitAnnotRes.ok) return commitAnnotRes;
+  const commitRelRes = await relationalService.saveRelationals(file);
+  if (!commitRelRes.ok) return commitRelRes;
 
-  // 関係性情報を取得する
-  const rsWithAdrs = await relationalService.saveRelationals(file);
+  // `.rdcfg`・関係性キャッシュへ書き込む内容は、現在有効な（削除されていない）全件を取得し直す。
+  // saveAnnotationInfo/saveRelationalsの戻り値は今回のセッションで確定した差分のみのため、
+  // それをそのまま書き込むと、今回変更していない既存のアノテーション・関係性を消してしまう
+  const annotInfos = await annotationService.getAnnotationsByFile(file);
+  if (!annotInfos.ok) return annotInfos;
+  const rsWithAdrs = await relationalService.getRelationalsInvolvingFile(file);
   if (!rsWithAdrs.ok) return rsWithAdrs;
 
   // 取得した情報をマージして実ファイルに保存する
@@ -161,6 +168,25 @@ export async function saveConfig(
   if (!relationalSavedRes.ok) return relationalSavedRes;
 
   return Success();
+}
+
+/**
+ * 「保存せず閉じる」選択時、このファイルについて仮登録されたアノテーション・関係性を破棄し、
+ * 最後に保存された状態（実ファイルの`.rdcfg`・関係性キャッシュの内容）へ戻す
+ *
+ * アノテーションDBの当該ファイル分の記録を一旦すべて削除したうえで`.rdcfg`から読み直し、
+ * 関係性DBも同様にコンテナの関係性キャッシュから当該ファイルが関わる分だけを読み直す。
+ * 新規追加・削除いずれも区別なく巻き戻せるため、以降`hasUnsavedChangesByFile`は
+ * 再びfalseを返すようになる
+ */
+export async function discardUnsavedChanges(file: ContainerElementFile): Promise<Result<void>> {
+  const clearRes = await annotationService.clearAnnotationsForFile(file);
+  if (!clearRes.ok) return clearRes;
+
+  const reloadRes = await loadConfig(file);
+  if (!reloadRes.ok) return reloadRes;
+
+  return relationalService.discardUnsavedRelationalsInvolvingFile(file);
 }
 
 /**

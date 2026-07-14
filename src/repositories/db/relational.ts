@@ -361,6 +361,38 @@ export async function softRemoveRelationalsByAnnotationID(
 }
 
 /**
+ * 指定ファイルがsrc・target問わず関わる関係性DBレコードをすべて削除する
+ *
+ * 「保存せず閉じる」際、仮登録・確定済み問わずこのファイルが関わる記録を一旦すべて消し去り、
+ * `.rd/relational.json`（コンテナルートのキャッシュ）から読み直して確定済み状態を
+ * 再構築するために使う
+ */
+export async function deleteRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.transaction('rw', db.relationals, async () => {
+      await db.relationals
+        .where('srcContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.srcFilePath === file.path)
+        .delete();
+      await db.relationals
+        .where('targetContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.targetFilePath === file.path)
+        .delete();
+    });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * 特定ファイルの関係性を本保存し、保存済みの一覧を返す
  */
 export async function commitRelationals(

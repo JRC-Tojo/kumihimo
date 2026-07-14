@@ -141,13 +141,24 @@ export async function registerAnnotationStyle(
 }
 
 /**
- * DBにアノテーション情報を仮フラグ付きで追加する
+ * DBにアノテーション情報を追加する
+ *
+ * @param isTemporary 未保存の仮登録として追加するか。`.rdcfg`から読み込んだ確定済みデータを
+ * 反映する場合は`false`を指定すること
  */
 export function registerAnnotationInfo(
   aInfo: AnnotationInfo[],
   file: ContainerElementFile,
+  isTemporary: boolean,
 ): Promise<Result<void>> {
-  return annotationRepository.addAnnotationInfos(file, aInfo);
+  return annotationRepository.addAnnotationInfos(file, aInfo, isTemporary);
+}
+
+/**
+ * 特定ファイルのアノテーションDBレコードをすべて削除する（未保存破棄時の再構築用）
+ */
+export function clearAnnotationsForFile(file: ContainerElementFile): Promise<Result<void>> {
+  return annotationRepository.deleteAnnotationsForFile(file);
 }
 
 /**
