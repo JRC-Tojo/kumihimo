@@ -229,6 +229,7 @@ export default {
     newFile: '新規ファイル',
     newFolder: '新規フォルダ',
     rename: '名前を変更',
+    nameAlreadyExists: 'この場所には同じ名前のファイルまたはフォルダが既に存在します',
     cut: '切り取り',
     paste: '貼り付け',
     delete: '削除',

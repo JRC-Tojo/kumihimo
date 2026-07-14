@@ -230,6 +230,7 @@ export default {
     newFile: 'New File',
     newFolder: 'New Folder',
     rename: 'Rename',
+    nameAlreadyExists: 'A file or folder with this name already exists here',
     cut: 'Cut',
     paste: 'Paste',
     delete: 'Delete',

@@ -15,11 +15,13 @@
       <q-icon :name="expanded ? 'folder_open' : 'folder'" color="amber-8" size="18px" />
       <q-input
         v-if="isRenaming"
+        ref="renameInputRef"
         v-model="renameValue"
         dense
         autofocus
         borderless
         class="rename-input"
+        :rules="renameRules"
         @keyup.enter="confirmRename"
         @keyup.esc="cancelRename"
         @blur="confirmRename"
@@ -78,8 +80,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue';
+import { computed, inject, nextTick, ref } from 'vue';
 import { useQuasar } from 'quasar';
+import type { QInput } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import type { ContainerElementFolder, ContainerID, RenamedEntry } from 'src/models/container';
 import { useExplorerStore } from 'src/stores/explorerStore';
@@ -87,7 +90,7 @@ import { useBackendApi } from 'src/apis/backendApi';
 import { Path } from 'src/utils/binary/path';
 import { DocumentSource } from 'src/models/document/common';
 import { arrayBufferToBase64 } from 'src/utils/binary/base64';
-import { directChildrenOf, sortElements } from './explorerTree';
+import { directChildrenOf, isSiblingNameAvailable, sortElements } from './explorerTree';
 import { startElementDrag, useExplorerDnd } from './useExplorerDnd';
 import { ExplorerContextKey } from './explorerContext';
 import ExpFile from './ExpFile.vue';
@@ -112,6 +115,15 @@ const isRenaming = ref(false);
 const renameValue = ref('');
 const uploadInputRef = ref<HTMLInputElement | null>(null);
 const pendingRename = ref(false);
+const renameInputRef = ref<QInput | null>(null);
+
+/** 同一階層内での名前の重複をq-input側で検証する（リネーム確定処理側では重複チェックを行わない） */
+const renameRules = [
+  (val: string) =>
+    !ctx ||
+    isSiblingNameAvailable(ctx.elements.value, prop.folder.path, val) ||
+    $t('explorer.nameAlreadyExists'),
+];
 
 const expanded = computed(() =>
   explorerStore.isFolderExpanded(prop.folder.containerID, prop.folder.path),
@@ -170,6 +182,14 @@ function cancelRename() {
 
 async function confirmRename() {
   if (!isRenaming.value) return;
+
+  // 重複名などのバリデーションエラーがある間は確定させず、入力欄を維持する
+  const isValid = await renameInputRef.value?.validate();
+  if (isValid === false) {
+    void nextTick(() => renameInputRef.value?.focus());
+    return;
+  }
+
   isRenaming.value = false;
 
   const newName = renameValue.value.trim();
