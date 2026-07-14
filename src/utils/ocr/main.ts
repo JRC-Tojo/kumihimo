@@ -1,6 +1,7 @@
 import * as ort from 'onnxruntime-web';
-import Tesseract, { PSM, Worker } from 'tesseract.js';
-import { BoundingBox } from '../../models/common';
+import type { Worker } from 'tesseract.js';
+import Tesseract, { PSM } from 'tesseract.js';
+import type { BoundingBox } from '../../models/common';
 
 // パイプライン実行用ヘルパー
 const pipe = (
@@ -9,6 +10,9 @@ const pipe = (
 ) => {
   fns.forEach((fn) => fn(ctx));
 };
+
+const PPOCR_KEYS_URL = 'https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/refs/heads/main/ppocr/utils/ppocr_keys_v1.txt'
+const OCR_MODEL_URL = 'https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx'
 
 export async function Image2Text(imageSource: string): Promise<string> {
   const canvas = await imageUrlToCanvas(imageSource);
@@ -75,12 +79,11 @@ const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement>
 
 /**
  * 辞書ファイルのロード（文字のインデックスマッピング用）
- * ※ public/ppocr_keys_v1.txt に配置してある想定
  */
 let characterDict: string[] | null = null;
 const loadCharacterDict = async () => {
   if (characterDict) return characterDict;
-  const res = await fetch('/ppocr_keys_v1.txt');
+  const res = await fetch(PPOCR_KEYS_URL);
   const text = await res.text();
   // PaddleOCRの辞書は、最初と最後に特殊トークン(blank)が入る仕様に合わせて調整が必要な場合があります
   characterDict = ['blank', ...text.split('\n'), ' '];
@@ -113,9 +116,9 @@ const prepareImageTensor = (canvas: HTMLCanvasElement): ort.Tensor => {
   for (let y = 0; y < targetHeight; y++) {
     for (let x = 0; x < targetWidth; x++) {
       const idx = (y * targetWidth + x) * 4;
-      const r = imageData[idx] / 255.0;
-      const g = imageData[idx + 1] / 255.0;
-      const b = imageData[idx + 2] / 255.0;
+      const r = imageData[idx]! / 255.0;
+      const g = imageData[idx + 1]! / 255.0;
+      const b = imageData[idx + 2]! / 255.0;
 
       float32Data[0 * targetWidth * targetHeight + y * targetWidth + x] = (r - 0.5) / 0.5;
       float32Data[1 * targetWidth * targetHeight + y * targetWidth + x] = (g - 0.5) / 0.5;
@@ -141,7 +144,7 @@ const ctcDecode = (outputData: Float32Array, seqLen: number, dictLen: number, di
 
     // 各タイムステップにおける最も確率の高い文字インデックスを探す
     for (let j = 0; j < dictLen; j++) {
-      const prob = outputData[i * dictLen + j];
+      const prob = outputData[i * dictLen + j] ?? 0;
       if (prob > maxProb) {
         maxProb = prob;
         maxIdx = j;
@@ -170,10 +173,10 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   // 1. 既存の前処理パイプラインの実行（必要に応じて）
   pipe(
     ctx,
-    grayscale,
-    (c) => binarize(c, 128),
+    // grayscale,
+    // (c) => binarize(c, 128),
     deskew,
-    (c) => autocrop(c, 10),
+    // (c) => autocrop(c, 10),
   );
 
   try {
@@ -181,7 +184,8 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
     const dict = await loadCharacterDict();
     // wasm バックエンドを使用するように指定
     ort.env.wasm.numThreads = 1;
-    const session = await ort.InferenceSession.create('/ch_PP-OCRv3_rec_infer.onnx', {
+    const bytes = await fetch(OCR_MODEL_URL, { 'mode': 'cors' }).then(res => res.arrayBuffer())
+    const session = await ort.InferenceSession.create(bytes, {
       executionProviders: ['wasm']
     });
 
@@ -194,14 +198,20 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
 
     // 5. 出力の取得とデコード
     // 出力ノード名もモデル依存。通常は 'softmax_0.tmp_0' や 'save_infer_model/scale_0.tmp_1' など
-    const outputName = session.outputNames[0];
-    const outputTensor = results[outputName];
+    const outputName = session.outputNames[0]!;
+    const outputTensor = results[outputName]!;
 
     // 出力テンソルの形状は [batch_size, sequence_length, dictionary_size]
-    const seqLen = outputTensor.dims[1];
-    const dictLen = outputTensor.dims[2];
+    const seqLen = outputTensor.dims[1]!;
+    const dictLen = outputTensor.dims[2]!;
 
     const text = ctcDecode(outputTensor.data as Float32Array, seqLen, dictLen, dict);
+
+    // 前処理済みの画像を見るときに使用する
+    // const filePath = `${__dirname}/processed(${text.length}).png`;
+    // const buffer = canvas.toBuffer('image/png');
+    // const fs = await import('fs');
+    // fs.writeFileSync(filePath, buffer);
 
     return text.replace(/\s+/g, '');
   } catch (error) {
@@ -371,10 +381,10 @@ export async function detectTextRegions(
   const { data } = await worker.recognize(canvas.toDataURL('image/jpeg', 0.8));
 
   // 単語(words)ではなく、行(lines)単位で取得することでONNX推論の回数を減らし高速化する
-  return data.lines.map(line => ({
+  return data.blocks?.map(line => ({
     x: line.bbox.x0,
     y: line.bbox.y0,
     width: line.bbox.x1 - line.bbox.x0,
     height: line.bbox.y1 - line.bbox.y0,
-  }));
+  })) ?? [];
 }
