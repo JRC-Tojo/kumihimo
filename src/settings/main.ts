@@ -48,13 +48,15 @@ export function saveSettings<K extends keyof AppSettings>(
 
 /**
  * 読み込み対象のコンテナを追加する
+ *
+ * 既に同一IDが読み込み対象に含まれている場合は、その情報を最新化する（重複追加はしない）
  */
 export async function addLoadedContainer(c: ContainerSkel): Promise<Result<void>> {
   const settingsRes = await getSettings();
   if (!settingsRes.ok) return settingsRes;
 
   const settings = settingsRes.value;
-  const newContainers = [...settings.containerSkels, c];
+  const newContainers = [...settings.containerSkels.filter((existing) => existing.id !== c.id), c];
   return saveSettings('containerSkels', newContainers);
 }
 

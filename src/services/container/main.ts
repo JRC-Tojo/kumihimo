@@ -67,9 +67,16 @@ function parseContainer(c: Container | ContainerSkel) {
 /**
  * コンテナ一覧を取得する
  *
- * コンテナ要素であるファイル情報などは未取得の状態で返す
+ * コンテナ要素であるファイル情報などは未取得の状態で返す。
+ * 各種リポジトリは一度登録されたコンテナの情報を（閉じた後も）保持し続けるため、
+ * ここでは設定の「読み込み対象のコンテナ」一覧（`settings.containerSkels`）に
+ * 含まれるものだけへ絞り込むことで、閉じたコンテナが一覧に残り続けないようにする
  */
 export async function getAllContainers(): Promise<Result<ContainerSkel[]>> {
+  const settingsRes = await settings.getSettings();
+  if (!settingsRes.ok) return settingsRes;
+  const loadedIds = new Set(settingsRes.value.containerSkels.map((c) => c.id));
+
   const gotContainers = await Promise.all([
     cache.getContainers(),
     box.getContainers(),
@@ -85,7 +92,8 @@ export async function getAllContainers(): Promise<Result<ContainerSkel[]>> {
       .map((cs) => {
         return cs.value.map((c) => [c.id, c] as [ContainerID, Container]);
       })
-      .flat(),
+      .flat()
+      .filter(([id]) => loadedIds.has(id)),
   );
 
   return Success(Object.values(cachedContainers));
@@ -218,6 +226,22 @@ export async function unloadContainer(
   delete cachedContainers[cId];
 
   return Success();
+}
+
+/**
+ * 一度閉じたコンテナ（または「最近読み込んだコンテナ一覧」にあるコンテナ）を、再び読み込み対象に加える
+ *
+ * `unloadContainer(id, false)`は実データやリポジトリ側の登録情報自体は残したまま
+ * 「読み込み対象のコンテナ」一覧からのみ除外するため、再度読み込み対象に戻すには
+ * この関数を経由して`settings.containerSkels`へ登録し直す必要がある
+ */
+export async function reopenContainer(entry: ContainerSkel): Promise<Result<Container>> {
+  cachedContainers[entry.id] = entry;
+
+  const settingsRes = await settings.addLoadedContainer(entry);
+  if (!settingsRes.ok) return settingsRes;
+
+  return loadContainer(entry.id, true);
 }
 
 /**

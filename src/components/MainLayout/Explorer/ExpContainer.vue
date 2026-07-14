@@ -140,7 +140,7 @@ provide(ExplorerContextKey, {
   containerId: prop.container.id,
   elements,
   reload: () => load(false),
-  containerPath: prop.container.containerPath,
+  containerPath: new Path(prop.container.name).path,
 });
 
 async function load(forceReload: boolean): Promise<void> {

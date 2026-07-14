@@ -170,6 +170,11 @@ export default {
     document: {
       noDocumentSelected: 'No document selected',
       loading: 'Loading...',
+      conflictTitle: 'File updated outside the app',
+      conflictMessage:
+        'This file has changed since its annotation data was last recorded. Update to the latest content now? (Annotation positions may shift.)',
+      conflictTrackFailed:
+        'Could not re-track annotation positions. Opening with the existing annotation data, which may not match the current content.',
     },
     peek: {
       title: 'Relational Peek',

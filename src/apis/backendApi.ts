@@ -118,6 +118,18 @@ class BackendApi {
   }
 
   /**
+   * 一度閉じたコンテナ（「最近読み込んだコンテナ一覧」等）を、再び読み込み対象に加える
+   */
+  async reopenContainer(entry: ContainerSkel): Promise<ApiResponse<Container>> {
+    const res = await containerService.reopenContainer(entry);
+    if (res.ok) {
+      const initRelation = await relationalService.loadRelationals(entry.id);
+      if (!initRelation.ok) return toApiResponse(initRelation, 'CONTAINER_LOAD_FAILED');
+    }
+    return toApiResponse(res, 'CONTAINER_LOAD_FAILED');
+  }
+
+  /**
    * ローカルフォルダを選択する（`createContainer('local', ...)`の直前にUIから呼ぶこと。
    * ブラウザの「ユーザー操作直後のみ許可」という制約を満たすための入り口になる）
    */
@@ -222,9 +234,16 @@ class BackendApi {
 
   /**
    * 文書のメタ情報（ハッシュ値、アノテーション等）を取得
+   *
+   * 実ファイルの`.rdcfg`を都度確認し、アノテーションDBを最新の内容と整合させる。
+   * 実ファイルが`.rdcfg`記録時から更新されている場合は`DOC_CONFIG_CONFLICT`として返すため、
+   * 呼び出し側でコンフリクト解決フローに分岐できる
    */
   async loadDocumentConfig(file: ContainerElementFile): Promise<ApiResponse<DocumentConfigFile>> {
     const fileConfig = await documentService.loadConfig(file);
+    if (!fileConfig.ok && fileConfig.error instanceof documentService.DocumentConfigConflictError) {
+      return toApiResponse(fileConfig, 'DOC_CONFIG_CONFLICT');
+    }
     return toApiResponse(fileConfig, 'DOC_ANNOT_LOAD_FAILED');
   }
 
@@ -259,6 +278,21 @@ class BackendApi {
   ): Promise<ApiResponse<DocumentConfigFile>> {
     const updatedConfig = await documentService.updateConfigForNewDoc(file, confFilePath);
     return toApiResponse(updatedConfig, 'DOCINFO_UPDATE_FAILED');
+  }
+
+  /**
+   * コンフリクト解決時、外部で更新された実ファイルの内容を正として設定情報を確定する
+   *
+   * `loadDocumentConfig`がハッシュ不一致で失敗した際、`updateDocumentConfig`で得た
+   * （再追跡済み、または追跡できず現状のまま採用する）設定内容をここで書き込むことで、
+   * `.rdcfg`とアノテーションDBを実ファイルの内容と整合させる
+   */
+  async acceptExternalDocumentConfig(
+    file: ContainerElementFile,
+    config: DocumentConfigFile,
+  ): Promise<ApiResponse<void>> {
+    const res = await documentService.acceptExternalConfig(file, config);
+    return toApiResponse(res, 'DOC_SAVE_FAILED');
   }
 
   /**

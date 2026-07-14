@@ -14,6 +14,20 @@ import { calcBase64Hash } from 'src/utils/binary/base64';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 
 /**
+ * `.rdcfg`のハッシュ記録と実ファイルの内容が一致しない場合（＝アプリ外でファイルが更新された場合）に
+ * `loadConfig`が返すエラー
+ *
+ * 通常の読み込み失敗（ファイルアクセスエラー等）と区別し、呼び出し側（フロントエンド）で
+ * コンフリクト解決フローに分岐させるための専用のエラー型
+ */
+export class DocumentConfigConflictError extends Error {
+  constructor() {
+    super('This file is updated (checksum is not same)');
+    this.name = 'DocumentConfigConflictError';
+  }
+}
+
+/**
  * 指定したファイルに紐づく本システムの設定ファイルを読み込む
  *
  * `.rdcfg`がまだ存在しない場合（そのファイルに一度もアノテーションが保存されたことがない場合）は
@@ -34,7 +48,7 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
 
   // 設定ファイルが存在していた場合のみ、ファイル内容が更新されていないか確認する
   if (configFileRes.ok && configFile.fileHash !== fileHash.value) {
-    return Failure(new Error('This file is updated (checksum is not same)'));
+    return Failure(new DocumentConfigConflictError());
   }
 
   // 返す前にConfigから読み取ったAnnotation情報をAnnotDBに保存する
@@ -44,6 +58,30 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
 
   // 更新版情報を返す
   return Success(configFile);
+}
+
+/**
+ * コンフリクト解決時、外部で更新された実ファイルの内容を正としてアノテーションDBと`.rdcfg`を更新する
+ *
+ * `updateConfigForNewDoc`で再追跡した（または位置追跡できず現状のまま採用する）設定内容を
+ * 確定として書き込む。内容そのものの変更ではなく外部変更の追認であるため、
+ * `saveConfig`と異なりバックアップの作成は行わない
+ */
+export async function acceptExternalConfig(
+  file: ContainerElementFile,
+  config: DocumentConfigFile,
+): Promise<Result<void>> {
+  const annotInfos = Object.values(config.annots);
+
+  const saveRes = await containerConfigService.saveDocumentConfigFile(
+    file.containerID,
+    file.path,
+    annotInfos,
+    config.fileHash,
+  );
+  if (!saveRes.ok) return saveRes;
+
+  return annotationService.registerAnnotationInfo(annotInfos, file);
 }
 
 /**

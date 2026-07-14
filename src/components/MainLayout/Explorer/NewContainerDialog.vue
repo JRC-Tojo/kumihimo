@@ -127,7 +127,7 @@ async function onPickLocalFolder() {
     const pickedRes = await api.pickLocalDirectory();
     if (!pickedRes.ok) return;
 
-    const createdRes = await api.createContainer('local', pickedRes.data.name, `.${pickedRes.data.name}`);
+    const createdRes = await api.createContainer('local', pickedRes.data.name, '.');
     if (!createdRes.ok) {
       Notify.create({ type: 'negative', message: $t('error.failedToCreateDocument') });
       return;
@@ -156,7 +156,7 @@ async function onReloadRecent(entry: RecentContainerEntry) {
   if (entry.type === 'box') return;
   isBusy.value = true;
   try {
-    await api.loadContainer(entry.id);
+    await api.reopenContainer(entry);
     emit('created');
     showModel.value = false;
   } finally {

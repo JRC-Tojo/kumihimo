@@ -91,6 +91,7 @@ import { buildRelationalRule } from 'src/models/relational/ruleUtils';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
 import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
+import { confirmDialog } from 'src/utils/dialog/confirmDialog';
 
 interface Prop {
   file: ContainerElementFile;
@@ -148,8 +149,47 @@ const peekDialogOpen = ref(false);
 
 // ================================
 
+/**
+ * 実ファイルの内容が`.rdcfg`記録時から変更されている場合の解決を試みる
+ *
+ * ユーザーに確認の上、可能であればアノテーション位置を新しい内容に追跡し直して確定する
+ * （既存のExpContainer.vueの外部変更コンフリクトと同様、ユーザーの明示的な操作なしには確定しない）。
+ * 追跡できなかった場合も実ファイル自体は開けるようにし、警告のみ表示する
+ *
+ * @returns 文書を開いてよい場合はtrue、ユーザーがキャンセルした場合はfalse
+ */
+async function resolveConfigConflict(): Promise<boolean> {
+  const proceed = await confirmDialog({
+    title: t('pdfEditor.document.conflictTitle'),
+    message: t('pdfEditor.document.conflictMessage'),
+    severity: 'negative',
+  });
+  if (!proceed) return false;
+
+  const updatedConfig = await api.updateDocumentConfig(prop.file);
+  if (updatedConfig.ok) {
+    await api.acceptExternalDocumentConfig(prop.file, updatedConfig.data);
+  } else {
+    $q.notify({ type: 'warning', message: t('pdfEditor.document.conflictTrackFailed') });
+  }
+  return true;
+}
+
 async function loadDocument() {
   loading.value = true;
+
+  // 実ファイルの`.rdcfg`を確認し、キャッシュ（アノテーションDB）を最新の内容と整合させる。
+  // ハッシュ不一致（外部での更新）を検知した場合はコンフリクト解決を経てから開く
+  // （それ以外の読み込み失敗は後続のgetDocumentSourceでも同様に検知されるため、ここでは無視して進める）
+  const configRes = await api.loadDocumentConfig(prop.file);
+  if (!configRes.ok && configRes.error.key === 'DOC_CONFIG_CONFLICT') {
+    const shouldContinue = await resolveConfigConflict();
+    if (!shouldContinue) {
+      loading.value = false;
+      editorStore.closeTab(prop.file, prop.layoutSide);
+      return;
+    }
+  }
 
   const docSrc = await api.getDocumentSource(prop.file);
   if (!docSrc.ok) {
