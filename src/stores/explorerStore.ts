@@ -109,6 +109,31 @@ export const useExplorerStore = defineStore('explorer', {
       this.selectedKeys = new Set(visibleKeys.slice(start, end + 1));
     },
 
+    /**
+     * 削除された要素のキー・パス参照を、選択・展開・クリップボード状態から取り除く
+     */
+    forgetPaths(containerID: ContainerID, paths: string[]): void {
+      if (paths.length === 0) return;
+      const keysToForget = new Set(paths.map((p) => explorerKey(containerID, p)));
+
+      const forgetSet = (keys: Set<string>): Set<string> =>
+        new Set([...keys].filter((key) => !keysToForget.has(key)));
+
+      this.expandedFolders = forgetSet(this.expandedFolders);
+      this.selectedKeys = forgetSet(this.selectedKeys);
+
+      if (this.lastSelectedKey !== null && keysToForget.has(this.lastSelectedKey)) {
+        this.lastSelectedKey = null;
+      }
+
+      if (this.clipboard !== null) {
+        const items = this.clipboard.items.filter(
+          (item) => !(item.containerID === containerID && paths.includes(item.path)),
+        );
+        this.clipboard = items.length > 0 ? { ...this.clipboard, items } : null;
+      }
+    },
+
     setClipboard(mode: ClipboardMode, items: ContainerElement[]): void {
       this.clipboard = { mode, items };
     },

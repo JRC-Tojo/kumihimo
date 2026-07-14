@@ -210,6 +210,7 @@ import type { AppSettings } from 'src/models/settings';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
+import { confirmDialog } from 'src/utils/dialog/confirmDialog';
 
 const { t: $t } = useI18n();
 const $q = useQuasar();
@@ -369,18 +370,18 @@ async function createSampleData() {
 /**
  * すべてのデータをクリア
  */
-function clearAllData() {
-  $q.dialog({
+async function clearAllData() {
+  const ok = await confirmDialog({
     title: 'Confirm',
     message: 'Are you sure you want to delete all data? This action cannot be undone.',
-    cancel: true,
-    persistent: true,
-  }).onOk(() => {
-    // localStorageRepository.clear() を呼ぶ（ただし、実装では関数がexportされていないため省略）
-    $q.notify({
-      type: 'positive',
-      message: 'All data cleared',
-    });
+    severity: 'negative',
+  });
+  if (!ok) return;
+
+  // localStorageRepository.clear() を呼ぶ（ただし、実装では関数がexportされていないため省略）
+  $q.notify({
+    type: 'positive',
+    message: 'All data cleared',
   });
 }
 </script>

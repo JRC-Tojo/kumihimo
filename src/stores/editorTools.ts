@@ -226,6 +226,10 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
             isActive: () => editorStore.autoSaveAnnotations,
             onClicked: () => {
               editorStore.autoSaveAnnotations = !editorStore.autoSaveAnnotations;
+              void useBackendApi().saveSettings(
+                'autoSaveAnnotations',
+                editorStore.autoSaveAnnotations,
+              );
             },
           },
         ];

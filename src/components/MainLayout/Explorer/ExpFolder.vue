@@ -46,6 +46,13 @@
             <q-item-section>{{ $t('explorer.paste') }}</q-item-section>
           </q-item>
           <q-separator />
+          <q-item v-close-popup clickable @click="onCopyRelativePath">
+            <q-item-section>{{ $t('explorer.copyRelativePath') }}</q-item-section>
+          </q-item>
+          <q-item v-close-popup clickable @click="onCopyAbsolutePath">
+            <q-item-section>{{ $t('explorer.copyAbsolutePath') }}</q-item-section>
+          </q-item>
+          <q-separator />
           <q-item v-close-popup clickable @click="confirmDelete">
             <q-item-section class="text-negative">{{ $t('explorer.delete') }}</q-item-section>
           </q-item>
@@ -72,7 +79,7 @@
 
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue';
-import { Dialog } from 'quasar';
+import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import type { ContainerElementFolder, ContainerID, RenamedEntry } from 'src/models/container';
 import { useExplorerStore } from 'src/stores/explorerStore';
@@ -85,6 +92,8 @@ import { startElementDrag, useExplorerDnd } from './useExplorerDnd';
 import { ExplorerContextKey } from './explorerContext';
 import ExpFile from './ExpFile.vue';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
+import { syncStoresAfterDelete } from 'src/utils/document/syncStoresAfterDelete';
+import { confirmDialog, promptDialog } from 'src/utils/dialog/confirmDialog';
 
 interface Prop {
   folder: ContainerElementFolder;
@@ -92,6 +101,7 @@ interface Prop {
 const prop = defineProps<Prop>();
 
 const { t: $t } = useI18n();
+const $q = useQuasar();
 const explorerStore = useExplorerStore();
 const api = useBackendApi();
 const ctx = inject(ExplorerContextKey);
@@ -193,34 +203,49 @@ async function onPaste() {
   await ctx?.reload();
 }
 
-function confirmDelete() {
-  Dialog.create({
-    title: $t('explorer.delete'),
-    message: $t('explorer.deleteConfirmFolder', { name: folderPath.value.basename() }),
-    cancel: true,
-    persistent: true,
-  }).onOk(() => {
-    void (async () => {
-      await api.deleteFolder(prop.folder.containerID, prop.folder);
-      await ctx?.reload();
-    })();
-  });
+async function onCopyRelativePath() {
+  await navigator.clipboard.writeText(folderPath.value.path);
+  $q.notify({ type: 'positive', message: $t('explorer.pathCopied') });
 }
 
-function createNewFolder() {
-  Dialog.create({
-    title: $t('explorer.newFolder'),
-    prompt: { model: '', type: 'text' },
-    cancel: true,
-    persistent: true,
-  }).onOk((name: string) => {
-    void (async () => {
-      const trimmed = name.trim();
-      if (trimmed === '') return;
-      await api.createFolder(prop.folder.containerID, folderPath.value.child(trimmed).path);
-      await ctx?.reload();
-    })();
+async function onCopyAbsolutePath() {
+  const containerPath = ctx?.containerPath ?? '.';
+  const absolutePath = new Path(containerPath).child(folderPath.value.path).path;
+  await navigator.clipboard.writeText(absolutePath);
+  $q.notify({ type: 'positive', message: $t('explorer.pathCopied') });
+}
+
+async function confirmDelete() {
+  const ok = await confirmDialog({
+    title: $t('explorer.delete'),
+    message: $t('explorer.deleteConfirmFolder', { name: folderPath.value.basename() }),
+    severity: 'negative',
   });
+  if (!ok) return;
+
+  const prefix = `${prop.folder.path}/`;
+  const descendants = ctx
+    ? Object.values(ctx.elements.value).filter((e) => e.path.startsWith(prefix))
+    : [];
+
+  const deleteRes = await api.deleteFolder(prop.folder.containerID, prop.folder);
+  if (deleteRes.ok) {
+    syncStoresAfterDelete(prop.folder.containerID, [prop.folder, ...descendants]);
+  }
+  await ctx?.reload();
+}
+
+async function createNewFolder() {
+  const name = await promptDialog({
+    title: $t('explorer.newFolder'),
+    promptLabel: $t('explorer.newFolder'),
+  });
+  if (name === undefined) return;
+
+  const trimmed = name.trim();
+  if (trimmed === '') return;
+  await api.createFolder(prop.folder.containerID, folderPath.value.child(trimmed).path);
+  await ctx?.reload();
 }
 
 function triggerUpload() {

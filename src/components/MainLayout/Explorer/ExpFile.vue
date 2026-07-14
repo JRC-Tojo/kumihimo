@@ -32,6 +32,13 @@
           <q-item-section>{{ $t('explorer.cut') }}</q-item-section>
         </q-item>
         <q-separator />
+        <q-item v-close-popup clickable @click="onCopyRelativePath">
+          <q-item-section>{{ $t('explorer.copyRelativePath') }}</q-item-section>
+        </q-item>
+        <q-item v-close-popup clickable @click="onCopyAbsolutePath">
+          <q-item-section>{{ $t('explorer.copyAbsolutePath') }}</q-item-section>
+        </q-item>
+        <q-separator />
         <q-item v-close-popup clickable @click="confirmDelete">
           <q-item-section class="text-negative">{{ $t('explorer.delete') }}</q-item-section>
         </q-item>
@@ -42,7 +49,6 @@
 
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue';
-import { Dialog } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import type { ContainerElementFile } from 'src/models/container';
 import { useEditorStore } from 'src/stores/editorStore';
@@ -54,7 +60,9 @@ import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 import { startElementDrag } from './useExplorerDnd';
 import { ExplorerContextKey } from './explorerContext';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
+import { syncStoresAfterDelete } from 'src/utils/document/syncStoresAfterDelete';
 import { useUnsavedIndicator } from 'src/composables/useUnsavedIndicator';
+import { confirmDialog } from 'src/utils/dialog/confirmDialog';
 
 interface Prop {
   file: ContainerElementFile;
@@ -150,18 +158,27 @@ function onCut() {
   explorerStore.setClipboard('cut', [prop.file]);
 }
 
-function confirmDelete() {
-  Dialog.create({
+async function onCopyRelativePath() {
+  await navigator.clipboard.writeText(filePath.value.path);
+}
+
+async function onCopyAbsolutePath() {
+  const containerPath = ctx?.containerPath ?? '.';
+  const absolutePath = new Path(containerPath).child(filePath.value.path).path;
+  await navigator.clipboard.writeText(absolutePath);
+}
+
+async function confirmDelete() {
+  const ok = await confirmDialog({
     title: $t('explorer.delete'),
     message: $t('explorer.deleteConfirmFile', { name: filePath.value.basename() }),
-    cancel: true,
-    persistent: true,
-  }).onOk(() => {
-    void (async () => {
-      await api.deleteFile(prop.file.containerID, prop.file);
-      await ctx?.reload();
-    })();
+    severity: 'negative',
   });
+  if (!ok) return;
+
+  const deleteRes = await api.deleteFile(prop.file.containerID, prop.file);
+  if (deleteRes.ok) syncStoresAfterDelete(prop.file.containerID, [prop.file]);
+  await ctx?.reload();
 }
 </script>
 

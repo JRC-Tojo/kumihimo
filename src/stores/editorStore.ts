@@ -169,6 +169,32 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 指定パスのファイルタブを全ペインから閉じる（ファイル削除時に使う）
+     */
+    closeTabsForPaths(containerID: ContainerID, paths: string[]): void {
+      if (paths.length === 0) return;
+      const pathSet = new Set(paths);
+
+      (['ul', 'ur', 'll', 'lr'] as const).forEach((side) => {
+        const removedKeys = this.tabs[side]
+          .filter((tab) => tab.containerID === containerID && pathSet.has(tab.path))
+          .map((tab) => tabKey(tab));
+        if (removedKeys.length === 0) return;
+
+        this.tabs[side] = this.tabs[side].filter(
+          (tab) => !(tab.containerID === containerID && pathSet.has(tab.path)),
+        );
+        removedKeys.forEach((key) => this.pinedTabPaths[side].delete(key));
+
+        const activeKey = this.activeTabPaths[side];
+        if (activeKey !== null && removedKeys.includes(activeKey)) {
+          const lastTab = this.tabs[side][this.tabs[side].length - 1];
+          this.activeTabPaths[side] = lastTab ? tabKey(lastTab) : null;
+        }
+      });
+    },
+
+    /**
      * タブをピンする
      */
     pinTab(elem: ContainerElement, layoutSide: LayoutSide): void {

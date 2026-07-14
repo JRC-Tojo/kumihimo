@@ -251,5 +251,12 @@ export default {
     workspaceFolderNotFound: 'Skipped because the folder could not be found',
     recentContainers: 'Recently Loaded Containers',
     notSupportedContainerType: 'This container type is not supported',
+    selectLocationFirst: 'Select a file or folder first',
+    copyRelativePath: 'Copy Relative Path',
+    copyAbsolutePath: 'Copy Absolute Path',
+    pathCopied: 'Path copied to clipboard',
+    unsavedTabConfirm: '"{name}" has unsaved changes. Do you want to save them?',
+    saveAndClose: 'Save and Close',
+    discardAndClose: 'Discard and Close',
   },
 };

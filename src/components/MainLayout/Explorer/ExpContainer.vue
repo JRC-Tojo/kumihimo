@@ -82,7 +82,6 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
-import { Dialog } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import type { Container, ContainerID, ContainerSkel, RenamedEntry } from 'src/models/container';
 import { useExplorerStore } from 'src/stores/explorerStore';
@@ -97,6 +96,7 @@ import { ExplorerContextKey } from './explorerContext';
 import ExpFile from './ExpFile.vue';
 import ExpFolder from './ExpFolder.vue';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
+import { confirmDialog, promptDialog } from 'src/utils/dialog/confirmDialog';
 
 interface Prop {
   container: ContainerSkel;
@@ -112,6 +112,7 @@ const api = useBackendApi();
 const isLoading = ref(false);
 const showMenu = ref(false);
 const uploadInputRef = ref<HTMLInputElement | null>(null);
+const uploadTargetPath = ref<string | null>(null);
 const needsReconnect = ref(false);
 const changesDetected = ref(false);
 const conflictDetected = ref(false);
@@ -139,6 +140,7 @@ provide(ExplorerContextKey, {
   containerId: prop.container.id,
   elements,
   reload: () => load(false),
+  containerPath: prop.container.containerPath,
 });
 
 async function load(forceReload: boolean): Promise<void> {
@@ -180,18 +182,15 @@ async function onReconnect() {
   if (res.ok) await load(true);
 }
 
-function onUnload() {
-  Dialog.create({
+async function onUnload() {
+  const ok = await confirmDialog({
     title: $t('explorer.closeContainer'),
     message: $t('explorer.closeContainerConfirm', { name: prop.container.name }),
-    cancel: true,
-    persistent: true,
-  }).onOk(() => {
-    void (async () => {
-      await api.unloadContainer(prop.container.id, false);
-      emit('closed');
-    })();
   });
+  if (!ok) return;
+
+  await api.unloadContainer(prop.container.id, false);
+  emit('closed');
 }
 
 async function onPaste() {
@@ -212,40 +211,56 @@ async function onPaste() {
   await load(false);
 }
 
-function createNewFolder() {
-  Dialog.create({
+async function createNewFolderAt(parentPath: string | null) {
+  const name = await promptDialog({
     title: $t('explorer.newFolder'),
-    prompt: { model: '', type: 'text' },
-    cancel: true,
-    persistent: true,
-  }).onOk((name: string) => {
-    void (async () => {
-      const trimmed = name.trim();
-      if (trimmed === '') return;
-      await api.createFolder(prop.container.id, trimmed);
-      await load(false);
-    })();
+    promptLabel: $t('explorer.newFolder'),
   });
+  if (name === undefined) return;
+
+  const trimmed = name.trim();
+  if (trimmed === '') return;
+  const targetPath = parentPath ? new Path(parentPath).child(trimmed).path : trimmed;
+  await api.createFolder(prop.container.id, targetPath);
+  await load(false);
+}
+
+function createNewFolder() {
+  void createNewFolderAt(null);
+}
+
+function triggerUploadAt(parentPath: string | null) {
+  uploadTargetPath.value = parentPath;
+  uploadInputRef.value?.click();
 }
 
 function triggerUpload() {
-  uploadInputRef.value?.click();
+  triggerUploadAt(null);
 }
 
 async function onUploadSelected(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = Array.from(input.files ?? []);
+  const parentPath = uploadTargetPath.value;
 
   for (const file of files) {
     const buffer = await file.arrayBuffer();
     const base64Res = await arrayBufferToBase64(buffer);
     if (!base64Res.ok) continue;
-    await api.saveFile(prop.container.id, file.name, DocumentSource.parse(base64Res.value));
+    const targetPath = parentPath ? new Path(parentPath).child(file.name).path : file.name;
+    await api.saveFile(prop.container.id, targetPath, DocumentSource.parse(base64Res.value));
   }
 
   input.value = '';
+  uploadTargetPath.value = null;
   await load(false);
 }
+
+defineExpose({
+  reload: () => load(true),
+  triggerUpload: triggerUploadAt,
+  createFolderAt: createNewFolderAt,
+});
 
 const { isDragOver, onDragOverTarget, onDragLeaveTarget, onDropTarget } = useExplorerDnd({
   containerId: prop.container.id,

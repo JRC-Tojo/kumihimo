@@ -177,6 +177,22 @@ export async function updateConfigForNewDoc(
 }
 
 /**
+ * ファイル削除時に、対応する`.rdcfg`サイドカー設定ファイルが存在すれば削除する（ベストエフォート）
+ *
+ * サイドカーが存在しない場合の削除失敗も含め、本体ファイルの削除自体は成功として扱いたいため、
+ * ここでのエラーは呼び出し元に伝播させずログのみに留める
+ */
+export async function deleteConfigForFile(file: ContainerElementFile): Promise<void> {
+  const sidecarPath = containerConfigService.getConfigPath(file.path);
+  const sidecarElement: ContainerElementFile = { ...file, path: sidecarPath };
+
+  const deleteRes = await containerService.deleteFile(file.containerID, sidecarElement);
+  if (!deleteRes.ok) {
+    console.warn('Failed to delete sidecar config file (best-effort):', deleteRes.error);
+  }
+}
+
+/**
  * ファイル・フォルダのパス変更（リネーム・移動）を行う
  *
  * 実データのパス変更に加えて、対応する`.rdcfg`サイドカー設定ファイル、コンテナルートの

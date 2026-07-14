@@ -250,5 +250,12 @@ export default {
     workspaceFolderNotFound: 'フォルダが見つからないため読み込みをスキップしました',
     recentContainers: '最近読み込んだコンテナ',
     notSupportedContainerType: '非対応のコンテナ種別です',
+    selectLocationFirst: '先にファイルまたはフォルダを選択してください',
+    copyRelativePath: '相対パスのコピー',
+    copyAbsolutePath: '絶対パスのコピー',
+    pathCopied: 'パスをクリップボードにコピーしました',
+    unsavedTabConfirm: '「{name}」に未保存の変更があります。保存しますか？',
+    saveAndClose: '保存して閉じる',
+    discardAndClose: '保存せず閉じる',
   },
 };

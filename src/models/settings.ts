@@ -30,6 +30,8 @@ export const AppSettings = z.object({
   relationalVerificationStyle: RelationalVerificationStyle.default(
     DEFAULT_RELATIONAL_VERIFICATION_STYLE,
   ),
+  // アノテーションの自動保存トグルのオン・オフ
+  autoSaveAnnotations: z.boolean().default(false),
 });
 
 export type AppSettings = z.infer<typeof AppSettings>;
