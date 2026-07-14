@@ -17,9 +17,10 @@ export async function hasUnsavedChangesByFile(
     annotationService.countTemporaryAnnotations(file),
     relationalService.countTemporaryRelationalsInvolvingFile(file),
   ]);
-  const annotCount = annotRes.ok ? annotRes.value : 0;
-  const relCount = relRes.ok ? relRes.value : 0;
-  return Success(annotCount + relCount > 0);
+  if (!annotRes.ok) return annotRes;
+  if (!relRes.ok) return relRes;
+
+  return Success(annotRes.value + relRes.value > 0);
 }
 
 /**

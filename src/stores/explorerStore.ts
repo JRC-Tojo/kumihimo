@@ -30,13 +30,16 @@ export const useExplorerStore = defineStore('explorer', {
   }),
 
   getters: {
+    /** コンテナが展開状態かどうかを取得する */
     isContainerExpanded(state) {
       return (cId: ContainerID): boolean => state.expandedContainers.has(cId);
     },
+    /** 指定フォルダが展開状態かどうかを取得する */
     isFolderExpanded(state) {
       return (cId: ContainerID, path: string): boolean =>
         state.expandedFolders.has(explorerKey(cId, path));
     },
+    /** 指定要素が選択状態かどうかを取得する */
     isSelected(state) {
       return (cId: ContainerID, path: string): boolean =>
         state.selectedKeys.has(explorerKey(cId, path));
@@ -44,6 +47,7 @@ export const useExplorerStore = defineStore('explorer', {
   },
 
   actions: {
+    /** コンテナの展開状態を切り替える */
     toggleContainer(cId: ContainerID): void {
       if (this.expandedContainers.has(cId)) {
         this.expandedContainers.delete(cId);
@@ -52,6 +56,7 @@ export const useExplorerStore = defineStore('explorer', {
       }
     },
 
+    /** フォルダの展開状態を切り替える */
     toggleFolder(cId: ContainerID, path: string): void {
       const key = explorerKey(cId, path);
       if (this.expandedFolders.has(key)) {

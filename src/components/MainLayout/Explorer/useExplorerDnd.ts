@@ -8,6 +8,7 @@ import { DocumentSource } from 'src/models/document/common';
 import { arrayBufferToBase64 } from 'src/utils/binary/base64';
 import { explorerKey } from 'src/stores/explorerStore';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
+import { Path } from 'src/utils/binary/path';
 
 /** 内部移動であることを識別するためのMIMEタイプ（値自体には移動元の要素キーを入れる） */
 const INTERNAL_DND_TYPE = 'application/x-rd-explorer-element';
@@ -142,16 +143,14 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
     );
     const allFolderPaths = collected.flatMap((c) => c.folderPaths);
     const allFiles = collected.flatMap((c) => c.files);
-
-    const targetFolderPath = options.targetFolderPath();
-    const resolvePath = (path: string) => (targetFolderPath ? `${targetFolderPath}/${path}` : path);
-
+    
     // 深い階層から作られないよう、浅い階層から順にフォルダを作成する
     const sortedFolderPaths = [...allFolderPaths].sort(
       (a, b) => a.split('/').length - b.split('/').length,
     );
+    const targetFolderPath = new Path(options.targetFolderPath() ?? '.');
     for (const folderPath of sortedFolderPaths) {
-      await api.createFolder(options.containerId, resolvePath(folderPath));
+      await api.createFolder(options.containerId, targetFolderPath.child(folderPath).path);
     }
 
     for (const { path, file } of allFiles) {
@@ -160,7 +159,7 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
       if (!base64Res.ok) continue;
       await api.saveFile(
         options.containerId,
-        resolvePath(path),
+        targetFolderPath.child(path).path,
         DocumentSource.parse(base64Res.value),
       );
     }

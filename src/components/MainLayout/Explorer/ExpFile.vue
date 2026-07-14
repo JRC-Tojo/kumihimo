@@ -106,6 +106,7 @@ const statusClass = computed(() => {
   return '';
 });
 
+/** クリック操作で要素を選択し、必要に応じてタブを開く */
 function onClick(e: MouseEvent) {
   if (e.ctrlKey || e.metaKey) {
     explorerStore.toggleSelect(prop.file.containerID, prop.file.path);
@@ -115,6 +116,7 @@ function onClick(e: MouseEvent) {
   editStore.openTab(prop.file);
 }
 
+/** ドラッグ開始時に内部移動用の要素情報を保持する */
 function onDragStart(e: DragEvent) {
   startElementDrag(e, prop.file);
 }
@@ -130,6 +132,7 @@ function requestRename() {
   pendingRename.value = true;
 }
 
+/** コンテキストメニューが閉じた後に、予約済みの名前変更入力を開始する */
 function onMenuHide() {
   if (!pendingRename.value) return;
   pendingRename.value = false;
@@ -137,10 +140,12 @@ function onMenuHide() {
   isRenaming.value = true;
 }
 
+/** 名前変更入力を中断する */
 function cancelRename() {
   isRenaming.value = false;
 }
 
+/** 入力内容をもとに実際のパス変更を実行する */
 async function confirmRename() {
   if (!isRenaming.value) return;
   isRenaming.value = false;
@@ -154,20 +159,24 @@ async function confirmRename() {
   await ctx?.reload();
 }
 
+/** 現在要素を切り取り先として保存する */
 function onCut() {
   explorerStore.setClipboard('cut', [prop.file]);
 }
 
+/** 相対パスをクリップボードへコピーする */
 async function onCopyRelativePath() {
   await navigator.clipboard.writeText(filePath.value.path);
 }
 
+/** コンテナ基準の絶対パスをクリップボードへコピーする */
 async function onCopyAbsolutePath() {
   const containerPath = ctx?.containerPath ?? '.';
   const absolutePath = new Path(containerPath).child(filePath.value.path).path;
   await navigator.clipboard.writeText(absolutePath);
 }
 
+/** 削除確認後に要素を削除する */
 async function confirmDelete() {
   const ok = await confirmDialog({
     title: $t('explorer.delete'),

@@ -228,7 +228,10 @@ class BackendApi {
    */
   async deleteFile(cId: ContainerID, file: ContainerElementFile): Promise<ApiResponse<void>> {
     const deleteRes = await containerService.deleteFile(cId, file);
-    if (deleteRes.ok) await documentService.deleteConfigForFile(file);
+    if (!deleteRes.ok) return toApiResponse(deleteRes, 'DOC_DELETE_FAILED');
+
+    await documentService.deleteConfigForFile(file);
+
     return toApiResponse(deleteRes, 'DOC_DELETE_FAILED');
   }
 
