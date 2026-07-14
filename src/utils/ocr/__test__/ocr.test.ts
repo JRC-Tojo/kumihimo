@@ -65,5 +65,5 @@ describe('ocr tests', () => {
 
     // 結果を比較
     expect(normalizedOcrResult).toBe(expectedText);
-  });
+  }, { timeout: 10 * 10**3 });
 });

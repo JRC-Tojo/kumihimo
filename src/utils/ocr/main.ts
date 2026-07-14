@@ -1,4 +1,4 @@
-import * as ort from 'onnxruntime-web';
+import { PaddleOcrService } from "ppu-paddle-ocr/web";
 import type { Worker } from 'tesseract.js';
 import Tesseract, { PSM } from 'tesseract.js';
 import type { BoundingBox } from '../../models/common';
@@ -10,9 +10,6 @@ const pipe = (
 ) => {
   fns.forEach((fn) => fn(ctx));
 };
-
-const PPOCR_KEYS_URL = 'https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/refs/heads/main/ppocr/utils/ppocr_keys_v1.txt'
-const OCR_MODEL_URL = 'https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx'
 
 export async function Image2Text(imageSource: string): Promise<string> {
   const canvas = await imageUrlToCanvas(imageSource);
@@ -78,92 +75,6 @@ const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement>
 };
 
 /**
- * 辞書ファイルのロード（文字のインデックスマッピング用）
- */
-let characterDict: string[] | null = null;
-const loadCharacterDict = async () => {
-  if (characterDict) return characterDict;
-  const res = await fetch(PPOCR_KEYS_URL);
-  const text = await res.text();
-  // PaddleOCRの辞書は、最初と最後に特殊トークン(blank)が入る仕様に合わせて調整が必要な場合があります
-  characterDict = ['blank', ...text.split('\n'), ' '];
-  return characterDict;
-};
-
-/**
- * ONNXモデルに入力するための画像テンソル化処理
- * Canvas(RGBA) -> Float32Array(CHW) + 正規化
- */
-const prepareImageTensor = (canvas: HTMLCanvasElement): ort.Tensor => {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas context is null');
-
-  // PaddleOCRのRecognitionモデルは高さを48（または32）に固定し、幅をアスペクト比維持で可変とします
-  const targetHeight = 48;
-  const scale = targetHeight / canvas.height;
-  const targetWidth = Math.floor(canvas.width * scale);
-
-  const resizeCanvas = document.createElement('canvas');
-  resizeCanvas.width = targetWidth;
-  resizeCanvas.height = targetHeight;
-  const resizeCtx = resizeCanvas.getContext('2d');
-  resizeCtx?.drawImage(canvas, 0, 0, targetWidth, targetHeight);
-
-  const imageData = resizeCtx!.getImageData(0, 0, targetWidth, targetHeight).data;
-  const float32Data = new Float32Array(3 * targetWidth * targetHeight);
-
-  // [HWC] -> [CHW] への変換と、正規化 (mean:0.5, std:0.5)
-  for (let y = 0; y < targetHeight; y++) {
-    for (let x = 0; x < targetWidth; x++) {
-      const idx = (y * targetWidth + x) * 4;
-      const r = imageData[idx]! / 255.0;
-      const g = imageData[idx + 1]! / 255.0;
-      const b = imageData[idx + 2]! / 255.0;
-
-      float32Data[0 * targetWidth * targetHeight + y * targetWidth + x] = (r - 0.5) / 0.5;
-      float32Data[1 * targetWidth * targetHeight + y * targetWidth + x] = (g - 0.5) / 0.5;
-      float32Data[2 * targetWidth * targetHeight + y * targetWidth + x] = (b - 0.5) / 0.5;
-    }
-  }
-
-  // ONNX Runtime 用のテンソルオブジェクトを作成
-  return new ort.Tensor('float32', float32Data, [1, 3, targetHeight, targetWidth]);
-};
-
-/**
- * CTC デコード処理
- * モデルから出力された確率分布から、最も確率の高い文字を抽出する
- */
-const ctcDecode = (outputData: Float32Array, seqLen: number, dictLen: number, dict: string[]): string => {
-  let result = '';
-  let lastIndex = 0;
-
-  for (let i = 0; i < seqLen; i++) {
-    let maxProb = 0;
-    let maxIdx = 0;
-
-    // 各タイムステップにおける最も確率の高い文字インデックスを探す
-    for (let j = 0; j < dictLen; j++) {
-      const prob = outputData[i * dictLen + j] ?? 0;
-      if (prob > maxProb) {
-        maxProb = prob;
-        maxIdx = j;
-      }
-    }
-
-    // CTCのルール: 連続する同じ文字、またはBlank(インデックス0)はスキップ
-    if (maxIdx !== 0 && maxIdx !== lastIndex) {
-      // 辞書の範囲外アクセスを防ぐ
-      if (maxIdx < dict.length) {
-        result += dict[maxIdx];
-      }
-    }
-    lastIndex = maxIdx;
-  }
-  return result;
-};
-
-/**
  * ONNX Runtime を用いた OCR 実行関数
  */
 export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
@@ -180,32 +91,11 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   );
 
   try {
-    // 2. 辞書とONNXモデルのロード
-    const dict = await loadCharacterDict();
-    // wasm バックエンドを使用するように指定
-    ort.env.wasm.numThreads = 1;
-    const bytes = await fetch(OCR_MODEL_URL, { 'mode': 'cors' }).then(res => res.arrayBuffer())
-    const session = await ort.InferenceSession.create(bytes, {
-      executionProviders: ['wasm']
-    });
+    const service = new PaddleOcrService();
+    await service.initialize();
 
-    // 3. 画像をテンソルに変換
-    const inputTensor = prepareImageTensor(canvas);
-
-    // 4. 推論実行（入力ノード名はモデルによって異なるため、Netron等で確認が必要。通常は 'x'）
-    const feeds: Record<string, ort.Tensor> = { x: inputTensor };
-    const results = await session.run(feeds);
-
-    // 5. 出力の取得とデコード
-    // 出力ノード名もモデル依存。通常は 'softmax_0.tmp_0' や 'save_infer_model/scale_0.tmp_1' など
-    const outputName = session.outputNames[0]!;
-    const outputTensor = results[outputName]!;
-
-    // 出力テンソルの形状は [batch_size, sequence_length, dictionary_size]
-    const seqLen = outputTensor.dims[1]!;
-    const dictLen = outputTensor.dims[2]!;
-
-    const text = ctcDecode(outputTensor.data as Float32Array, seqLen, dictLen, dict);
+    const result = await service.recognize(canvas);
+    const text = result.text
 
     // 前処理済みの画像を見るときに使用する
     // const filePath = `${__dirname}/processed(${text.length}).png`;
