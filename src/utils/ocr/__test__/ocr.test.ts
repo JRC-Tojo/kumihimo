@@ -47,23 +47,27 @@ describe('ocr tests', () => {
   }
 
   // 各画像ファイルについてOCRを実行し、期待値と比較
-  test.each(imageFiles)('simple images to ocr (%s)', async (imageFile) => {
-    const imagePath = join(OCRASSESTS_DIR, imageFile);
-    const expectedTextPath = imagePath.replace(/\.(png|jpg|jpeg)$/i, '.txt');
+  test.each(imageFiles)(
+    'simple images to ocr (%s)',
+    async (imageFile) => {
+      const imagePath = join(OCRASSESTS_DIR, imageFile);
+      const expectedTextPath = imagePath.replace(/\.(png|jpg|jpeg)$/i, '.txt');
 
-    // 期待テキストファイルが存在するか確認
-    let expectedText: string | null = null;
-    try {
-      expectedText = readFileSync(expectedTextPath, 'utf-8').trim();
-    } catch {
-      throw new Error(`Expected text file not found for ${imageFile}.`);
-    }
+      // 期待テキストファイルが存在するか確認
+      let expectedText: string | null = null;
+      try {
+        expectedText = readFileSync(expectedTextPath, 'utf-8').trim();
+      } catch {
+        throw new Error(`Expected text file not found for ${imageFile}.`);
+      }
 
-    // OCRを実行
-    const ocrResult = await Image2Text(imagePath);
-    const normalizedOcrResult = ocrResult.trim();
+      // OCRを実行
+      const ocrResult = await Image2Text(imagePath);
+      const normalizedOcrResult = ocrResult.trim();
 
-    // 結果を比較
-    expect(normalizedOcrResult).toBe(expectedText);
-  }, { timeout: 10 * 10**3 });
+      // 結果を比較
+      expect(normalizedOcrResult).toBe(expectedText);
+    },
+    { timeout: 10 * 10 ** 3 },
+  );
 });

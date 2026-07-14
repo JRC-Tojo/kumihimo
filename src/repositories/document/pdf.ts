@@ -610,7 +610,7 @@ export async function createSearchablePDFWithONNX(
   const numPages = pdfJsDoc.numPages;
 
   // 3. 【領域検出用】Tesseract Worker の初期化（ループ外で行い使い回す）
-  const tesseractWorker = await buildTesseractWorker()
+  const tesseractWorker = await buildTesseractWorker();
 
   try {
     for (let i = 1; i <= numPages; i++) {
@@ -730,5 +730,5 @@ export default {
   addBlankPageToPdf,
   removePageFromPdf,
   embedAnnotationsIntoPdf,
-  createSearchablePDFWithONNX
+  createSearchablePDFWithONNX,
 };

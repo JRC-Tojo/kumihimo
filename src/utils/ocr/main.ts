@@ -1,4 +1,4 @@
-import { PaddleOcrService } from "ppu-paddle-ocr/web";
+import { PaddleOcrService } from 'ppu-paddle-ocr/web';
 import type { Worker } from 'tesseract.js';
 import Tesseract, { PSM } from 'tesseract.js';
 import type { BoundingBox } from '../../models/common';
@@ -95,7 +95,7 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
     await service.initialize();
 
     const result = await service.recognize(canvas);
-    const text = result.text
+    const text = result.text;
 
     // 前処理済みの画像を見るときに使用する
     // const filePath = `${__dirname}/processed(${text.length}).png`;
@@ -105,7 +105,7 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
 
     return text.replace(/\s+/g, '');
   } catch (error) {
-    console.error("ONNX OCR Error:", error);
+    console.error('ONNX OCR Error:', error);
     return '';
   }
 };
@@ -248,7 +248,6 @@ export const autocrop = (ctx: CanvasRenderingContext2D, padding: number = 5) => 
   ctx.putImageData(cropped, 0, 0);
 };
 
-
 /**
  * Tesseractのワーカーを定義する
  */
@@ -256,25 +255,26 @@ export async function buildTesseractWorker(): Promise<Worker> {
   const tesseractWorker = await Tesseract.createWorker('jpn');
   // ページ全体のレイアウトを解析し、行ブロックを見つけるモード
   await tesseractWorker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
-  return tesseractWorker
+  return tesseractWorker;
 }
-
 
 /**
  * Tesseract.js を用いて画像からテキストのBounding Box（行単位）を抽出する
  */
 export async function detectTextRegions(
   canvas: HTMLCanvasElement,
-  worker: Worker
+  worker: Worker,
 ): Promise<BoundingBox[]> {
   // 軽量化のためJPEGデータとして渡す
   const { data } = await worker.recognize(canvas.toDataURL('image/jpeg', 0.8));
 
   // 単語(words)ではなく、行(lines)単位で取得することでONNX推論の回数を減らし高速化する
-  return data.blocks?.map(line => ({
-    x: line.bbox.x0,
-    y: line.bbox.y0,
-    width: line.bbox.x1 - line.bbox.x0,
-    height: line.bbox.y1 - line.bbox.y0,
-  })) ?? [];
+  return (
+    data.blocks?.map((line) => ({
+      x: line.bbox.x0,
+      y: line.bbox.y0,
+      width: line.bbox.x1 - line.bbox.x0,
+      height: line.bbox.y1 - line.bbox.y0,
+    })) ?? []
+  );
 }
