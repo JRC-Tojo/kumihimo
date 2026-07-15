@@ -1,4 +1,7 @@
+import { PaddleOcrService } from 'ppu-paddle-ocr/web';
+import type { Worker } from 'tesseract.js';
 import Tesseract, { PSM } from 'tesseract.js';
+import type { BoundingBox } from '../../models/common';
 
 // パイプライン実行用ヘルパー
 const pipe = (
@@ -71,27 +74,48 @@ const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement>
   });
 };
 
+// Serviceの初期化Promiseをキャッシュする（失敗時は再試行可能にする）
+let ocrServicePromise: Promise<PaddleOcrService> | undefined;
+
+/**
+ * OCRサービスを取得する
+ */
+async function getService(): Promise<PaddleOcrService> {
+  if (ocrServicePromise === void 0) {
+    ocrServicePromise = (async () => {
+      const service = new PaddleOcrService();
+      await service.initialize();
+      return service;
+    })().catch((err) => {
+      ocrServicePromise = void 0; // 失敗時は次回呼び出しで再試行できるようにする
+      throw err;
+    });
+  }
+
+  return ocrServicePromise;
+}
+
+/**
+ * OCRプロセスの初期化
+ */
+export async function initOCR(): Promise<void> {
+  await getService();
+}
+
+/**
+ * ONNX Runtime を用いた OCR 実行関数
+ */
 export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   const ctx = canvas.getContext('2d');
   if (ctx === null) return '';
 
-  // 前処理のパイプライン実行
-  pipe(
-    ctx,
-    grayscale,
-    (c) => binarize(c, 128),
-    deskew,
-    (c) => autocrop(c, 10),
-  );
-
-  // OCRエンジンへ渡す
-  const worker = await Tesseract.createWorker('jpn');
-  await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+  // 1. 既存の前処理パイプラインの実行（必要に応じて）
+  pipe(ctx, deskew);
 
   try {
-    const {
-      data: { text },
-    } = await worker.recognize(canvas.toDataURL());
+    const service = await getService();
+    const result = await service.recognize(canvas);
+    const text = result.text;
 
     // 前処理済みの画像を見るときに使用する
     // const filePath = `${__dirname}/processed(${text.length}).png`;
@@ -100,38 +124,13 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
     // fs.writeFileSync(filePath, buffer);
 
     return text.replace(/\s+/g, '');
-  } finally {
-    await worker.terminate();
+  } catch (error) {
+    console.error('ONNX OCR Error:', error);
+    return '';
   }
 };
 
-// 1. グレースケール化
-export const grayscale = (ctx: CanvasRenderingContext2D) => {
-  const { width, height } = ctx.canvas;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const avg =
-      0.299 * (data.at(i) ?? 0) + 0.587 * (data.at(i + 1) ?? 0) + 0.114 * (data.at(i + 2) ?? 0);
-    data[i] = data[i + 1] = data[i + 2] = avg;
-  }
-  ctx.putImageData(imageData, 0, 0);
-};
-
-// 2. 二値化
-export const binarize = (ctx: CanvasRenderingContext2D, threshold: number = 128) => {
-  const { width, height } = ctx.canvas;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i] === undefined) console.log(i);
-    const val = (data.at(i) ?? 0) > threshold ? 255 : 0;
-    data[i] = data[i + 1] = data[i + 2] = val;
-  }
-  ctx.putImageData(imageData, 0, 0);
-};
-
-// 3. 傾き補正 (モーメント法で角度を算出し、Canvasを回転)
+// 傾き補正 (モーメント法で角度を算出し、Canvasを回転)
 export const deskew = (ctx: CanvasRenderingContext2D) => {
   const { width: oldW, height: oldH } = ctx.canvas;
   const imageData = ctx.getImageData(0, 0, oldW, oldH);
@@ -202,43 +201,33 @@ export const deskew = (ctx: CanvasRenderingContext2D) => {
   ctx.drawImage(tempCanvas, 0, 0);
 };
 
-// 4. 自動トリミング
-export const autocrop = (ctx: CanvasRenderingContext2D, padding: number = 5) => {
-  const { width, height } = ctx.canvas;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  let minX = width,
-    minY = height,
-    maxX = 0,
-    maxY = 0;
+/**
+ * Tesseractのワーカーを定義する
+ */
+export async function buildTesseractWorker(): Promise<Worker> {
+  const tesseractWorker = await Tesseract.createWorker('jpn');
+  // ページ全体のレイアウトを解析し、行ブロックを見つけるモード
+  await tesseractWorker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+  return tesseractWorker;
+}
 
-  // 1. コンテンツのバウンディングボックスを走査
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if ((data.at((y * width + x) * 4) ?? 255) < 128) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-  // コンテンツ未検出時はクロップしない
-  if (minX > maxX || minY > maxY) return;
+/**
+ * Tesseract.js を用いて画像からテキストのBounding Box（行単位）を抽出する
+ */
+export async function detectTextRegions(
+  canvas: HTMLCanvasElement,
+  worker: Worker,
+): Promise<BoundingBox[]> {
+  // 軽量化のためJPEGデータとして渡す
+  const { data } = await worker.recognize(canvas.toDataURL('image/jpeg', 0.8));
 
-  // 2. 座標をキャンバスの範囲内にクランプ（制限）
-  const startX = Math.max(0, minX - padding);
-  const startY = Math.max(0, minY - padding);
-  const endX = Math.min(width, maxX + padding);
-  const endY = Math.min(height, maxY + padding);
-
-  const w = endX - startX;
-  const h = endY - startY;
-
-  // 3. 正しい範囲でデータを取得してキャンバスを再設定
-  const cropped = ctx.getImageData(startX, startY, w, h);
-
-  ctx.canvas.width = w;
-  ctx.canvas.height = h;
-  ctx.putImageData(cropped, 0, 0);
-};
+  // 単語(words)ではなく、行(lines)単位で取得することでONNX推論の回数を減らし高速化する
+  return (
+    data.blocks?.map((line) => ({
+      x: line.bbox.x0,
+      y: line.bbox.y0,
+      width: line.bbox.x1 - line.bbox.x0,
+      height: line.bbox.y1 - line.bbox.y0,
+    })) ?? []
+  );
+}
