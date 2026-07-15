@@ -228,9 +228,9 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
               const previous = editorStore.autoSaveAnnotations;
               editorStore.autoSaveAnnotations = !previous;
               const result = await useBackendApi().saveSettings(
-               'autoSaveAnnotations',
-               editorStore.autoSaveAnnotations,
-             );
+                'autoSaveAnnotations',
+                editorStore.autoSaveAnnotations,
+              );
               if (!result.ok) {
                 editorStore.autoSaveAnnotations = previous;
               }
