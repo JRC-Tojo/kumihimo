@@ -160,42 +160,6 @@
             />
           </SettingsItemRow>
         </section>
-
-        <!-- データ -->
-        <section
-          v-if="visibleSections.some((s) => s.id === 'data')"
-          id="data"
-          class="settings-section"
-        >
-          <h6 class="settings-section-title">{{ $t('settings.sections.data') }}</h6>
-
-          <SettingsItemRow
-            v-show="isVisible('sampleData')"
-            :title="$t('settings.sampleData.create')"
-            :description="$t('settings.sampleData.createDesc')"
-          >
-            <q-btn
-              color="primary"
-              dense
-              :label="$t('settings.sampleData.create')"
-              @click="createSampleData"
-            />
-          </SettingsItemRow>
-
-          <SettingsItemRow
-            v-show="isVisible('clearData')"
-            :title="$t('settings.sampleData.clear')"
-            :description="$t('settings.sampleData.clearDesc')"
-          >
-            <q-btn
-              flat
-              dense
-              color="negative"
-              :label="$t('settings.sampleData.clear')"
-              @click="clearAllData"
-            />
-          </SettingsItemRow>
-        </section>
       </template>
     </div>
   </div>
@@ -204,16 +168,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
-import { confirmDialog } from 'src/utils/dialog/confirmDialog';
 
 const { t: $t } = useI18n();
-const $q = useQuasar();
 const api = useBackendApi();
 const settingsStore = useSettingsStore();
 
@@ -353,36 +314,6 @@ function updateSettings<K extends keyof AppSettings>(key: K) {
     // 開いている文書タブなど、設定をリアクティブに参照している箇所にも反映する
     await settingsStore.loadSettings();
   };
-}
-
-/**
- * サンプルデータを作成
- */
-async function createSampleData() {
-  const { createDemoData } = await import('src/utils/appInitializer');
-  await createDemoData();
-  $q.notify({
-    type: 'positive',
-    message: 'Sample documents created!',
-  });
-}
-
-/**
- * すべてのデータをクリア
- */
-async function clearAllData() {
-  const ok = await confirmDialog({
-    title: 'Confirm',
-    message: 'Are you sure you want to delete all data? This action cannot be undone.',
-    severity: 'negative',
-  });
-  if (!ok) return;
-
-  // localStorageRepository.clear() を呼ぶ（ただし、実装では関数がexportされていないため省略）
-  $q.notify({
-    type: 'positive',
-    message: 'All data cleared',
-  });
 }
 </script>
 
