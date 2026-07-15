@@ -11,11 +11,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
-import dayjs from 'dayjs';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import { useRelationalStore } from 'src/stores/relationalStore';
-import { useSettingsStore } from 'src/stores/settingsStore';
-import { getRelationalStyleOverride } from './relationalStyleOverride';
+import { useAnnotationShape } from './composables/useAnnotationShape';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
 
@@ -32,18 +29,9 @@ const emit = defineEmits<{
   delete: [id: AnnotationID];
 }>();
 
-const relationalStore = useRelationalStore();
-const settingsStore = useSettingsStore();
-
 const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 
-// 関係性の検証結果（OK/NG）による表示上書き。関連なし・検証保留中は元のスタイルを維持する
-const relationalOverride = computed(() =>
-  getRelationalStyleOverride(
-    relationalStore.statusForAnnotation(props.annotation.id),
-    settingsStore.relationalVerificationStyle,
-  ),
-);
+const { relationalOverride, withUpdatedTimestamp } = useAnnotationShape(props);
 
 const rectConfig = computed(() => {
   if (props.annotation.type !== 'box') return;
@@ -70,13 +58,7 @@ defineExpose({ getNode });
 
 function onDragEnd(e: KonvaEvent) {
   const target = e.target as Konva.Rect;
-  const updatedAnnotation = {
-    ...props.annotation,
-    x: target.x(),
-    y: target.y(),
-    updatedAt: dayjs().toISOString(),
-  };
-  emit('update', updatedAnnotation);
+  emit('update', withUpdatedTimestamp({ x: target.x(), y: target.y() }));
 }
 
 /**
@@ -107,15 +89,7 @@ function onTransformEnd(e: KonvaEvent) {
   const node = e.target as Konva.Rect;
   const { width, height } = syncNodeGeometry(node);
 
-  const updatedAnnotation = {
-    ...props.annotation,
-    x: node.x(),
-    y: node.y(),
-    width,
-    height,
-    updatedAt: dayjs().toISOString(),
-  };
-  emit('update', updatedAnnotation);
+  emit('update', withUpdatedTimestamp({ x: node.x(), y: node.y(), width, height }));
 }
 </script>
 

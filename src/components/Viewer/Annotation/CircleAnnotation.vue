@@ -13,11 +13,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
-import dayjs from 'dayjs';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import { useRelationalStore } from 'src/stores/relationalStore';
-import { useSettingsStore } from 'src/stores/settingsStore';
-import { getRelationalStyleOverride } from './relationalStyleOverride';
+import { useAnnotationShape } from './composables/useAnnotationShape';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
 
@@ -34,19 +31,10 @@ const emit = defineEmits<{
   delete: [id: AnnotationID];
 }>();
 
-const relationalStore = useRelationalStore();
-const settingsStore = useSettingsStore();
-
 const circleRef = ref<{ getNode: () => Konva.Circle | null } | null>(null);
 const isHovered = ref(false);
 
-// 関係性の検証結果（OK/NG）による表示上書き。関連なし・検証保留中は元のスタイルを維持する
-const relationalOverride = computed(() =>
-  getRelationalStyleOverride(
-    relationalStore.statusForAnnotation(props.annotation.id),
-    settingsStore.relationalVerificationStyle,
-  ),
-);
+const { relationalOverride, withUpdatedTimestamp } = useAnnotationShape(props);
 
 const circleConfig = computed(() => {
   if (props.annotation.type !== 'circle') return;
@@ -80,13 +68,7 @@ function onMouseLeave() {
 
 function onDragEnd(e: KonvaEvent) {
   const target = e.target as Konva.Circle;
-  const updatedAnnotation = {
-    ...props.annotation,
-    x: target.x(),
-    y: target.y(),
-    updatedAt: dayjs().toISOString(),
-  };
-  emit('update', updatedAnnotation);
+  emit('update', withUpdatedTimestamp({ x: target.x(), y: target.y() }));
 }
 
 function syncNodeGeometry(node: Konva.Circle) {
@@ -110,14 +92,7 @@ function onTransformEnd(e: KonvaEvent) {
   const node = e.target as Konva.Circle;
   syncNodeGeometry(node);
 
-  const updatedAnnotation = {
-    ...props.annotation,
-    x: node.x(),
-    y: node.y(),
-    radius: node.radius(),
-    updatedAt: dayjs().toISOString(),
-  };
-  emit('update', updatedAnnotation);
+  emit('update', withUpdatedTimestamp({ x: node.x(), y: node.y(), radius: node.radius() }));
 }
 </script>
 

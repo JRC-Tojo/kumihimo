@@ -1,7 +1,12 @@
 import type { AnnotationTool, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
+import type { AnnotationStyle } from 'src/models/document/pdf';
 import { useEditorStore } from './editorStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import { saveDocument } from 'src/utils/document/saveDocument';
+import { ANNOTATION_REGISTRY } from 'src/components/Viewer/Annotation/registry';
+
+/** docPage.ts側にのみ存在する未実装の描画種別('text')用フォールバックアイコン */
+const FALLBACK_ICON = 'question_mark';
 
 /**
  * アノテーション設定をツールオブジェクトに変換
@@ -11,20 +16,10 @@ import { saveDocument } from 'src/utils/document/saveDocument';
 function annotationCnf2Tool(ann: AnnotationTool): IDocTool {
   const editorStore = useEditorStore();
 
-  let icon = 'question_mark';
-  switch (ann.style.type) {
-    case 'box':
-      icon = 'check_box_outline_blank';
-      break;
-    case 'line':
-      icon = 'horizontal_rule';
-      break;
-    case 'circle':
-      icon = 'circle';
-      break;
-    case 'text':
-      icon = 'font_download';
-  }
+  const icon =
+    ann.style.type in ANNOTATION_REGISTRY
+      ? ANNOTATION_REGISTRY[ann.style.type as keyof typeof ANNOTATION_REGISTRY].icon
+      : FALLBACK_ICON;
 
   return {
     id: ann.id,
@@ -62,28 +57,20 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
     editorStore.subTools = docTools;
   };
 
+  // メインツールバーのアノテーション種別ボタンはレジストリから生成する。
+  // 新しいアノテーション種別を追加する際、このファイルの変更は不要になる。
+  const annotationTypeTools: IDocTool[] = (
+    Object.entries(ANNOTATION_REGISTRY) as [AnnotationStyle['type'], (typeof ANNOTATION_REGISTRY)[AnnotationStyle['type']]][]
+  ).map(([type, mod]) => ({
+    id: `annotation-${type}`,
+    icon: mod.mainToolIcon,
+    label: t(`pdfEditor.tools.${type}`),
+    isActive: () => false,
+    onClicked: () => registSubTools(type),
+  }));
+
   const tools: IDocTool[] = [
-    {
-      id: 'annotation-line',
-      icon: 'edit',
-      label: t('pdfEditor.tools.line'),
-      isActive: () => false,
-      onClicked: () => registSubTools('line'),
-    },
-    {
-      id: 'annotation-box',
-      icon: 'crop_square',
-      label: t('pdfEditor.tools.box'),
-      isActive: () => false,
-      onClicked: () => registSubTools('box'),
-    },
-    {
-      id: 'annotation-circle',
-      icon: 'circle',
-      label: t('pdfEditor.tools.circle'),
-      isActive: () => false,
-      onClicked: () => registSubTools('circle'),
-    },
+    ...annotationTypeTools,
     {
       id: 'toggle-relational',
       icon: 'school',

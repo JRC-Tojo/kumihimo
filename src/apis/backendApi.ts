@@ -3,6 +3,7 @@ import {
   getRecentContainers,
   initializeSettings,
   saveSettings,
+  ensureDefaultAnnotationPresets,
 } from 'src/settings/main';
 import { toApiResponse, type ApiResponse } from 'src/models/error/api';
 import { Failure, Success } from 'src/models/error/result';
@@ -56,6 +57,10 @@ class BackendApi {
     if (!settings.value.initialized) {
       const initRes = await initializeSettings();
       if (!initRes.ok) return toApiResponse(initRes, 'INIT_PROCESS_ERROR');
+    } else {
+      // 既存インストールには、初回起動後に追加されたアノテーション種別のデフォルトプリセットを補う
+      const migrateRes = await ensureDefaultAnnotationPresets();
+      if (!migrateRes.ok) return toApiResponse(migrateRes, 'INIT_PROCESS_ERROR');
     }
 
     return toApiResponse(Success());

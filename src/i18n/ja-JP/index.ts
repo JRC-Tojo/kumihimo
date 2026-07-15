@@ -135,6 +135,7 @@ export default {
       line: '直線',
       box: '四角形',
       circle: '円',
+      arrow: '矢印',
       relationalToggle: '関係性登録モード',
       annotationToggle: 'アノテーションの表示切替',
       handMode: 'ハンドモード',

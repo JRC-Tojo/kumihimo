@@ -1,4 +1,5 @@
 import z from 'zod';
+import { ArrowHeadType } from './document/pdf';
 
 /**
  * 文書ページに表示する各ツール
@@ -64,11 +65,22 @@ export const AnnotationTextStyle = z.object({
   fillPattern: z.enum(['none', 'hatch', 'solid']),
   fillOpacity: z.number(),
 });
+export const AnnotationArrowStyle = z.object({
+  type: z.literal('arrow'),
+  strokeColor: z.string(),
+  strokeWidth: z.number(),
+  strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
+  strokeOpacity: z.number(),
+  startHead: ArrowHeadType,
+  endHead: ArrowHeadType,
+  headSize: z.number(),
+});
 export const DrawingAnnotationStyle = z.discriminatedUnion('type', [
   AnnotationLineStyle,
   AnnotationBoxStyle,
   AnnotationCircleStyle,
   AnnotationTextStyle,
+  AnnotationArrowStyle,
 ]);
 export type DrawingAnnotationStyle = z.infer<typeof DrawingAnnotationStyle>;
 export type DrawingAnnotationType = DrawingAnnotationStyle['type'];

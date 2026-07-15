@@ -1,5 +1,5 @@
 <template>
-  <!-- Group used so line and its endpoint anchors move together when dragged -->
+  <!-- lineと同様、グループにまとめることで矢印本体とアンカーが一緒にドラッグされるようにする -->
   <v-group
     ref="groupRef"
     :config="{
@@ -10,14 +10,14 @@
       onDragend: onDragEnd,
     }"
   >
-    <v-line
-      ref="lineRef"
-      :config="lineConfig"
+    <v-arrow
+      ref="arrowRef"
+      :config="arrowConfig"
       @mouseenter="onMouseEnter"
       @mouseleave="onMouseLeave"
     />
 
-    <!-- Endpoint anchors: shown only when the annotation is selected for editing -->
+    <!-- 端点アンカー: 選択されて編集中の場合のみ表示 -->
     <template v-if="props.isEditing && props.isSelected">
       <v-rect
         ref="anchor1Ref"
@@ -40,12 +40,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
-import type { AnnotationID, LineAnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, ArrowAnnotationStyle } from 'src/models/document/pdf';
 import { useAnnotationShape } from './composables/useAnnotationShape';
 import { useTwoPointAnchors } from './composables/useTwoPointAnchors';
 
 interface Props {
-  annotation: LineAnnotationStyle;
+  annotation: ArrowAnnotationStyle;
   isEditing: boolean;
   isSelected?: boolean;
 }
@@ -53,21 +53,19 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  update: [annotation: LineAnnotationStyle];
+  update: [annotation: ArrowAnnotationStyle];
   delete: [id: AnnotationID];
 }>();
 
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
-const lineRef = ref<{ getNode: () => Konva.Line | null } | null>(null);
+const arrowRef = ref<{ getNode: () => Konva.Arrow | null } | null>(null);
 const anchor1Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const anchor2Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const isHovered = ref(false);
 
-// 関係性の検証結果（OK/NG）による表示上書き。線には塗りがないためstroke系のみ用いる
 const { relationalOverride, withUpdatedTimestamp } = useAnnotationShape(props);
 
-const linePoints = computed(() => {
-  if (props.annotation.type !== 'line') return [0, 0, 0, 0] as const;
+const arrowPoints = computed(() => {
   if (props.annotation.points.length !== 4) return [0, 0, 0, 0] as const;
   return [
     props.annotation.points[0],
@@ -77,13 +75,22 @@ const linePoints = computed(() => {
   ] as const;
 });
 
-const lineConfig = computed(() => {
+const arrowConfig = computed(() => {
+  const headSize = props.annotation.headSize ?? 10;
   return {
     id: props.annotation.id,
     name: 'annotation-shape',
-    points: linePoints.value,
+    points: arrowPoints.value,
     stroke: relationalOverride.value?.stroke ?? props.annotation.color,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth || 2),
+    fill: relationalOverride.value?.stroke ?? props.annotation.color,
+    // KonvaのArrowは矢じりの塗りつぶし可否を始点・終点で共通のフラグしか持たないため、
+    // 片方でも'open'が指定されていればアウトラインのみの矢じりとして描画する
+    fillEnabled: props.annotation.startHead !== 'open' && props.annotation.endHead !== 'open',
+    pointerAtBeginning: props.annotation.startHead !== 'none',
+    pointerAtEnding: props.annotation.endHead !== 'none',
+    pointerLength: headSize,
+    pointerWidth: headSize,
     draggable: false,
     opacity: props.annotation.opacity || 1,
     hitStrokeWidth: 8,
@@ -91,7 +98,7 @@ const lineConfig = computed(() => {
 });
 
 const anchor1Config = computed(() => {
-  const points = linePoints.value;
+  const points = arrowPoints.value;
   return {
     id: `${props.annotation.id}-anchor-0`,
     annotationId: props.annotation.id,
@@ -112,7 +119,7 @@ const anchor1Config = computed(() => {
 });
 
 const anchor2Config = computed(() => {
-  const points = linePoints.value;
+  const points = arrowPoints.value;
   return {
     id: `${props.annotation.id}-anchor-1`,
     annotationId: props.annotation.id,
@@ -133,8 +140,8 @@ const anchor2Config = computed(() => {
 });
 
 function getNode() {
-  // 親が Transformer を割り当てられるようにグループノードを公開します
-  return groupRef.value?.getNode() ?? lineRef.value?.getNode() ?? null;
+  // 親がTransformerを割り当てられるようにグループノードを公開する（矢印は個別アンカー編集のため実際には未使用）
+  return groupRef.value?.getNode() ?? arrowRef.value?.getNode() ?? null;
 }
 
 defineExpose({ getNode });
@@ -149,13 +156,13 @@ function onMouseLeave() {
 
 function onDragEnd() {
   const groupNode = groupRef.value?.getNode();
-  const lineNode = lineRef.value?.getNode();
-  if (!lineNode) return;
+  const arrowNode = arrowRef.value?.getNode();
+  if (!arrowNode) return;
 
   emit(
     'update',
     withUpdatedTimestamp({
-      points: lineNode.points() as [number, number, number, number],
+      points: arrowNode.points() as [number, number, number, number],
       x: groupNode?.x() ?? props.annotation.x,
       y: groupNode?.y() ?? props.annotation.y,
     }),
@@ -163,7 +170,7 @@ function onDragEnd() {
 }
 
 const { onAnchorDragStart, onAnchorDrag0, onAnchorDrag1, onAnchorDragEnd } = useTwoPointAnchors({
-  getShapeNode: () => lineRef.value?.getNode() ?? null,
+  getShapeNode: () => arrowRef.value?.getNode() ?? null,
   getGroupNode: () => groupRef.value?.getNode() ?? null,
   onCommit: (points) => emit('update', withUpdatedTimestamp({ points })),
 });

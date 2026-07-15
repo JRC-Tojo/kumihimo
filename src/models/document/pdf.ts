@@ -48,6 +48,24 @@ export const CircleAnnotationStyle = AnnotationBase.extend({
 export type CircleAnnotationStyle = z.infer<typeof CircleAnnotationStyle>;
 
 /**
+ * 矢印の矢じり形状
+ *
+ * 'none': 矢じりなし（直線と同じ見た目）, 'triangle': 塗りつぶし三角形, 'open': 輪郭のみの矢じり
+ */
+export const ArrowHeadType = z.enum(['none', 'triangle', 'open']);
+export type ArrowHeadType = z.infer<typeof ArrowHeadType>;
+
+export const ArrowAnnotationStyle = AnnotationBase.extend({
+  type: z.literal('arrow'),
+  // lineと同じく [x1, y1, x2, y2] で、x/yを起点とした相対座標
+  points: z.array(z.number()).length(4),
+  startHead: ArrowHeadType.default('none'),
+  endHead: ArrowHeadType.default('triangle'),
+  headSize: z.number().positive().optional().default(10),
+});
+export type ArrowAnnotationStyle = z.infer<typeof ArrowAnnotationStyle>;
+
+/**
  * アノテーション本体の情報
  *
  * TODO: これは文書一般のアノテーションとして再編し、現行のStyle実装は`PdfAnnotationStyle`などに変更する
@@ -56,5 +74,6 @@ export const AnnotationStyle = z.discriminatedUnion('type', [
   BoxAnnotationStyle,
   LineAnnotationStyle,
   CircleAnnotationStyle,
+  ArrowAnnotationStyle,
 ]);
 export type AnnotationStyle = z.infer<typeof AnnotationStyle>;

@@ -9,49 +9,22 @@
       :style="{ cursor: cursor }"
     >
       <v-layer>
-        <template v-for="annotation in annotations" :key="annotation.id">
-          <BoxAnnotation
-            v-if="annotation.type === 'box'"
-            ref="boxRefs"
-            :annotation="annotation"
-            :is-editing="isEditing"
-            :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="onRegisterAnnot"
-            @delete="onRemoveAnnot"
-          />
-
-          <LineAnnotation
-            v-else-if="annotation.type === 'line'"
-            ref="lineRefs"
-            :annotation="annotation"
-            :is-editing="isEditing"
-            :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="onRegisterAnnot"
-            @delete="onRemoveAnnot"
-          />
-
-          <CircleAnnotation
-            v-else-if="annotation.type === 'circle'"
-            ref="circleRefs"
-            :annotation="annotation"
-            :is-editing="isEditing"
-            :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="onRegisterAnnot"
-            @delete="onRemoveAnnot"
-          />
-        </template>
-
-        <v-rect
-          v-if="isDrawing && drawingPreview && drawingType === 'box'"
-          :config="drawingPreview.rect"
+        <component
+          v-for="annotation in annotations"
+          :key="annotation.id"
+          :is="ANNOTATION_REGISTRY[annotation.type].component"
+          :ref="(el: unknown) => setAnnotationRef(annotation.id, el)"
+          :annotation="annotation"
+          :is-editing="isEditing"
+          :is-selected="selectedAnnotIds.includes(annotation.id)"
+          @update="onRegisterAnnot"
+          @delete="onRemoveAnnot"
         />
-        <v-line
-          v-if="isDrawing && drawingPreview && drawingType === 'line'"
-          :config="drawingPreview.line"
-        />
-        <v-circle
-          v-if="isDrawing && drawingPreview && drawingType === 'circle'"
-          :config="drawingPreview.circle"
+
+        <component
+          v-if="isDrawing && drawingPreviewConfig"
+          :is="drawingPreviewComponent"
+          :config="drawingPreviewConfig"
         />
         <v-rect v-if="selectionBox.visible" :config="selectionBoxConfig" />
 
@@ -67,13 +40,12 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import BoxAnnotation from './BoxAnnotation.vue';
-import LineAnnotation from './LineAnnotation.vue';
-import CircleAnnotation from './CircleAnnotation.vue';
 import type Konva from 'konva';
 import { startDrawingAnnotation } from './annotationDrawingManager';
 import { useEditorStore } from 'src/stores/editorStore';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import { ANNOTATION_REGISTRY } from './registry';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -94,9 +66,16 @@ const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { requi
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
-const boxRefs = ref<AnnotationNodeHandle[]>([]);
-const lineRefs = ref<AnnotationNodeHandle[]>([]);
-const circleRefs = ref<AnnotationNodeHandle[]>([]);
+// アノテーションIDごとのコンポーネントハンドル。種別ごとの配列(boxRefs等)を廃止し、単一のMapに統一する
+const annotationRefs = new Map<AnnotationID, AnnotationNodeHandle>();
+function setAnnotationRef(id: AnnotationID, el: unknown) {
+  const handle = el as AnnotationNodeHandle | null;
+  if (handle) {
+    annotationRefs.set(id, handle);
+  } else {
+    annotationRefs.delete(id);
+  }
+}
 const pendingPointerTarget = ref<{ id: string; wasSelected: boolean } | null>(null);
 
 const isDrawing = ref(false);
@@ -105,22 +84,13 @@ const startPos = ref<{ x: number; y: number } | null>(null);
 const selectionStartPos = ref<{ x: number; y: number } | null>(null);
 const selectionBox = ref({ visible: false, x: 0, y: 0, width: 0, height: 0 });
 const selectionModeRef = ref<'window' | 'cross' | null>(null);
-const drawingPreview = ref<{
-  rect?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    fill: string;
-    opacity: number;
-    stroke?: string;
-    strokeWidth?: number;
-  };
-  line?: { x: number; y: number; points: number[]; stroke: string; strokeWidth: number };
-  circle?: { x: number; y: number; radius: number; stroke: string; strokeWidth: number };
-} | null>(null);
+const drawingPreviewConfig = ref<Record<string, unknown> | null>(null);
 const drawingType = computed(() => editorStore.currentTools);
-const isDrawingTool = computed(() => ['box', 'line', 'circle'].includes(drawingType.value));
+const drawingPreviewComponent = computed(() => {
+  if (!(drawingType.value in ANNOTATION_REGISTRY)) return null;
+  return ANNOTATION_REGISTRY[drawingType.value as AnnotationStyle['type']].previewComponent;
+});
+const isDrawingTool = computed(() => drawingType.value in ANNOTATION_REGISTRY);
 // 編集は明示的な 'hand'（読み取り専用）モード以外で許可されます。
 const isEditingMode = computed(() => drawingType.value !== 'hand');
 const isEditing = computed(() => isEditingMode.value);
@@ -299,7 +269,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
     };
 
     isDrawing.value = false;
-    drawingPreview.value = null;
+    drawingPreviewConfig.value = null;
 
     if (endDrawingAnnotation) {
       const annotation = endDrawingAnnotation(adjustedPos.x, adjustedPos.y);
@@ -334,8 +304,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
   };
 
   if (selectionRect.width > 0 && selectionRect.height > 0) {
-    const refs = [...boxRefs.value, ...lineRefs.value, ...circleRefs.value];
-    const selectedIds = refs
+    const selectedIds = Array.from(annotationRefs.values())
       .map((ref) => ref.getNode())
       .filter((node): node is Konva.Node => Boolean(node))
       .map((node) => {
@@ -386,54 +355,27 @@ function handleMouseUp(e: KonvaMouseEvent) {
 function updateDrawingPreview(endX: number, endY: number) {
   if (!startPos.value) return;
 
-  const deltaX = endX - startPos.value.x;
-  const deltaY = endY - startPos.value.y;
-
   const style = editorStore.currentAnnotationStyle;
-  if (style.type === 'box') {
-    drawingPreview.value = {
-      rect: {
-        x: Math.min(startPos.value.x, endX),
-        y: Math.min(startPos.value.y, endY),
-        width: Math.abs(deltaX),
-        height: Math.abs(deltaY),
-        fill: 'transparent',
-        opacity: style.fillOpacity,
-        stroke: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-      },
-    };
-  } else if (style.type === 'line') {
-    drawingPreview.value = {
-      line: {
-        x: startPos.value.x,
-        y: startPos.value.y,
-        points: [0, 0, deltaX, deltaY],
-        stroke: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-      },
-    };
-  } else if (style.type === 'circle') {
-    const radius = Math.sqrt(deltaX * deltaX + deltaY * deltaY) / 2;
-    drawingPreview.value = {
-      circle: {
-        x: startPos.value.x + deltaX / 2,
-        y: startPos.value.y + deltaY / 2,
-        radius,
-        stroke: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-      },
-    };
-  }
+  // 'text'はdocPage.ts側のみに存在する未実装の描画種別のため、幾何レジストリには存在しない
+  if (!(style.type in ANNOTATION_GEOMETRY)) return;
+
+  drawingPreviewConfig.value = ANNOTATION_GEOMETRY[style.type as AnnotationStyle['type']].previewFromDrag(
+    startPos.value,
+    { x: endX, y: endY },
+    style,
+  );
 }
 
 function syncTransformerSelection() {
   const transformer = transformerRef.value?.getNode();
   if (!transformer) return;
 
-  const refs = [...boxRefs.value, ...circleRefs.value];
   const nodes = selectedTransformableIds.value
-    .map((id) => refs.find((ref) => ref.getNode()?.attrs.id === id)?.getNode())
+    .filter((id) => {
+      const annotation = props.annotations.find((a) => a.id === id);
+      return annotation !== undefined && ANNOTATION_REGISTRY[annotation.type].supportsTransformer;
+    })
+    .map((id) => annotationRefs.get(id)?.getNode())
     .filter((node): node is Konva.Node => Boolean(node));
 
   transformer.nodes(nodes);

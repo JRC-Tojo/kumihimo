@@ -7,6 +7,7 @@ import type { AnnotationTool } from 'src/models/docPage';
 import { Success, type Result } from 'src/models/error/result';
 import { AppSettings } from 'src/models/settings';
 import * as db from 'src/repositories/inMemory/IndexedDB';
+import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
 
 const SETTINGS_STORE_NAME = 'settings';
 
@@ -15,7 +16,7 @@ const SETTINGS_STORE_NAME = 'settings';
  */
 export async function initializeSettings(): Promise<Result<AppSettings>> {
   const def = AppSettings.parse({ initialized: true });
-  def.tools.annotations = defaultAnnotationTools;
+  def.tools.annotations = buildDefaultAnnotationTools();
 
   const res = await Promise.all(
     Object.entries(def).map(([k, v]) => db.setValue(SETTINGS_STORE_NAME, k, v)),
@@ -134,55 +135,40 @@ export async function getRecentContainers(): Promise<Result<RecentContainerEntry
   );
 }
 
-const defaultAnnotationTools: AnnotationTool[] = [
-  {
-    id: 'line-preset-1',
-    name: '実線（黒）',
-    style: {
-      type: 'line',
-      strokeColor: '#000000',
-      strokeType: 'solid',
-      strokeWidth: 5,
-      strokeOpacity: 1,
-    },
-  },
-  {
-    id: 'line-preset-2',
-    name: '点線（赤）',
-    style: {
-      type: 'line',
-      strokeColor: '#FF0000',
-      strokeType: 'dash-dot',
-      strokeWidth: 10,
-      strokeOpacity: 1,
-    },
-  },
-  {
-    id: 'box-preset-1',
-    name: 'ボックス（青枠）',
-    style: {
-      type: 'box',
-      strokeColor: '#0000FF',
-      strokeWidth: 5,
-      strokeType: 'solid',
-      strokeOpacity: 1,
-      fillColor: '#0000FF',
-      fillPattern: 'solid',
-      fillOpacity: 0.5,
-    },
-  },
-  {
-    id: 'circle-preset-1',
-    name: '円（緑枠）',
-    style: {
-      type: 'circle',
-      strokeColor: '#009900',
-      strokeWidth: 3,
-      strokeType: 'solid',
-      strokeOpacity: 1,
-      fillColor: '#009900',
-      fillPattern: 'solid',
-      fillOpacity: 0.3,
-    },
-  },
-];
+/**
+ * 新しいアノテーション種別（例: 矢印）を追加した際、既存ユーザーの設定に
+ * その種別のプリセットが1件も存在しなければデフォルトプリセットを追記する
+ *
+ * デフォルトプリセットは`initializeSettings`経由で初回起動時にしか注入されないため、
+ * 既存インストールにはアプリ起動のたびにこの関数で不足分のみを補う
+ */
+export async function ensureDefaultAnnotationPresets(): Promise<Result<void>> {
+  return withSerializedSettingsUpdate(async (settings) => {
+    const existingTypes = new Set(settings.tools.annotations.map((ann) => ann.style.type));
+    const missingDefaults = buildDefaultAnnotationTools().filter(
+      (preset) => !existingTypes.has(preset.style.type),
+    );
+    if (missingDefaults.length === 0) return Success(undefined);
+
+    return saveSettings('tools', {
+      annotations: [...settings.tools.annotations, ...missingDefaults],
+    });
+  });
+}
+
+/**
+ * 全アノテーション種別分のデフォルトプリセットを、幾何レジストリ（`ANNOTATION_GEOMETRY`）の
+ * `defaultPresets`から生成する
+ *
+ * プリセットの元データ自体は種別ごとの`defaultPresets`（レジストリの必須フィールド）にあるため、
+ * 新しいアノテーション種別を追加してもレジストリさえ埋めていれば、この関数の変更は不要
+ */
+function buildDefaultAnnotationTools(): AnnotationTool[] {
+  return Object.entries(ANNOTATION_GEOMETRY).flatMap(([type, module]) =>
+    module.defaultPresets.map((preset, index) => ({
+      id: `${type}-preset-${index + 1}`,
+      name: preset.name,
+      style: preset.style,
+    })),
+  );
+}

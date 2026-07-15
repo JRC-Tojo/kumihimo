@@ -136,6 +136,7 @@ export default {
       line: 'Line',
       box: 'Box',
       circle: 'Circle',
+      arrow: 'Arrow',
       relationalToggle: 'Relational Annotations',
       annotationToggle: 'Show / Hide Annotations',
       handMode: 'Hand Mode',
