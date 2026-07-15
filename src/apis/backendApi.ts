@@ -470,7 +470,9 @@ class BackendApi {
   /**
    * 指定した関係性を検証する
    */
-  async checkRelationals(relational: Relational): Promise<ApiResponse<RelationalResponce>> {
+  async checkRelationals(
+    relational: RelationalWithAddress,
+  ): Promise<ApiResponse<RelationalResponce>> {
     const res = await relationalService.checkRelational(relational);
     return toApiResponse(res, 'RELATIONAL_CHECK_FAILED');
   }
@@ -480,7 +482,9 @@ class BackendApi {
    *
    * checkedRule: undefinedは「検証保留中」を意味する
    */
-  async checkRelationalsSafe(relational: Relational): Promise<ApiResponse<RelationalResponce>> {
+  async checkRelationalsSafe(
+    relational: RelationalWithAddress,
+  ): Promise<ApiResponse<RelationalResponce>> {
     const res = await relationalService.checkRelationalSafe(relational);
     return toApiResponse(Success(res));
   }
