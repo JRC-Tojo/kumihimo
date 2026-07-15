@@ -47,17 +47,42 @@ export function saveSettings<K extends keyof AppSettings>(
 }
 
 /**
+ * 設定の読み込み→変更→保存（read-modify-write）を直列化して実行するキュー
+ *
+ * `addLoadedContainer`/`addRecentContainer`はそれぞれ`getSettings()`で読んだ内容に基づいて
+ * 保存するため、同時に呼ばれると後勝ちで片方の追加が失われる（`saveSettings`自体はkeyごとの
+ * 単純な書き込みのため、read-modify-write自体を直列化する必要がある）
+ */
+let settingsUpdateQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * 最新の設定を読み込んだうえで`update`を実行する処理を、直前の更新完了後に実行されるよう
+ * キューイングする
+ */
+function withSerializedSettingsUpdate<T>(
+  update: (current: AppSettings) => Promise<Result<T>>,
+): Promise<Result<T>> {
+  const run = async (): Promise<Result<T>> => {
+    const settingsRes = await getSettings();
+    if (!settingsRes.ok) return settingsRes;
+    return update(settingsRes.value);
+  };
+
+  const result = settingsUpdateQueue.then(run, run);
+  settingsUpdateQueue = result;
+  return result;
+}
+
+/**
  * 読み込み対象のコンテナを追加する
  *
  * 既に同一IDが読み込み対象に含まれている場合は、その情報を最新化する（重複追加はしない）
  */
 export async function addLoadedContainer(c: ContainerSkel): Promise<Result<void>> {
-  const settingsRes = await getSettings();
-  if (!settingsRes.ok) return settingsRes;
-
-  const settings = settingsRes.value;
-  const newContainers = [...settings.containerSkels.filter((existing) => existing.id !== c.id), c];
-  return saveSettings('containerSkels', newContainers);
+  return withSerializedSettingsUpdate((settings) => {
+    const newContainers = [...settings.containerSkels.filter((existing) => existing.id !== c.id), c];
+    return saveSettings('containerSkels', newContainers);
+  });
 }
 
 /**
@@ -81,16 +106,15 @@ const MAX_RECENT_CONTAINERS = 20;
  * コンテナをアンロードしてもこの一覧からは消さない（再読込の選択肢として使うため）
  */
 export async function addRecentContainer(c: ContainerSkel): Promise<Result<void>> {
-  const settingsRes = await getSettings();
-  if (!settingsRes.ok) return settingsRes;
+  return withSerializedSettingsUpdate((settings) => {
+    const entry: RecentContainerEntry = { ...c, lastOpenedAt: new Date() };
+    const withoutSame = settings.recentContainers.filter((r) => r.id !== c.id);
+    const newRecents = [entry, ...withoutSame]
+      .sort((a, b) => b.lastOpenedAt.getTime() - a.lastOpenedAt.getTime())
+      .slice(0, MAX_RECENT_CONTAINERS);
 
-  const entry: RecentContainerEntry = { ...c, lastOpenedAt: new Date() };
-  const withoutSame = settingsRes.value.recentContainers.filter((r) => r.id !== c.id);
-  const newRecents = [entry, ...withoutSame]
-    .sort((a, b) => b.lastOpenedAt.getTime() - a.lastOpenedAt.getTime())
-    .slice(0, MAX_RECENT_CONTAINERS);
-
-  return saveSettings('recentContainers', newRecents);
+    return saveSettings('recentContainers', newRecents);
+  });
 }
 
 /**

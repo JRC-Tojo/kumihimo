@@ -239,7 +239,11 @@ export async function reopenContainer(entry: ContainerSkel): Promise<Result<Cont
   cachedContainers[entry.id] = entry;
 
   const settingsRes = await settings.addLoadedContainer(entry);
-  if (!settingsRes.ok) return settingsRes;
+  if (!settingsRes.ok) {
+    // キャッシュへの登録をロールバック
+    delete cachedContainers[entry.id];
+    return settingsRes;
+  }
 
   return loadContainer(entry.id, true);
 }

@@ -15,6 +15,9 @@
       autofocus
       borderless
       class="rename-input"
+      :error="!!renameError"
+      :error-message="renameError ?? undefined"
+      hide-bottom-space
       @keyup.enter="confirmRename"
       @keyup.esc="cancelRename"
       @blur="confirmRename"
@@ -145,13 +148,55 @@ function cancelRename() {
   isRenaming.value = false;
 }
 
+const forbiddenPathChars = /[\\/]/;
+
+/** 同一階層に存在する兄弟要素のファイル名一覧を返す（自分自身は除外） */
+function siblingBasenames(): Set<string> {
+  const elements = ctx?.elements.value ?? {};
+  const parentPath = filePath.value.parent().path;
+  const names = new Set<string>();
+  for (const elem of Object.values(elements)) {
+    if (elem.path === prop.file.path) continue;
+    const elemPath = new Path(elem.path);
+    if (elemPath.parent().path === parentPath) {
+      names.add(elemPath.basename());
+    }
+  }
+  return names;
+}
+
+/**
+ * リネーム値を検証する
+ *
+ * 空文字・"."/".."・パス区切り文字を含む値・同一階層の既存名との重複を拒否する
+ * @returns エラーメッセージ（問題がなければnull）
+ */
+function validateRenameValue(val: string): string | null {
+  const trimmed = val.trim();
+  if (trimmed === '') return $t('explorer.invalidFileNameEmpty');
+  if (trimmed === '.' || trimmed === '..' || forbiddenPathChars.test(trimmed)) {
+    return $t('explorer.invalidFileName');
+  }
+  if (trimmed !== filePath.value.basename() && siblingBasenames().has(trimmed)) {
+    return $t('explorer.duplicateName');
+  }
+  return null;
+}
+
+const renameError = computed(() => (isRenaming.value ? validateRenameValue(renameValue.value) : null));
+
 /** 入力内容をもとに実際のパス変更を実行する */
 async function confirmRename() {
   if (!isRenaming.value) return;
+  if (renameError.value) {
+    // 無効な入力のまま確定された場合はリネームを取り消す
+    cancelRename();
+    return;
+  }
   isRenaming.value = false;
 
   const newName = renameValue.value.trim();
-  if (newName === '' || newName === filePath.value.basename()) return;
+  if (newName === filePath.value.basename()) return;
 
   const newPath = filePath.value.parent().child(newName).path;
   const renameRes = await api.renamePath(prop.file, newPath);

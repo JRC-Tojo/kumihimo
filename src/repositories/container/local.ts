@@ -4,7 +4,7 @@
 import type { Container, ContainerElement, ContainerID, ContainerSkel } from 'src/models/container';
 import { CONFIG_FILE_EXTS, DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success, toError } from 'src/models/error/result';
+import { Failure, NotFoundError, Success, toError } from 'src/models/error/result';
 import * as fsHandleDB from 'src/repositories/inMemory/fsHandleDB';
 import { arrayBufferToBase64, base64ToUint8Array } from 'src/utils/binary/base64';
 import { Path } from 'src/utils/binary/path';
@@ -115,6 +115,19 @@ export async function requestPermission(cId: ContainerID): Promise<Result<void>>
 }
 
 /**
+ * ブラウザ標準の`NotFoundError`（DOMException）を専用の`NotFoundError`に変換する
+ *
+ * 対象が存在しないだけの場合と、権限エラー等の本来伝播すべき異常とを呼び出し元が
+ * 区別できるようにするための変換で、それ以外の例外は通常どおり`toError`で正規化する
+ */
+function toFsError(e: unknown): Error {
+  if (e instanceof DOMException && e.name === 'NotFoundError') {
+    return new NotFoundError(e.message);
+  }
+  return toError(e);
+}
+
+/**
  * ディレクトリハンドルの配下を、指定した相対パス分だけ辿る
  */
 async function getDirectoryHandleByPath(
@@ -122,7 +135,7 @@ async function getDirectoryHandleByPath(
   dirPath: string,
   create: boolean,
 ): Promise<Result<FileSystemDirectoryHandle>> {
-  const segments = dirPath.split('/').filter((seg) => seg !== '' && seg !== '.');
+  const segments = new Path(dirPath).path.split('/').filter((seg) => seg !== '' && seg !== '.');
 
   try {
     let current = root;
@@ -131,7 +144,7 @@ async function getDirectoryHandleByPath(
     }
     return Success(current);
   } catch (e) {
-    return Failure(toError(e));
+    return Failure(toFsError(e));
   }
 }
 
@@ -168,7 +181,7 @@ async function walkDirectory(
     // 文書管理ファイルはコンテナ要素一覧には含めない
     if (name.endsWith(CONFIG_FILE_EXTS)) continue;
 
-    const entryPath = relativePath === '' ? name : `${relativePath}/${name}`;
+    const entryPath = relativePath === '' ? name : new Path(relativePath).child(name).path;
 
     if (handle.kind === 'directory') {
       elements.push({ containerID: cId, type: 'Folder', path: entryPath, createdAt: new Date() });
@@ -283,7 +296,7 @@ export async function loadSrcData(cId: ContainerID, path: string): Promise<Resul
     if (!base64Res.ok) return base64Res;
     return Success(DocumentSource.parse(base64Res.value));
   } catch (e) {
-    return Failure(toError(e));
+    return Failure(toFsError(e));
   }
 }
 

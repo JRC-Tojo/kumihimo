@@ -2,6 +2,8 @@
  * エクスプローラーのドラッグ&ドロップ（ツリー内移動・OS外部ファイルのアップロード）を扱うcomposable
  */
 import { ref } from 'vue';
+import { useQuasar } from 'quasar';
+import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { ContainerElement, ContainerID } from 'src/models/container';
 import { DocumentSource } from 'src/models/document/common';
@@ -91,15 +93,19 @@ export interface UseExplorerDndOptions {
 
 export function useExplorerDnd(options: UseExplorerDndOptions) {
   const api = useBackendApi();
+  const $q = useQuasar();
+  const { t } = useI18n();
   const isDragOver = ref(false);
 
   const onDragStartElement = startElementDrag;
 
+  /** ドロップ先の上をドラッグ中であることを示すハイライト状態にする */
   function onDragOverTarget(e: DragEvent): void {
     e.preventDefault();
     isDragOver.value = true;
   }
 
+  /** ドロップ先のハイライト状態を解除する */
   function onDragLeaveTarget(): void {
     isDragOver.value = false;
   }
@@ -123,26 +129,30 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
     const moveRes = await api.moveElement(movedElement, newParentPath);
     draggedElement = null;
     if (moveRes.ok) syncStoresAfterRename(movedElement.containerID, moveRes.data);
-    await options.onChanged();
+    // ツリー再読込は呼び出し元のonDropTargetが一括で行うため、ここでは呼ばない
     return true;
   }
 
   /**
    * OS外部からドロップされたファイル/フォルダをアップロードする
+   *
+   * 失敗があっても処理は継続し（部分的に欠落したツリーを黙って成功扱いにしないよう）、
+   * 失敗したパス一覧を返す。呼び出し側はこれを見てユーザーに通知する
    */
-  async function handleExternalDrop(e: DragEvent): Promise<void> {
-    if (!e.dataTransfer) return;
+  async function handleExternalDrop(e: DragEvent): Promise<string[]> {
+    if (!e.dataTransfer) return [];
     const items = Array.from(e.dataTransfer.items);
     const entries = items
       .map((item) => item.webkitGetAsEntry())
       .filter((entry): entry is FileSystemEntry => entry !== null);
-    if (entries.length === 0) return;
+    if (entries.length === 0) return [];
 
     const collected = await Promise.all(
       entries.map((entry) => collectFromEntry(entry, entry.name)),
     );
     const allFolderPaths = collected.flatMap((c) => c.folderPaths);
     const allFiles = collected.flatMap((c) => c.files);
+    const failedPaths: string[] = [];
 
     // 深い階層から作られないよう、浅い階層から順にフォルダを作成する
     const sortedFolderPaths = [...allFolderPaths].sort(
@@ -150,28 +160,45 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
     );
     const targetFolderPath = new Path(options.targetFolderPath() ?? '.');
     for (const folderPath of sortedFolderPaths) {
-      await api.createFolder(options.containerId, targetFolderPath.child(folderPath).path);
+      const createRes = await api.createFolder(
+        options.containerId,
+        targetFolderPath.child(folderPath).path,
+      );
+      if (!createRes.ok) failedPaths.push(folderPath);
     }
 
     for (const { path, file } of allFiles) {
       const buffer = await file.arrayBuffer();
       const base64Res = await arrayBufferToBase64(buffer);
-      if (!base64Res.ok) continue;
-      await api.saveFile(
+      if (!base64Res.ok) {
+        failedPaths.push(path);
+        continue;
+      }
+      const saveRes = await api.saveFile(
         options.containerId,
         targetFolderPath.child(path).path,
         DocumentSource.parse(base64Res.value),
       );
+      if (!saveRes.ok) failedPaths.push(path);
     }
+
+    return failedPaths;
   }
 
+  /** ドロップを受け、内部移動・外部アップロードいずれかを処理してツリーを再読込する */
   async function onDropTarget(e: DragEvent): Promise<void> {
     e.preventDefault();
     isDragOver.value = false;
 
     const wasInternal = await handleInternalMove(e);
     if (!wasInternal) {
-      await handleExternalDrop(e);
+      const failedPaths = await handleExternalDrop(e);
+      if (failedPaths.length > 0) {
+        $q.notify({
+          type: 'negative',
+          message: t('explorer.uploadFailed', { names: failedPaths.join(', ') }),
+        });
+      }
     }
 
     await options.onChanged();

@@ -264,5 +264,9 @@ export default {
       '「{name}」内の開いているファイルに未保存の変更があります。保存しますか？',
     saveAndClose: '保存して閉じる',
     discardAndClose: '保存せず閉じる',
+    invalidFileName: '無効なファイル名です',
+    invalidFileNameEmpty: 'ファイル名を入力してください',
+    duplicateName: '同じ名前のファイルまたはフォルダが既に存在します',
+    uploadFailed: '一部のファイル・フォルダのアップロードに失敗しました（{names}）',
   },
 };

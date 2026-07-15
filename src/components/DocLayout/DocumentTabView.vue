@@ -553,9 +553,11 @@ watch(
 );
 onBeforeUnmount(() => {
   // 自動保存の待機中にタブが閉じられた場合、変更を失わないよう即座に保存する
+  // （ただし削除によるクローズの場合、実ファイルは既に無いため保存を試みない）
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer);
-    if (hasPendingAutoSave) void saveDocument(prop.file);
+    const isDeleting = editorStore.isPendingDeletion(prop.file.containerID, prop.file.path);
+    if (hasPendingAutoSave && !isDeleting) void saveDocument(prop.file);
   }
 
   stopAnnotationObservation?.();

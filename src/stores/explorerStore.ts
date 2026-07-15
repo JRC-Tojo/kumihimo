@@ -8,6 +8,17 @@ export function explorerKey(containerID: ContainerID, path: string): string {
   return `${containerID}|${path}`;
 }
 
+/**
+ * `explorerKey`で組み立てたキーをcontainerIDとpathに分解する
+ *
+ * pathの中に`|`が含まれる場合があるため、`split('|')`ではpath側が途中で
+ * 途切れてしまう。区切り位置を最初の1文字に限定して復元する
+ */
+function parseExplorerKey(key: string): { containerID: string; path: string } {
+  const separatorIdx = key.indexOf('|');
+  return { containerID: key.slice(0, separatorIdx), path: key.slice(separatorIdx + 1) };
+}
+
 export type ClipboardMode = 'copy' | 'cut';
 
 export interface ExplorerClipboard {
@@ -158,8 +169,8 @@ export const useExplorerStore = defineStore('explorer', {
       const remapSet = (keys: Set<string>): Set<string> => {
         const updated = new Set<string>();
         keys.forEach((key) => {
-          const [cID, path] = key.split('|');
-          if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+          const { containerID: cID, path } = parseExplorerKey(key);
+          if (cID === containerID && pathMap[path] !== undefined) {
             updated.add(explorerKey(containerID, pathMap[path]));
           } else {
             updated.add(key);
@@ -172,8 +183,8 @@ export const useExplorerStore = defineStore('explorer', {
       this.selectedKeys = remapSet(this.selectedKeys);
 
       if (this.lastSelectedKey !== null) {
-        const [cID, path] = this.lastSelectedKey.split('|');
-        if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+        const { containerID: cID, path } = parseExplorerKey(this.lastSelectedKey);
+        if (cID === containerID && pathMap[path] !== undefined) {
           this.lastSelectedKey = explorerKey(containerID, pathMap[path]);
         }
       }

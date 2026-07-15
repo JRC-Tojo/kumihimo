@@ -5,7 +5,7 @@
 import type { DocumentSource } from 'src/models/document/common';
 import { Path } from 'src/utils/binary/path';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
-import { Success, type Result } from 'src/models/error/result';
+import { NotFoundError, Success, type Result } from 'src/models/error/result';
 import { calcBase64Hash } from 'src/utils/binary/base64';
 import type {
   AnnotationBaseAddress,
@@ -64,8 +64,8 @@ const EMPTY_CACHED_RELATIONAL_FILE: CachedRelationalFile = {
  * コンテナルートに保存されている関係性ファイルを取得
  *
  * ファイルがまだ存在しない場合（コンテナの初回読み込み時等）は空の状態として扱う。
- * 実データの読み込み自体に失敗した場合のみこれを空扱いとし、
- * 読み込めた内容のデコード・検証に失敗した場合は本来のエラーとして返す
+ * ファイル不存在（`NotFoundError`）以外の読み込み失敗（権限エラー等）や、
+ * 読み込めた内容のデコード・検証に失敗した場合は、既存データの喪失を防ぐため本来のエラーとして返す
  */
 export async function getRelationalFile(cID: ContainerID): Promise<Result<CachedRelationalFile>> {
   const containerService = await import('./main');
@@ -75,7 +75,11 @@ export async function getRelationalFile(cID: ContainerID): Promise<Result<Cached
   // 関係性ファイルの本体データを取得
   const relationalFilePath = getRelationalFilePath(container.value.containerPath);
   const src = await containerService.loadFileAsDocumentSource(cID, relationalFilePath);
-  if (!src.ok) return Success(EMPTY_CACHED_RELATIONAL_FILE);
+  if (!src.ok) {
+    // ファイルが本当に存在しない場合のみ空扱いとし、それ以外のエラーは伝播させる
+    if (src.error instanceof NotFoundError) return Success(EMPTY_CACHED_RELATIONAL_FILE);
+    return src;
+  }
 
   // 取得したデータをデコードする
   const fileContent = textRepository.loadTextContents(src.value, CachedRelationalFile);

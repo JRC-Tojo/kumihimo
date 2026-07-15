@@ -97,10 +97,6 @@ import ExpFile from './ExpFile.vue';
 import ExpFolder from './ExpFolder.vue';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
 import { confirmDialog, promptDialog, unsavedChangesDialog } from 'src/utils/dialog/confirmDialog';
-import {
-  collectOpenTabsForContainer,
-  closeTabsForContainer,
-} from 'src/utils/document/closeContainerTabs';
 import { saveDocument } from 'src/utils/document/saveDocument';
 
 interface Prop {
@@ -195,7 +191,7 @@ async function onUnload() {
   if (!ok) return;
 
   // このコンテナに属する開いているタブがあれば、閉じる前に未保存の変更を確認する
-  const openFiles = collectOpenTabsForContainer(prop.container.id);
+  const openFiles = editorStore.getTabsForContainer(prop.container.id);
   if (openFiles.length > 0) {
     const unsavedResults = await Promise.all(
       openFiles.map((file) => api.hasUnsavedChangesByFile(file)),
@@ -216,7 +212,7 @@ async function onUnload() {
       }
     }
 
-    closeTabsForContainer(prop.container.id, openFiles);
+    editorStore.closeTabsForContainer(prop.container.id, openFiles);
   }
 
   await api.unloadContainer(prop.container.id, false);
@@ -339,9 +335,20 @@ async function checkForChanges(): Promise<void> {
   const before = elements.value;
   const after = peekRes.data.elements;
   const changedPaths = new Set(
-    [...Object.keys(before), ...Object.keys(after)].filter(
-      (path) => before[path] === undefined || after[path] === undefined,
-    ),
+    [...Object.keys(before), ...Object.keys(after)].filter((path) => {
+      const beforeElem = before[path];
+      const afterElem = after[path];
+      // 追加・削除は変更として扱う
+      if (beforeElem === undefined || afterElem === undefined) return true;
+      // 同一パスでも、ファイルの内容更新（updatedAt/fileSizeの変化）は変更として扱う
+      if (beforeElem.type === 'File' && afterElem.type === 'File') {
+        return (
+          beforeElem.updatedAt.getTime() !== afterElem.updatedAt.getTime() ||
+          beforeElem.fileSize !== afterElem.fileSize
+        );
+      }
+      return false;
+    }),
   );
   if (changedPaths.size === 0) return;
 

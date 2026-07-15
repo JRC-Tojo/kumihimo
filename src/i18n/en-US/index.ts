@@ -265,5 +265,9 @@ export default {
       'Open files in "{name}" have unsaved changes. Do you want to save them?',
     saveAndClose: 'Save and Close',
     discardAndClose: 'Discard and Close',
+    invalidFileName: 'Invalid file name',
+    invalidFileNameEmpty: 'File name cannot be empty',
+    duplicateName: 'A file or folder with this name already exists',
+    uploadFailed: 'Failed to upload some files/folders ({names})',
   },
 };

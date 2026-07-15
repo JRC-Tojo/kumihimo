@@ -59,16 +59,32 @@ function wrapRequest<T>(starter: () => IDBRequest<T>): Promise<Result<T>> {
 }
 
 /**
+ * readwriteトランザクションの完了（`oncomplete`）まで待機する
+ *
+ * リクエスト（`put`/`delete`）自体の成功だけで返すと、トランザクションが後から
+ * abortされた場合（クォータ超過等）を取りこぼすため、コミット完了まで確認する
+ */
+function wrapTransaction(transaction: IDBTransaction): Promise<Result<void>> {
+  return new Promise((resolve) => {
+    transaction.oncomplete = () => resolve(Success());
+    transaction.onabort = () =>
+      resolve(Failure(new Error(transaction.error?.message || 'fsHandleDB transaction aborted')));
+    transaction.onerror = () =>
+      resolve(Failure(new Error(transaction.error?.message || 'fsHandleDB transaction failed')));
+  });
+}
+
+/**
  * ハンドルを保存する
  */
 export async function setHandle(cId: ContainerID, value: StoredHandle): Promise<Result<void>> {
   const dbRes = await openDb();
   if (!dbRes.ok) return dbRes;
 
-  const store = dbRes.value.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME);
-  const res = await wrapRequest(() => store.put(value, cId));
-  if (!res.ok) return res;
-  return Success();
+  const transaction = dbRes.value.transaction(STORE_NAME, 'readwrite');
+  const putRes = await wrapRequest(() => transaction.objectStore(STORE_NAME).put(value, cId));
+  if (!putRes.ok) return putRes;
+  return wrapTransaction(transaction);
 }
 
 /**
@@ -92,10 +108,10 @@ export async function deleteHandle(cId: ContainerID): Promise<Result<void>> {
   const dbRes = await openDb();
   if (!dbRes.ok) return dbRes;
 
-  const store = dbRes.value.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME);
-  const res = await wrapRequest(() => store.delete(cId));
-  if (!res.ok) return res;
-  return Success();
+  const transaction = dbRes.value.transaction(STORE_NAME, 'readwrite');
+  const delRes = await wrapRequest(() => transaction.objectStore(STORE_NAME).delete(cId));
+  if (!delRes.ok) return delRes;
+  return wrapTransaction(transaction);
 }
 
 /**

@@ -17,6 +17,6 @@ export function syncStoresAfterDelete(containerID: ContainerID, deleted: Contain
   const filePaths = deleted.filter((e) => e.type === 'File').map((e) => e.path);
   const allPaths = deleted.map((e) => e.path);
 
-  useEditorStore().closeTabsForPaths(containerID, filePaths);
+  void useEditorStore().closeTabsForDeletedPaths(containerID, filePaths);
   useExplorerStore().forgetPaths(containerID, allPaths);
 }

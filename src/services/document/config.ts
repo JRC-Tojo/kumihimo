@@ -1,7 +1,7 @@
 import type { ContainerElement, ContainerElementFile, RenamedEntry } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
 import { CONFIG_FILE_EXTS } from 'src/models/document/common';
-import { Failure, Success, type Result } from 'src/models/error/result';
+import { Failure, NotFoundError, Success, type Result } from 'src/models/error/result';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
@@ -31,7 +31,9 @@ export class DocumentConfigConflictError extends Error {
  * 指定したファイルに紐づく本システムの設定ファイルを読み込む
  *
  * `.rdcfg`がまだ存在しない場合（そのファイルに一度もアノテーションが保存されたことがない場合）は
- * エラーにせず、現在のファイル内容のハッシュを持つ空の設定として扱う
+ * エラーにせず、現在のファイル内容のハッシュを持つ空の設定として扱う。
+ * 読み込み・パース自体の失敗（権限エラー・破損等）はアノテーション消失につながるため、
+ * ファイル不存在（`NotFoundError`）と確認できた場合以外はそのままエラーとして返す
  */
 export async function loadConfig(file: ContainerElementFile): Promise<Result<DocumentConfigFile>> {
   // ファイルハッシュの算出（設定ファイルが無い場合の初期値としても使う）
@@ -42,9 +44,14 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
 
   // 設定ファイルの読み込み
   const configFileRes = await containerConfigService.getDocumentConfigFile(file.containerID, file);
-  const configFile: DocumentConfigFile = configFileRes.ok
-    ? configFileRes.value
-    : { fileHash: fileHash.value, annots: {} };
+  let configFile: DocumentConfigFile;
+  if (configFileRes.ok) {
+    configFile = configFileRes.value;
+  } else if (configFileRes.error instanceof NotFoundError) {
+    configFile = { fileHash: fileHash.value, annots: {} };
+  } else {
+    return configFileRes;
+  }
 
   // 設定ファイルが存在していた場合のみ、ファイル内容が更新されていないか確認する
   if (configFileRes.ok && configFile.fileHash !== fileHash.value) {
