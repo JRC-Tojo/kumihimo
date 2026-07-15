@@ -92,7 +92,7 @@ async function getService(): Promise<PaddleOcrService> {
     });
   }
 
-  return ocrServicePromise;;
+  return ocrServicePromise;
 }
 
 /**
@@ -110,10 +110,7 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   if (ctx === null) return '';
 
   // 1. 既存の前処理パイプラインの実行（必要に応じて）
-  pipe(
-    ctx,
-    deskew,
-  );
+  pipe(ctx, deskew);
 
   try {
     const service = await getService();
