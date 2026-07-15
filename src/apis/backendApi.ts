@@ -41,7 +41,7 @@ class BackendApi {
     const relDb = await relationalService.initRelationalDB();
     if (!relDb.ok) return toApiResponse(relDb, 'INIT_PROCESS_ERROR');
 
-    void initOCR();
+    void initOCR().catch((err) => console.error('OCR初期化に失敗しました:', err));;
 
     if (!settings.value.initialized) {
       const initRes = await initializeSettings();

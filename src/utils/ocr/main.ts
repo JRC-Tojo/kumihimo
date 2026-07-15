@@ -74,19 +74,25 @@ const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement>
   });
 };
 
-// Serviceの内部キャッシュ
-let ocrService: PaddleOcrService | undefined;
+// Serviceの初期化Promiseをキャッシュする（失敗時は再試行可能にする）
+let ocrServicePromise: Promise<PaddleOcrService> | undefined;
 
 /**
  * OCRサービスを取得する
  */
 async function getService(): Promise<PaddleOcrService> {
-  if (ocrService === void 0) {
-    ocrService = new PaddleOcrService();
-    await ocrService.initialize();
+  if (ocrServicePromise === void 0) {
+    ocrServicePromise = (async () => {
+      const service = new PaddleOcrService();
+      await service.initialize();
+      return service;
+    })().catch((err) => {
+      ocrServicePromise = void 0; // 失敗時は次回呼び出しで再試行できるようにする
+      throw err;
+    });
   }
 
-  return ocrService
+  return ocrServicePromise;
 }
 
 /**
@@ -106,10 +112,7 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   // 1. 既存の前処理パイプラインの実行（必要に応じて）
   pipe(
     ctx,
-    // grayscale,
-    // (c) => binarize(c, 128),
     deskew,
-    // (c) => autocrop(c, 10),
   );
 
   try {
@@ -130,33 +133,7 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   }
 };
 
-// 1. グレースケール化
-export const grayscale = (ctx: CanvasRenderingContext2D) => {
-  const { width, height } = ctx.canvas;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const avg =
-      0.299 * (data.at(i) ?? 0) + 0.587 * (data.at(i + 1) ?? 0) + 0.114 * (data.at(i + 2) ?? 0);
-    data[i] = data[i + 1] = data[i + 2] = avg;
-  }
-  ctx.putImageData(imageData, 0, 0);
-};
-
-// 2. 二値化
-export const binarize = (ctx: CanvasRenderingContext2D, threshold: number = 128) => {
-  const { width, height } = ctx.canvas;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i] === undefined) console.log(i);
-    const val = (data.at(i) ?? 0) > threshold ? 255 : 0;
-    data[i] = data[i + 1] = data[i + 2] = val;
-  }
-  ctx.putImageData(imageData, 0, 0);
-};
-
-// 3. 傾き補正 (モーメント法で角度を算出し、Canvasを回転)
+// 傾き補正 (モーメント法で角度を算出し、Canvasを回転)
 export const deskew = (ctx: CanvasRenderingContext2D) => {
   const { width: oldW, height: oldH } = ctx.canvas;
   const imageData = ctx.getImageData(0, 0, oldW, oldH);
@@ -225,47 +202,6 @@ export const deskew = (ctx: CanvasRenderingContext2D) => {
   ctx.canvas.height = newH;
   // サイズ変更でクリアされるため clearRect は不要
   ctx.drawImage(tempCanvas, 0, 0);
-};
-
-// 4. 自動トリミング
-export const autocrop = (ctx: CanvasRenderingContext2D, padding: number = 5) => {
-  const { width, height } = ctx.canvas;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  let minX = width,
-    minY = height,
-    maxX = 0,
-    maxY = 0;
-
-  // 1. コンテンツのバウンディングボックスを走査
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if ((data.at((y * width + x) * 4) ?? 255) < 128) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-  // コンテンツ未検出時はクロップしない
-  if (minX > maxX || minY > maxY) return;
-
-  // 2. 座標をキャンバスの範囲内にクランプ（制限）
-  const startX = Math.max(0, minX - padding);
-  const startY = Math.max(0, minY - padding);
-  const endX = Math.min(width, maxX + padding);
-  const endY = Math.min(height, maxY + padding);
-
-  const w = endX - startX;
-  const h = endY - startY;
-
-  // 3. 正しい範囲でデータを取得してキャンバスを再設定
-  const cropped = ctx.getImageData(startX, startY, w, h);
-
-  ctx.canvas.width = w;
-  ctx.canvas.height = h;
-  ctx.putImageData(cropped, 0, 0);
 };
 
 /**
