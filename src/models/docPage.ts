@@ -9,7 +9,7 @@ export interface IDocTool {
   label: string;
   isActive: () => boolean;
   isDisable?: () => boolean;
-  onClicked: () => void;
+  onClicked: () => void | Promise<void>;
 }
 
 /**

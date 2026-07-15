@@ -118,6 +118,7 @@ export const useExplorerStore = defineStore('explorer', {
       const targetIdx = visibleKeys.indexOf(targetKey);
       if (anchorIdx === -1 || targetIdx === -1) {
         this.selectedKeys = new Set([targetKey]);
+        this.lastSelectedKey = targetKey;
         return;
       }
 

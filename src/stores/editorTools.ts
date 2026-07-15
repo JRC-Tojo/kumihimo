@@ -224,12 +224,16 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
             icon: 'backup',
             label: t('pdfEditor.tools.save.auto'),
             isActive: () => editorStore.autoSaveAnnotations,
-            onClicked: () => {
-              editorStore.autoSaveAnnotations = !editorStore.autoSaveAnnotations;
-              void useBackendApi().saveSettings(
-                'autoSaveAnnotations',
-                editorStore.autoSaveAnnotations,
-              );
+            onClicked: async () => {
+              const previous = editorStore.autoSaveAnnotations;
+              editorStore.autoSaveAnnotations = !previous;
+              const result = await useBackendApi().saveSettings(
+               'autoSaveAnnotations',
+               editorStore.autoSaveAnnotations,
+             );
+              if (!result.ok) {
+                editorStore.autoSaveAnnotations = previous;
+              }
             },
           },
         ];

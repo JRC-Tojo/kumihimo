@@ -76,9 +76,10 @@ export async function saveContainer(c: ContainerSkel): Promise<Result<void>> {
   }
 
   const handle = lastPickedHandle;
-  lastPickedHandle = null;
+  const result = await fsHandleDB.setHandle(c.id, { skel: c, handle });
+  if (result.ok) lastPickedHandle = null;
 
-  return fsHandleDB.setHandle(c.id, { skel: c, handle });
+  return result;
 }
 
 /**

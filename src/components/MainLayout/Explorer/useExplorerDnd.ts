@@ -174,10 +174,17 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
         failedPaths.push(path);
         continue;
       }
+
+      const parsedSource = DocumentSource.safeParse(base64Res.value);
+      if (!parsedSource.success) {
+        failedPaths.push(path);
+        continue;
+      }
+
       const saveRes = await api.saveFile(
         options.containerId,
         targetFolderPath.child(path).path,
-        DocumentSource.parse(base64Res.value),
+        parsedSource.data,
       );
       if (!saveRes.ok) failedPaths.push(path);
     }
