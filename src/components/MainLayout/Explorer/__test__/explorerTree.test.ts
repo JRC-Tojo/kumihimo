@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { directChildrenOf, sortElements } from '../explorerTree';
+import { directChildrenOf, isSiblingNameAvailable, sortElements } from '../explorerTree';
 import type { ContainerElement, ContainerElementFile, ContainerID } from 'src/models/container';
 
 const cId = '00000000-0000-0000-0000-000000000000' as ContainerID;
@@ -54,5 +54,39 @@ describe('sortElements', () => {
 
     const sorted = sortElements(elements).map((e) => e.path);
     expect(sorted).toEqual(['a-folder', 'z-folder', 'a.pdf', 'b.pdf']);
+  });
+});
+
+describe('isSiblingNameAvailable', () => {
+  const elements: Record<string, ContainerElement> = {
+    'root.pdf': makeFile('root.pdf'),
+    'other.pdf': makeFile('other.pdf'),
+    sub: { containerID: cId, type: 'Folder', path: 'sub', createdAt: now },
+    'sub/child.pdf': makeFile('sub/child.pdf'),
+    'sub/deep': { containerID: cId, type: 'Folder', path: 'sub/deep', createdAt: now },
+  };
+
+  test('returns false when a sibling with the new name already exists', () => {
+    expect(isSiblingNameAvailable(elements, 'root.pdf', 'other.pdf')).toBe(false);
+  });
+
+  test('returns true when no sibling has the new name', () => {
+    expect(isSiblingNameAvailable(elements, 'root.pdf', 'unique.pdf')).toBe(true);
+  });
+
+  test('returns true when the new name is unchanged from the current name', () => {
+    expect(isSiblingNameAvailable(elements, 'root.pdf', 'root.pdf')).toBe(true);
+  });
+
+  test('returns true for an empty (whitespace-only) name', () => {
+    expect(isSiblingNameAvailable(elements, 'root.pdf', '   ')).toBe(true);
+  });
+
+  test('only checks against elements in the same folder, not other folders', () => {
+    expect(isSiblingNameAvailable(elements, 'sub/child.pdf', 'root.pdf')).toBe(true);
+  });
+
+  test('detects a duplicate name among folder children (not the folder itself)', () => {
+    expect(isSiblingNameAvailable(elements, 'sub/deep', 'child.pdf')).toBe(false);
   });
 });

@@ -11,9 +11,11 @@
     <q-input
       v-if="isRenaming"
       v-model="renameValue"
+      ref="renameInputRef"
       dense
       autofocus
       borderless
+      :rules="renameRules"
       class="rename-input"
       :error="!!renameError"
       :error-message="renameError ?? undefined"
@@ -51,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue';
+import { computed, inject, nextTick, ref, useTemplateRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ContainerElementFile } from 'src/models/container';
 import { useEditorStore } from 'src/stores/editorStore';
@@ -66,6 +68,8 @@ import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename'
 import { syncStoresAfterDelete } from 'src/utils/document/syncStoresAfterDelete';
 import { useUnsavedIndicator } from 'src/composables/useUnsavedIndicator';
 import { confirmDialog } from 'src/utils/dialog/confirmDialog';
+import { QInput } from 'quasar';
+import { isSiblingNameAvailable } from './explorerTree';
 
 interface Prop {
   file: ContainerElementFile;
@@ -84,6 +88,15 @@ const showMenu = ref(false);
 const isRenaming = ref(false);
 const renameValue = ref('');
 const pendingRename = ref(false);
+const renameInputRef = useTemplateRef<QInput>('renameInputRef');
+
+/** 同一階層内での名前の重複をq-input側で検証する（リネーム確定処理側では重複チェックを行わない） */
+const renameRules = [
+  (val: string) =>
+    !ctx ||
+    isSiblingNameAvailable(ctx.elements.value, prop.file.path, val) ||
+    $t('explorer.nameAlreadyExists'),
+];
 
 const isSelected = computed(() => explorerStore.isSelected(prop.file.containerID, prop.file.path));
 
@@ -196,6 +209,13 @@ async function confirmRename() {
     return;
   }
   isRenaming.value = false;
+
+  // 重複名などのバリデーションエラーがある間は確定させず、入力欄を維持する
+  const isValid = await renameInputRef.value?.validate();
+  if (isValid === false) {
+    void nextTick(() => renameInputRef.value?.focus());
+    return;
+  }
 
   const newName = renameValue.value.trim();
   if (newName === filePath.value.basename()) return;
