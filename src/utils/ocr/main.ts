@@ -92,14 +92,14 @@ async function getService(): Promise<PaddleOcrService> {
     });
   }
 
-  return ocrServicePromise;
+  return ocrServicePromise;;
 }
 
 /**
  * OCRプロセスの初期化
  */
 export async function initOCR(): Promise<void> {
-  await getService()
+  await getService();
 }
 
 /**
@@ -116,7 +116,7 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   );
 
   try {
-    const service = await getService()
+    const service = await getService();
     const result = await service.recognize(canvas);
     const text = result.text;
 

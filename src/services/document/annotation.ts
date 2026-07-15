@@ -90,9 +90,9 @@ async function loadAnnotContent(
   if (!fileSrc.ok) return fileSrc;
 
   // PDFにテキスト情報がすでに含まれている場合はその情報を取得
-  const directText = await extractTextByAnnot(fileSrc.value, annotationInfo.style)
+  const directText = await extractTextByAnnot(fileSrc.value, annotationInfo.style);
   if (directText.ok && directText.value !== '') {
-    annotationInfo.context.text = directText.value
+    annotationInfo.context.text = directText.value;
   } else {
     // 画像から文字情報を読み取り
     const img = await extractImageFromRegion(fileSrc.value, annotationInfo.style, 4);
