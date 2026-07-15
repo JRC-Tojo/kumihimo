@@ -64,7 +64,7 @@ const editorStore = useEditorStore();
 
 function handleMainToolClick(tool: IDocTool) {
   editorStore.subTools = [];
-  tool.onClicked();
+  void tool.onClicked();
 }
 </script>
 

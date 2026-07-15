@@ -5,7 +5,7 @@
 import type { DocumentSource } from 'src/models/document/common';
 import { Path } from 'src/utils/binary/path';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
-import { Success, type Result } from 'src/models/error/result';
+import { NotFoundError, Success, type Result } from 'src/models/error/result';
 import { calcBase64Hash } from 'src/utils/binary/base64';
 import type {
   AnnotationBaseAddress,
@@ -24,7 +24,7 @@ const CONTAINER_CONFIG_FOLDER = '.rd';
 /**
  * 文書設定ファイルのパスを取得する
  */
-function getConfigPath(filePath: string): string {
+export function getConfigPath(filePath: string): string {
   const pathObj = new Path(filePath);
   const parentPath = pathObj.parent();
   const pathName = pathObj.basename();
@@ -53,7 +53,19 @@ function getBackupFilePath(cPath: string, fileHash: string): string {
 }
 
 /**
+ * 関係性ファイルがまだ作成されていない場合（コンテナの初回読み込み時等）の初期値
+ */
+const EMPTY_CACHED_RELATIONAL_FILE: CachedRelationalFile = {
+  annotIdToFileInfo: {},
+  relationals: [],
+};
+
+/**
  * コンテナルートに保存されている関係性ファイルを取得
+ *
+ * ファイルがまだ存在しない場合（コンテナの初回読み込み時等）は空の状態として扱う。
+ * ファイル不存在（`NotFoundError`）以外の読み込み失敗（権限エラー等）や、
+ * 読み込めた内容のデコード・検証に失敗した場合は、既存データの喪失を防ぐため本来のエラーとして返す
  */
 export async function getRelationalFile(cID: ContainerID): Promise<Result<CachedRelationalFile>> {
   const containerService = await import('./main');
@@ -63,7 +75,11 @@ export async function getRelationalFile(cID: ContainerID): Promise<Result<Cached
   // 関係性ファイルの本体データを取得
   const relationalFilePath = getRelationalFilePath(container.value.containerPath);
   const src = await containerService.loadFileAsDocumentSource(cID, relationalFilePath);
-  if (!src.ok) return src;
+  if (!src.ok) {
+    // ファイルが本当に存在しない場合のみ空扱いとし、それ以外のエラーは伝播させる
+    if (src.error instanceof NotFoundError) return Success(EMPTY_CACHED_RELATIONAL_FILE);
+    return src;
+  }
 
   // 取得したデータをデコードする
   const fileContent = textRepository.loadTextContents(src.value, CachedRelationalFile);
@@ -189,6 +205,58 @@ export async function updateRelationalFile(
   if (!relFileSrc.ok) return relFileSrc;
 
   // 5. コンテナルートの関係性ファイルを更新する
+  const relationalFilePath = getRelationalFilePath(container.value.containerPath);
+  const createRes = await containerService.createFile(cID, relationalFilePath, relFileSrc.value);
+  if (!createRes.ok) return createRes;
+
+  return Success();
+}
+
+/**
+ * `CachedRelationalFile`内の`annotIdToFileInfo[...].filePath`を、旧パス→新パスのマップに従って付け替える
+ *
+ * ファイルのリネーム・移動に伴う副作用伝播のための純粋関数（テストしやすいよう分離している）
+ */
+export function remapCachedRelationalFilePaths(
+  oldFile: CachedRelationalFile,
+  pathMap: Record<string, string>,
+): CachedRelationalFile {
+  const remappedAnnotIdToFileInfo: Record<AnnotationID, AnnotationBaseAddress> = {};
+  for (const [annotID, address] of Object.entries(oldFile.annotIdToFileInfo)) {
+    const newFilePath = pathMap[address.filePath];
+    remappedAnnotIdToFileInfo[annotID as AnnotationID] =
+      newFilePath !== undefined ? { ...address, filePath: newFilePath } : address;
+  }
+
+  return {
+    annotIdToFileInfo: remappedAnnotIdToFileInfo,
+    relationals: oldFile.relationals,
+  };
+}
+
+/**
+ * ファイルのリネーム・移動に伴い、コンテナルートの関係性キャッシュファイル内の
+ * `annotIdToFileInfo[...].filePath`を一括で付け替える
+ *
+ * @param pathMap 旧パス→新パスのマップ（リネーム対象になったFile要素の分のみ）
+ */
+export async function remapRelationalFilePaths(
+  cID: ContainerID,
+  pathMap: Record<string, string>,
+): Promise<Result<void>> {
+  const containerService = await import('./main');
+
+  const oldRelationalFile = await getRelationalFile(cID);
+  if (!oldRelationalFile.ok) return oldRelationalFile;
+
+  const updatedFile = remapCachedRelationalFilePaths(oldRelationalFile.value, pathMap);
+
+  const relFileStr = JSON.stringify(updatedFile, null, 2);
+  const relFileSrc = textRepository.encodeTextContents(relFileStr);
+  if (!relFileSrc.ok) return relFileSrc;
+
+  const container = containerService.getContainer(cID);
+  if (!container.ok) return container;
   const relationalFilePath = getRelationalFilePath(container.value.containerPath);
   const createRes = await containerService.createFile(cID, relationalFilePath, relFileSrc.value);
   if (!createRes.ok) return createRes;

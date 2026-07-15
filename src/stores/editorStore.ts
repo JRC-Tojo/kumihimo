@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 import { defineStore, acceptHMRUpdate } from 'pinia';
+import { nextTick } from 'vue';
 import type { ContainerElement, ContainerElementFile, ContainerID } from 'src/models/container';
 import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
-export type Layouts<T> = { ul: T; ur: T; ll: T; lr: T };
-export type LayoutSide = keyof Layouts<never>;
+const sides = ['ul', 'ur', 'll', 'lr'] as const;
+export type LayoutSide = (typeof sides)[number];
+export type Layouts<T> = { [side in LayoutSide]: T };
 export type TileMode = 'single' | 'dubble' | 'grid';
 
 export type RelationalType = RelationalRule['type'] | undefined;
@@ -75,6 +77,10 @@ export const useEditorStore = defineStore('editor', {
     relationalPendingId: undefined as AnnotationID | undefined,
     // 待機中の基準アノテーションが属するファイル（複数タブ表示時に待機の発生元を判別するために保持）
     relationalPendingFile: undefined as ContainerElementFile | undefined,
+
+    // 削除によるタブクローズの対象（tabKey）。DocumentTabView等がonBeforeUnmount時に
+    // 「削除によるクローズか、通常のタブクローズか」を判別するための一時的なマーカー
+    deletingTabKeys: new Set<string>(),
   }),
 
   actions: {
@@ -124,6 +130,14 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 指定コンテナに属する、現在開いているタブ一覧を全ペインから集める
+     */
+    getTabsForContainer(cID: ContainerID): ContainerElementFile[] {
+      const all = sides.flatMap((side) => this.tabs[side].filter((tab) => tab.containerID === cID));
+      return Array.from(new Map(all.map((file) => [file.path, file])).values());
+    },
+
+    /**
      * 選択された文書のタブを開く
      *
      * containerIDまで含めて同一性判定するため、別コンテナの同名パスファイルも正しく別タブとして開かれる
@@ -169,6 +183,66 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 指定パスのファイルタブを全ペインから閉じる（ファイル削除時に使う）
+     */
+    closeTabsForPaths(containerID: ContainerID, paths: string[]): void {
+      if (paths.length === 0) return;
+      const pathSet = new Set(paths);
+
+      sides.forEach((side) => {
+        const removedKeys = this.tabs[side]
+          .filter((tab) => tab.containerID === containerID && pathSet.has(tab.path))
+          .map((tab) => tabKey(tab));
+        if (removedKeys.length === 0) return;
+
+        this.tabs[side] = this.tabs[side].filter(
+          (tab) => !(tab.containerID === containerID && pathSet.has(tab.path)),
+        );
+        removedKeys.forEach((key) => this.pinedTabPaths[side].delete(key));
+
+        const activeKey = this.activeTabPaths[side];
+        if (activeKey !== null && removedKeys.includes(activeKey)) {
+          const lastTab = this.tabs[side][this.tabs[side].length - 1];
+          this.activeTabPaths[side] = lastTab ? tabKey(lastTab) : null;
+        }
+      });
+    },
+
+    /**
+     * ファイル削除に伴い、指定パスのファイルタブを全ペインから閉じる
+     *
+     * `closeTabsForPaths`と異なり、閉じている間`deletingTabKeys`にマークを付けることで、
+     * アンマウントされるDocumentTabView等が「削除によるクローズ」を判別し、
+     * 削除済みファイルへの自動保存を避けられるようにする
+     */
+    async closeTabsForDeletedPaths(containerID: ContainerID, paths: string[]): Promise<void> {
+      if (paths.length === 0) return;
+      const keys = paths.map((path) => tabKey({ containerID, path }));
+      keys.forEach((key) => this.deletingTabKeys.add(key));
+
+      this.closeTabsForPaths(containerID, paths);
+
+      // 削除によるアンマウント処理（onBeforeUnmount）が完了するまでマークを残しておく
+      await nextTick();
+      keys.forEach((key) => this.deletingTabKeys.delete(key));
+    },
+
+    closeTabsForContainer(cID: ContainerID, files: ContainerElement[]): void {
+      if (files.length === 0) return;
+      this.closeTabsForPaths(
+        cID,
+        files.map((file) => file.path),
+      );
+    },
+
+    /**
+     * 指定ファイルが、削除に伴うタブクローズの対象になっているかどうかを判定する
+     */
+    isPendingDeletion(containerID: ContainerID, path: string): boolean {
+      return this.deletingTabKeys.has(tabKey({ containerID, path }));
+    },
+
+    /**
      * タブをピンする
      */
     pinTab(elem: ContainerElement, layoutSide: LayoutSide): void {
@@ -196,6 +270,50 @@ export const useEditorStore = defineStore('editor', {
     selectSettingsTab(layoutSide: LayoutSide, isFocus: boolean): void {
       this.activeTabPaths[layoutSide] = SETTINGS_TAB_KEY;
       if (isFocus) this.activeSide = layoutSide;
+    },
+
+    /**
+     * リネーム・移動されたファイルのパス参照を、全ペインのタブ状態に追従させる
+     *
+     * `tabs`内オブジェクトのpathを直接書き換えることで、これをpropとして参照している
+     * DocumentTabView等のコンポーネントキー（containerID+path）が変わり、
+     * 新パスでの再マウント（＝アノテーションの正しい再購読）が自動的に発生する
+     */
+    remapPaths(containerID: ContainerID, pathMap: Record<string, string>): void {
+      sides.forEach((side) => {
+        this.tabs[side].forEach((tab) => {
+          if (tab.containerID !== containerID) return;
+          const newPath = pathMap[tab.path];
+          if (newPath !== undefined) tab.path = newPath;
+        });
+
+        const activeKey = this.activeTabPaths[side];
+        if (activeKey !== null && activeKey !== SETTINGS_TAB_KEY) {
+          const prefix = `${containerID}|`;
+          const path = activeKey.startsWith(prefix) ? activeKey.slice(prefix.length) : undefined;
+          if (path !== undefined && pathMap[path] !== undefined) {
+            this.activeTabPaths[side] = tabKey({ containerID, path: pathMap[path] });
+          }
+        }
+
+        const remappedPinned = new Set<string>();
+        this.pinedTabPaths[side].forEach((pinnedKey) => {
+          const prefix = `${containerID}|`;
+          const path = pinnedKey.startsWith(prefix) ? pinnedKey.slice(prefix.length) : undefined;
+          if (path !== undefined && pathMap[path] !== undefined) {
+            remappedPinned.add(tabKey({ containerID, path: pathMap[path] }));
+          } else {
+            remappedPinned.add(pinnedKey);
+          }
+        });
+        this.pinedTabPaths[side] = remappedPinned;
+      });
+
+      const pendingFile = this.relationalPendingFile;
+      if (pendingFile !== undefined && pendingFile.containerID === containerID) {
+        const newPendingPath = pathMap[pendingFile.path];
+        if (newPendingPath !== undefined) pendingFile.path = newPendingPath;
+      }
     },
 
     /**

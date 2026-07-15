@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 import { defineStore, acceptHMRUpdate } from 'pinia';
 import { useBackendApi } from 'src/apis/backendApi';
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { Relational } from 'src/models/relational/common';
 import type { RelationalCheckedRule } from 'src/models/relational/fileSchema';
@@ -25,12 +25,22 @@ export interface RelationalEdge {
 /**
  * ファイルのキャッシュキー（containerIDまで含めて同一性判定する）
  */
-function fileKey(f: ContainerElementFile): string {
+export function fileKey(f: ContainerElementFile): string {
   return `${f.containerID}|${f.path}`;
 }
 
 function edgeKey(r: Relational): string {
   return `${r.srcID}|${r.targetID}|${JSON.stringify(r.rule)}`;
+}
+
+/**
+ * エッジ一覧から検証状態を集計する（優先度: ng > pending > ok、空配列はundefined）
+ */
+function aggregateStatus(edges: RelationalEdge[]): RelationalStatus {
+  if (edges.length === 0) return undefined;
+  if (edges.some((edge) => edge.checkedRule?.isOK === false)) return 'ng';
+  if (edges.some((edge) => edge.checkedRule === undefined)) return 'pending';
+  return 'ok';
 }
 
 /**
@@ -78,13 +88,17 @@ export const useRelationalStore = defineStore('relational', {
     statusForAnnotation(): (annotId: AnnotationID) => RelationalStatus {
       // this.edgesForAnnotationへのアクセスをここで行い、getter間の依存を明示的に確立する
       const getEdgesForAnnotation = this.edgesForAnnotation;
-      return (annotId: AnnotationID) => {
-        const edges = getEdgesForAnnotation(annotId);
-        if (edges.length === 0) return undefined;
-        if (edges.some((edge) => edge.checkedRule?.isOK === false)) return 'ng';
-        if (edges.some((edge) => edge.checkedRule === undefined)) return 'pending';
-        return 'ok';
-      };
+      return (annotId: AnnotationID) => aggregateStatus(getEdgesForAnnotation(annotId));
+    },
+
+    /**
+     * 指定ファイル（fileKey = `${containerID}|${path}`）が関わるエッジ全体の検証状態
+     *
+     * 読み込み済み（＝タブを開く等で`refreshFile`済み）のファイルのみ対象で、
+     * 未読み込みのファイルに対して新規データ取得は行わない
+     */
+    statusForFile(state): (fileKey: string) => RelationalStatus {
+      return (fileKey: string) => aggregateStatus(state.edgesByFileKey[fileKey] ?? []);
     },
   },
 
@@ -113,6 +127,25 @@ export const useRelationalStore = defineStore('relational', {
       );
 
       this.edgesByFileKey[fileKey(file)] = await runConcurrently(edgeCheckers, 5);
+    },
+
+    /**
+     * リネーム・移動されたファイルのキャッシュキーを付け替える
+     *
+     * `edgesByFileKey`は`containerID|path`をキーにしているため、リネーム後もキャッシュを
+     * 再利用できるようにキーだけ新パスへ書き換える（内容の再検証は不要）
+     */
+    remapFileKeys(containerID: ContainerID, pathMap: Record<string, string>): void {
+      const updated: Record<string, RelationalEdge[]> = {};
+      for (const [key, edges] of Object.entries(this.edgesByFileKey)) {
+        const [cID, path] = key.split('|');
+        if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+          updated[`${cID}|${pathMap[path]}`] = edges;
+        } else {
+          updated[key] = edges;
+        }
+      }
+      this.edgesByFileKey = updated;
     },
   },
 });

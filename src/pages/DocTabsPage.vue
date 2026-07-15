@@ -3,25 +3,14 @@
     <!-- タブバー -->
     <div class="tabs-bar">
       <!-- 設定タブ（開いている場合のみ、文書タブの前に固定表示） -->
-      <div
+      <TabItem
         v-if="editorStore.settingsOpenSides[prop.layoutSide]"
-        :class="['tabs-container', 'tab-item', { active: isSettingsActive }]"
-        @click="selectSettingsTab"
-      >
-        <div class="tab-content">
-          <q-icon name="settings" class="tab-icon" />
-          <span class="tab-title">{{ $t('settings.title') }}</span>
-        </div>
-        <q-btn
-          flat
-          dense
-          round
-          icon="close"
-          size="xs"
-          class="tab-close-btn"
-          @click.stop="editorStore.closeSettingsTab(prop.layoutSide)"
-        />
-      </div>
+        icon="settings"
+        :title="$t('settings.title')"
+        :active="isSettingsActive"
+        @select="selectSettingsTab"
+        @close="editorStore.closeSettingsTab(prop.layoutSide)"
+      />
 
       <VueDraggable
         v-model="tabs"
@@ -32,32 +21,16 @@
         @remove="onTabRemoved"
       >
         <!-- タブを並べる -->
-        <div
+        <DocTabItem
           v-for="tab in tabs"
           :key="`${tab.containerID}/${tab.path}`"
-          :class="[
-            'tab-item',
-            {
-              active:
-                !isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide,
-            },
-          ]"
-          @click="selectTab(tab, true)"
-        >
-          <div class="tab-content">
-            <q-icon name="description" class="tab-icon" />
-            <span class="tab-title">{{ tabTitle(tab.path) }}</span>
-          </div>
-          <q-btn
-            flat
-            dense
-            round
-            icon="close"
-            size="xs"
-            class="tab-close-btn"
-            @click.stop="closeTab(tab)"
-          />
-        </div>
+          :file="tab"
+          :active="
+            !isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide
+          "
+          @select="selectTab(tab, true)"
+          @close="closeTab(tab)"
+        />
       </VueDraggable>
     </div>
 
@@ -65,10 +38,20 @@
     <div class="tabs-content">
       <SettingsPage v-if="isSettingsActive" />
       <DocumentTabView
-        v-else-if="activeTabFile"
+        v-else-if="activeTabFile && activeDocumentKind === 'pdf'"
         :file="activeTabFile"
         :layout-side="prop.layoutSide"
-        :key="`${activeTabFile.containerID}/${activeTabFile.path}`"
+        :key="`pdf|${activeTabFile.containerID}|${activeTabFile.path}`"
+      />
+      <TextFileTabView
+        v-else-if="activeTabFile && activeDocumentKind === 'text'"
+        :file="activeTabFile"
+        :key="`text|${activeTabFile.containerID}|${activeTabFile.path}`"
+      />
+      <UnsupportedFileTabView
+        v-else-if="activeTabFile"
+        :file="activeTabFile"
+        :key="`unsupported|${activeTabFile.containerID}|${activeTabFile.path}`"
       />
       <div v-else class="empty-state">
         <q-icon name="description" size="3rem" color="grey-5" />
@@ -80,20 +63,31 @@
 
 <script setup lang="ts">
 import DocumentTabView from 'src/components/DocLayout/DocumentTabView.vue';
+import TextFileTabView from 'src/components/DocLayout/TextFileTabView.vue';
+import UnsupportedFileTabView from 'src/components/DocLayout/UnsupportedFileTabView.vue';
+import DocTabItem from 'src/components/DocLayout/DocTabItem.vue';
+import TabItem from 'src/components/DocLayout/TabItem.vue';
 import SettingsPage from 'src/pages/SettingsPage.vue';
 import type { ContainerElementFile } from 'src/models/container';
 import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
-import { Path } from 'src/utils/binary/path';
+import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { DraggableEvent } from 'vue-draggable-plus';
 import { VueDraggable } from 'vue-draggable-plus';
+import { useBackendApi } from 'src/apis/backendApi';
+import { Path } from 'src/utils/binary/path';
+import { saveDocument } from 'src/utils/document/saveDocument';
+import { unsavedChangesDialog } from 'src/utils/dialog/confirmDialog';
 
 interface Prop {
   layoutSide: LayoutSide;
 }
 const prop = defineProps<Prop>();
 
+const { t: $t } = useI18n();
+const api = useBackendApi();
 const editorStore = useEditorStore();
 const tabs = computed({
   get: () => editorStore.tabs[prop.layoutSide],
@@ -102,6 +96,9 @@ const tabs = computed({
   },
 });
 const activeTabFile = computed(() => editorStore.getActiveTab(prop.layoutSide));
+const activeDocumentKind = computed(() =>
+  activeTabFile.value ? getSupportedDocumentKind(activeTabFile.value.path) : undefined,
+);
 const activeLayout = computed(() => editorStore.activeSide);
 const isSettingsActive = computed(
   () => editorStore.activeTabPaths[prop.layoutSide] === SETTINGS_TAB_KEY,
@@ -109,10 +106,6 @@ const isSettingsActive = computed(
 
 function selectSettingsTab() {
   editorStore.selectSettingsTab(prop.layoutSide, true);
-}
-
-function tabTitle(path: string) {
-  return new Path(path).basename();
 }
 
 /**
@@ -126,7 +119,24 @@ function selectTab(file: ContainerElementFile, isFocus: boolean) {
   editorStore.selectTab(file, prop.layoutSide, isFocus);
 }
 
-function closeTab(file: ContainerElementFile) {
+async function closeTab(file: ContainerElementFile) {
+  const unsavedRes = await api.hasUnsavedChangesByFile(file);
+  const hasUnsavedChanges = unsavedRes.ok && unsavedRes.data;
+
+  if (hasUnsavedChanges) {
+    const choice = await unsavedChangesDialog({
+      title: $t('explorer.unsavedChanges'),
+      message: $t('explorer.unsavedTabConfirm', { name: new Path(file.path).basename() }),
+    });
+    if (choice === 'cancel') return;
+    if (choice === 'save') {
+      await saveDocument(file);
+    } else {
+      // 保存せず閉じる：仮登録されたアノテーション・関係性を破棄し、保存前の状態へ巻き戻す
+      await api.discardUnsavedChanges(file);
+    }
+  }
+
   editorStore.closeTab(file, prop.layoutSide);
 }
 
@@ -143,8 +153,6 @@ function onTabRemoved(e: DraggableEvent<ContainerElementFile>) {
 </script>
 
 <style scoped lang="scss">
-@use 'sass:color';
-
 .doc-tabs-page {
   display: flex;
   flex-direction: column;
@@ -204,124 +212,6 @@ function onTabRemoved(e: DraggableEvent<ContainerElementFile>) {
   padding: 0 8px;
   width: 100%;
   height: 100%;
-}
-
-.tab-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 12px;
-  min-width: 120px;
-  max-width: 200px;
-  background: $grey-2;
-  border-radius: 8px 8px 0 0;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  user-select: none;
-  border-top: 3px solid transparent;
-
-  .tab-content {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: 1;
-    min-width: 0;
-
-    .tab-icon {
-      font-size: 1.1rem;
-      color: $grey-7;
-      flex-shrink: 0;
-    }
-
-    .tab-title {
-      font-size: 0.9rem;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: $grey-8;
-      font-weight: 500;
-    }
-  }
-
-  .tab-close-btn {
-    flex-shrink: 0;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-
-    &:hover {
-      background-color: rgba($negative, 0.1);
-      color: $negative;
-    }
-  }
-
-  &:hover {
-    background: $grey-3;
-
-    .tab-close-btn {
-      opacity: 1;
-    }
-  }
-
-  &.active {
-    background: white;
-    border-top-color: $primary;
-    color: $primary;
-    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
-
-    .tab-content {
-      .tab-icon {
-        color: $primary;
-      }
-
-      .tab-title {
-        color: $primary;
-        font-weight: 600;
-      }
-    }
-
-    .tab-close-btn {
-      opacity: 1;
-      color: $primary;
-    }
-  }
-}
-
-.body--dark .tab-item {
-  background: $grey-8;
-
-  .tab-content {
-    .tab-icon {
-      color: $grey-5;
-    }
-
-    .tab-title {
-      color: $grey-4;
-    }
-  }
-
-  &:hover {
-    background: $grey-7;
-  }
-
-  &.active {
-    background: color.adjust($dark, $lightness: -5%);
-    border-top-color: $primary;
-
-    .tab-content {
-      .tab-icon {
-        color: $primary;
-      }
-
-      .tab-title {
-        color: $primary;
-      }
-    }
-
-    .tab-close-btn {
-      color: $primary;
-    }
-  }
 }
 
 .tabs-content {

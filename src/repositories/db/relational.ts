@@ -182,6 +182,89 @@ export async function getRelationalsInvolvingFile(
 }
 
 /**
+ * 指定ファイルがsrc・target問わずどちらかの側で関わる未保存（仮登録）の関係性件数を取得する
+ */
+export async function countTemporaryRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<number>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const [srcRows, targetRows] = await Promise.all([
+      db.relationals
+        .where('srcContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.srcFilePath === file.path && row.isTemporary && !row.isDeleted)
+        .toArray(),
+      db.relationals
+        .where('targetContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.targetFilePath === file.path && row.isTemporary && !row.isDeleted)
+        .toArray(),
+    ]);
+
+    const rowsById = new Map([...srcRows, ...targetRows].map((row) => [row.id, row]));
+    return Success(rowsById.size);
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
+ * 特定ファイルに関わる関係性記録のfilePathを付け替える（リネーム・移動時の追従用）
+ *
+ * `id`はfilePathを含む複合キーのため、`.modify()`ではなく削除→再登録で付け替える
+ */
+export async function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.transaction('rw', db.relationals, async () => {
+      const asSrc = await db.relationals
+        .where('srcContainerID')
+        .equals(containerID)
+        .filter((row) => row.srcFilePath === oldPath)
+        .toArray();
+      const asTarget = await db.relationals
+        .where('targetContainerID')
+        .equals(containerID)
+        .filter((row) => row.targetFilePath === oldPath)
+        .toArray();
+      const rowsById = new Map([...asSrc, ...asTarget].map((row) => [row.id, row]));
+
+      for (const row of rowsById.values()) {
+        const updated: RelationalRecord = {
+          ...row,
+          srcFilePath: row.srcFilePath === oldPath ? newPath : row.srcFilePath,
+          targetFilePath: row.targetFilePath === oldPath ? newPath : row.targetFilePath,
+        };
+        updated.id = [
+          updated.srcID,
+          updated.targetID,
+          updated.srcContainerID,
+          updated.srcFilePath,
+          updated.targetContainerID,
+          updated.targetFilePath,
+          JSON.stringify(updated.rule),
+        ].join('|');
+
+        await db.relationals.delete(row.id);
+        await db.relationals.put(updated);
+      }
+    });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * 関係性を仮フラグつきで新規登録する
  */
 export async function addRelational(
@@ -270,6 +353,38 @@ export async function softRemoveRelationalsByAnnotationID(
         .where('targetID')
         .equals(annotID)
         .modify({ isDeleted: true, isTemporary: true, updatedAt });
+    });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
+ * 指定ファイルがsrc・target問わず関わる関係性DBレコードをすべて削除する
+ *
+ * 「保存せず閉じる」際、仮登録・確定済み問わずこのファイルが関わる記録を一旦すべて消し去り、
+ * `.rd/relational.json`（コンテナルートのキャッシュ）から読み直して確定済み状態を
+ * 再構築するために使う
+ */
+export async function deleteRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.transaction('rw', db.relationals, async () => {
+      await db.relationals
+        .where('srcContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.srcFilePath === file.path)
+        .delete();
+      await db.relationals
+        .where('targetContainerID')
+        .equals(file.containerID)
+        .filter((row) => row.targetFilePath === file.path)
+        .delete();
     });
     return Success();
   } catch (error) {
