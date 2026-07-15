@@ -67,42 +67,59 @@ export async function extractTextByPage(
  */
 export async function extractTextByAnnot(
   src64: DocumentSource,
-  pageNumber: number,
   style: AnnotationStyle,
 ): Promise<Result<string>> {
   const loaded = await loadPdfFromSrc64(src64);
   if (!loaded.ok) return Failure(loaded.error);
 
   try {
-    const page = await loaded.value.getPage(pageNumber);
+    const page = await loaded.value.getPage(style.pageNumber);
     const textContent = await page.getTextContent();
     const bbox = calculateBoundingBox(style);
+    // PDF のテキスト座標系（左下原点・Y軸上向き）を bbox の座標系（左上原点・Y軸下向き）に揃えるために使用
+    const pageHeight = page.getViewport({ scale: 1 }).height;
+    // 文字ごとの幅の内訳推定に使う（pdf.js の TextLayer 自体が採用している手法に準拠）
+    const measureCtx = document.createElement('canvas').getContext('2d');
 
     const extractedTexts: string[] = [];
 
     for (const item of textContent.items) {
-      if (!('str' in item) || !('transform' in item)) continue;
+      if (!('str' in item) || !('transform' in item) || item.str === '') continue;
 
       // item.transform は [scaleX, skewY, skewX, scaleY, translateX, translateY] の配列
-      const tx = item.transform[4]; // X座標
-      const ty = item.transform[5]; // Y座標
+      const tx = item.transform[4]; // X座標（左下原点）
+      const ty = item.transform[5]; // Y座標（左下原点）
       const itemWidth = item.width;
       const itemHeight = item.height;
+      const itemTopY = pageHeight - ty - itemHeight; // 左上原点でのY座標に変換
 
-      // テキスト要素の中心点を計算（判定を少し緩くするため）
-      const centerX = tx + itemWidth / 2;
-      const centerY = ty + itemHeight / 2;
+      // item は複数文字を含むブロック情報のため、文字単位の疑似的な位置をもとに
+      // アノテーション範囲との重なりを判定する
+      const chars = Array.from(item.str);
+      const fontFamily = textContent.styles[item.fontName]?.fontFamily;
+      const charWidths = estimateCharWidths(measureCtx, chars, itemWidth, fontFamily);
 
-      // 中心点がアノテーションの内部にあるか判定
-      const isInsideX = centerX >= bbox.x && centerX <= bbox.x + bbox.width;
-      const isInsideY = centerY >= bbox.y && centerY <= bbox.y + bbox.height;
+      const matchedChars: string[] = [];
+      let offsetX = 0;
+      chars.forEach((char, i) => {
+        const charWidth = charWidths[i] ?? 0;
 
-      if (isInsideX && isInsideY) {
-        extractedTexts.push(item.str);
-      }
+        // 文字要素の中心点を計算（判定を少し緩くするため）
+        const centerX = tx + offsetX + charWidth / 2;
+        const centerY = itemTopY + itemHeight / 2;
+
+        // 中心点がアノテーションの内部にあるか判定
+        const isInsideX = centerX >= bbox.x && centerX <= bbox.x + bbox.width;
+        const isInsideY = centerY >= bbox.y && centerY <= bbox.y + bbox.height;
+
+        if (isInsideX && isInsideY) matchedChars.push(char);
+        offsetX += charWidth;
+      });
+
+      if (matchedChars.length > 0) extractedTexts.push(matchedChars.join(''));
     }
 
-    // 抽出されたテキストを結合（必要に応じて改行などを調整）
+    // 抽出されたテキストを結合（ブロック間はスペースで区切る）
     return Success(extractedTexts.join(' '));
   } catch (e) {
     return Failure(toError(e));
@@ -197,6 +214,32 @@ function calculateBoundingBox(style: AnnotationStyle): BoundingBox {
       };
     }
   }
+}
+
+/**
+ * item 内の各文字の疑似的な幅の内訳を推定する。
+ *
+ * PDF.js は item（ブロック）全体の実測幅（itemWidth）しか提供しないため、
+ * Canvas 2D の measureText で文字ごとの相対的な字幅比率を求め、その比率で itemWidth を配分する。
+ * これは pdf.js の TextLayer 自体が幅の補正に使っている手法（該当フォントで measureText → スケール算出）を
+ * 文字単位に応用したもので、等分割よりも比例配分に近い位置を算出できる。
+ * 計測できない場合は文字数による均等割りにフォールバックする。
+ */
+function estimateCharWidths(
+  ctx: CanvasRenderingContext2D | null,
+  chars: string[],
+  itemWidth: number,
+  fontFamily: string | undefined,
+): number[] {
+  const evenWidth = itemWidth / chars.length;
+  if (!ctx) return chars.map(() => evenWidth);
+
+  ctx.font = `10px ${fontFamily ?? 'sans-serif'}`;
+  const rawWidths = chars.map((char) => ctx.measureText(char).width);
+  const rawTotal = rawWidths.reduce((sum, w) => sum + w, 0);
+  if (rawTotal <= 0) return chars.map(() => evenWidth);
+
+  return rawWidths.map((w) => (w / rawTotal) * itemWidth);
 }
 
 /**
