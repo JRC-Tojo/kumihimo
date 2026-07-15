@@ -22,6 +22,7 @@ import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as annotationService from 'src/services/document/annotation';
 import type { Observable } from 'dexie';
+import { initOCR } from 'src/utils/ocr/main';
 
 /**
  * バックエンド統合 API層
@@ -39,6 +40,8 @@ class BackendApi {
     if (!annotDb.ok) return toApiResponse(annotDb, 'INIT_PROCESS_ERROR');
     const relDb = await relationalService.initRelationalDB();
     if (!relDb.ok) return toApiResponse(relDb, 'INIT_PROCESS_ERROR');
+
+    void initOCR();
 
     if (!settings.value.initialized) {
       const initRes = await initializeSettings();

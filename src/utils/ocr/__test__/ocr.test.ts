@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test';
-import { Image2Text } from '../main';
+import { beforeAll, describe, expect, test } from 'bun:test';
+import { Image2Text, initOCR } from '../main';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { JSDOM } from 'jsdom';
@@ -25,6 +25,11 @@ function browserEnvSetup() {
   };
   global.Image = Image as unknown as { new (width?: number, height?: number): HTMLImageElement };
 }
+
+/** 処理時間短縮のためにOCRプロセスを初期化しておく */
+beforeAll(async () => {
+  await initOCR()
+}, { timeout: 10 * 10**3 })
 
 /**
  * ocrAssetsフォルダから画像ファイルを読み込んでOCR結果を検証するテスト
@@ -65,5 +70,5 @@ describe('ocr tests', () => {
 
     // 結果を比較
     expect(normalizedOcrResult).toBe(expectedText);
-  }, { timeout: 10 * 10**3 });
+  });
 });

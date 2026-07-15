@@ -74,6 +74,28 @@ const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement>
   });
 };
 
+// Serviceの内部キャッシュ
+let ocrService: PaddleOcrService | undefined;
+
+/**
+ * OCRサービスを取得する
+ */
+async function getService(): Promise<PaddleOcrService> {
+  if (ocrService === void 0) {
+    ocrService = new PaddleOcrService();
+    await ocrService.initialize();
+  }
+
+  return ocrService
+}
+
+/**
+ * OCRプロセスの初期化
+ */
+export async function initOCR(): Promise<void> {
+  await getService()
+}
+
 /**
  * ONNX Runtime を用いた OCR 実行関数
  */
@@ -91,9 +113,7 @@ export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
   );
 
   try {
-    const service = new PaddleOcrService();
-    await service.initialize();
-
+    const service = await getService()
     const result = await service.recognize(canvas);
     const text = result.text
 
