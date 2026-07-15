@@ -90,6 +90,8 @@ import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
 import { useQuasar } from 'quasar';
+import { saveDocument } from 'src/utils/document/saveDocument';
+import { confirmDialog } from 'src/utils/dialog/confirmDialog';
 
 interface Prop {
   file: ContainerElementFile;
@@ -147,8 +149,48 @@ const peekDialogOpen = ref(false);
 
 // ================================
 
+/**
+ * 実ファイルの内容が`.rdcfg`記録時から変更されている場合の解決を試みる
+ *
+ * ユーザーに確認の上、可能であればアノテーション位置を新しい内容に追跡し直して確定する
+ * （既存のExpContainer.vueの外部変更コンフリクトと同様、ユーザーの明示的な操作なしには確定しない）。
+ * 追跡できなかった場合も実ファイル自体は開けるようにし、警告のみ表示する
+ *
+ * @returns 文書を開いてよい場合はtrue、ユーザーがキャンセルした場合はfalse
+ */
+async function resolveConfigConflict(): Promise<boolean> {
+  const proceed = await confirmDialog({
+    title: t('pdfEditor.document.conflictTitle'),
+    message: t('pdfEditor.document.conflictMessage'),
+    severity: 'negative',
+  });
+  if (!proceed) return false;
+
+  const updatedConfig = await api.updateDocumentConfig(prop.file);
+  if (updatedConfig.ok) {
+    const acceptRes = await api.acceptExternalDocumentConfig(prop.file, updatedConfig.data);
+    if (acceptRes.ok) return true;
+  }
+
+  $q.notify({ type: 'warning', message: t('pdfEditor.document.conflictTrackFailed') });
+  return true;
+}
+
 async function loadDocument() {
   loading.value = true;
+
+  // 実ファイルの`.rdcfg`を確認し、キャッシュ（アノテーションDB）を最新の内容と整合させる。
+  // ハッシュ不一致（外部での更新）を検知した場合はコンフリクト解決を経てから開く
+  // （それ以外の読み込み失敗は後続のgetDocumentSourceでも同様に検知されるため、ここでは無視して進める）
+  const configRes = await api.loadDocumentConfig(prop.file);
+  if (!configRes.ok && configRes.error.key === 'DOC_CONFIG_CONFLICT') {
+    const shouldContinue = await resolveConfigConflict();
+    if (!shouldContinue) {
+      loading.value = false;
+      editorStore.closeTab(prop.file, prop.layoutSide);
+      return;
+    }
+  }
 
   const docSrc = await api.getDocumentSource(prop.file);
   if (!docSrc.ok) {
@@ -351,6 +393,8 @@ async function finishRelational(targetId: AnnotationID) {
   if (pendingFile !== undefined && !isSameFile(pendingFile, prop.file)) {
     void relationalStore.refreshFile(pendingFile);
   }
+
+  scheduleAutoSave();
 }
 
 /**
@@ -434,6 +478,29 @@ async function handleAnnotationsChanged(
   // アノテーション内容（OCR結果）の読み込み完了時にもこのイベントが発火するため、
   // ここで再検証しておくことで「検証保留」から自動的にOK/NGへ遷移する
   void relationalStore.refreshFile(prop.file);
+
+  scheduleAutoSave();
+}
+
+// ================================
+
+/** 自動保存のデバウンス時間（ミリ秒）。編集操作のたびに保存すると重いため、少し待ってからまとめて保存する */
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
+let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let hasPendingAutoSave = false;
+
+/**
+ * 「自動保存」がオンの場合、一定時間後にこの文書を保存する（連続編集中は都度リセットする）
+ */
+function scheduleAutoSave() {
+  if (!editorStore.autoSaveAnnotations) return;
+
+  hasPendingAutoSave = true;
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    hasPendingAutoSave = false;
+    void saveDocument(prop.file);
+  }, AUTO_SAVE_DEBOUNCE_MS);
 }
 
 // ================================
@@ -485,6 +552,14 @@ watch(
   },
 );
 onBeforeUnmount(() => {
+  // 自動保存の待機中にタブが閉じられた場合、変更を失わないよう即座に保存する
+  // （ただし削除によるクローズの場合、実ファイルは既に無いため保存を試みない）
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    const isDeleting = editorStore.isPendingDeletion(prop.file.containerID, prop.file.path);
+    if (hasPendingAutoSave && !isDeleting) void saveDocument(prop.file);
+  }
+
   stopAnnotationObservation?.();
   window.removeEventListener('keydown', handleGlobalKeydown);
 });

@@ -37,6 +37,19 @@ export function unwrapOrThrow<T, E = Error>(r: Result<T, E>): T {
   throw new Error(String(e));
 }
 
+/**
+ * 対象データが見つからないことを表す専用エラー
+ *
+ * ファイル未作成など「まだ存在しない」ケースを、権限エラーや通信エラー等の
+ * 本来伝播すべき異常と区別するために使う（`instanceof NotFoundError`で判定する）
+ */
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
+
 /** unknown の例外値を Error に正規化する。 */
 export function toError(e: unknown): Error {
   if (e instanceof Error) return e;

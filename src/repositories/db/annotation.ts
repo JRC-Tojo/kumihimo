@@ -98,23 +98,51 @@ export async function getAnnotationAddress(
 }
 
 /**
- * アノテーション情報を仮フラグ付きで追加する
+ * アノテーション情報を追加する
+ *
+ * @param isTemporary 未保存の仮登録として追加するか。`.rdcfg`から読み込んだ確定済みデータを
+ * 反映する場合は`false`を指定する（`true`のまま追加すると、編集していないファイルを開いただけで
+ * 「未保存の変更あり」判定になってしまう）
  */
 export async function addAnnotationInfos(
   file: ContainerElementFile,
   aInfos: AnnotationInfo[],
+  isTemporary = true,
 ): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
 
   try {
     const rawedRecords = JSON.parse(
-      JSON.stringify(aInfos.map((aInfo) => toAnnotationRecord(file, aInfo, true))),
+      JSON.stringify(aInfos.map((aInfo) => toAnnotationRecord(file, aInfo, isTemporary))),
     );
     await db.annotations.bulkPut(rawedRecords);
     return Success();
   } catch (error) {
     return Failure(error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
+ * 特定ファイルのアノテーションDBレコードをすべて削除する
+ *
+ * 「保存せず閉じる」際、仮登録・確定済み問わずこのファイルの記録を一旦すべて消し去り、
+ * `.rdcfg`から読み直して確定済み状態を再構築するために使う（生き残らせたい行を判定する
+ * 必要がなく、常に正しい状態へ戻せる）
+ */
+export async function deleteAnnotationsForFile(file: ContainerElementFile): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.annotations
+      .where('containerID')
+      .equals(file.containerID)
+      .filter((row) => row.filePath === file.path)
+      .delete();
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
   }
 }
 
@@ -136,6 +164,27 @@ export async function getAnnotationsByFile(
     return Success(rows.map((row) => row.annotationInfo));
   } catch (error) {
     return Failure(error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
+ * 特定ファイルに紐づく未保存（仮登録）のアノテーション件数を取得する
+ */
+export async function countTemporaryAnnotations(
+  file: ContainerElementFile,
+): Promise<Result<number>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const count = await db.annotations
+      .where('containerID')
+      .equals(file.containerID)
+      .filter((row) => row.filePath === file.path && row.isTemporary && !row.isDeleted)
+      .count();
+    return Success(count);
+  } catch (error) {
+    return Failure(toError(error));
   }
 }
 
@@ -190,6 +239,29 @@ export async function commitAnnotations(
     return Success(rows.map((row) => row.annotationInfo));
   } catch (error) {
     return Failure(error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
+ * 特定ファイルのアノテーション記録のfilePathを付け替える（リネーム・移動時の追従用）
+ */
+export async function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.annotations
+      .where('containerID')
+      .equals(containerID)
+      .filter((row) => row.filePath === oldPath)
+      .modify({ filePath: newPath, updatedAt: new Date().toISOString() });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
   }
 }
 

@@ -6,6 +6,13 @@ import z from 'zod';
 export const CONFIG_FILE_EXTS = '.rdcfg';
 
 /**
+ * 本システムが内容を表示できる文書の拡張子
+ *
+ * これ以外の拡張子はエクスプローラー上には表示するが、タブを開くと非対応メッセージを表示する
+ */
+export const SUPPORTED_DOCUMENT_EXTS = ['.pdf', '.txt', '.md'] as const;
+
+/**
  * 文書の本体データ
  */
 export const DocumentSource = z.base64().brand('DocumnetSource');

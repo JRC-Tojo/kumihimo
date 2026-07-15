@@ -6,6 +6,7 @@ import type { RelationalVerificationStyle } from 'src/models/relational/style';
 import { Dark } from 'quasar';
 import type { LocaleKey } from 'src/i18n';
 import { globalI18n } from 'src/boot/i18n';
+import { useEditorStore } from 'src/stores/editorStore';
 
 /**
  * アプリ設定をリアクティブに参照するためのストア
@@ -36,6 +37,7 @@ export const useSettingsStore = defineStore('settings', {
       if (res.ok) {
         setDarkMode(res.data.darkMode);
         setLocale(res.data.locale);
+        setAutoSave(res.data.autoSaveAnnotations);
         this.appSettings = res.data;
       } else {
         console.error(res.error);
@@ -56,6 +58,13 @@ function setDarkMode(isDark: boolean) {
  */
 function setLocale(localeKey: LocaleKey) {
   globalI18n.locale.value = localeKey;
+}
+
+/**
+ * 自動保存トグルの状態をエディタストアへ反映する
+ */
+function setAutoSave(autoSave: boolean) {
+  useEditorStore().autoSaveAnnotations = autoSave;
 }
 
 if (import.meta.hot) {

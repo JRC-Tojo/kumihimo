@@ -1,6 +1,7 @@
 import type { AnnotationTool, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
 import { useEditorStore } from './editorStore';
 import { useBackendApi } from 'src/apis/backendApi';
+import { saveDocument } from 'src/utils/document/saveDocument';
 
 /**
  * アノテーション設定をツールオブジェクトに変換
@@ -201,7 +202,12 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
             label: t('pdfEditor.tools.save.overwrite'),
             isActive: () => false,
             onClicked: () => {
-              /** TODO: 今後実装 */
+              const activeFile = editorStore.getActiveTab(editorStore.activeSide);
+              if (!activeFile) return;
+              void saveDocument(activeFile, {
+                success: t('pdfEditor.tools.save.success'),
+                failed: t('pdfEditor.tools.save.failed'),
+              });
             },
           },
           {
@@ -218,8 +224,16 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
             icon: 'backup',
             label: t('pdfEditor.tools.save.auto'),
             isActive: () => editorStore.autoSaveAnnotations,
-            onClicked: () => {
-              editorStore.autoSaveAnnotations = !editorStore.autoSaveAnnotations;
+            onClicked: async () => {
+              const previous = editorStore.autoSaveAnnotations;
+              editorStore.autoSaveAnnotations = !previous;
+              const result = await useBackendApi().saveSettings(
+                'autoSaveAnnotations',
+                editorStore.autoSaveAnnotations,
+              );
+              if (!result.ok) {
+                editorStore.autoSaveAnnotations = previous;
+              }
             },
           },
         ];

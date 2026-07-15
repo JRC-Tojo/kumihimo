@@ -1,4 +1,4 @@
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Success } from 'src/models/error/result';
@@ -78,6 +78,13 @@ export function observedAnnotationStylesByFile(
 }
 
 /**
+ * 特定ファイルに紐づく未保存（仮登録）のアノテーション件数を取得する
+ */
+export function countTemporaryAnnotations(file: ContainerElementFile): Promise<Result<number>> {
+  return annotationRepository.countTemporaryAnnotations(file);
+}
+
+/**
  * コンテンツ未読み込みのアノテーションにコンテンツを読み込んで付与する
  */
 async function loadAnnotContent(
@@ -134,13 +141,24 @@ export async function registerAnnotationStyle(
 }
 
 /**
- * DBにアノテーション情報を仮フラグ付きで追加する
+ * DBにアノテーション情報を追加する
+ *
+ * @param isTemporary 未保存の仮登録として追加するか。`.rdcfg`から読み込んだ確定済みデータを
+ * 反映する場合は`false`を指定すること
  */
 export function registerAnnotationInfo(
   aInfo: AnnotationInfo[],
   file: ContainerElementFile,
+  isTemporary: boolean,
 ): Promise<Result<void>> {
-  return annotationRepository.addAnnotationInfos(file, aInfo);
+  return annotationRepository.addAnnotationInfos(file, aInfo, isTemporary);
+}
+
+/**
+ * 特定ファイルのアノテーションDBレコードをすべて削除する（未保存破棄時の再構築用）
+ */
+export function clearAnnotationsForFile(file: ContainerElementFile): Promise<Result<void>> {
+  return annotationRepository.deleteAnnotationsForFile(file);
 }
 
 /**
@@ -157,4 +175,15 @@ export function saveAnnotationInfo(file?: ContainerElementFile): Promise<Result<
  */
 export function removeAnnotationInfo(annotID: AnnotationID): Promise<Result<void>> {
   return annotationRepository.softRemoveAnnotation(annotID);
+}
+
+/**
+ * ファイルのリネーム・移動に伴い、読み込み中のアノテーション記録のfilePathを付け替える
+ */
+export function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  return annotationRepository.remapFilePath(containerID, oldPath, newPath);
 }

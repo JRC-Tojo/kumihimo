@@ -115,6 +115,29 @@ export function getRelationalsInvolvingFile(
 }
 
 /**
+ * 指定ファイルがsrc・target問わずどちらかの側で関わる未保存（仮登録）の関係性件数を取得する
+ */
+export function countTemporaryRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<number>> {
+  return relationalRepository.countTemporaryRelationalsInvolvingFile(file);
+}
+
+/**
+ * コンテナ内の関係性キャッシュ（`.rd/relational.json`）が参照しているファイルパス一覧を取得する
+ *
+ * 「関係性で関連づけられているファイル」を、実際に開いているかどうかに関わらず特定するために使う
+ * （変更検知バナーの表示要否を判定する際、関連ファイルの範囲として利用する）
+ */
+export async function getReferencedFilePaths(cID: ContainerID): Promise<Result<string[]>> {
+  const relFile = await containerConfigService.getRelationalFile(cID);
+  if (!relFile.ok) return relFile;
+
+  const paths = new Set(Object.values(relFile.value.annotIdToFileInfo).map((a) => a.filePath));
+  return Success(Array.from(paths));
+}
+
+/**
  * 指定したアノテーションに紐づく関係性を仮フラグ付きでをすべて削除する
  */
 export function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
@@ -172,6 +195,44 @@ export function saveRelationals(
   file: ContainerElementFile,
 ): Promise<Result<RelationalWithAddress[]>> {
   return relationalRepository.commitRelationals(file);
+}
+
+/**
+ * 指定ファイルが関わる未保存（仮登録）の関係性を破棄し、最後に保存された状態へ戻す
+ *
+ * 仮登録・確定済み問わずこのファイルが関わる関係性DBレコードをすべて削除したうえで、
+ * コンテナルートのキャッシュ（`.rd/relational.json`）からこのファイルが関わる分だけを
+ * 読み直して確定済み状態として再登録する（新規追加・仮削除いずれのケースも区別なく正しく戻せる）
+ */
+export async function discardUnsavedRelationalsInvolvingFile(
+  file: ContainerElementFile,
+): Promise<Result<void>> {
+  const container = containerService.getContainer(file.containerID);
+  if (!container.ok) return container;
+
+  const deleteRes = await relationalRepository.deleteRelationalsInvolvingFile(file);
+  if (!deleteRes.ok) return deleteRes;
+
+  const cachedRes = await loadCachedRelationals(container.value);
+  if (!cachedRes.ok) return cachedRes;
+
+  const involvingFile = cachedRes.value.filter(
+    (r) => r.srcAddress.filePath === file.path || r.targetAddress.filePath === file.path,
+  );
+  if (involvingFile.length === 0) return Success();
+
+  return relationalRepository.addCachedRelationals(involvingFile);
+}
+
+/**
+ * ファイルのリネーム・移動に伴い、読み込み中の関係性記録のfilePathを付け替える
+ */
+export function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  return relationalRepository.remapFilePath(containerID, oldPath, newPath);
 }
 
 /**

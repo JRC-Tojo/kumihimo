@@ -117,3 +117,50 @@ export async function loadSrcData(cId: ContainerID, path: string): Promise<Resul
   const docKey = getDocKey(cId, path);
   return db.getValue(SOURCE_STORE_NAME, DocumentSource, docKey);
 }
+
+/**
+ * フォルダの実態を追加する
+ *
+ * コンテナにはフォルダ情報が追記済みである前提とする（フォルダ自体に本体データはない）
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function createFolder(c: Container, folderPath: string): Promise<Result<void>> {
+  return db.setValue(ELEM_STORE_NAME, c.id, Object.values(c.elements));
+}
+
+/**
+ * フォルダの実態を削除する
+ *
+ * コンテナには配下も含めフォルダ情報が削除済みである前提とする
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function deleteFolder(c: Container, folderPath: string): Promise<Result<void>> {
+  return db.setValue(ELEM_STORE_NAME, c.id, Object.values(c.elements));
+}
+
+/**
+ * ファイル・フォルダのパスを付け替える
+ *
+ * コンテナには新パスに更新済みの要素情報が反映されている前提とする
+ */
+export async function renameEntry(
+  c: Container,
+  oldPath: string,
+  newPath: string,
+  isFolder: boolean,
+): Promise<Result<void>> {
+  const elemRes = await db.setValue(ELEM_STORE_NAME, c.id, Object.values(c.elements));
+  if (!elemRes.ok) return elemRes;
+  if (isFolder) return Success();
+
+  // ファイルの場合は本体データのキーも付け替える
+  const oldKey = getDocKey(c.id, oldPath);
+  const newKey = getDocKey(c.id, newPath);
+  const srcRes = await db.getValue(SOURCE_STORE_NAME, DocumentSource, oldKey);
+  if (!srcRes.ok) return srcRes;
+
+  const setRes = await db.setValue(SOURCE_STORE_NAME, newKey, srcRes.value);
+  if (!setRes.ok) return setRes;
+
+  return db.deleteValue(SOURCE_STORE_NAME, oldKey);
+}
