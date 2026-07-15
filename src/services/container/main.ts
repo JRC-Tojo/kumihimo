@@ -529,7 +529,7 @@ export async function moveElement(
  *
  * ブラウザの「ユーザー操作直後のみディレクトリピッカーを開ける」という制約を満たすための入口
  */
-export async function pickLocalDirectory(): Promise<Result<{ name: string }>> {
+export function pickLocalDirectory(): Promise<Result<{ name: string }>> {
   return local.pickDirectory();
 }
 
@@ -552,7 +552,8 @@ export async function checkContainerPermission(
   const c = getContainer(cId);
   if (!c.ok) return c;
   if (c.value.type !== 'local') return Success('granted');
-  return local.checkPermission(cId);
+  const checked = await local.checkPermission(cId);
+  return checked
 }
 
 /**
@@ -562,5 +563,6 @@ export async function requestContainerPermission(cId: ContainerID): Promise<Resu
   const c = getContainer(cId);
   if (!c.ok) return c;
   if (c.value.type !== 'local') return Success();
-  return local.requestPermission(cId);
+  const requested = await local.requestPermission(cId);
+  return requested
 }
