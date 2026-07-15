@@ -80,7 +80,10 @@ function withSerializedSettingsUpdate<T>(
  */
 export async function addLoadedContainer(c: ContainerSkel): Promise<Result<void>> {
   return withSerializedSettingsUpdate((settings) => {
-    const newContainers = [...settings.containerSkels.filter((existing) => existing.id !== c.id), c];
+    const newContainers = [
+      ...settings.containerSkels.filter((existing) => existing.id !== c.id),
+      c,
+    ];
     return saveSettings('containerSkels', newContainers);
   });
 }

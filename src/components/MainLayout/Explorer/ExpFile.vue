@@ -183,7 +183,9 @@ function validateRenameValue(val: string): string | null {
   return null;
 }
 
-const renameError = computed(() => (isRenaming.value ? validateRenameValue(renameValue.value) : null));
+const renameError = computed(() =>
+  isRenaming.value ? validateRenameValue(renameValue.value) : null,
+);
 
 /** 入力内容をもとに実際のパス変更を実行する */
 async function confirmRename() {

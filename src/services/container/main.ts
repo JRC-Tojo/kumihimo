@@ -557,7 +557,7 @@ export async function checkContainerPermission(
   if (!c.ok) return c;
   if (c.value.type !== 'local') return Success('granted');
   const checked = await local.checkPermission(cId);
-  return checked
+  return checked;
 }
 
 /**
@@ -568,5 +568,5 @@ export async function requestContainerPermission(cId: ContainerID): Promise<Resu
   if (!c.ok) return c;
   if (c.value.type !== 'local') return Success();
   const requested = await local.requestPermission(cId);
-  return requested
+  return requested;
 }

@@ -206,7 +206,9 @@ function validateRenameValue(val: string): string | null {
   return null;
 }
 
-const renameError = computed(() => (isRenaming.value ? validateRenameValue(renameValue.value) : null));
+const renameError = computed(() =>
+  isRenaming.value ? validateRenameValue(renameValue.value) : null,
+);
 
 async function confirmRename() {
   if (!isRenaming.value) return;
