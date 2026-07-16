@@ -4,7 +4,9 @@
     :config="circleConfig"
     @mouseenter="onMouseEnter"
     @mouseleave="onMouseLeave"
+    @dragstart="beginInteraction"
     @dragend="onDragEnd"
+    @transformstart="beginInteraction"
     @transform="onTransform"
     @transformend="onTransformEnd"
   />
@@ -34,21 +36,23 @@ const emit = defineEmits<{
 const circleRef = ref<{ getNode: () => Konva.Circle | null } | null>(null);
 const isHovered = ref(false);
 
-const { relationalOverride, withUpdatedTimestamp } = useAnnotationShape(props);
+const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
+  useAnnotationShape(props);
 
 const circleConfig = computed(() => {
-  if (props.annotation.type !== 'circle') return;
+  const annotation = displayAnnotation.value;
+  if (annotation.type !== 'circle') return;
   return {
-    id: props.annotation.id,
+    id: annotation.id,
     name: 'annotation-shape',
-    x: props.annotation.x,
-    y: props.annotation.y,
-    radius: props.annotation.radius || 20,
+    x: annotation.x,
+    y: annotation.y,
+    radius: annotation.radius || 20,
     fill: relationalOverride.value?.fill ?? 'transparent',
-    stroke: relationalOverride.value?.stroke ?? props.annotation.color,
-    strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth || 2),
+    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     draggable: props.isEditing,
-    opacity: props.annotation.opacity || 1,
+    opacity: annotation.opacity || 1,
   };
 });
 
@@ -69,6 +73,7 @@ function onMouseLeave() {
 function onDragEnd(e: KonvaEvent) {
   const target = e.target as Konva.Circle;
   emit('update', withUpdatedTimestamp({ x: target.x(), y: target.y() }));
+  endInteraction();
 }
 
 function syncNodeGeometry(node: Konva.Circle) {
@@ -93,6 +98,7 @@ function onTransformEnd(e: KonvaEvent) {
   syncNodeGeometry(node);
 
   emit('update', withUpdatedTimestamp({ x: node.x(), y: node.y(), radius: node.radius() }));
+  endInteraction();
 }
 </script>
 

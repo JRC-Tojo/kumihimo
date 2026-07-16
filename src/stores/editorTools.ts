@@ -5,9 +5,6 @@ import { useBackendApi } from 'src/apis/backendApi';
 import { saveDocument } from 'src/utils/document/saveDocument';
 import { ANNOTATION_REGISTRY } from 'src/components/Viewer/Annotation/registry';
 
-/** docPage.ts側にのみ存在する未実装の描画種別('text')用フォールバックアイコン */
-const FALLBACK_ICON = 'question_mark';
-
 /**
  * アノテーション設定をツールオブジェクトに変換
  * @param ann - アノテーション設定
@@ -16,14 +13,9 @@ const FALLBACK_ICON = 'question_mark';
 function annotationCnf2Tool(ann: AnnotationTool): IDocTool {
   const editorStore = useEditorStore();
 
-  const icon =
-    ann.style.type in ANNOTATION_REGISTRY
-      ? ANNOTATION_REGISTRY[ann.style.type].icon
-      : FALLBACK_ICON;
-
   return {
     id: ann.id,
-    icon: icon,
+    icon: ANNOTATION_REGISTRY[ann.style.type].icon,
     label: ann.name,
     isActive: () => {
       // オブジェクトの中身も含めて等しいことを確認するためにstringifyする

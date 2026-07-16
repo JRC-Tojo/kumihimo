@@ -3,10 +3,11 @@
   <v-group
     ref="groupRef"
     :config="{
-      x: props.annotation.x,
-      y: props.annotation.y,
-      id: props.annotation.id,
+      x: displayAnnotation.x,
+      y: displayAnnotation.y,
+      id: displayAnnotation.id,
       draggable: props.isEditing && !!props.isSelected,
+      onDragstart: beginInteraction,
       onDragend: onDragEnd,
     }"
   >
@@ -23,9 +24,9 @@
         v-for="(anchor, i) in anchorConfigs"
         :key="anchor.id"
         :config="anchor"
-        @dragstart="onAnchorDragStart"
+        @dragstart="wrappedAnchorDragStart"
         @dragmove="(e: Konva.KonvaEventObject<MouseEvent>) => onAnchorDrag(i, e)"
-        @dragend="onAnchorDragEnd"
+        @dragend="wrappedAnchorDragEnd"
       />
     </template>
   </v-group>
@@ -56,31 +57,30 @@ const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
 const shapeRef = ref<{ getNode: () => Konva.Line | null } | null>(null);
 const isHovered = ref(false);
 
-const { relationalOverride, withUpdatedTimestamp } = useAnnotationShape(props);
+const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
+  useAnnotationShape(props);
 
 const shapeConfig = computed(() => {
+  const annotation = displayAnnotation.value;
   return {
-    id: props.annotation.id,
+    id: annotation.id,
     name: 'annotation-shape',
-    points: props.annotation.points,
+    points: annotation.points,
     closed: true,
     fill: relationalOverride.value?.fill ?? 'transparent',
-    stroke: relationalOverride.value?.stroke ?? props.annotation.color,
-    strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth || 2),
+    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     draggable: false,
-    opacity: props.annotation.opacity || 1,
+    opacity: annotation.opacity || 1,
+    // 塗りがtransparent/薄い場合でも辺をクリックで選択できるよう、当たり判定の太さを広げる（Polylineと同様）
+    hitStrokeWidth: 8,
   };
 });
 
-const anchorConfigs = computed(() =>
-  buildPointAnchorConfigs(
-    props.annotation.points,
-    props.annotation.color,
-    props.annotation.id,
-    props.isEditing,
-    !!props.isSelected,
-  ),
-);
+const anchorConfigs = computed(() => {
+  const annotation = displayAnnotation.value;
+  return buildPointAnchorConfigs(annotation.points, annotation.color, annotation.id, props.isEditing, !!props.isSelected);
+});
 
 function getNode() {
   // 親がTransformerを割り当てられるようにグループノードを公開する（ポリゴンは個別アンカー編集のため実際には未使用）
@@ -110,6 +110,7 @@ function onDragEnd() {
       y: groupNode?.y() ?? props.annotation.y,
     }),
   );
+  endInteraction();
 }
 
 const { onAnchorDragStart, onAnchorDrag, onAnchorDragEnd } = useMultiPointAnchors({
@@ -117,6 +118,17 @@ const { onAnchorDragStart, onAnchorDrag, onAnchorDragEnd } = useMultiPointAnchor
   getGroupNode: () => groupRef.value?.getNode() ?? null,
   onCommit: (points) => emit('update', withUpdatedTimestamp({ points })),
 });
+
+// 頂点ドラッグ中もliveQueryの再emitでpropsが巻き戻らないよう、開始・終了をuseAnnotationShapeの状態と連動させる
+function wrappedAnchorDragStart(e: Konva.KonvaEventObject<MouseEvent>) {
+  beginInteraction();
+  onAnchorDragStart(e);
+}
+
+function wrappedAnchorDragEnd() {
+  onAnchorDragEnd();
+  endInteraction();
+}
 </script>
 
 <style scoped lang="scss">

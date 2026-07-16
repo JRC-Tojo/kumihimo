@@ -3,10 +3,11 @@
   <v-group
     ref="groupRef"
     :config="{
-      x: props.annotation.x,
-      y: props.annotation.y,
-      id: props.annotation.id,
+      x: displayAnnotation.x,
+      y: displayAnnotation.y,
+      id: displayAnnotation.id,
       draggable: props.isEditing && !!props.isSelected,
+      onDragstart: beginInteraction,
       onDragend: onDragEnd,
     }"
   >
@@ -22,16 +23,16 @@
       <v-rect
         ref="anchor1Ref"
         :config="anchor1Config"
-        @dragstart="onAnchorDragStart"
+        @dragstart="wrappedAnchorDragStart"
         @dragmove="onAnchorDrag0"
-        @dragend="onAnchorDragEnd"
+        @dragend="wrappedAnchorDragEnd"
       />
       <v-rect
         ref="anchor2Ref"
         :config="anchor2Config"
-        @dragstart="onAnchorDragStart"
+        @dragstart="wrappedAnchorDragStart"
         @dragmove="onAnchorDrag1"
-        @dragend="onAnchorDragEnd"
+        @dragend="wrappedAnchorDragEnd"
       />
     </template>
   </v-group>
@@ -64,37 +65,36 @@ const anchor2Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const isHovered = ref(false);
 
 // 関係性の検証結果（OK/NG）による表示上書き。線には塗りがないためstroke系のみ用いる
-const { relationalOverride, withUpdatedTimestamp } = useAnnotationShape(props);
+const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
+  useAnnotationShape(props);
 
 const linePoints = computed(() => {
-  if (props.annotation.type !== 'line') return [0, 0, 0, 0] as const;
-  if (props.annotation.points.length !== 4) return [0, 0, 0, 0] as const;
-  return [
-    props.annotation.points[0],
-    props.annotation.points[1],
-    props.annotation.points[2],
-    props.annotation.points[3],
-  ] as const;
+  const annotation = displayAnnotation.value;
+  if (annotation.type !== 'line') return [0, 0, 0, 0] as const;
+  if (annotation.points.length !== 4) return [0, 0, 0, 0] as const;
+  return [annotation.points[0], annotation.points[1], annotation.points[2], annotation.points[3]] as const;
 });
 
 const lineConfig = computed(() => {
+  const annotation = displayAnnotation.value;
   return {
-    id: props.annotation.id,
+    id: annotation.id,
     name: 'annotation-shape',
     points: linePoints.value,
-    stroke: relationalOverride.value?.stroke ?? props.annotation.color,
-    strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth || 2),
+    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     draggable: false,
-    opacity: props.annotation.opacity || 1,
+    opacity: annotation.opacity || 1,
     hitStrokeWidth: 8,
   };
 });
 
 const anchor1Config = computed(() => {
+  const annotation = displayAnnotation.value;
   const points = linePoints.value;
   return {
-    id: `${props.annotation.id}-anchor-0`,
-    annotationId: props.annotation.id,
+    id: `${annotation.id}-anchor-0`,
+    annotationId: annotation.id,
     x: points[0],
     y: points[1],
     width: 10,
@@ -102,7 +102,7 @@ const anchor1Config = computed(() => {
     offset: { x: 5, y: 5 },
     name: 'annotation-anchor',
     fill: '#ffffff',
-    stroke: props.annotation.color,
+    stroke: annotation.color,
     strokeWidth: 2,
     cornerRadius: 0,
     draggable: props.isEditing && !!props.isSelected,
@@ -112,10 +112,11 @@ const anchor1Config = computed(() => {
 });
 
 const anchor2Config = computed(() => {
+  const annotation = displayAnnotation.value;
   const points = linePoints.value;
   return {
-    id: `${props.annotation.id}-anchor-1`,
-    annotationId: props.annotation.id,
+    id: `${annotation.id}-anchor-1`,
+    annotationId: annotation.id,
     x: points[2],
     y: points[3],
     width: 10,
@@ -123,7 +124,7 @@ const anchor2Config = computed(() => {
     offset: { x: 5, y: 5 },
     name: 'annotation-anchor',
     fill: '#ffffff',
-    stroke: props.annotation.color,
+    stroke: annotation.color,
     strokeWidth: 2,
     cornerRadius: 0,
     draggable: props.isEditing && !!props.isSelected,
@@ -160,6 +161,7 @@ function onDragEnd() {
       y: groupNode?.y() ?? props.annotation.y,
     }),
   );
+  endInteraction();
 }
 
 const { onAnchorDragStart, onAnchorDrag0, onAnchorDrag1, onAnchorDragEnd } = useTwoPointAnchors({
@@ -167,6 +169,17 @@ const { onAnchorDragStart, onAnchorDrag0, onAnchorDrag1, onAnchorDragEnd } = use
   getGroupNode: () => groupRef.value?.getNode() ?? null,
   onCommit: (points) => emit('update', withUpdatedTimestamp({ points })),
 });
+
+// アンカードラッグ中もliveQueryの再emitでpropsが巻き戻らないよう、開始・終了をuseAnnotationShapeの状態と連動させる
+function wrappedAnchorDragStart(e: Konva.KonvaEventObject<MouseEvent>) {
+  beginInteraction();
+  onAnchorDragStart(e);
+}
+
+function wrappedAnchorDragEnd() {
+  onAnchorDragEnd();
+  endInteraction();
+}
 </script>
 
 <style scoped lang="scss">

@@ -2,7 +2,9 @@
   <v-rect
     ref="rectRef"
     :config="rectConfig"
+    @dragstart="beginInteraction"
     @dragend="onDragEnd"
+    @transformstart="beginInteraction"
     @transform="onTransform"
     @transformend="onTransformEnd"
   />
@@ -31,22 +33,24 @@ const emit = defineEmits<{
 
 const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 
-const { relationalOverride, withUpdatedTimestamp } = useAnnotationShape(props);
+const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
+  useAnnotationShape(props);
 
 const rectConfig = computed(() => {
-  if (props.annotation.type !== 'box') return;
+  const annotation = displayAnnotation.value;
+  if (annotation.type !== 'box') return;
   return {
-    id: props.annotation.id,
+    id: annotation.id,
     name: 'annotation-shape',
-    x: props.annotation.x,
-    y: props.annotation.y,
-    width: props.annotation.width ?? 0,
-    height: props.annotation.height ?? 0,
+    x: annotation.x,
+    y: annotation.y,
+    width: annotation.width ?? 0,
+    height: annotation.height ?? 0,
     fill: relationalOverride.value?.fill ?? 'transparent',
-    stroke: relationalOverride.value?.stroke ?? props.annotation.color,
-    strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth || 2),
+    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     draggable: props.isEditing,
-    opacity: props.annotation.opacity || 1,
+    opacity: annotation.opacity || 1,
   };
 });
 
@@ -59,6 +63,7 @@ defineExpose({ getNode });
 function onDragEnd(e: KonvaEvent) {
   const target = e.target as Konva.Rect;
   emit('update', withUpdatedTimestamp({ x: target.x(), y: target.y() }));
+  endInteraction();
 }
 
 /**
@@ -90,6 +95,7 @@ function onTransformEnd(e: KonvaEvent) {
   const { width, height } = syncNodeGeometry(node);
 
   emit('update', withUpdatedTimestamp({ x: node.x(), y: node.y(), width, height }));
+  endInteraction();
 }
 </script>
 

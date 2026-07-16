@@ -11,7 +11,7 @@
     >
       <v-layer>
         <component
-          v-for="annotation in annotations"
+          v-for="annotation in visibleAnnotations"
           :key="annotation.id"
           :is="ANNOTATION_REGISTRY[annotation.type].component"
           :ref="(el: unknown) => setAnnotationRef(annotation.id, el)"
@@ -163,6 +163,12 @@ const editingTextAnnotation = computed<TextAnnotationStyle | null>(() => {
   return found && found.type === 'text' ? found : null;
 });
 
+// テキスト編集中のアノテーションはKonva側の描画から除外する。
+// <textarea>オーバーレイに表示は完全に一任し、確定前の古いテキストが背後に二重表示されるのを防ぐ
+const visibleAnnotations = computed(() =>
+  editingTextId.value ? props.annotations.filter((a) => a.id !== editingTextId.value) : props.annotations,
+);
+
 const editingTextStyle = computed(() => {
   const annotation = editingTextAnnotation.value;
   if (!annotation) return {};
@@ -181,10 +187,8 @@ const editingTextStyle = computed(() => {
     color: annotation.textColor,
     textAlign: annotation.textAlign,
     background: annotation.fillColor ?? 'transparent',
-    border:
-      annotation.strokeWidth && annotation.strokeWidth > 0
-        ? `${annotation.strokeWidth * s}px solid ${annotation.color}`
-        : 'none',
+    // strokeWidth未指定/0（デフォルト状態）でもTextBoxAnnotation.vue側の描画と同じく細い枠線を表示する
+    border: `${(annotation.strokeWidth || 1) * s}px solid ${annotation.color}`,
     padding: `${4 * s}px`,
     boxSizing: 'border-box' as const,
     resize: 'none' as const,
@@ -285,6 +289,13 @@ function cancelClickPointsDrawing() {
   clickPointsBuffer.value = null;
   drawingPreviewConfig.value = null;
 }
+
+// ツール切替時に未完了のクリック頂点バッファを破棄する。
+// 放置すると幽霊プレビューが残ったり、その後ポインタツールでのダブルクリックが
+// 切替前のスタイルで意図しないアノテーションを確定させてしまう
+watch(drawingType, () => {
+  if (clickPointsBuffer.value) cancelClickPointsDrawing();
+});
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;

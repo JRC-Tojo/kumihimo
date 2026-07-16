@@ -6,7 +6,7 @@
  * 更新後オブジェクトの生成）は継承の代わりにコンポーザブルとして合成する。
  */
 
-import { computed } from 'vue';
+import { computed, ref, watch, type Ref } from 'vue';
 import dayjs from 'dayjs';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { useRelationalStore } from 'src/stores/relationalStore';
@@ -30,5 +30,29 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
     return { ...props.annotation, ...patch, updatedAt: dayjs().toISOString() };
   }
 
-  return { relationalOverride, withUpdatedTimestamp };
+  // ドラッグ/変形/頂点編集などのジェスチャー中かどうか
+  const isInteracting = ref(false);
+  // 実際にkonvaノードへ渡すannotation。ジェスチャー中はpropsの更新を無視し、
+  // 自動保存やOCR結果反映などによるDexie/liveQueryの再emitで座標が巻き戻る（ガタつく）のを防ぐ
+  const displayAnnotation: Ref<T> = ref(props.annotation) as Ref<T>;
+  watch(
+    () => props.annotation,
+    (next) => {
+      if (!isInteracting.value) displayAnnotation.value = next;
+    },
+    { immediate: true },
+  );
+
+  /** ジェスチャー開始時に呼び、以降のprops更新を無視するようにする */
+  function beginInteraction() {
+    isInteracting.value = true;
+  }
+
+  /** ジェスチャー終了時に呼び、props追従を再開する（確定直後の最新値へ即座に再同期する） */
+  function endInteraction() {
+    isInteracting.value = false;
+    displayAnnotation.value = props.annotation;
+  }
+
+  return { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction };
 }

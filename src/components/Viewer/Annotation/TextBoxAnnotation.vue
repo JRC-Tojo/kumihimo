@@ -3,7 +3,9 @@
   <v-group
     ref="groupRef"
     :config="groupConfig"
+    @dragstart="beginInteraction"
     @dragend="onDragEnd"
+    @transformstart="beginInteraction"
     @transform="onTransform"
     @transformend="onTransformEnd"
   >
@@ -35,45 +37,53 @@ const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
 const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const textRef = ref<{ getNode: () => Konva.Text | null } | null>(null);
 
-const { relationalOverride, withUpdatedTimestamp } = useAnnotationShape(props);
+const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
+  useAnnotationShape(props);
 
 const groupConfig = computed(() => ({
-  x: props.annotation.x,
-  y: props.annotation.y,
-  id: props.annotation.id,
+  x: displayAnnotation.value.x,
+  y: displayAnnotation.value.y,
+  id: displayAnnotation.value.id,
   draggable: props.isEditing,
 }));
 
-const rectConfig = computed(() => ({
-  id: props.annotation.id,
-  name: 'annotation-shape',
-  x: 0,
-  y: 0,
-  width: props.annotation.width ?? 0,
-  height: props.annotation.height ?? 0,
-  fill: relationalOverride.value?.fill ?? (props.annotation.fillColor ?? 'transparent'),
-  stroke: relationalOverride.value?.stroke ?? props.annotation.color,
-  strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth ?? 0),
-  opacity: props.annotation.opacity ?? 1,
-}));
+const rectConfig = computed(() => {
+  const annotation = displayAnnotation.value;
+  return {
+    id: annotation.id,
+    name: 'annotation-shape',
+    x: 0,
+    y: 0,
+    width: annotation.width ?? 0,
+    height: annotation.height ?? 0,
+    fill: relationalOverride.value?.fill ?? (annotation.fillColor ?? 'transparent'),
+    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    // strokeWidth未指定/0（デフォルト状態）でも選択・視認しやすいよう、他形状と同様に細い枠線へフォールバックする
+    strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 1),
+    opacity: annotation.opacity ?? 1,
+  };
+});
 
-const textConfig = computed(() => ({
-  id: props.annotation.id,
-  x: 0,
-  y: 0,
-  width: props.annotation.width ?? 0,
-  height: props.annotation.height ?? 0,
-  text: props.annotation.text,
-  fontFamily: props.annotation.fontFamily,
-  fontSize: props.annotation.fontSize,
-  fontStyle: props.annotation.fontWeight >= 700 ? 'bold' : 'normal',
-  fill: props.annotation.textColor,
-  align: props.annotation.textAlign,
-  padding: 4,
-  wrap: 'word' as const,
-  verticalAlign: 'top' as const,
-  opacity: props.annotation.opacity ?? 1,
-}));
+const textConfig = computed(() => {
+  const annotation = displayAnnotation.value;
+  return {
+    id: annotation.id,
+    x: 0,
+    y: 0,
+    width: annotation.width ?? 0,
+    height: annotation.height ?? 0,
+    text: annotation.text,
+    fontFamily: annotation.fontFamily,
+    fontSize: annotation.fontSize,
+    fontStyle: annotation.fontWeight >= 700 ? 'bold' : 'normal',
+    fill: annotation.textColor,
+    align: annotation.textAlign,
+    padding: 4,
+    wrap: 'word' as const,
+    verticalAlign: 'top' as const,
+    opacity: annotation.opacity ?? 1,
+  };
+});
 
 function getNode() {
   return groupRef.value?.getNode() ?? null;
@@ -83,9 +93,13 @@ defineExpose({ getNode });
 
 function onDragEnd() {
   const groupNode = groupRef.value?.getNode();
-  if (!groupNode) return;
+  if (!groupNode) {
+    endInteraction();
+    return;
+  }
 
   emit('update', withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y() }));
+  endInteraction();
 }
 
 /**
@@ -120,6 +134,7 @@ function onTransformEnd(e: Konva.KonvaEventObject<Event>) {
     'update',
     withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y(), width, height }),
   );
+  endInteraction();
 }
 </script>
 

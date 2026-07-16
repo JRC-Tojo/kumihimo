@@ -68,7 +68,10 @@ export type ArrowAnnotationStyle = z.infer<typeof ArrowAnnotationStyle>;
 export const PolylineAnnotationStyle = AnnotationBase.extend({
   type: z.literal('polyline'),
   // [x1,y1,x2,y2,...]で、x/y（先頭の頂点）を起点とした相対座標。折れ矢印はendHead/startHeadで表現する
-  points: z.array(z.number()).min(4),
+  points: z
+    .array(z.number())
+    .min(4)
+    .refine((pts) => pts.length % 2 === 0, { message: '座標配列の要素数は偶数である必要があります' }),
   startHead: ArrowHeadType.default('none'),
   endHead: ArrowHeadType.default('none'),
   headSize: z.number().positive().optional().default(10),
@@ -78,7 +81,10 @@ export type PolylineAnnotationStyle = z.infer<typeof PolylineAnnotationStyle>;
 export const PolygonAnnotationStyle = AnnotationBase.extend({
   type: z.literal('polygon'),
   // [x1,y1,x2,y2,...]で3頂点以上必須。x/y（先頭の頂点）を起点とした相対座標
-  points: z.array(z.number()).min(6),
+  points: z
+    .array(z.number())
+    .min(6)
+    .refine((pts) => pts.length % 2 === 0, { message: '座標配列の要素数は偶数である必要があります' }),
 });
 export type PolygonAnnotationStyle = z.infer<typeof PolygonAnnotationStyle>;
 

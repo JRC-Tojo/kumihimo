@@ -557,7 +557,8 @@ const textGeometry: AnnotationGeometryModule = {
       style: {
         type: 'text',
         strokeColor: '#000000',
-        strokeWidth: 0,
+        // デフォルト状態でも視認・選択できるよう、細い枠線を初期値とする
+        strokeWidth: 1,
         strokeType: 'solid',
         strokeOpacity: 1,
         fillPattern: 'none',

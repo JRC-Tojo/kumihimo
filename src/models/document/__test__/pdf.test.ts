@@ -75,6 +75,16 @@ describe('PolylineAnnotationStyle', () => {
 
     expect(result.success).toBeFalse();
   });
+
+  it('pointsの要素数が奇数（x/yが対になっていない）場合は検証エラーになる', () => {
+    const result = PolylineAnnotationStyle.safeParse({
+      ...baseFields,
+      type: 'polyline',
+      points: [0, 0, 10, 10, 20],
+    });
+
+    expect(result.success).toBeFalse();
+  });
 });
 
 describe('PolygonAnnotationStyle', () => {
@@ -92,6 +102,16 @@ describe('PolygonAnnotationStyle', () => {
       points: [0, 0, 10, 0, 5, 10],
     });
     expect(ok.success).toBeTrue();
+  });
+
+  it('pointsの要素数が奇数（x/yが対になっていない）場合は検証エラーになる', () => {
+    const result = PolygonAnnotationStyle.safeParse({
+      ...baseFields,
+      type: 'polygon',
+      points: [0, 0, 10, 0, 5],
+    });
+
+    expect(result.success).toBeFalse();
   });
 });
 
