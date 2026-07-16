@@ -1,12 +1,6 @@
 import { describe, test, expect } from 'bun:test';
-import { DOMMatrix } from 'canvas';
 import type { ContainerID } from 'src/models/container';
-
-// relational.tsはPDF処理系（pdfjs-dist）を経由してDOMMatrix等のブラウザAPIに依存するため、
-// 静的importより先にDOMMatrixを用意してからdynamic importで読み込む
-global.DOMMatrix = DOMMatrix as unknown as typeof globalThis.DOMMatrix;
-
-const { resolveCachedContainerID } = await import('../relational');
+import { resolveCachedContainerID } from '../containerIdResolver';
 
 describe('resolveCachedContainerID', () => {
   const currentID = '00000000-0000-0000-0000-000000000001' as ContainerID;

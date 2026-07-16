@@ -11,6 +11,7 @@ import * as containerConfigService from 'src/services/container/config';
 import * as docAnnotService from 'src/services/document/annotation';
 import * as relationalRepository from 'src/repositories/db/relational';
 import type { AnnotationID } from 'src/models/document/pdf';
+import { resolveCachedContainerID } from 'src/services/document/containerIdResolver';
 
 /**
  * 読み込み中の関係性情報をすべて管理するDBを定義
@@ -286,26 +287,6 @@ export function remapFilePath(
 }
 
 /**
- * 関係性ファイルに記録されたアドレスのcIDを、必要であれば現在のコンテナIDへ読み替える
- *
- * ローカルコンテナのIDは、同一フォルダを別環境（新しいPC等）で開き直すたびに新規採番されるため、
- * `.rd/relational.json`に記録されたcIDが記録時点のまま残っていると、読み込み側の現在のコンテナIDと
- * 一致せずキャッシュDBに保存した関係性が参照できなくなる。
- * 記録されたcIDが現在どのコンテナとしても登録されていない場合は、このファイルを所有する
- * 現在のコンテナ自身への参照（＝古いID）とみなして読み替える。現在も別コンテナとして登録されている
- * 場合はコンテナをまたぐ関係性として維持する
- */
-export function resolveCachedContainerID(
-  cID: ContainerID,
-  currentContainerID: ContainerID,
-  isRegisteredContainer: (id: ContainerID) => boolean = (id) =>
-    containerService.getContainer(id).ok,
-): ContainerID {
-  if (cID === currentContainerID) return cID;
-  return isRegisteredContainer(cID) ? cID : currentContainerID;
-}
-
-/**
  * コンテナルートにキャッシュされた関係性情報を読み込む
  */
 async function loadCachedRelationals(c: ContainerSkel): Promise<Result<RelationalWithAddress[]>> {
@@ -330,8 +311,22 @@ async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relationa
           targetID: r.target,
           rule: r.rule,
         },
-        srcAddress: { ...srcFile, cID: resolveCachedContainerID(srcFile.cID, c.id) },
-        targetAddress: { ...targetFile, cID: resolveCachedContainerID(targetFile.cID, c.id) },
+        srcAddress: {
+          ...srcFile,
+          cID: resolveCachedContainerID(
+            srcFile.cID,
+            c.id,
+            (id) => containerService.getContainer(id).ok,
+          ),
+        },
+        targetAddress: {
+          ...targetFile,
+          cID: resolveCachedContainerID(
+            targetFile.cID,
+            c.id,
+            (id) => containerService.getContainer(id).ok,
+          ),
+        },
       };
     })
     .filter((r) => r !== '');
