@@ -113,18 +113,15 @@ export const useRelationalStore = defineStore('relational', {
       const relRes = await api.getRelationalsForFile(file);
       if (!relRes.ok) return;
 
-      const edgeCheckers = relRes.data.map(
-        ({ relational }) =>
-          async (): Promise<RelationalEdge> => {
-            const checkedRes = await api.checkRelationalsSafe(relational);
-            return {
-              relational,
-              checkedRule: checkedRes.ok ? checkedRes.data.checkedRule : undefined,
-              srcVal: checkedRes.ok ? checkedRes.data.srcVal : '',
-              targetVal: checkedRes.ok ? checkedRes.data.targetVal : '',
-            };
-          },
-      );
+      const edgeCheckers = relRes.data.map((edge) => async (): Promise<RelationalEdge> => {
+        const checkedRes = await api.checkRelationalsSafe(edge);
+        return {
+          relational: edge.relational,
+          checkedRule: checkedRes.ok ? checkedRes.data.checkedRule : undefined,
+          srcVal: checkedRes.ok ? checkedRes.data.srcVal : '',
+          targetVal: checkedRes.ok ? checkedRes.data.targetVal : '',
+        };
+      });
 
       this.edgesByFileKey[fileKey(file)] = await runConcurrently(edgeCheckers, 5);
     },

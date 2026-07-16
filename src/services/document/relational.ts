@@ -5,11 +5,13 @@ import type {
   RelationalResponce,
   RelationalWithAddress,
 } from 'src/models/relational/common';
+import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as docAnnotService from 'src/services/document/annotation';
 import * as relationalRepository from 'src/repositories/db/relational';
 import type { AnnotationID } from 'src/models/document/pdf';
+import { resolveCachedContainerID } from 'src/services/document/containerIdResolver';
 
 /**
  * 読み込み中の関係性情報をすべて管理するDBを定義
@@ -45,12 +47,63 @@ export function getRelationals(file: ContainerElementFile): Promise<Result<Relat
 }
 
 /**
+ * アドレス情報（コンテナID・ファイルパス）から実際のContainerElementFileを解決する
+ *
+ * 対象コンテナがまだ読み込まれていない場合はcontainerService.loadContainerで読み込む
+ */
+async function resolveFileByAddress(
+  address: AnnotationBaseAddress,
+): Promise<Result<ContainerElementFile>> {
+  const container = await containerService.loadContainer(address.cID);
+  if (!container.ok) return container;
+
+  const elem = container.value.elements[address.filePath];
+  if (elem === undefined || elem.type !== 'File') {
+    return Failure(new Error(`Not Found File (path: ${address.filePath})`));
+  }
+
+  return Success(elem);
+}
+
+/**
+ * アノテーション内容をDBから取得する
+ *
+ * DBにまだ無い場合（対象文書が今回のセッションで一度も開かれていない場合）は、対応する`.rdcfg`を
+ * 直接読み込んでDBへ反映してから返す。関係性の検証はリンク先文書を開かなくても実行できる必要が
+ * あるが、アノテーションDBは開いた文書のセッション中のキャッシュに過ぎないため、フォールバック先
+ * として保存済みの確定データである`.rdcfg`を読みにいく
+ */
+async function ensureAnnotationInfo(
+  annotID: AnnotationID,
+  address: AnnotationBaseAddress,
+): Promise<Result<AnnotationInfo>> {
+  const cached = await docAnnotService.getAnnotationInfo(annotID);
+  if (cached.ok) return cached;
+
+  const file = await resolveFileByAddress(address);
+  if (!file.ok) return cached;
+
+  const configRes = await containerConfigService.getDocumentConfigFile(address.cID, file.value);
+  if (!configRes.ok) return cached;
+
+  const annotInfo = configRes.value.annots[annotID];
+  if (annotInfo === undefined) return cached;
+
+  const registRes = await docAnnotService.registerAnnotationInfo([annotInfo], file.value, false);
+  if (!registRes.ok) return cached;
+
+  return Success(annotInfo);
+}
+
+/**
  * 指定した関係性一覧を検証する
  */
-export async function checkRelational(r: Relational): Promise<Result<RelationalResponce>> {
-  const srcContent = await docAnnotService.getAnnotationInfo(r.srcID);
+export async function checkRelational(
+  r: RelationalWithAddress,
+): Promise<Result<RelationalResponce>> {
+  const srcContent = await ensureAnnotationInfo(r.relational.srcID, r.srcAddress);
   if (!srcContent.ok) return srcContent;
-  const targetContent = await docAnnotService.getAnnotationInfo(r.targetID);
+  const targetContent = await ensureAnnotationInfo(r.relational.targetID, r.targetAddress);
   if (!targetContent.ok) return targetContent;
 
   // .textが読み込み中の場合はundefinedのため、関係性の検証を省略する
@@ -61,7 +114,7 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
     return Failure(new Error('An annotation content is not loaded yet'));
   }
 
-  const checkedRule = validRelational(r, srcContentTxt, targetContentTxt);
+  const checkedRule = validRelational(r.relational, srcContentTxt, targetContentTxt);
 
   return Success(checkedRule);
 }
@@ -72,13 +125,13 @@ export async function checkRelational(r: Relational): Promise<Result<RelationalR
  * アノテーション内容（OCR結果等）の読み込みが完了していない場合、checkRelationalは失敗するが
  * それは「検証保留」を意味するだけなので、checkedRule: undefinedとして常に成功を返す
  */
-export async function checkRelationalSafe(r: Relational): Promise<RelationalResponce> {
+export async function checkRelationalSafe(r: RelationalWithAddress): Promise<RelationalResponce> {
   const checkedRes = await checkRelational(r);
   if (checkedRes.ok) return checkedRes.value;
 
   return {
-    srcID: r.srcID,
-    targetID: r.targetID,
+    srcID: r.relational.srcID,
+    targetID: r.relational.targetID,
     srcVal: '',
     targetVal: '',
     checkedRule: undefined,
@@ -102,7 +155,13 @@ export async function registRelational(
   );
   if (!saveRes.ok) return saveRes;
 
-  return Success(await checkRelationalSafe(newRelational));
+  return Success(
+    await checkRelationalSafe({
+      relational: newRelational,
+      srcAddress: srcAddress.value,
+      targetAddress: targetAddress.value,
+    }),
+  );
 }
 
 /**
@@ -175,15 +234,7 @@ export async function resolveAnnotationFile(
   const address = await docAnnotService.getAnnotationAddress(annotID);
   if (!address.ok) return address;
 
-  const container = await containerService.loadContainer(address.value.cID);
-  if (!container.ok) return container;
-
-  const elem = container.value.elements[address.value.filePath];
-  if (elem === undefined || elem.type !== 'File') {
-    return Failure(new Error(`Not Found File (path: ${address.value.filePath})`));
-  }
-
-  return Success(elem);
+  return resolveFileByAddress(address.value);
 }
 
 /**
@@ -260,8 +311,22 @@ async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relationa
           targetID: r.target,
           rule: r.rule,
         },
-        srcAddress: srcFile,
-        targetAddress: targetFile,
+        srcAddress: {
+          ...srcFile,
+          cID: resolveCachedContainerID(
+            srcFile.cID,
+            c.id,
+            (id) => containerService.getContainer(id).ok,
+          ),
+        },
+        targetAddress: {
+          ...targetFile,
+          cID: resolveCachedContainerID(
+            targetFile.cID,
+            c.id,
+            (id) => containerService.getContainer(id).ok,
+          ),
+        },
       };
     })
     .filter((r) => r !== '');
