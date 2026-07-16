@@ -33,16 +33,40 @@ export interface AnnotationDefaultPreset {
   style: DrawingAnnotationStyle;
 }
 
-export interface AnnotationGeometryModule<T extends AnnotationStyle = AnnotationStyle> {
-  /** ドラッグ開始・終了座標からアノテーション実体を生成する（矩形選択ドラッグに対応する種別用） */
-  createFromDrag(pageNumber: number, start: Point, end: Point, style: DrawingAnnotationStyle): T | null;
-  /** 描画中（ドラッグ中）のプレビュー形状のKonva設定を計算する */
-  previewFromDrag(start: Point, end: Point, style: DrawingAnnotationStyle): Record<string, unknown>;
+interface AnnotationGeometryModuleCommon<T extends AnnotationStyle> {
   /** アノテーションの外接矩形（OCR/プレビュー画像切り出し用、少し余白を含む）を計算する */
   boundingBox(style: T): BoundingBox;
   /** 初期設定（初回起動時・既存設定への補完時）に投入するこの種別のデフォルトプリセット。1件以上必須 */
   defaultPresets: AnnotationDefaultPreset[];
 }
+
+/** ドラッグ（始点→終点の2点）から生成する種別（box/circle/line/arrow/text） */
+export interface DragDrawModule<T extends AnnotationStyle> extends AnnotationGeometryModuleCommon<T> {
+  drawMode: 'drag';
+  /** ドラッグ開始・終了座標からアノテーション実体を生成する */
+  createFromDrag(pageNumber: number, start: Point, end: Point, style: DrawingAnnotationStyle): T | null;
+  /** 描画中（ドラッグ中）のプレビュー形状のKonva設定を計算する */
+  previewFromDrag(start: Point, end: Point, style: DrawingAnnotationStyle): Record<string, unknown>;
+}
+
+/** クリックで頂点を置いていく方式で生成する種別（polyline/polygon） */
+export interface ClickPointsDrawModule<T extends AnnotationStyle> extends AnnotationGeometryModuleCommon<T> {
+  drawMode: 'clickPoints';
+  /** 確定時、これまでにクリックした頂点座標列からアノテーション実体を生成する */
+  createFromPoints(pageNumber: number, points: Point[], style: DrawingAnnotationStyle): T | null;
+  /** 描画中のプレビュー形状のKonva設定を計算する（cursorは最後に置いた頂点から現在のマウス位置へのラバーバンド用） */
+  previewFromPoints(
+    points: Point[],
+    cursor: Point | null,
+    style: DrawingAnnotationStyle,
+  ): Record<string, unknown>;
+  /** trueの場合、始点付近を再クリックすると新しい頂点を追加せず形状を閉じて確定できる */
+  closable: boolean;
+}
+
+export type AnnotationGeometryModule<T extends AnnotationStyle = AnnotationStyle> =
+  | DragDrawModule<T>
+  | ClickPointsDrawModule<T>;
 
 const BOUNDING_BOX_PADDING = 2;
 
@@ -67,6 +91,7 @@ function buildBaseAnnotation(pageNumber: number, x: number, y: number, style: Dr
 }
 
 const boxGeometry: AnnotationGeometryModule = {
+  drawMode: 'drag',
   createFromDrag(pageNumber, start, end, style) {
     if (style.type !== 'box') return null;
     const built = buildBaseAnnotation(pageNumber, Math.min(start.x, end.x), Math.min(start.y, end.y), style);
@@ -142,7 +167,33 @@ function lineLikeBoundingBox(x: number, y: number, points: number[], strokeWidth
   };
 }
 
+/** 折れ線・ポリゴン共通: 全頂点のmin/maxから外接矩形（線幅を考慮）を計算する（lineLikeBoundingBoxのN点版） */
+function multiPointBoundingBox(x: number, y: number, points: number[], strokeWidth: number): BoundingBox {
+  const halfStroke = strokeWidth / 2 + BOUNDING_BOX_PADDING;
+  let minX = x;
+  let maxX = x;
+  let minY = y;
+  let maxY = y;
+
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    const px = x + points[i]!;
+    const py = y + points[i + 1]!;
+    minX = Math.min(minX, px);
+    maxX = Math.max(maxX, px);
+    minY = Math.min(minY, py);
+    maxY = Math.max(maxY, py);
+  }
+
+  return {
+    x: Math.max(0, minX - halfStroke),
+    y: Math.max(0, minY - halfStroke),
+    width: maxX - minX + halfStroke * 2,
+    height: maxY - minY + halfStroke * 2,
+  };
+}
+
 const lineGeometry: AnnotationGeometryModule = {
+  drawMode: 'drag',
   createFromDrag(pageNumber, start, end, style) {
     if (style.type !== 'line') return null;
     const built = buildBaseAnnotation(pageNumber, start.x, start.y, style);
@@ -195,6 +246,7 @@ const lineGeometry: AnnotationGeometryModule = {
 };
 
 const circleGeometry: AnnotationGeometryModule = {
+  drawMode: 'drag',
   createFromDrag(pageNumber, start, end, style) {
     if (style.type !== 'circle') return null;
     const deltaX = end.x - start.x;
@@ -256,6 +308,7 @@ const circleGeometry: AnnotationGeometryModule = {
 };
 
 const arrowGeometry: AnnotationGeometryModule = {
+  drawMode: 'drag',
   createFromDrag(pageNumber, start, end, style) {
     if (style.type !== 'arrow') return null;
     const built = buildBaseAnnotation(pageNumber, start.x, start.y, style);
@@ -309,9 +362,222 @@ const arrowGeometry: AnnotationGeometryModule = {
   ],
 };
 
+const polylineGeometry: AnnotationGeometryModule = {
+  drawMode: 'clickPoints',
+  closable: false,
+  createFromPoints(pageNumber, points, style) {
+    if (style.type !== 'polyline') return null;
+    if (points.length < 2) return null;
+    const origin = points[0];
+    if (!origin) return null;
+    const built = buildBaseAnnotation(pageNumber, origin.x, origin.y, style);
+    if (!built) return null;
+
+    return {
+      ...built.base,
+      type: 'polyline',
+      color: built.color,
+      strokeWidth: style.strokeWidth,
+      points: points.flatMap((p) => [p.x - origin.x, p.y - origin.y]),
+      startHead: style.startHead,
+      endHead: style.endHead,
+      headSize: style.headSize,
+    };
+  },
+  previewFromPoints(points, cursor, style) {
+    if (style.type !== 'polyline') return {};
+    const origin = points[0];
+    if (!origin) return {};
+
+    const flat = points.flatMap((p) => [p.x - origin.x, p.y - origin.y]);
+    if (cursor) flat.push(cursor.x - origin.x, cursor.y - origin.y);
+
+    return {
+      x: origin.x,
+      y: origin.y,
+      points: flat,
+      stroke: style.strokeColor,
+      strokeWidth: style.strokeWidth,
+      fill: style.strokeColor,
+      fillEnabled: style.endHead !== 'open' && style.startHead !== 'open',
+      pointerAtBeginning: style.startHead !== 'none',
+      pointerAtEnding: style.endHead !== 'none',
+      pointerLength: style.headSize,
+      pointerWidth: style.headSize,
+    };
+  },
+  boundingBox(style) {
+    if (style.type !== 'polyline') return { x: 0, y: 0, width: 0, height: 0 };
+    return multiPointBoundingBox(style.x, style.y, style.points, style.strokeWidth ?? 2);
+  },
+  defaultPresets: [
+    {
+      name: '折れ線（黒）',
+      style: {
+        type: 'polyline',
+        strokeColor: '#000000',
+        strokeWidth: 3,
+        strokeType: 'solid',
+        strokeOpacity: 1,
+        startHead: 'none',
+        endHead: 'none',
+        headSize: 12,
+      },
+    },
+    {
+      name: '折れ矢印（黒）',
+      style: {
+        type: 'polyline',
+        strokeColor: '#000000',
+        strokeWidth: 3,
+        strokeType: 'solid',
+        strokeOpacity: 1,
+        startHead: 'none',
+        endHead: 'triangle',
+        headSize: 12,
+      },
+    },
+  ],
+};
+
+const polygonGeometry: AnnotationGeometryModule = {
+  drawMode: 'clickPoints',
+  closable: true,
+  createFromPoints(pageNumber, points, style) {
+    if (style.type !== 'polygon') return null;
+    if (points.length < 3) return null;
+    const origin = points[0];
+    if (!origin) return null;
+    const built = buildBaseAnnotation(pageNumber, origin.x, origin.y, style);
+    if (!built) return null;
+
+    return {
+      ...built.base,
+      type: 'polygon',
+      color: built.color,
+      strokeWidth: style.strokeWidth,
+      opacity: style.fillOpacity,
+      points: points.flatMap((p) => [p.x - origin.x, p.y - origin.y]),
+    };
+  },
+  previewFromPoints(points, cursor, style) {
+    if (style.type !== 'polygon') return {};
+    const origin = points[0];
+    if (!origin) return {};
+
+    const flat = points.flatMap((p) => [p.x - origin.x, p.y - origin.y]);
+    if (cursor) flat.push(cursor.x - origin.x, cursor.y - origin.y);
+
+    return {
+      x: origin.x,
+      y: origin.y,
+      points: flat,
+      closed: points.length >= 3,
+      fill: 'transparent',
+      stroke: style.strokeColor,
+      strokeWidth: style.strokeWidth,
+    };
+  },
+  boundingBox(style) {
+    if (style.type !== 'polygon') return { x: 0, y: 0, width: 0, height: 0 };
+    return multiPointBoundingBox(style.x, style.y, style.points, style.strokeWidth ?? 2);
+  },
+  defaultPresets: [
+    {
+      name: 'ポリゴン（紫）',
+      style: {
+        type: 'polygon',
+        strokeColor: '#9900CC',
+        strokeWidth: 3,
+        strokeType: 'solid',
+        strokeOpacity: 1,
+        fillColor: '#9900CC',
+        fillPattern: 'solid',
+        fillOpacity: 0.3,
+      },
+    },
+  ],
+};
+
+const textGeometry: AnnotationGeometryModule = {
+  drawMode: 'drag',
+  createFromDrag(pageNumber, start, end, style) {
+    if (style.type !== 'text') return null;
+    const built = buildBaseAnnotation(pageNumber, Math.min(start.x, end.x), Math.min(start.y, end.y), style);
+    if (!built) return null;
+
+    const textColor = ColorCode.safeParse(style.textColor);
+    if (!textColor.success) return null;
+
+    return {
+      ...built.base,
+      type: 'text',
+      color: built.color,
+      strokeWidth: style.strokeWidth,
+      opacity: style.fillOpacity,
+      width: Math.abs(end.x - start.x),
+      height: Math.abs(end.y - start.y),
+      text: '',
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize,
+      fontWeight: style.fontWeight,
+      textColor: textColor.data,
+      textAlign: style.textAlign,
+      fillColor: ColorCode.safeParse(style.fillColor).success
+        ? ColorCode.parse(style.fillColor)
+        : undefined,
+    };
+  },
+  previewFromDrag(start, end, style) {
+    if (style.type !== 'text') return {};
+    return {
+      x: Math.min(start.x, end.x),
+      y: Math.min(start.y, end.y),
+      width: Math.abs(end.x - start.x),
+      height: Math.abs(end.y - start.y),
+      fill: style.fillColor ?? 'transparent',
+      opacity: style.fillOpacity,
+      stroke: style.strokeColor,
+      strokeWidth: style.strokeWidth,
+    };
+  },
+  boundingBox(style) {
+    if (style.type !== 'text') return { x: 0, y: 0, width: 0, height: 0 };
+    const { x, y, width, height } = style;
+    return {
+      x: Math.max(0, x - BOUNDING_BOX_PADDING),
+      y: Math.max(0, y - BOUNDING_BOX_PADDING),
+      width: width + BOUNDING_BOX_PADDING * 2,
+      height: height + BOUNDING_BOX_PADDING * 2,
+    };
+  },
+  defaultPresets: [
+    {
+      name: 'テキスト（黒文字）',
+      style: {
+        type: 'text',
+        strokeColor: '#000000',
+        strokeWidth: 0,
+        strokeType: 'solid',
+        strokeOpacity: 1,
+        fillPattern: 'none',
+        fillOpacity: 1,
+        textColor: '#000000',
+        fontWeight: 400,
+        fontFamily: 'sans-serif',
+        fontSize: 16,
+        textAlign: 'left',
+      },
+    },
+  ],
+};
+
 export const ANNOTATION_GEOMETRY: Record<AnnotationStyle['type'], AnnotationGeometryModule> = {
   box: boxGeometry,
   line: lineGeometry,
   circle: circleGeometry,
   arrow: arrowGeometry,
+  polyline: polylineGeometry,
+  polygon: polygonGeometry,
+  text: textGeometry,
 };

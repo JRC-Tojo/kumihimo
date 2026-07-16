@@ -57,6 +57,9 @@ export const AnnotationTextStyle = z.object({
   type: z.literal('text'),
   textColor: z.string(),
   fontWeight: z.number(),
+  fontFamily: z.string(),
+  fontSize: z.number(),
+  textAlign: z.enum(['left', 'center', 'right']),
   strokeColor: z.string(),
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
@@ -75,12 +78,34 @@ export const AnnotationArrowStyle = z.object({
   endHead: ArrowHeadType,
   headSize: z.number(),
 });
+export const AnnotationPolylineStyle = z.object({
+  type: z.literal('polyline'),
+  strokeColor: z.string(),
+  strokeWidth: z.number(),
+  strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
+  strokeOpacity: z.number(),
+  startHead: ArrowHeadType,
+  endHead: ArrowHeadType,
+  headSize: z.number(),
+});
+export const AnnotationPolygonStyle = z.object({
+  type: z.literal('polygon'),
+  strokeColor: z.string(),
+  strokeWidth: z.number(),
+  strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
+  strokeOpacity: z.number(),
+  fillColor: z.string(),
+  fillPattern: z.enum(['none', 'hatch', 'solid']),
+  fillOpacity: z.number(),
+});
 export const DrawingAnnotationStyle = z.discriminatedUnion('type', [
   AnnotationLineStyle,
   AnnotationBoxStyle,
   AnnotationCircleStyle,
   AnnotationTextStyle,
   AnnotationArrowStyle,
+  AnnotationPolylineStyle,
+  AnnotationPolygonStyle,
 ]);
 export type DrawingAnnotationStyle = z.infer<typeof DrawingAnnotationStyle>;
 export type DrawingAnnotationType = DrawingAnnotationStyle['type'];

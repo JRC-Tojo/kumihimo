@@ -14,6 +14,9 @@ import BoxAnnotation from './BoxAnnotation.vue';
 import LineAnnotation from './LineAnnotation.vue';
 import CircleAnnotation from './CircleAnnotation.vue';
 import ArrowAnnotation from './ArrowAnnotation.vue';
+import PolylineAnnotation from './PolylineAnnotation.vue';
+import PolygonAnnotation from './PolygonAnnotation.vue';
+import TextBoxAnnotation from './TextBoxAnnotation.vue';
 
 export interface AnnotationTypeModule {
   geometry: AnnotationGeometryModule;
@@ -27,6 +30,8 @@ export interface AnnotationTypeModule {
   mainToolIcon: string;
   /** trueの場合、選択時に共有のv-transformerでリサイズする。falseの場合は各コンポーネントが個別のアンカーでリサイズ・編集を行う */
   supportsTransformer: boolean;
+  /** trueの場合、ダブルクリックでAnnotationLayer.vueが管理するテキスト編集用<textarea>オーバーレイを開く */
+  supportsInlineTextEdit: boolean;
 }
 
 export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationTypeModule> = {
@@ -37,6 +42,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'check_box_outline_blank',
     mainToolIcon: 'crop_square',
     supportsTransformer: true,
+    supportsInlineTextEdit: false,
   },
   line: {
     geometry: ANNOTATION_GEOMETRY.line,
@@ -45,6 +51,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'horizontal_rule',
     mainToolIcon: 'edit',
     supportsTransformer: false,
+    supportsInlineTextEdit: false,
   },
   circle: {
     geometry: ANNOTATION_GEOMETRY.circle,
@@ -53,6 +60,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'circle',
     mainToolIcon: 'circle',
     supportsTransformer: true,
+    supportsInlineTextEdit: false,
   },
   arrow: {
     geometry: ANNOTATION_GEOMETRY.arrow,
@@ -61,6 +69,34 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'north_east',
     mainToolIcon: 'north_east',
     supportsTransformer: false,
+    supportsInlineTextEdit: false,
+  },
+  polyline: {
+    geometry: ANNOTATION_GEOMETRY.polyline,
+    component: PolylineAnnotation,
+    previewComponent: 'v-arrow',
+    icon: 'timeline',
+    mainToolIcon: 'timeline',
+    supportsTransformer: false,
+    supportsInlineTextEdit: false,
+  },
+  polygon: {
+    geometry: ANNOTATION_GEOMETRY.polygon,
+    component: PolygonAnnotation,
+    previewComponent: 'v-line',
+    icon: 'change_history',
+    mainToolIcon: 'change_history',
+    supportsTransformer: false,
+    supportsInlineTextEdit: false,
+  },
+  text: {
+    geometry: ANNOTATION_GEOMETRY.text,
+    component: TextBoxAnnotation,
+    previewComponent: 'v-rect',
+    icon: 'font_download',
+    mainToolIcon: 'text_fields',
+    supportsTransformer: true,
+    supportsInlineTextEdit: true,
   },
 };
 

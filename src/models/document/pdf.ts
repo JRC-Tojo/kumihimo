@@ -65,6 +65,38 @@ export const ArrowAnnotationStyle = AnnotationBase.extend({
 });
 export type ArrowAnnotationStyle = z.infer<typeof ArrowAnnotationStyle>;
 
+export const PolylineAnnotationStyle = AnnotationBase.extend({
+  type: z.literal('polyline'),
+  // [x1,y1,x2,y2,...]で、x/y（先頭の頂点）を起点とした相対座標。折れ矢印はendHead/startHeadで表現する
+  points: z.array(z.number()).min(4),
+  startHead: ArrowHeadType.default('none'),
+  endHead: ArrowHeadType.default('none'),
+  headSize: z.number().positive().optional().default(10),
+});
+export type PolylineAnnotationStyle = z.infer<typeof PolylineAnnotationStyle>;
+
+export const PolygonAnnotationStyle = AnnotationBase.extend({
+  type: z.literal('polygon'),
+  // [x1,y1,x2,y2,...]で3頂点以上必須。x/y（先頭の頂点）を起点とした相対座標
+  points: z.array(z.number()).min(6),
+});
+export type PolygonAnnotationStyle = z.infer<typeof PolygonAnnotationStyle>;
+
+export const TextAnnotationStyle = AnnotationBase.extend({
+  type: z.literal('text'),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+  text: z.string().default(''),
+  fontFamily: z.string().default('sans-serif'),
+  fontSize: z.number().positive().default(16),
+  fontWeight: z.number().default(400),
+  textColor: ColorCode,
+  textAlign: z.enum(['left', 'center', 'right']).default('left'),
+  // 背景色。未指定の場合は背景なし（透明）。枠線の色・太さはbaseのcolor/strokeWidthを流用する
+  fillColor: ColorCode.optional(),
+});
+export type TextAnnotationStyle = z.infer<typeof TextAnnotationStyle>;
+
 /**
  * アノテーション本体の情報
  *
@@ -75,5 +107,8 @@ export const AnnotationStyle = z.discriminatedUnion('type', [
   LineAnnotationStyle,
   CircleAnnotationStyle,
   ArrowAnnotationStyle,
+  PolylineAnnotationStyle,
+  PolygonAnnotationStyle,
+  TextAnnotationStyle,
 ]);
 export type AnnotationStyle = z.infer<typeof AnnotationStyle>;

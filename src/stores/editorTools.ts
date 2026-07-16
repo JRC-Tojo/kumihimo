@@ -18,7 +18,7 @@ function annotationCnf2Tool(ann: AnnotationTool): IDocTool {
 
   const icon =
     ann.style.type in ANNOTATION_REGISTRY
-      ? ANNOTATION_REGISTRY[ann.style.type as keyof typeof ANNOTATION_REGISTRY].icon
+      ? ANNOTATION_REGISTRY[ann.style.type].icon
       : FALLBACK_ICON;
 
   return {
@@ -60,7 +60,10 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
   // メインツールバーのアノテーション種別ボタンはレジストリから生成する。
   // 新しいアノテーション種別を追加する際、このファイルの変更は不要になる。
   const annotationTypeTools: IDocTool[] = (
-    Object.entries(ANNOTATION_REGISTRY) as [AnnotationStyle['type'], (typeof ANNOTATION_REGISTRY)[AnnotationStyle['type']]][]
+    Object.entries(ANNOTATION_REGISTRY) as [
+      AnnotationStyle['type'],
+      (typeof ANNOTATION_REGISTRY)[AnnotationStyle['type']],
+    ][]
   ).map(([type, mod]) => ({
     id: `annotation-${type}`,
     icon: mod.mainToolIcon,

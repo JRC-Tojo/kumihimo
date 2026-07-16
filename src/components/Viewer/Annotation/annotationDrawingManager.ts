@@ -5,10 +5,10 @@
 
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import type { DrawingAnnotationStyle } from 'src/models/docPage';
-import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import { ANNOTATION_GEOMETRY, type Point } from 'src/services/document/annotationGeometry';
 
 /**
- * アノテーションの描画開始時に呼び出す
+ * アノテーションの描画開始時に呼び出す（ドラッグ方式の種別用）
  *
  * 終了時に呼び出すことで新規アノテーションオブジェクトを取得する関数を返す
  */
@@ -30,13 +30,24 @@ function endDrawingAnnotation(
   endY: number,
   annotationStyle: DrawingAnnotationStyle,
 ): AnnotationStyle | null {
-  // 'text'はdocPage.ts側のみに存在する未実装の描画種別のため、幾何レジストリには存在しない
-  if (!(annotationStyle.type in ANNOTATION_GEOMETRY)) return null;
+  const module = ANNOTATION_GEOMETRY[annotationStyle.type];
+  if (module.drawMode !== 'drag') return null;
 
-  return ANNOTATION_GEOMETRY[annotationStyle.type as AnnotationStyle['type']].createFromDrag(
-    pageNumber,
-    { x: startX, y: startY },
-    { x: endX, y: endY },
-    annotationStyle,
-  );
+  return module.createFromDrag(pageNumber, { x: startX, y: startY }, { x: endX, y: endY }, annotationStyle);
+}
+
+/**
+ * クリックで頂点を置いていく方式（折れ線・ポリゴン）で、確定時に呼び出す
+ *
+ * これまでに置いた頂点座標列からアノテーション実体を生成する
+ */
+export function createAnnotationFromPoints(
+  pageNumber: number,
+  points: Point[],
+  annotationStyle: DrawingAnnotationStyle,
+): AnnotationStyle | null {
+  const module = ANNOTATION_GEOMETRY[annotationStyle.type];
+  if (module.drawMode !== 'clickPoints') return null;
+
+  return module.createFromPoints(pageNumber, points, annotationStyle);
 }

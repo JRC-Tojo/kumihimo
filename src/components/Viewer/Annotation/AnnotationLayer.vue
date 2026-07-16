@@ -6,6 +6,7 @@
       @mousedown="handleMouseDown"
       @mousemove="handleMouseMove"
       @mouseup="handleMouseUp"
+      @dblclick="handleDblClick"
       :style="{ cursor: cursor }"
     >
       <v-layer>
@@ -22,7 +23,7 @@
         />
 
         <component
-          v-if="isDrawing && drawingPreviewConfig"
+          v-if="(isDrawing || !!clickPointsBuffer) && drawingPreviewConfig"
           :is="drawingPreviewComponent"
           :config="drawingPreviewConfig"
         />
@@ -35,16 +36,27 @@
         />
       </v-layer>
     </v-stage>
+
+    <!-- テキストボックスのインライン編集用オーバーレイ（Konvaの外、通常のDOM要素として重ねる） -->
+    <textarea
+      v-if="editingTextAnnotation"
+      ref="textareaRef"
+      v-model="editingTextValue"
+      :style="editingTextStyle"
+      @blur="commitTextEdit"
+      @keydown.esc="cancelTextEdit"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type Konva from 'konva';
-import { startDrawingAnnotation } from './annotationDrawingManager';
+import dayjs from 'dayjs';
+import { createAnnotationFromPoints, startDrawingAnnotation } from './annotationDrawingManager';
 import { useEditorStore } from 'src/stores/editorStore';
-import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
+import { ANNOTATION_GEOMETRY, type ClickPointsDrawModule, type Point } from 'src/services/document/annotationGeometry';
 import { ANNOTATION_REGISTRY } from './registry';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
@@ -85,6 +97,12 @@ const selectionStartPos = ref<{ x: number; y: number } | null>(null);
 const selectionBox = ref({ visible: false, x: 0, y: 0, width: 0, height: 0 });
 const selectionModeRef = ref<'window' | 'cross' | null>(null);
 const drawingPreviewConfig = ref<Record<string, unknown> | null>(null);
+// クリックで頂点を置いていく方式（折れ線・ポリゴン）の描画中バッファ
+const clickPointsBuffer = ref<Point[] | null>(null);
+// テキストボックスのインライン編集状態
+const editingTextId = ref<AnnotationID | null>(null);
+const editingTextValue = ref('');
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const drawingType = computed(() => editorStore.currentTools);
 const drawingPreviewComponent = computed(() => {
   if (!(drawingType.value in ANNOTATION_REGISTRY)) return null;
@@ -136,6 +154,148 @@ function getSelectionMode(startX: number, endX: number): SelectionMode {
   return endX >= startX ? 'window' : 'cross';
 }
 
+// ポリゴンの始点を再クリックしたとみなす画面上の許容距離（px）
+const CLOSE_THRESHOLD_PX = 10;
+
+const editingTextAnnotation = computed<TextAnnotationStyle | null>(() => {
+  if (!editingTextId.value) return null;
+  const found = props.annotations.find((a) => a.id === editingTextId.value);
+  return found && found.type === 'text' ? found : null;
+});
+
+const editingTextStyle = computed(() => {
+  const annotation = editingTextAnnotation.value;
+  if (!annotation) return {};
+  const s = scale.value;
+  return {
+    position: 'absolute' as const,
+    left: `${annotation.x * s}px`,
+    top: `${annotation.y * s}px`,
+    width: `${annotation.width * s}px`,
+    height: `${annotation.height * s}px`,
+    margin: 0,
+    zIndex: 20,
+    fontFamily: annotation.fontFamily,
+    fontSize: `${annotation.fontSize * s}px`,
+    fontWeight: annotation.fontWeight,
+    color: annotation.textColor,
+    textAlign: annotation.textAlign,
+    background: annotation.fillColor ?? 'transparent',
+    border:
+      annotation.strokeWidth && annotation.strokeWidth > 0
+        ? `${annotation.strokeWidth * s}px solid ${annotation.color}`
+        : 'none',
+    padding: `${4 * s}px`,
+    boxSizing: 'border-box' as const,
+    resize: 'none' as const,
+    outline: 'none' as const,
+    overflow: 'hidden' as const,
+  };
+});
+
+function startTextEdit(annotation: TextAnnotationStyle) {
+  editingTextId.value = annotation.id;
+  editingTextValue.value = annotation.text;
+  selectedAnnotIds.value = [annotation.id];
+  void nextTick(() => textareaRef.value?.focus());
+}
+
+function commitTextEdit() {
+  const annotation = editingTextAnnotation.value;
+  editingTextId.value = null;
+  if (!annotation) return;
+  if (annotation.text === editingTextValue.value) return;
+
+  void props.onRegisterAnnot({
+    ...annotation,
+    text: editingTextValue.value,
+    updatedAt: dayjs().toISOString(),
+  });
+}
+
+function cancelTextEdit() {
+  editingTextId.value = null;
+}
+
+function handleDblClick(e: KonvaMouseEvent) {
+  if (clickPointsBuffer.value) {
+    finishClickPointsDrawing();
+    return;
+  }
+
+  if (drawingType.value !== 'pointer') return;
+  const clickedId = e.target.attrs?.id as AnnotationID | undefined;
+  if (!clickedId) return;
+
+  const annotation = props.annotations.find((a) => a.id === clickedId);
+  if (!annotation) return;
+  if (!ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit) return;
+  if (annotation.type !== 'text') return;
+
+  startTextEdit(annotation);
+}
+
+function updateClickPointsPreview(cursorPos: Point | null) {
+  if (!clickPointsBuffer.value) return;
+  const style = editorStore.currentAnnotationStyle;
+  if (!(style.type in ANNOTATION_GEOMETRY)) return;
+
+  const module = ANNOTATION_GEOMETRY[style.type];
+  if (module.drawMode !== 'clickPoints') return;
+
+  drawingPreviewConfig.value = module.previewFromPoints(clickPointsBuffer.value, cursorPos, style);
+}
+
+function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<AnnotationStyle>) {
+  selectedAnnotIds.value = [];
+
+  if (!clickPointsBuffer.value) {
+    clickPointsBuffer.value = [pos];
+    updateClickPointsPreview(pos);
+    return;
+  }
+
+  const origin = clickPointsBuffer.value[0];
+  if (origin) {
+    const screenDistance = Math.hypot(pos.x - origin.x, pos.y - origin.y) * scale.value;
+    if (geometry.closable && clickPointsBuffer.value.length >= 3 && screenDistance <= CLOSE_THRESHOLD_PX) {
+      finishClickPointsDrawing();
+      return;
+    }
+  }
+
+  clickPointsBuffer.value = [...clickPointsBuffer.value, pos];
+  updateClickPointsPreview(pos);
+}
+
+function finishClickPointsDrawing() {
+  if (!clickPointsBuffer.value) return;
+  const style = editorStore.currentAnnotationStyle;
+  const points = clickPointsBuffer.value;
+  clickPointsBuffer.value = null;
+  drawingPreviewConfig.value = null;
+
+  const annotation = createAnnotationFromPoints(page.value, points, style);
+  if (annotation) {
+    void props.onRegisterAnnot(annotation);
+  }
+}
+
+function cancelClickPointsDrawing() {
+  clickPointsBuffer.value = null;
+  drawingPreviewConfig.value = null;
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return;
+  if (clickPointsBuffer.value) {
+    cancelClickPointsDrawing();
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
+
 function handleMouseDown(e: KonvaMouseEvent) {
   if (isDrawing.value || isSelecting.value) return;
 
@@ -182,6 +342,21 @@ function handleMouseDown(e: KonvaMouseEvent) {
   }
 
   if (!isEditing.value || drawingType.value === 'hand') return;
+  if (!(drawingType.value in ANNOTATION_REGISTRY)) return;
+
+  const module = ANNOTATION_REGISTRY[drawingType.value];
+
+  if (module.geometry.drawMode === 'clickPoints') {
+    // 頂点追加中は既存シェイプの上でもクリックを継続として扱う。新規開始は空白領域のみ
+    if (!clickPointsBuffer.value && e.target !== stage) return;
+
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    const adjustedPos = { x: pos.x / scale.value, y: pos.y / scale.value };
+    handleClickPointsMouseDown(adjustedPos, module.geometry);
+    return;
+  }
+
   if (e.target !== stage) return;
 
   const pos = stage.getPointerPosition();
@@ -206,6 +381,17 @@ function handleMouseDown(e: KonvaMouseEvent) {
 }
 
 function handleMouseMove(e: KonvaMouseEvent) {
+  if (clickPointsBuffer.value) {
+    const stage = e.target?.getStage();
+    if (!stage) return;
+
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+
+    updateClickPointsPreview({ x: pos.x / scale.value, y: pos.y / scale.value });
+    return;
+  }
+
   if (isDrawing.value && startPos.value) {
     const stage = e.target?.getStage();
     if (!stage) return;
@@ -274,7 +460,10 @@ function handleMouseUp(e: KonvaMouseEvent) {
     if (endDrawingAnnotation) {
       const annotation = endDrawingAnnotation(adjustedPos.x, adjustedPos.y);
       if (annotation) {
-        void props.onRegisterAnnot(annotation);
+        const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
+        void props.onRegisterAnnot(annotation).then(() => {
+          if (shouldStartTextEdit && annotation.type === 'text') startTextEdit(annotation);
+        });
       }
     }
 
@@ -356,14 +545,12 @@ function updateDrawingPreview(endX: number, endY: number) {
   if (!startPos.value) return;
 
   const style = editorStore.currentAnnotationStyle;
-  // 'text'はdocPage.ts側のみに存在する未実装の描画種別のため、幾何レジストリには存在しない
   if (!(style.type in ANNOTATION_GEOMETRY)) return;
 
-  drawingPreviewConfig.value = ANNOTATION_GEOMETRY[style.type as AnnotationStyle['type']].previewFromDrag(
-    startPos.value,
-    { x: endX, y: endY },
-    style,
-  );
+  const module = ANNOTATION_GEOMETRY[style.type];
+  if (module.drawMode !== 'drag') return;
+
+  drawingPreviewConfig.value = module.previewFromDrag(startPos.value, { x: endX, y: endY }, style);
 }
 
 function syncTransformerSelection() {
