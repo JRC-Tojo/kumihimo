@@ -55,7 +55,8 @@ const imageUrlToCanvas = async (imageSource: string): Promise<HTMLCanvasElement>
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
       canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
+      // 処理高速化のためにwillReadFrequentlyオプションをつける
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) {
         reject(new Error('Canvas 2D context を取得できません'));
         return;
@@ -106,7 +107,8 @@ export async function initOCR(): Promise<void> {
  * ONNX Runtime を用いた OCR 実行関数
  */
 export const runOCR = async (canvas: HTMLCanvasElement): Promise<string> => {
-  const ctx = canvas.getContext('2d');
+  // 処理高速化のためにwillReadFrequentlyオプションをつける
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (ctx === null) return '';
 
   // 1. 既存の前処理パイプラインの実行（必要に応じて）
