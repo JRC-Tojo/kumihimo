@@ -1,14 +1,6 @@
 <template>
   <!-- 背景矩形と本文が一緒にドラッグ・リサイズされるようグループにまとめる -->
-  <v-group
-    ref="groupRef"
-    :config="groupConfig"
-    @dragstart="beginInteraction"
-    @dragend="onDragEnd"
-    @transformstart="beginInteraction"
-    @transform="onTransform"
-    @transformend="onTransformEnd"
-  >
+  <v-group ref="groupRef" :config="groupConfig">
     <v-rect ref="rectRef" :config="rectConfig" />
     <v-text ref="textRef" :config="textConfig" />
   </v-group>
@@ -37,14 +29,24 @@ const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
 const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const textRef = ref<{ getNode: () => Konva.Text | null } | null>(null);
 
-const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
-  useAnnotationShape(props);
+const {
+  relationalOverride,
+  withUpdatedTimestamp,
+  displayAnnotation,
+  beginInteraction,
+  endInteraction,
+} = useAnnotationShape(props);
 
 const groupConfig = computed(() => ({
   x: displayAnnotation.value.x,
   y: displayAnnotation.value.y,
   id: displayAnnotation.value.id,
   draggable: props.isEditing,
+  onDragstart: beginInteraction,
+  onDragend: onDragEnd,
+  onTransformstart: beginInteraction,
+  onTransform: onTransform,
+  onTransformend: onTransformEnd,
 }));
 
 const rectConfig = computed(() => {
@@ -56,7 +58,7 @@ const rectConfig = computed(() => {
     y: 0,
     width: annotation.width ?? 0,
     height: annotation.height ?? 0,
-    fill: relationalOverride.value?.fill ?? (annotation.fillColor ?? 'transparent'),
+    fill: relationalOverride.value?.fill ?? annotation.fillColor ?? 'transparent',
     stroke: relationalOverride.value?.stroke ?? annotation.color,
     // strokeWidth未指定/0（デフォルト状態）でも選択・視認しやすいよう、他形状と同様に細い枠線へフォールバックする
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 1),
@@ -130,10 +132,7 @@ function onTransformEnd(e: Konva.KonvaEventObject<Event>) {
   const groupNode = e.target as Konva.Group;
   const { width, height } = syncNodeGeometry(groupNode);
 
-  emit(
-    'update',
-    withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y(), width, height }),
-  );
+  emit('update', withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y(), width, height }));
   endInteraction();
 }
 </script>

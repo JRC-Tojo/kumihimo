@@ -183,7 +183,10 @@ const editingTextStyle = computed(() => {
     zIndex: 20,
     fontFamily: annotation.fontFamily,
     fontSize: `${annotation.fontSize * s}px`,
-    fontWeight: annotation.fontWeight,
+    // Konva側の描画（fontStyle: 'bold' | 'normal'）と一致させるため、数値のfontWeightではなく
+    // 同じ二値判定でbold/normalに変換する（そうしないと編集中と確定時で太さの見え方がズレる）
+    fontWeight: annotation.fontWeight >= 700 ? 'bold' : 'normal',
+    lineHeight: 1.2,
     color: annotation.textColor,
     textAlign: annotation.textAlign,
     background: annotation.fillColor ?? 'transparent',
@@ -191,6 +194,8 @@ const editingTextStyle = computed(() => {
     border: `${(annotation.strokeWidth || 1) * s}px solid ${annotation.color}`,
     padding: `${4 * s}px`,
     boxSizing: 'border-box' as const,
+    whiteSpace: 'pre-wrap' as const,
+    wordBreak: 'break-word' as const,
     resize: 'none' as const,
     outline: 'none' as const,
     overflow: 'hidden' as const,
@@ -223,6 +228,9 @@ function cancelTextEdit() {
 
 function handleDblClick(e: KonvaMouseEvent) {
   if (clickPointsBuffer.value) {
+    // ダブルクリックを構成する2回のmousedownで追加された頂点を取り除いてから確定する
+    // （そうしないと確定位置にも頂点が打たれてしまう）
+    clickPointsBuffer.value = clickPointsBuffer.value.slice(0, -1);
     finishClickPointsDrawing();
     return;
   }
