@@ -71,7 +71,9 @@ export const PolylineAnnotationStyle = AnnotationBase.extend({
   points: z
     .array(z.number())
     .min(4)
-    .refine((pts) => pts.length % 2 === 0, { message: '座標配列の要素数は偶数である必要があります' }),
+    .refine((pts) => pts.length % 2 === 0, {
+      message: '座標配列の要素数は偶数である必要があります',
+    }),
   startHead: ArrowHeadType.default('none'),
   endHead: ArrowHeadType.default('none'),
   headSize: z.number().positive().optional().default(10),
@@ -84,7 +86,9 @@ export const PolygonAnnotationStyle = AnnotationBase.extend({
   points: z
     .array(z.number())
     .min(6)
-    .refine((pts) => pts.length % 2 === 0, { message: '座標配列の要素数は偶数である必要があります' }),
+    .refine((pts) => pts.length % 2 === 0, {
+      message: '座標配列の要素数は偶数である必要があります',
+    }),
 });
 export type PolygonAnnotationStyle = z.infer<typeof PolygonAnnotationStyle>;
 

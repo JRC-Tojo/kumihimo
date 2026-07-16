@@ -41,16 +41,25 @@ interface AnnotationGeometryModuleCommon<T extends AnnotationStyle> {
 }
 
 /** ドラッグ（始点→終点の2点）から生成する種別（box/circle/line/arrow/text） */
-export interface DragDrawModule<T extends AnnotationStyle> extends AnnotationGeometryModuleCommon<T> {
+export interface DragDrawModule<
+  T extends AnnotationStyle,
+> extends AnnotationGeometryModuleCommon<T> {
   drawMode: 'drag';
   /** ドラッグ開始・終了座標からアノテーション実体を生成する */
-  createFromDrag(pageNumber: number, start: Point, end: Point, style: DrawingAnnotationStyle): T | null;
+  createFromDrag(
+    pageNumber: number,
+    start: Point,
+    end: Point,
+    style: DrawingAnnotationStyle,
+  ): T | null;
   /** 描画中（ドラッグ中）のプレビュー形状のKonva設定を計算する */
   previewFromDrag(start: Point, end: Point, style: DrawingAnnotationStyle): Record<string, unknown>;
 }
 
 /** クリックで頂点を置いていく方式で生成する種別（polyline/polygon） */
-export interface ClickPointsDrawModule<T extends AnnotationStyle> extends AnnotationGeometryModuleCommon<T> {
+export interface ClickPointsDrawModule<
+  T extends AnnotationStyle,
+> extends AnnotationGeometryModuleCommon<T> {
   drawMode: 'clickPoints';
   /** 確定時、これまでにクリックした頂点座標列からアノテーション実体を生成する */
   createFromPoints(pageNumber: number, points: Point[], style: DrawingAnnotationStyle): T | null;
@@ -65,8 +74,7 @@ export interface ClickPointsDrawModule<T extends AnnotationStyle> extends Annota
 }
 
 export type AnnotationGeometryModule<T extends AnnotationStyle = AnnotationStyle> =
-  | DragDrawModule<T>
-  | ClickPointsDrawModule<T>;
+  DragDrawModule<T> | ClickPointsDrawModule<T>;
 
 const BOUNDING_BOX_PADDING = 2;
 
@@ -183,7 +191,12 @@ function lineLikeBoundingBox(
 }
 
 /** 折れ線・ポリゴン共通: 全頂点のmin/maxから外接矩形（線幅を考慮）を計算する（lineLikeBoundingBoxのN点版） */
-function multiPointBoundingBox(x: number, y: number, points: number[], strokeWidth: number): BoundingBox {
+function multiPointBoundingBox(
+  x: number,
+  y: number,
+  points: number[],
+  strokeWidth: number,
+): BoundingBox {
   const halfStroke = strokeWidth / 2 + BOUNDING_BOX_PADDING;
   let minX = x;
   let maxX = x;
@@ -518,7 +531,12 @@ const textGeometry: AnnotationGeometryModule = {
   drawMode: 'drag',
   createFromDrag(pageNumber, start, end, style) {
     if (style.type !== 'text') return null;
-    const built = buildBaseAnnotation(pageNumber, Math.min(start.x, end.x), Math.min(start.y, end.y), style);
+    const built = buildBaseAnnotation(
+      pageNumber,
+      Math.min(start.x, end.x),
+      Math.min(start.y, end.y),
+      style,
+    );
     if (!built) return null;
 
     const textColor = ColorCode.safeParse(style.textColor);

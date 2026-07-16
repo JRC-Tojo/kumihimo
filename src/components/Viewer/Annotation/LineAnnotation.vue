@@ -65,14 +65,24 @@ const anchor2Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const isHovered = ref(false);
 
 // 関係性の検証結果（OK/NG）による表示上書き。線には塗りがないためstroke系のみ用いる
-const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
-  useAnnotationShape(props);
+const {
+  relationalOverride,
+  withUpdatedTimestamp,
+  displayAnnotation,
+  beginInteraction,
+  endInteraction,
+} = useAnnotationShape(props);
 
 const linePoints = computed(() => {
   const annotation = displayAnnotation.value;
   if (annotation.type !== 'line') return [0, 0, 0, 0] as const;
   if (annotation.points.length !== 4) return [0, 0, 0, 0] as const;
-  return [annotation.points[0], annotation.points[1], annotation.points[2], annotation.points[3]] as const;
+  return [
+    annotation.points[0],
+    annotation.points[1],
+    annotation.points[2],
+    annotation.points[3],
+  ] as const;
 });
 
 const lineConfig = computed(() => {
