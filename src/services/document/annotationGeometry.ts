@@ -35,7 +35,12 @@ export interface AnnotationDefaultPreset {
 
 export interface AnnotationGeometryModule<T extends AnnotationStyle = AnnotationStyle> {
   /** ドラッグ開始・終了座標からアノテーション実体を生成する（矩形選択ドラッグに対応する種別用） */
-  createFromDrag(pageNumber: number, start: Point, end: Point, style: DrawingAnnotationStyle): T | null;
+  createFromDrag(
+    pageNumber: number,
+    start: Point,
+    end: Point,
+    style: DrawingAnnotationStyle,
+  ): T | null;
   /** 描画中（ドラッグ中）のプレビュー形状のKonva設定を計算する */
   previewFromDrag(start: Point, end: Point, style: DrawingAnnotationStyle): Record<string, unknown>;
   /** アノテーションの外接矩形（OCR/プレビュー画像切り出し用、少し余白を含む）を計算する */
@@ -47,7 +52,12 @@ export interface AnnotationGeometryModule<T extends AnnotationStyle = Annotation
 const BOUNDING_BOX_PADDING = 2;
 
 /** ドラッグ開始・終了座標から共通のベースフィールドを生成する。strokeColorが不正な場合はnullを返す */
-function buildBaseAnnotation(pageNumber: number, x: number, y: number, style: DrawingAnnotationStyle) {
+function buildBaseAnnotation(
+  pageNumber: number,
+  x: number,
+  y: number,
+  style: DrawingAnnotationStyle,
+) {
   const strokeColor = ColorCode.safeParse(style.strokeColor);
   if (!strokeColor.success) return null;
 
@@ -69,7 +79,12 @@ function buildBaseAnnotation(pageNumber: number, x: number, y: number, style: Dr
 const boxGeometry: AnnotationGeometryModule = {
   createFromDrag(pageNumber, start, end, style) {
     if (style.type !== 'box') return null;
-    const built = buildBaseAnnotation(pageNumber, Math.min(start.x, end.x), Math.min(start.y, end.y), style);
+    const built = buildBaseAnnotation(
+      pageNumber,
+      Math.min(start.x, end.x),
+      Math.min(start.y, end.y),
+      style,
+    );
     if (!built) return null;
 
     return {
@@ -123,7 +138,12 @@ const boxGeometry: AnnotationGeometryModule = {
 };
 
 /** 直線・矢印共通: 起点・終点の外接矩形（線幅を考慮）を計算する */
-function lineLikeBoundingBox(x: number, y: number, points: number[], strokeWidth: number): BoundingBox {
+function lineLikeBoundingBox(
+  x: number,
+  y: number,
+  points: number[],
+  strokeWidth: number,
+): BoundingBox {
   const [, , dx, dy] = points;
   const x2 = x + (dx ?? 2);
   const y2 = y + (dy ?? 2);

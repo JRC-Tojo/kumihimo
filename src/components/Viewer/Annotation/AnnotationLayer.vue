@@ -359,11 +359,9 @@ function updateDrawingPreview(endX: number, endY: number) {
   // 'text'はdocPage.ts側のみに存在する未実装の描画種別のため、幾何レジストリには存在しない
   if (!(style.type in ANNOTATION_GEOMETRY)) return;
 
-  drawingPreviewConfig.value = ANNOTATION_GEOMETRY[style.type as AnnotationStyle['type']].previewFromDrag(
-    startPos.value,
-    { x: endX, y: endY },
-    style,
-  );
+  drawingPreviewConfig.value = ANNOTATION_GEOMETRY[
+    style.type as AnnotationStyle['type']
+  ].previewFromDrag(startPos.value, { x: endX, y: endY }, style);
 }
 
 function syncTransformerSelection() {
