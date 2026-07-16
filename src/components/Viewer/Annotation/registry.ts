@@ -9,7 +9,10 @@
 
 import type { Component } from 'vue';
 import type { AnnotationStyle } from 'src/models/document/pdf';
-import { ANNOTATION_GEOMETRY, type AnnotationGeometryModule } from 'src/services/document/annotationGeometry';
+import {
+  ANNOTATION_GEOMETRY,
+  type AnnotationGeometryModule,
+} from 'src/services/document/annotationGeometry';
 import BoxAnnotation from './BoxAnnotation.vue';
 import LineAnnotation from './LineAnnotation.vue';
 import CircleAnnotation from './CircleAnnotation.vue';
