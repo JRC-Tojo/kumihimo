@@ -32,6 +32,7 @@ import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as annotationService from 'src/services/document/annotation';
 import * as unsavedStateService from 'src/services/document/unsavedState';
+import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import type { Observable } from 'dexie';
 import { initOCR } from 'src/utils/ocr/main';
 
@@ -428,6 +429,34 @@ class BackendApi {
     if (!relRes.ok) return toApiResponse(relRes, 'RELATIONAL_REMOVE_FAILED');
 
     return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
+  }
+
+  /**
+   * 指定したアノテーションの重ね順（最前面/前面/背面/最背面）を変更する
+   *
+   * `annotations`には対象と同じファイルの注釈一覧を渡す
+   */
+  async reorderAnnotation(
+    file: ContainerElementFile,
+    annotations: AnnotationStyle[],
+    annotID: AnnotationID,
+    action: LayerOrderAction,
+  ): Promise<ApiResponse<AnnotationInfo>> {
+    const res = await annotationService.reorderAnnotationStyle(file, annotations, annotID, action);
+    return toApiResponse(res, 'DOC_ANNOT_REORDER_FAILED');
+  }
+
+  /**
+   * 複数のアノテーションを複製し、指定したページへ貼り付ける（ペースト）
+   */
+  async pasteAnnotations(
+    file: ContainerElementFile,
+    sources: AnnotationStyle[],
+    pageNumber: number,
+    offsetStep: number,
+  ): Promise<ApiResponse<AnnotationInfo[]>> {
+    const res = await annotationService.pasteAnnotations(file, sources, pageNumber, offsetStep);
+    return toApiResponse(res, 'DOC_ANNOT_PASTE_FAILED');
   }
 
   /**

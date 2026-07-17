@@ -105,6 +105,45 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
       },
     },
     {
+      id: 'layer-order-menu',
+      icon: 'layers',
+      label: t('pdfEditor.tools.layerOrder.title'),
+      isActive: () => false,
+      onClicked: () => {
+        const subTools: IDocTool[] = [
+          {
+            id: 'layer-order-front',
+            icon: 'flip_to_front',
+            label: t('pdfEditor.tools.layerOrder.bringToFront'),
+            isActive: () => false,
+            onClicked: () => editorStore.requestLayerOrder('front'),
+          },
+          {
+            id: 'layer-order-forward',
+            icon: 'north',
+            label: t('pdfEditor.tools.layerOrder.bringForward'),
+            isActive: () => false,
+            onClicked: () => editorStore.requestLayerOrder('forward'),
+          },
+          {
+            id: 'layer-order-backward',
+            icon: 'south',
+            label: t('pdfEditor.tools.layerOrder.sendBackward'),
+            isActive: () => false,
+            onClicked: () => editorStore.requestLayerOrder('backward'),
+          },
+          {
+            id: 'layer-order-back',
+            icon: 'flip_to_back',
+            label: t('pdfEditor.tools.layerOrder.sendToBack'),
+            isActive: () => false,
+            onClicked: () => editorStore.requestLayerOrder('back'),
+          },
+        ];
+        editorStore.subTools = subTools;
+      },
+    },
+    {
       id: 'toggle-annotation-visibility',
       icon: 'visibility',
       label: t('pdfEditor.tools.annotationToggle'),

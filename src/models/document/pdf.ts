@@ -29,6 +29,8 @@ const AnnotationBase = z.object({
       chat: z.unknown().optional(), // TODO: チャットの形式は要検討
     })
     .default({}),
+  // 重ね順。未設定の場合はcreatedAtを実効的な重ね順キーとして扱う（utils/document/annotationOrder.ts参照）
+  zIndex: z.number().optional(),
 });
 export const BoxAnnotationStyle = AnnotationBase.extend({
   type: z.literal('box'),
@@ -43,7 +45,11 @@ export const LineAnnotationStyle = AnnotationBase.extend({
 export type LineAnnotationStyle = z.infer<typeof LineAnnotationStyle>;
 export const CircleAnnotationStyle = AnnotationBase.extend({
   type: z.literal('circle'),
+  // 後方互換のため維持する正円時の半径。radiusX/radiusY未設定時のフォールバック値として扱う
   radius: z.number().positive(),
+  // 楕円化した場合の水平・垂直半径。省略時はradiusを使用する（正円）
+  radiusX: z.number().positive().optional(),
+  radiusY: z.number().positive().optional(),
 });
 export type CircleAnnotationStyle = z.infer<typeof CircleAnnotationStyle>;
 

@@ -7,7 +7,8 @@
       y: displayAnnotation.y,
       id: displayAnnotation.id,
       draggable: props.isEditing && !!props.isSelected,
-      onDragstart: beginInteraction,
+      dragBoundFunc,
+      onDragstart: onGroupDragStart,
       onDragend: onDragEnd,
     }"
   >
@@ -56,6 +57,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   update: [annotation: ArrowAnnotationStyle];
   delete: [id: AnnotationID];
+  duplicate: [annotation: ArrowAnnotationStyle];
 }>();
 
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
@@ -70,6 +72,9 @@ const {
   displayAnnotation,
   beginInteraction,
   endInteraction,
+  dragBoundFunc,
+  beginBodyDrag,
+  commitBodyDrag,
 } = useAnnotationShape(props);
 
 const arrowPoints = computed(() => {
@@ -165,26 +170,28 @@ function onMouseLeave() {
   isHovered.value = false;
 }
 
-function onDragEnd() {
+function onGroupDragStart() {
   const groupNode = groupRef.value?.getNode();
-  const arrowNode = arrowRef.value?.getNode();
-  if (!arrowNode) {
+  if (groupNode) beginBodyDrag(groupNode);
+  else beginInteraction();
+}
+
+function onDragEnd(e: Konva.KonvaEventObject<Event>) {
+  const groupNode = groupRef.value?.getNode();
+  if (!groupNode) {
     endInteraction();
     return;
   }
 
-  const updated = withUpdatedTimestamp({
-    points: arrowNode.points() as [number, number, number, number],
-    x: groupNode?.x() ?? props.annotation.x,
-    y: groupNode?.y() ?? props.annotation.y,
-  });
-  emit('update', updated);
-  endInteraction(updated);
+  const result = commitBodyDrag(e, { x: groupNode.x(), y: groupNode.y() });
+  if (result.kind === 'duplicate') emit('duplicate', result.annotation);
+  else emit('update', result.annotation);
 }
 
 const { onAnchorDragStart, onAnchorDrag0, onAnchorDrag1, onAnchorDragEnd } = useTwoPointAnchors({
   getShapeNode: () => arrowRef.value?.getNode() ?? null,
   getGroupNode: () => groupRef.value?.getNode() ?? null,
+  getAnchorNode: (idx) => (idx === 0 ? anchor1Ref.value?.getNode() : anchor2Ref.value?.getNode()) ?? null,
   // 頂点ドラッグ確定時: emitした内容をそのままdisplayAnnotationへ反映する。
   // props.annotation（DB反映待ちでまだ古い）へ再同期すると、確定直後に一瞬古い座標へ巻き戻って見えるため
   onCommit: (points) => {

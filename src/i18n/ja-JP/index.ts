@@ -169,6 +169,13 @@ export default {
         registerSuccess: '関係性を登録しました。',
         registerFailed: '関係性の登録に失敗しました。',
       },
+      layerOrder: {
+        title: '重ね順',
+        bringToFront: '最前面へ移動',
+        bringForward: '前面へ移動',
+        sendBackward: '背面へ移動',
+        sendToBack: '最背面へ移動',
+      },
     },
     document: {
       noDocumentSelected: '表示する文書を選択してください',

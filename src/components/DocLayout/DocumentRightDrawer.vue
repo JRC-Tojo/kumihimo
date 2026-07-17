@@ -165,6 +165,8 @@ import { useI18n } from 'vue-i18n';
 interface Prop {
   selectedAnnots: AnnotationStyle[];
   file: ContainerElementFile;
+  /** 選択中の注釈を削除する（useAnnotationActionsの共有実装。DocumentTabView.vueから渡される） */
+  onDeleteSelected: () => Promise<void>;
 }
 const prop = defineProps<Prop>();
 
@@ -217,26 +219,10 @@ const updateAnnotationOpacity = () => {
 /**
  * アノテーションを削除
  *
- * 削除前に紐づいていた関係性の相手ファイルも合わせて再検証し、
- * 開いていないタブ側に孤立した関係性が古いキャッシュとして残らないようにする
+ * 実処理は`useAnnotationActions`（キーボードショートカットのDeleteと共通）に委譲する
  */
 const deleteAnnot = async () => {
-  const edgesBeforeDelete = prop.selectedAnnots.flatMap((annot) =>
-    relationalStore.edgesForAnnotation(annot.id).map((edge) => ({ edge, selfId: annot.id })),
-  );
-
-  const removeRes = await Promise.all(
-    prop.selectedAnnots.map((annot) => api.removeAnnotation(annot.id)),
-  );
-  // TODO: エラーハンドリング
-  removeRes.forEach((res) => {
-    if (!res.ok) console.error(res.error);
-  });
-
-  await relationalStore.refreshFile(prop.file);
-  await Promise.all(
-    edgesBeforeDelete.map(({ edge, selfId }) => refreshBothEndpoints(edge, selfId)),
-  );
+  await prop.onDeleteSelected();
 };
 
 // ================================ 関係性 ================================

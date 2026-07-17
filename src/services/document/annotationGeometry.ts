@@ -103,6 +103,31 @@ function buildBaseAnnotation(
   };
 }
 
+/**
+ * 既存の注釈をもとに、新しいIDを持つ複製オブジェクトを生成する
+ *
+ * ペースト（Ctrl+V）・Ctrl+ドラッグによる複製・（将来の）右クリックメニュー「複製」の
+ * いずれの経路からも共有利用する中心関数。位置・ページ番号以外のフィールド（色・スタイル・
+ * points等）はsourceからそのまま引き継ぐ
+ */
+export function duplicateAnnotation(
+  source: AnnotationStyle,
+  pageNumber: number,
+  x: number,
+  y: number,
+): AnnotationStyle {
+  const now = dayjs().toISOString();
+  return {
+    ...source,
+    id: AnnotationID.parse(uuidv4()),
+    pageNumber,
+    x,
+    y,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 const boxGeometry: AnnotationGeometryModule = {
   drawMode: 'drag',
   createFromDrag(pageNumber, start, end, style) {
@@ -309,13 +334,17 @@ const circleGeometry: AnnotationGeometryModule = {
   },
   boundingBox(style) {
     if (style.type !== 'circle') return { x: 0, y: 0, width: 0, height: 0 };
-    const { x, y, radius } = style;
-    const extent = radius + BOUNDING_BOX_PADDING;
+    const { x, y } = style;
+    // 楕円化されている場合はradiusX/radiusYを使い、未設定（正円）の場合はradiusにフォールバックする
+    const radiusX = style.radiusX ?? style.radius;
+    const radiusY = style.radiusY ?? style.radius;
+    const extentX = radiusX + BOUNDING_BOX_PADDING;
+    const extentY = radiusY + BOUNDING_BOX_PADDING;
     return {
-      x: Math.max(0, x - extent),
-      y: Math.max(0, y - extent),
-      width: extent * 2,
-      height: extent * 2,
+      x: Math.max(0, x - extentX),
+      y: Math.max(0, y - extentY),
+      width: extentX * 2,
+      height: extentY * 2,
     };
   },
   defaultPresets: [

@@ -23,6 +23,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   update: [annotation: TextAnnotationStyle];
   delete: [id: AnnotationID];
+  duplicate: [annotation: TextAnnotationStyle];
 }>();
 
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
@@ -33,8 +34,12 @@ const {
   relationalOverride,
   withUpdatedTimestamp,
   displayAnnotation,
-  beginInteraction,
   endInteraction,
+  dragBoundFunc,
+  beginBodyDrag,
+  commitBodyDrag,
+  beginTransform,
+  applyCenteredCorrection,
 } = useAnnotationShape(props);
 
 const groupConfig = computed(() => ({
@@ -42,9 +47,10 @@ const groupConfig = computed(() => ({
   y: displayAnnotation.value.y,
   id: displayAnnotation.value.id,
   draggable: props.isEditing,
-  onDragstart: beginInteraction,
+  dragBoundFunc,
+  onDragstart: onDragStart,
   onDragend: onDragEnd,
-  onTransformstart: beginInteraction,
+  onTransformstart: onTransformStart,
   onTransform: onTransform,
   onTransformend: onTransformEnd,
 }));
@@ -93,16 +99,20 @@ function getNode() {
 
 defineExpose({ getNode });
 
-function onDragEnd() {
+function onDragStart(e: Konva.KonvaEventObject<Event>) {
+  beginBodyDrag(e.target as Konva.Group);
+}
+
+function onDragEnd(e: Konva.KonvaEventObject<Event>) {
   const groupNode = groupRef.value?.getNode();
   if (!groupNode) {
     endInteraction();
     return;
   }
 
-  const updated = withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y() });
-  emit('update', updated);
-  endInteraction(updated);
+  const result = commitBodyDrag(e, { x: groupNode.x(), y: groupNode.y() });
+  if (result.kind === 'duplicate') emit('duplicate', result.annotation);
+  else emit('update', result.annotation);
 }
 
 /**
@@ -125,13 +135,27 @@ function syncNodeGeometry(groupNode: Konva.Group) {
   return { width: nextWidth, height: nextHeight };
 }
 
+function onTransformStart(e: Konva.KonvaEventObject<Event>) {
+  const groupNode = e.target as Konva.Group;
+  const rectNode = rectRef.value?.getNode();
+  beginTransform({
+    x: groupNode.x(),
+    y: groupNode.y(),
+    width: rectNode?.width() ?? props.annotation.width,
+    height: rectNode?.height() ?? props.annotation.height,
+  });
+}
+
 function onTransform(e: Konva.KonvaEventObject<Event>) {
-  syncNodeGeometry(e.target as Konva.Group);
+  const groupNode = e.target as Konva.Group;
+  const { width, height } = syncNodeGeometry(groupNode);
+  applyCenteredCorrection(groupNode, { width, height });
 }
 
 function onTransformEnd(e: Konva.KonvaEventObject<Event>) {
   const groupNode = e.target as Konva.Group;
   const { width, height } = syncNodeGeometry(groupNode);
+  applyCenteredCorrection(groupNode, { width, height });
 
   const updated = withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y(), width, height });
   emit('update', updated);

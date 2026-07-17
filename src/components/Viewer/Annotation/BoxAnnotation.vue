@@ -2,9 +2,9 @@
   <v-rect
     ref="rectRef"
     :config="rectConfig"
-    @dragstart="beginInteraction"
+    @dragstart="onDragStart"
     @dragend="onDragEnd"
-    @transformstart="beginInteraction"
+    @transformstart="onTransformStart"
     @transform="onTransform"
     @transformend="onTransformEnd"
   />
@@ -29,6 +29,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   update: [annotation: AnnotationStyle];
   delete: [id: AnnotationID];
+  duplicate: [annotation: AnnotationStyle];
 }>();
 
 const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
@@ -37,8 +38,12 @@ const {
   relationalOverride,
   withUpdatedTimestamp,
   displayAnnotation,
-  beginInteraction,
   endInteraction,
+  dragBoundFunc,
+  beginBodyDrag,
+  commitBodyDrag,
+  beginTransform,
+  applyCenteredCorrection,
 } = useAnnotationShape(props);
 
 const rectConfig = computed(() => {
@@ -55,6 +60,7 @@ const rectConfig = computed(() => {
     stroke: relationalOverride.value?.stroke ?? annotation.color,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     draggable: props.isEditing,
+    dragBoundFunc,
     opacity: annotation.opacity || 1,
   };
 });
@@ -65,11 +71,15 @@ function getNode() {
 
 defineExpose({ getNode });
 
+function onDragStart(e: KonvaEvent) {
+  beginBodyDrag(e.target as Konva.Rect);
+}
+
 function onDragEnd(e: KonvaEvent) {
   const target = e.target as Konva.Rect;
-  const updated = withUpdatedTimestamp({ x: target.x(), y: target.y() });
-  emit('update', updated);
-  endInteraction(updated);
+  const result = commitBodyDrag(e, { x: target.x(), y: target.y() });
+  if (result.kind === 'duplicate') emit('duplicate', result.annotation);
+  else emit('update', result.annotation);
 }
 
 /**
@@ -91,14 +101,21 @@ function syncNodeGeometry(node: Konva.Rect) {
   return { width: nextWidth, height: nextHeight };
 }
 
+function onTransformStart(e: KonvaEvent) {
+  const node = e.target as Konva.Rect;
+  beginTransform({ x: node.x(), y: node.y(), width: node.width(), height: node.height() });
+}
+
 function onTransform(e: KonvaEvent) {
   const node = e.target as Konva.Rect;
-  syncNodeGeometry(node);
+  const { width, height } = syncNodeGeometry(node);
+  applyCenteredCorrection(node, { width, height });
 }
 
 function onTransformEnd(e: KonvaEvent) {
   const node = e.target as Konva.Rect;
   const { width, height } = syncNodeGeometry(node);
+  applyCenteredCorrection(node, { width, height });
 
   const updated = withUpdatedTimestamp({ x: node.x(), y: node.y(), width, height });
   emit('update', updated);

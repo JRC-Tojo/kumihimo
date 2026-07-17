@@ -3,8 +3,9 @@ import { defineStore, acceptHMRUpdate } from 'pinia';
 import { nextTick } from 'vue';
 import type { ContainerElement, ContainerElementFile, ContainerID } from 'src/models/container';
 import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
-import type { AnnotationID } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
+import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
 const sides = ['ul', 'ur', 'll', 'lr'] as const;
@@ -81,6 +82,16 @@ export const useEditorStore = defineStore('editor', {
     // 削除によるタブクローズの対象（tabKey）。DocumentTabView等がonBeforeUnmount時に
     // 「削除によるクローズか、通常のタブクローズか」を判別するための一時的なマーカー
     deletingTabKeys: new Set<string>(),
+
+    // アノテーションのアプリ内クリップボード（OSクリップボードは使わない。explorerStore.clipboardと同じ思想）
+    annotationClipboard: null as AnnotationStyle[] | null,
+    // 連続ペースト時に少しずつ位置をずらすためのカウンタ。コピーのたびにリセットする
+    annotationClipboardPasteCount: 0,
+
+    // 重ね順操作の意図フラグ（relationalModeと同じパターン）。
+    // ツールバー（MainTools/SubTools）は選択状態を持たないため、意図だけをここにセットし、
+    // 実際の処理は選択状態を持つDocumentTabView側でwatchして実行する
+    layerOrderAction: undefined as LayerOrderAction | undefined,
   }),
 
   actions: {
@@ -314,6 +325,45 @@ export const useEditorStore = defineStore('editor', {
         const newPendingPath = pathMap[pendingFile.path];
         if (newPendingPath !== undefined) pendingFile.path = newPendingPath;
       }
+    },
+
+    /**
+     * アノテーションのアプリ内クリップボードにコピーする（ペースト回数カウンタもリセットする）
+     */
+    setAnnotationClipboard(items: AnnotationStyle[]): void {
+      this.annotationClipboard = items;
+      this.annotationClipboardPasteCount = 0;
+    },
+
+    /**
+     * アノテーションのアプリ内クリップボードを空にする
+     */
+    clearAnnotationClipboard(): void {
+      this.annotationClipboard = null;
+      this.annotationClipboardPasteCount = 0;
+    },
+
+    /**
+     * ペースト回数カウンタをインクリメントする（連続ペースト時に貼り付け位置を少しずつずらすため）
+     */
+    incrementClipboardPasteCount(): void {
+      this.annotationClipboardPasteCount += 1;
+    },
+
+    /**
+     * 重ね順操作（最前面/前面/背面/最背面）の意図をセットする
+     *
+     * 実際の対象（選択中の注釈）解決と実行は、選択状態を持つDocumentTabView側のwatchで行う
+     */
+    requestLayerOrder(action: LayerOrderAction): void {
+      this.layerOrderAction = action;
+    },
+
+    /**
+     * 重ね順操作の意図フラグを解除する
+     */
+    clearLayerOrderAction(): void {
+      this.layerOrderAction = undefined;
     },
 
     /**

@@ -3,19 +3,35 @@
  *
  * Vue 3の単一ファイルコンポーネントはクラス継承をサポートしないため、
  * 各アノテーション種別のコンポーネントに共通するロジック（関係性検証結果によるスタイル上書き、
- * 更新後オブジェクトの生成）は継承の代わりにコンポーザブルとして合成する。
+ * 更新後オブジェクトの生成、ドラッグ・変形時のショートカット挙動）は継承の代わりに
+ * コンポーザブルとして合成する。
  */
 
 import { computed, ref, watch, type Ref } from 'vue';
 import dayjs from 'dayjs';
+import type Konva from 'konva';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { useRelationalStore } from 'src/stores/relationalStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import { getRelationalStyleOverride } from '../relationalStyleOverride';
+import { useModifierKeys } from './useModifierKeys';
+import { duplicateAnnotation } from 'src/services/document/annotationGeometry';
+import {
+  lockToDominantAxis,
+  applyCenteredResize,
+  type Point,
+  type Box,
+} from 'src/utils/document/annotationDrag';
+
+type KonvaEvent = Konva.KonvaEventObject<Event>;
+
+/** ボディドラッグ確定時の結果。呼び出し元のコンポーネントはこの種別に応じてemitを出し分ける */
+export type BodyDragCommit<T> = { kind: 'update' | 'duplicate'; annotation: T };
 
 export function useAnnotationShape<T extends AnnotationStyle>(props: { annotation: T }) {
   const relationalStore = useRelationalStore();
   const settingsStore = useSettingsStore();
+  const { shiftKey, ctrlKey } = useModifierKeys();
 
   // 関係性の検証結果（OK/NG）による表示上書き。関連なし・検証保留中はundefined（元のスタイルを維持）
   const relationalOverride = computed(() =>
@@ -62,11 +78,96 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
     displayAnnotation.value = committed ?? props.annotation;
   }
 
+  // ============ ボディドラッグ（Shift軸ロック・Ctrl複製） ============
+
+  // ドラッグ開始時の絶対座標（dragBoundFuncは絶対座標基準のため、拡大縮小・パン中でも
+  // 正しく軸ロックできるよう絶対座標で保持する）
+  const dragStartAbsPos = ref<Point | null>(null);
+
+  /** ボディドラッグ開始時に呼ぶ。beginInteractionに加え、軸ロックの基準座標を保持する */
+  function beginBodyDrag(node: Konva.Node) {
+    beginInteraction();
+    dragStartAbsPos.value = node.getAbsolutePosition();
+  }
+
+  /**
+   * ドラッグ中の位置を制限するKonva用コールバック（Shift+dragで水平・垂直方向に制限する）
+   *
+   * ノードの`dragBoundFunc`設定にそのまま渡すことを想定している
+   */
+  function dragBoundFunc(pos: Point): Point {
+    if (!shiftKey.value || !dragStartAbsPos.value) return pos;
+    return lockToDominantAxis(dragStartAbsPos.value, pos);
+  }
+
+  /**
+   * ボディドラッグ終了時の共通コミット処理
+   *
+   * Ctrl押下中は元のアノテーションを変更せず、複製オブジェクトを新規作成する（Ctrl+drag複製）。
+   * それ以外は通常通りpatchを反映して更新する。呼び出し元は戻り値の`kind`に応じて
+   * `update`/`duplicate`いずれかのemitを行うこと
+   */
+  function commitBodyDrag(e: KonvaEvent, patch: { x: number; y: number }): BodyDragCommit<T> {
+    if (ctrlKey.value) {
+      const duplicated = duplicateAnnotation(
+        props.annotation,
+        props.annotation.pageNumber,
+        patch.x,
+        patch.y,
+      ) as T;
+      // 元のアノテーションは変更していないため、props.annotation（＝変更前の位置）へ戻す
+      endInteraction();
+      return { kind: 'duplicate', annotation: duplicated };
+    }
+
+    const updated = withUpdatedTimestamp(patch);
+    endInteraction(updated);
+    return { kind: 'update', annotation: updated };
+  }
+
+  // ============ Transformer変形（Ctrl中心固定リサイズ、Box/Text向け） ============
+
+  // 変形開始時のbox（左上原点のシェイプ専用。Circleは中心原点のため個別に扱う）
+  const transformStartBox = ref<Box | null>(null);
+
+  /**
+   * Transformer変形開始時に呼ぶ。beginInteractionに加え、中心固定補正の基準boxを保持する
+   *
+   * `box`には変形対象の現在のx/y（左上）・width/height を渡すこと。KonvaのGroupノードは
+   * 自身のwidth()/height()が実際の見た目のサイズと一致するとは限らない（例: TextBoxAnnotationの
+   * 背景矩形は子要素にサイズを持つ）ため、ノードから直接読み取らず呼び出し元に計算させる
+   */
+  function beginTransform(box: Box) {
+    beginInteraction();
+    transformStartBox.value = box;
+  }
+
+  /**
+   * Ctrl押下時のみ、中心固定になるようノードのx/yを補正する（左上原点のシェイプ専用）
+   *
+   * `newSize`にはリサイズ後の幅・高さを渡す。呼び出し元でscaleX/scaleYをリセットした後に呼ぶこと
+   */
+  function applyCenteredCorrection(
+    node: Konva.Node,
+    newSize: { width: number; height: number },
+  ): void {
+    if (!ctrlKey.value || !transformStartBox.value) return;
+    const corrected = applyCenteredResize(transformStartBox.value, newSize);
+    node.setAttrs({ x: corrected.x, y: corrected.y });
+  }
+
   return {
     relationalOverride,
     withUpdatedTimestamp,
     displayAnnotation,
     beginInteraction,
     endInteraction,
+    shiftKey,
+    ctrlKey,
+    beginBodyDrag,
+    dragBoundFunc,
+    commitBodyDrag,
+    beginTransform,
+    applyCenteredCorrection,
   };
 }

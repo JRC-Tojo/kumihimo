@@ -567,13 +567,14 @@ export async function embedAnnotationsIntoPdf(
           color: rgb(color.r, color.g, color.b),
         });
       } else if (a.type === 'circle') {
-        const { x, y, radius } = a;
+        const { x, y, radius, radiusX, radiusY } = a;
         const pageHeight = page.getSize().height;
         page.drawEllipse({
           x,
           y: pageHeight - y,
-          xScale: radius,
-          yScale: radius,
+          // 楕円化されている場合はradiusX/radiusYを使い、未設定（正円）の場合はradiusにフォールバックする
+          xScale: radiusX ?? radius,
+          yScale: radiusY ?? radius,
           borderColor: rgb(color.r, color.g, color.b),
           borderWidth: strokeWidth,
           opacity,

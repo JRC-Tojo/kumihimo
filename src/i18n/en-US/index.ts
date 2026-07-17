@@ -170,6 +170,13 @@ export default {
         registerSuccess: 'Relationship registered.',
         registerFailed: 'Failed to register the relationship.',
       },
+      layerOrder: {
+        title: 'Layer Order',
+        bringToFront: 'Bring to Front',
+        bringForward: 'Bring Forward',
+        sendBackward: 'Send Backward',
+        sendToBack: 'Send to Back',
+      },
     },
     document: {
       noDocumentSelected: 'No document selected',

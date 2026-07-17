@@ -7,7 +7,8 @@
       y: displayAnnotation.y,
       id: displayAnnotation.id,
       draggable: props.isEditing && !!props.isSelected,
-      onDragstart: beginInteraction,
+      dragBoundFunc,
+      onDragstart: onGroupDragStart,
       onDragend: onDragEnd,
     }"
   >
@@ -51,6 +52,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   update: [annotation: PolylineAnnotationStyle];
   delete: [id: AnnotationID];
+  duplicate: [annotation: PolylineAnnotationStyle];
 }>();
 
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
@@ -63,6 +65,9 @@ const {
   displayAnnotation,
   beginInteraction,
   endInteraction,
+  dragBoundFunc,
+  beginBodyDrag,
+  commitBodyDrag,
 } = useAnnotationShape(props);
 
 const shapeConfig = computed(() => {
@@ -113,21 +118,23 @@ function onMouseLeave() {
   isHovered.value = false;
 }
 
-function onDragEnd() {
+function onGroupDragStart() {
   const groupNode = groupRef.value?.getNode();
-  const shapeNode = shapeRef.value?.getNode();
-  if (!shapeNode) {
+  if (groupNode) beginBodyDrag(groupNode);
+  else beginInteraction();
+}
+
+function onDragEnd(e: Konva.KonvaEventObject<Event>) {
+  const groupNode = groupRef.value?.getNode();
+  if (!groupNode) {
     endInteraction();
     return;
   }
 
-  const updated = withUpdatedTimestamp({
-    points: shapeNode.points(),
-    x: groupNode?.x() ?? props.annotation.x,
-    y: groupNode?.y() ?? props.annotation.y,
-  });
-  emit('update', updated);
-  endInteraction(updated);
+  const result = commitBodyDrag(e, { x: groupNode.x(), y: groupNode.y() });
+  if (result.kind === 'duplicate') emit('duplicate', result.annotation);
+  else emit('update', result.annotation);
+  endInteraction(result.annotation);
 }
 
 const { onAnchorDragStart, onAnchorDrag, onAnchorDragEnd } = useMultiPointAnchors({

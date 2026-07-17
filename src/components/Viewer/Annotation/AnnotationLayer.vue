@@ -20,6 +20,7 @@
           :is-selected="selectedAnnotIds.includes(annotation.id)"
           @update="onRegisterAnnot"
           @delete="onRemoveAnnot"
+          @duplicate="onRegisterAnnot"
         />
 
         <component
@@ -62,6 +63,7 @@ import {
   type Point,
 } from 'src/services/document/annotationGeometry';
 import { ANNOTATION_REGISTRY } from './registry';
+import { getAnnotationSortKey } from 'src/utils/document/annotationOrder';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -127,6 +129,9 @@ const transformerConfig = computed(() => ({
     -180, -150, -120, -90, -60, -45, -30, -15, 0, 15, 30, 45, 60, 90, 120, 135, 150, 180, 270,
   ],
   rotationSnapTolerance: 30,
+  // コーナードラッグは既定で自由変形にする（要件5）。Konva標準の`keepRatio() || e.shiftKey`により、
+  // Shift押下時のみ縦横比維持に自動的に切り替わる（要件6。追加実装不要）
+  keepRatio: false,
 }));
 const selectedTransformableIds = computed(() =>
   props.annotations
@@ -168,12 +173,14 @@ const editingTextAnnotation = computed<TextAnnotationStyle | null>(() => {
 });
 
 // テキスト編集中のアノテーションはKonva側の描画から除外する。
-// <textarea>オーバーレイに表示は完全に一任し、確定前の古いテキストが背後に二重表示されるのを防ぐ
-const visibleAnnotations = computed(() =>
-  editingTextId.value
+// <textarea>オーバーレイに表示は完全に一任し、確定前の古いテキストが背後に二重表示されるのを防ぐ。
+// 重ね順（zIndex未設定の場合はcreatedAt）の昇順で並べることで、後に描画される＝手前に表示される
+const visibleAnnotations = computed(() => {
+  const filtered = editingTextId.value
     ? props.annotations.filter((a) => a.id !== editingTextId.value)
-    : props.annotations,
-);
+    : props.annotations;
+  return [...filtered].sort((a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b));
+});
 
 const editingTextStyle = computed(() => {
   const annotation = editingTextAnnotation.value;
