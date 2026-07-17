@@ -64,13 +64,23 @@ const anchor1Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const anchor2Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const isHovered = ref(false);
 
-const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
-  useAnnotationShape(props);
+const {
+  relationalOverride,
+  withUpdatedTimestamp,
+  displayAnnotation,
+  beginInteraction,
+  endInteraction,
+} = useAnnotationShape(props);
 
 const arrowPoints = computed(() => {
   const annotation = displayAnnotation.value;
   if (annotation.points.length !== 4) return [0, 0, 0, 0] as const;
-  return [annotation.points[0], annotation.points[1], annotation.points[2], annotation.points[3]] as const;
+  return [
+    annotation.points[0],
+    annotation.points[1],
+    annotation.points[2],
+    annotation.points[3],
+  ] as const;
 });
 
 const arrowConfig = computed(() => {

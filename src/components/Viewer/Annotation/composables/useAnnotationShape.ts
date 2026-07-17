@@ -62,5 +62,11 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
     displayAnnotation.value = committed ?? props.annotation;
   }
 
-  return { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction };
+  return {
+    relationalOverride,
+    withUpdatedTimestamp,
+    displayAnnotation,
+    beginInteraction,
+    endInteraction,
+  };
 }

@@ -33,7 +33,12 @@ function endDrawingAnnotation(
   const module = ANNOTATION_GEOMETRY[annotationStyle.type];
   if (module.drawMode !== 'drag') return null;
 
-  return module.createFromDrag(pageNumber, { x: startX, y: startY }, { x: endX, y: endY }, annotationStyle);
+  return module.createFromDrag(
+    pageNumber,
+    { x: startX, y: startY },
+    { x: endX, y: endY },
+    annotationStyle,
+  );
 }
 
 /**

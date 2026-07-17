@@ -36,8 +36,13 @@ const emit = defineEmits<{
 const circleRef = ref<{ getNode: () => Konva.Circle | null } | null>(null);
 const isHovered = ref(false);
 
-const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
-  useAnnotationShape(props);
+const {
+  relationalOverride,
+  withUpdatedTimestamp,
+  displayAnnotation,
+  beginInteraction,
+  endInteraction,
+} = useAnnotationShape(props);
 
 const circleConfig = computed(() => {
   const annotation = displayAnnotation.value;

@@ -33,8 +33,13 @@ const emit = defineEmits<{
 
 const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 
-const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
-  useAnnotationShape(props);
+const {
+  relationalOverride,
+  withUpdatedTimestamp,
+  displayAnnotation,
+  beginInteraction,
+  endInteraction,
+} = useAnnotationShape(props);
 
 const rectConfig = computed(() => {
   const annotation = displayAnnotation.value;

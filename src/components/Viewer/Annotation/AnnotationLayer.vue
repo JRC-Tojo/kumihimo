@@ -56,7 +56,11 @@ import dayjs from 'dayjs';
 import { createAnnotationFromPoints, startDrawingAnnotation } from './annotationDrawingManager';
 import { useEditorStore } from 'src/stores/editorStore';
 import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
-import { ANNOTATION_GEOMETRY, type ClickPointsDrawModule, type Point } from 'src/services/document/annotationGeometry';
+import {
+  ANNOTATION_GEOMETRY,
+  type ClickPointsDrawModule,
+  type Point,
+} from 'src/services/document/annotationGeometry';
 import { ANNOTATION_REGISTRY } from './registry';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
@@ -166,7 +170,9 @@ const editingTextAnnotation = computed<TextAnnotationStyle | null>(() => {
 // テキスト編集中のアノテーションはKonva側の描画から除外する。
 // <textarea>オーバーレイに表示は完全に一任し、確定前の古いテキストが背後に二重表示されるのを防ぐ
 const visibleAnnotations = computed(() =>
-  editingTextId.value ? props.annotations.filter((a) => a.id !== editingTextId.value) : props.annotations,
+  editingTextId.value
+    ? props.annotations.filter((a) => a.id !== editingTextId.value)
+    : props.annotations,
 );
 
 const editingTextStyle = computed(() => {
@@ -270,7 +276,11 @@ function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<
   const origin = clickPointsBuffer.value[0];
   if (origin) {
     const screenDistance = Math.hypot(pos.x - origin.x, pos.y - origin.y) * scale.value;
-    if (geometry.closable && clickPointsBuffer.value.length >= 3 && screenDistance <= CLOSE_THRESHOLD_PX) {
+    if (
+      geometry.closable &&
+      clickPointsBuffer.value.length >= 3 &&
+      screenDistance <= CLOSE_THRESHOLD_PX
+    ) {
       finishClickPointsDrawing();
       return;
     }

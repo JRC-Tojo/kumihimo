@@ -57,8 +57,13 @@ const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
 const shapeRef = ref<{ getNode: () => Konva.Line | null } | null>(null);
 const isHovered = ref(false);
 
-const { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction } =
-  useAnnotationShape(props);
+const {
+  relationalOverride,
+  withUpdatedTimestamp,
+  displayAnnotation,
+  beginInteraction,
+  endInteraction,
+} = useAnnotationShape(props);
 
 const shapeConfig = computed(() => {
   const annotation = displayAnnotation.value;
@@ -79,7 +84,13 @@ const shapeConfig = computed(() => {
 
 const anchorConfigs = computed(() => {
   const annotation = displayAnnotation.value;
-  return buildPointAnchorConfigs(annotation.points, annotation.color, annotation.id, props.isEditing, !!props.isSelected);
+  return buildPointAnchorConfigs(
+    annotation.points,
+    annotation.color,
+    annotation.id,
+    props.isEditing,
+    !!props.isSelected,
+  );
 });
 
 function getNode() {

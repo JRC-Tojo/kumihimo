@@ -11,7 +11,8 @@ function asDragModule<T extends AnnotationStyle>(module: AnnotationGeometryModul
 
 /** drawMode: 'clickPoints' であることを型で確定させるためのテスト用ヘルパー */
 function asClickPointsModule<T extends AnnotationStyle>(module: AnnotationGeometryModule<T>) {
-  if (module.drawMode !== 'clickPoints') throw new Error('expected a clickPoints-mode geometry module');
+  if (module.drawMode !== 'clickPoints')
+    throw new Error('expected a clickPoints-mode geometry module');
   return module;
 }
 
@@ -95,7 +96,12 @@ const textStyle: DrawingAnnotationStyle = {
 
 describe('ANNOTATION_GEOMETRY', () => {
   it('box: createFromDragはドラッグ矩形からwidth/heightを計算する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.box).createFromDrag(1, { x: 10, y: 20 }, { x: 30, y: 50 }, boxStyle);
+    const created = asDragModule(ANNOTATION_GEOMETRY.box).createFromDrag(
+      1,
+      { x: 10, y: 20 },
+      { x: 30, y: 50 },
+      boxStyle,
+    );
     expect(created).not.toBeNull();
     if (!created || created.type !== 'box') throw new Error('unexpected type');
     expect(created.x).toBe(10);
@@ -105,7 +111,12 @@ describe('ANNOTATION_GEOMETRY', () => {
   });
 
   it('line: createFromDragはstartを起点としたpointsを生成する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.line).createFromDrag(1, { x: 5, y: 5 }, { x: 15, y: 25 }, lineStyle);
+    const created = asDragModule(ANNOTATION_GEOMETRY.line).createFromDrag(
+      1,
+      { x: 5, y: 5 },
+      { x: 15, y: 25 },
+      lineStyle,
+    );
     expect(created).not.toBeNull();
     if (!created || created.type !== 'line') throw new Error('unexpected type');
     expect(created.x).toBe(5);
@@ -114,7 +125,12 @@ describe('ANNOTATION_GEOMETRY', () => {
   });
 
   it('circle: createFromDragはドラッグの中点と半径を計算する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.circle).createFromDrag(1, { x: 0, y: 0 }, { x: 6, y: 8 }, circleStyle);
+    const created = asDragModule(ANNOTATION_GEOMETRY.circle).createFromDrag(
+      1,
+      { x: 0, y: 0 },
+      { x: 6, y: 8 },
+      circleStyle,
+    );
     expect(created).not.toBeNull();
     if (!created || created.type !== 'circle') throw new Error('unexpected type');
     expect(created.x).toBe(3);
@@ -123,7 +139,12 @@ describe('ANNOTATION_GEOMETRY', () => {
   });
 
   it('arrow: createFromDragはlineと同じpoints規約に矢じり設定を加えて生成する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.arrow).createFromDrag(1, { x: 0, y: 0 }, { x: 10, y: 0 }, arrowStyle);
+    const created = asDragModule(ANNOTATION_GEOMETRY.arrow).createFromDrag(
+      1,
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      arrowStyle,
+    );
     expect(created).not.toBeNull();
     if (!created || created.type !== 'arrow') throw new Error('unexpected type');
     expect(created.points).toEqual([0, 0, 10, 0]);
@@ -134,7 +155,12 @@ describe('ANNOTATION_GEOMETRY', () => {
 
   it('createFromDragは不正なstrokeColorに対してnullを返す', () => {
     const invalidStyle = { ...arrowStyle, strokeColor: 'not-a-color' };
-    const created = asDragModule(ANNOTATION_GEOMETRY.arrow).createFromDrag(1, { x: 0, y: 0 }, { x: 10, y: 0 }, invalidStyle);
+    const created = asDragModule(ANNOTATION_GEOMETRY.arrow).createFromDrag(
+      1,
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      invalidStyle,
+    );
     expect(created).toBeNull();
   });
 
@@ -185,7 +211,11 @@ describe('ANNOTATION_GEOMETRY', () => {
       { x: 30, y: 10 },
       { x: 30, y: 40 },
     ];
-    const created = asClickPointsModule(ANNOTATION_GEOMETRY.polyline).createFromPoints(1, points, polylineStyle);
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.polyline).createFromPoints(
+      1,
+      points,
+      polylineStyle,
+    );
     expect(created).not.toBeNull();
     if (!created || created.type !== 'polyline') throw new Error('unexpected type');
     expect(created.x).toBe(10);
@@ -209,7 +239,11 @@ describe('ANNOTATION_GEOMETRY', () => {
       { x: 20, y: 0 },
       { x: 10, y: 20 },
     ];
-    const created = asClickPointsModule(ANNOTATION_GEOMETRY.polygon).createFromPoints(1, points, polygonStyle);
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.polygon).createFromPoints(
+      1,
+      points,
+      polygonStyle,
+    );
     expect(created).not.toBeNull();
     if (!created || created.type !== 'polygon') throw new Error('unexpected type');
     expect(created.points).toEqual([0, 0, 20, 0, 10, 20]);
@@ -234,7 +268,12 @@ describe('ANNOTATION_GEOMETRY', () => {
   });
 
   it('text: createFromDragは矩形サイズと初期値を持つテキストボックスを生成する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.text).createFromDrag(1, { x: 10, y: 10 }, { x: 110, y: 60 }, textStyle);
+    const created = asDragModule(ANNOTATION_GEOMETRY.text).createFromDrag(
+      1,
+      { x: 10, y: 10 },
+      { x: 110, y: 60 },
+      textStyle,
+    );
     expect(created).not.toBeNull();
     if (!created || created.type !== 'text') throw new Error('unexpected type');
     expect(created.width).toBe(100);
