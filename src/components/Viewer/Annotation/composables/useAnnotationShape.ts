@@ -48,10 +48,18 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
     isInteracting.value = true;
   }
 
-  /** ジェスチャー終了時に呼び、props追従を再開する（確定直後の最新値へ即座に再同期する） */
-  function endInteraction() {
+  /**
+   * ジェスチャー終了時に呼び、props追従を再開する。
+   *
+   * `committed`にはこのジェスチャーで実際にemitした（=これからDB書き込みが反映されるはずの）
+   * annotationを渡すこと。ここで`props.annotation`へ再同期すると、DB書き込み～liveQueryの
+   * emitが返ってくるまでの間はまだ古い値のままなので、確定直後に一瞬古い座標へ巻き戻って見える
+   * （がたつきの逆再発）。ジェスチャーで確定した値をそのまま表示し続け、後から追従してくる
+   * props.annotationが同内容になった時点で自然に引き継ぐようにする。
+   */
+  function endInteraction(committed?: T) {
     isInteracting.value = false;
-    displayAnnotation.value = props.annotation;
+    displayAnnotation.value = committed ?? props.annotation;
   }
 
   return { relationalOverride, withUpdatedTimestamp, displayAnnotation, beginInteraction, endInteraction };

@@ -108,8 +108,13 @@ async function loadAnnotContent(
     annotationInfo.context.text = text;
   }
 
-  // 更新版のアノテーション情報を登録する
-  const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
+  // 抽出したテキストのみをDBへ反映する。
+  // OCR完了まで時間がかかるため、ここで`annotationInfo`（呼び出し時点のstyleを保持したまま）を
+  // まるごと書き戻すと、処理中に行われた頂点ドラッグ等の編集結果を古いstyleで上書きしてしまう
+  const saveRes = await annotationRepository.updateAnnotationContentText(
+    annotationInfo.style.id,
+    annotationInfo.context.text ?? '',
+  );
   if (!saveRes.ok) return saveRes;
 
   return Success();

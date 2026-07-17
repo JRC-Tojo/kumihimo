@@ -72,8 +72,9 @@ function onMouseLeave() {
 
 function onDragEnd(e: KonvaEvent) {
   const target = e.target as Konva.Circle;
-  emit('update', withUpdatedTimestamp({ x: target.x(), y: target.y() }));
-  endInteraction();
+  const updated = withUpdatedTimestamp({ x: target.x(), y: target.y() });
+  emit('update', updated);
+  endInteraction(updated);
 }
 
 function syncNodeGeometry(node: Konva.Circle) {
@@ -97,8 +98,9 @@ function onTransformEnd(e: KonvaEvent) {
   const node = e.target as Konva.Circle;
   syncNodeGeometry(node);
 
-  emit('update', withUpdatedTimestamp({ x: node.x(), y: node.y(), radius: node.radius() }));
-  endInteraction();
+  const updated = withUpdatedTimestamp({ x: node.x(), y: node.y(), radius: node.radius() });
+  emit('update', updated);
+  endInteraction(updated);
 }
 </script>
 

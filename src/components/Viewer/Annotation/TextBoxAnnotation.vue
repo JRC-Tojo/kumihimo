@@ -100,8 +100,9 @@ function onDragEnd() {
     return;
   }
 
-  emit('update', withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y() }));
-  endInteraction();
+  const updated = withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y() });
+  emit('update', updated);
+  endInteraction(updated);
 }
 
 /**
@@ -132,8 +133,9 @@ function onTransformEnd(e: Konva.KonvaEventObject<Event>) {
   const groupNode = e.target as Konva.Group;
   const { width, height } = syncNodeGeometry(groupNode);
 
-  emit('update', withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y(), width, height }));
-  endInteraction();
+  const updated = withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y(), width, height });
+  emit('update', updated);
+  endInteraction(updated);
 }
 </script>
 

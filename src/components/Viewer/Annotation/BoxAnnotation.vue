@@ -62,8 +62,9 @@ defineExpose({ getNode });
 
 function onDragEnd(e: KonvaEvent) {
   const target = e.target as Konva.Rect;
-  emit('update', withUpdatedTimestamp({ x: target.x(), y: target.y() }));
-  endInteraction();
+  const updated = withUpdatedTimestamp({ x: target.x(), y: target.y() });
+  emit('update', updated);
+  endInteraction(updated);
 }
 
 /**
@@ -94,8 +95,9 @@ function onTransformEnd(e: KonvaEvent) {
   const node = e.target as Konva.Rect;
   const { width, height } = syncNodeGeometry(node);
 
-  emit('update', withUpdatedTimestamp({ x: node.x(), y: node.y(), width, height }));
-  endInteraction();
+  const updated = withUpdatedTimestamp({ x: node.x(), y: node.y(), width, height });
+  emit('update', updated);
+  endInteraction(updated);
 }
 </script>
 

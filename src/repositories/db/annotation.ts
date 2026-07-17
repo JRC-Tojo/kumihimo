@@ -124,6 +124,30 @@ export async function addAnnotationInfos(
 }
 
 /**
+ * アノテーションのOCR/テキスト抽出結果（`context.text`）のみをDBへ反映する
+ *
+ * OCR処理は非同期で時間がかかるため、完了時には呼び出し時点で捕捉した`style`（位置・形状）が
+ * 別の編集によって古くなっている可能性がある。`addAnnotationInfos`のようにレコード全体を
+ * `bulkPut`で上書きすると、その間に行われた頂点ドラッグ等の編集結果を古い`style`で
+ * 巻き戻してしまうため、`context.text`のみをドット記法で部分更新し、styleには触れない
+ */
+export async function updateAnnotationContentText(
+  annotID: AnnotationID,
+  text: string,
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    // 対象レコードが編集や削除で既に存在しない場合、updateは何もせず0を返す（エラーにはならない）
+    await db.annotations.update(annotID, { 'annotationInfo.context.text': text });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * 特定ファイルのアノテーションDBレコードをすべて削除する
  *
  * 「保存せず閉じる」際、仮登録・確定済み問わずこのファイルの記録を一旦すべて消し去り、

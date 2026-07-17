@@ -26,7 +26,7 @@
         :config="anchor"
         @dragstart="wrappedAnchorDragStart"
         @dragmove="(e: Konva.KonvaEventObject<MouseEvent>) => onAnchorDrag(i, e)"
-        @dragend="wrappedAnchorDragEnd"
+        @dragend="onAnchorDragEnd"
       />
     </template>
   </v-group>
@@ -105,34 +105,36 @@ function onMouseLeave() {
 function onDragEnd() {
   const groupNode = groupRef.value?.getNode();
   const shapeNode = shapeRef.value?.getNode();
-  if (!shapeNode) return;
+  if (!shapeNode) {
+    endInteraction();
+    return;
+  }
 
-  emit(
-    'update',
-    withUpdatedTimestamp({
-      points: shapeNode.points(),
-      x: groupNode?.x() ?? props.annotation.x,
-      y: groupNode?.y() ?? props.annotation.y,
-    }),
-  );
-  endInteraction();
+  const updated = withUpdatedTimestamp({
+    points: shapeNode.points(),
+    x: groupNode?.x() ?? props.annotation.x,
+    y: groupNode?.y() ?? props.annotation.y,
+  });
+  emit('update', updated);
+  endInteraction(updated);
 }
 
 const { onAnchorDragStart, onAnchorDrag, onAnchorDragEnd } = useMultiPointAnchors({
   getShapeNode: () => shapeRef.value?.getNode() ?? null,
   getGroupNode: () => groupRef.value?.getNode() ?? null,
-  onCommit: (points) => emit('update', withUpdatedTimestamp({ points })),
+  // 頂点ドラッグ確定時: emitした内容をそのままdisplayAnnotationへ反映する。
+  // props.annotation（DB反映待ちでまだ古い）へ再同期すると、確定直後に一瞬古い座標へ巻き戻って見えるため
+  onCommit: (points) => {
+    const updated = withUpdatedTimestamp({ points });
+    emit('update', updated);
+    endInteraction(updated);
+  },
 });
 
-// 頂点ドラッグ中もliveQueryの再emitでpropsが巻き戻らないよう、開始・終了をuseAnnotationShapeの状態と連動させる
+// 頂点ドラッグ開始時もliveQueryの再emitでpropsが巻き戻らないよう、開始をuseAnnotationShapeの状態と連動させる
 function wrappedAnchorDragStart(e: Konva.KonvaEventObject<MouseEvent>) {
   beginInteraction();
   onAnchorDragStart(e);
-}
-
-function wrappedAnchorDragEnd() {
-  onAnchorDragEnd();
-  endInteraction();
 }
 </script>
 
