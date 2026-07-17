@@ -34,9 +34,7 @@ export function computeReorderedZIndex(
   const target = annotations.find((a) => a.id === targetId);
   if (!target) return null;
 
-  const sorted = [...annotations].sort(
-    (a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b),
-  );
+  const sorted = [...annotations].sort((a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b));
   const index = sorted.findIndex((a) => a.id === targetId);
   const keys = sorted.map((a) => getAnnotationSortKey(a));
   const minKey = keys[0]!;

@@ -191,7 +191,8 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
 const { onAnchorDragStart, onAnchorDrag0, onAnchorDrag1, onAnchorDragEnd } = useTwoPointAnchors({
   getShapeNode: () => arrowRef.value?.getNode() ?? null,
   getGroupNode: () => groupRef.value?.getNode() ?? null,
-  getAnchorNode: (idx) => (idx === 0 ? anchor1Ref.value?.getNode() : anchor2Ref.value?.getNode()) ?? null,
+  getAnchorNode: (idx) =>
+    (idx === 0 ? anchor1Ref.value?.getNode() : anchor2Ref.value?.getNode()) ?? null,
   // 頂点ドラッグ確定時: emitした内容をそのままdisplayAnnotationへ反映する。
   // props.annotation（DB反映待ちでまだ古い）へ再同期すると、確定直後に一瞬古い座標へ巻き戻って見えるため
   onCommit: (points) => {

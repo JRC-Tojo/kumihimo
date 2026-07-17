@@ -14,10 +14,7 @@ import {
 } from 'src/repositories/document/pdf';
 import { Image2Text } from 'src/utils/ocr/main';
 import { duplicateAnnotation } from 'src/services/document/annotationGeometry';
-import {
-  computeReorderedZIndex,
-  type LayerOrderAction,
-} from 'src/utils/document/annotationOrder';
+import { computeReorderedZIndex, type LayerOrderAction } from 'src/utils/document/annotationOrder';
 
 /**
  * 読み込み中の文書におけるアノテーション一覧を格納するDBを初期化する

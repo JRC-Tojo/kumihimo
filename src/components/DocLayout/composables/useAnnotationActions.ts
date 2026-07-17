@@ -124,7 +124,12 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     if (!clipboard || clipboard.length === 0) return;
 
     const offsetStep = PASTE_OFFSET_STEP * (editorStore.annotationClipboardPasteCount + 1);
-    const res = await api.pasteAnnotations(deps.file, clipboard, deps.currentPage.value, offsetStep);
+    const res = await api.pasteAnnotations(
+      deps.file,
+      clipboard,
+      deps.currentPage.value,
+      offsetStep,
+    );
     editorStore.incrementClipboardPasteCount();
     if (!res.ok) return;
 
