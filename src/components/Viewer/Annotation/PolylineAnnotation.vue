@@ -60,6 +60,7 @@ const isHovered = ref(false);
 
 const {
   relationalOverride,
+  strokeDash,
   withUpdatedTimestamp,
   displayAnnotation,
   beginInteraction,
@@ -86,6 +87,7 @@ const shapeConfig = computed(() => {
     pointerAtEnding: annotation.endHead !== 'none',
     pointerLength: headSize,
     pointerWidth: headSize,
+    dash: strokeDash.value,
     draggable: false,
     opacity: annotation.opacity || 1,
     hitStrokeWidth: 8,

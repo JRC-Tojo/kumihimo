@@ -108,6 +108,9 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.y).toBe(20);
     expect(created.width).toBe(20);
     expect(created.height).toBe(30);
+    expect(created.strokeType).toBe('solid');
+    expect(created.opacity).toBe(0.5);
+    expect(String(created.fillColor)).toBe('#0000ff');
   });
 
   it('line: createFromDragはstartを起点としたpointsを生成する', () => {
@@ -122,6 +125,8 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.x).toBe(5);
     expect(created.y).toBe(5);
     expect(created.points).toEqual([0, 0, 10, 20]);
+    expect(created.strokeType).toBe('solid');
+    expect(created.opacity).toBe(1);
   });
 
   it('circle: createFromDragはドラッグの中点と半径を計算する', () => {
@@ -136,6 +141,9 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.x).toBe(3);
     expect(created.y).toBe(4);
     expect(created.radius).toBe(5);
+    expect(created.strokeType).toBe('solid');
+    expect(created.opacity).toBe(0.3);
+    expect(String(created.fillColor)).toBe('#009900');
   });
 
   it('arrow: createFromDragはlineと同じpoints規約に矢じり設定を加えて生成する', () => {
@@ -151,6 +159,8 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.startHead).toBe('none');
     expect(created.endHead).toBe('triangle');
     expect(created.headSize).toBe(12);
+    expect(created.strokeType).toBe('solid');
+    expect(created.opacity).toBe(1);
   });
 
   it('createFromDragは不正なstrokeColorに対してnullを返す', () => {
@@ -172,6 +182,7 @@ describe('ANNOTATION_GEOMETRY', () => {
       y: 10,
       color: '#000000' as never,
       strokeWidth: 2,
+      strokeType: 'solid',
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -190,6 +201,7 @@ describe('ANNOTATION_GEOMETRY', () => {
       y: 0,
       color: '#000000' as never,
       strokeWidth: 4,
+      strokeType: 'solid',
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -222,6 +234,8 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.y).toBe(10);
     expect(created.points).toEqual([0, 0, 20, 0, 20, 30]);
     expect(created.endHead).toBe('triangle');
+    expect(created.strokeType).toBe('solid');
+    expect(created.opacity).toBe(1);
   });
 
   it('polyline: createFromPointsは頂点が2未満の場合nullを返す', () => {
@@ -248,6 +262,8 @@ describe('ANNOTATION_GEOMETRY', () => {
     if (!created || created.type !== 'polygon') throw new Error('unexpected type');
     expect(created.points).toEqual([0, 0, 20, 0, 10, 20]);
     expect(created.opacity).toBe(0.3);
+    expect(created.strokeType).toBe('solid');
+    expect(String(created.fillColor)).toBe('#9900cc');
   });
 
   it('polygon: createFromPointsは頂点が3未満の場合nullを返す', () => {
@@ -283,6 +299,7 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.fontSize).toBe(16);
     expect(String(created.textColor)).toBe('#000000');
     expect(created.fillColor).toBeUndefined();
+    expect(created.strokeType).toBe('solid');
   });
 
   it('text: boundingBoxはboxと同じくpadding分だけ外側に広がる', () => {
@@ -293,6 +310,7 @@ describe('ANNOTATION_GEOMETRY', () => {
       y: 10,
       color: '#000000' as never,
       strokeWidth: 0,
+      strokeType: 'solid',
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},

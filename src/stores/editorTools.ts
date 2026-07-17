@@ -1,33 +1,21 @@
-import type { AnnotationTool, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
+import type { DrawingAnnotationType, IDocTool } from 'src/models/docPage';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { useEditorStore } from './editorStore';
+import { useSettingsStore } from './settingsStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import { saveDocument } from 'src/utils/document/saveDocument';
 import { ANNOTATION_REGISTRY } from 'src/components/Viewer/Annotation/registry';
+import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
 
 /**
- * アノテーション設定をツールオブジェクトに変換
- * @param ann - アノテーション設定
- * @returns ツールオブジェクト
+ * 指定した種別の先頭プリセット（ユーザー設定になければレジストリのデフォルト）のスタイルを取得する
  */
-function annotationCnf2Tool(ann: AnnotationTool): IDocTool {
-  const editorStore = useEditorStore();
-
-  return {
-    id: ann.id,
-    icon: ANNOTATION_REGISTRY[ann.style.type].icon,
-    label: ann.name,
-    isActive: () => {
-      // オブジェクトの中身も含めて等しいことを確認するためにstringifyする
-      const strStoreStyle = JSON.stringify(editorStore.currentAnnotationStyle);
-      const strOriginStyle = JSON.stringify(ann.style);
-      return strStoreStyle === strOriginStyle;
-    },
-    onClicked: () => {
-      editorStore.currentTools = ann.style.type;
-      editorStore.currentAnnotationStyle = ann.style;
-    },
-  };
+function firstPresetStyleForType(toolType: DrawingAnnotationType) {
+  const settingsStore = useSettingsStore();
+  const userPreset = settingsStore.appSettings?.tools.annotations.find(
+    (ann) => ann.style.type === toolType,
+  );
+  return userPreset?.style ?? ANNOTATION_GEOMETRY[toolType].defaultPresets[0]?.style;
 }
 
 /**
@@ -42,13 +30,6 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
   const settings = await api.getSettings();
   if (!settings.ok) return [];
 
-  const registSubTools = (toolType: DrawingAnnotationType) => {
-    const docTools = settings.data.tools.annotations
-      .filter((ann) => ann.style.type === toolType)
-      .map((ann) => annotationCnf2Tool(ann));
-    editorStore.subTools = docTools;
-  };
-
   // メインツールバーのアノテーション種別ボタンはレジストリから生成する。
   // 新しいアノテーション種別を追加する際、このファイルの変更は不要になる。
   const annotationTypeTools: IDocTool[] = (
@@ -60,8 +41,15 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
     id: `annotation-${type}`,
     icon: mod.mainToolIcon,
     label: t(`pdfEditor.tools.${type}`),
-    isActive: () => false,
-    onClicked: () => registSubTools(type),
+    isActive: () => editorStore.currentTools === type,
+    onClicked: () => {
+      editorStore.activeAnnotationType = type;
+      editorStore.currentTools = type;
+
+      // 先頭プリセットを自動適用し、MainTool選択直後から即描画に移れるようにする
+      const style = firstPresetStyleForType(type);
+      if (style !== undefined) editorStore.currentAnnotationStyle = style;
+    },
   }));
 
   const tools: IDocTool[] = [

@@ -38,6 +38,7 @@ const isHovered = ref(false);
 
 const {
   relationalOverride,
+  strokeDash,
   withUpdatedTimestamp,
   displayAnnotation,
   beginInteraction,
@@ -61,9 +62,10 @@ const ellipseConfig = computed(() => {
     y: annotation.y,
     radiusX: annotation.radiusX ?? annotation.radius ?? 20,
     radiusY: annotation.radiusY ?? annotation.radius ?? 20,
-    fill: relationalOverride.value?.fill ?? 'transparent',
+    fill: relationalOverride.value?.fill ?? annotation.fillColor ?? 'transparent',
     stroke: relationalOverride.value?.stroke ?? annotation.color,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
+    dash: strokeDash.value,
     draggable: props.isEditing && !ctrlKey.value,
     dragBoundFunc,
     opacity: annotation.opacity || 1,

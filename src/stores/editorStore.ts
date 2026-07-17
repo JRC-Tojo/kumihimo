@@ -48,6 +48,15 @@ export const useEditorStore = defineStore('editor', {
     currentAnnotationStyle: DEFAULT_ANNOTATION_STYLE as DrawingAnnotationStyle,
     isStoreInitialized: false,
 
+    // アノテーション種別のMainToolが選択中かどうか（プリセットバー・スタイルパネルの表示条件に使う）
+    activeAnnotationType: undefined as DrawingAnnotationType | undefined,
+    // アクティブなペインで現在選択中のアノテーション（スタイルパネルの選択編集モードで使う）。
+    // 選択状態自体は各DocumentTabView（ペインごと）が持つため、layerOrderAction等と同じ
+    // 「意図・状態をeditorStoreに橋渡しする」パターンでここに反映させる
+    activeSelection: undefined as
+      | { file: ContainerElementFile; annotations: AnnotationStyle[] }
+      | undefined,
+
     // ドキュメントレイアウトの状態
     tabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<ContainerElementFile[]>,
     pinedTabPaths: {
@@ -118,6 +127,20 @@ export const useEditorStore = defineStore('editor', {
     cancelRelationalPending(): void {
       this.relationalPendingId = undefined;
       this.relationalPendingFile = undefined;
+    },
+
+    /**
+     * アクティブなペインの選択中アノテーションをスタイルパネル用に反映する
+     */
+    setActiveSelection(file: ContainerElementFile, annotations: AnnotationStyle[]): void {
+      this.activeSelection = annotations.length > 0 ? { file, annotations } : undefined;
+    },
+
+    /**
+     * スタイルパネル用の選択状態を解除する
+     */
+    clearActiveSelection(): void {
+      this.activeSelection = undefined;
     },
 
     /**

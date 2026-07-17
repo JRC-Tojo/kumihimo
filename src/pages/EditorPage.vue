@@ -16,7 +16,7 @@
       />
     </q-bar>
 
-    <!-- サブツールバー -->
+    <!-- サブツールバー（関係性/重ね順/保存/タイル等の汎用ツール） -->
     <q-bar v-if="editorStore.subTools.length > 0" class="sub-toolbar">
       <template v-for="tool in editorStore.subTools" :key="tool.id">
         <q-btn
@@ -32,6 +32,12 @@
         />
       </template>
     </q-bar>
+
+    <!-- アノテーションプリセット一覧＋スタイルパネル（描画スタイルモード・選択編集モード） -->
+    <div v-if="showAnnotationToolsRow" class="annotation-tools-row">
+      <AnnotationPresetBar v-if="editorStore.activeAnnotationType" class="preset-bar-wrapper" />
+      <AnnotationStylePanel class="style-panel-wrapper" />
+    </div>
 
     <!-- ドキュメントレイアウト -->
     <div v-if="editorStore.tileMode === 'single'" class="doc-layout">
@@ -51,8 +57,11 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useEditorStore } from 'src/stores/editorStore';
 import DocTabsPage from './DocTabsPage.vue';
+import AnnotationPresetBar from 'src/components/DocLayout/AnnotationPresetBar.vue';
+import AnnotationStylePanel from 'src/components/DocLayout/AnnotationStylePanel.vue';
 import type { IDocTool } from 'src/models/docPage';
 
 /**
@@ -62,8 +71,18 @@ import type { IDocTool } from 'src/models/docPage';
 
 const editorStore = useEditorStore();
 
+// 描画スタイルモード（アノテーション種別選択中）または選択編集モード（配置済み注釈を選択中）のいずれか
+const showAnnotationToolsRow = computed(
+  () =>
+    editorStore.activeAnnotationType !== undefined ||
+    (editorStore.activeSelection?.annotations.length ?? 0) > 0,
+);
+
 function handleMainToolClick(tool: IDocTool) {
   editorStore.subTools = [];
+  // アノテーション種別以外のツールをクリックした場合、プリセットバー・スタイルパネルの
+  // 描画スタイルモードを終了する（tool.onClicked内で改めてtypeがセットされる場合は再度上書きされる）
+  editorStore.activeAnnotationType = undefined;
   void tool.onClicked();
 }
 </script>
@@ -143,6 +162,32 @@ function handleMainToolClick(tool: IDocTool) {
       background-color: rgba($primary, 0.25);
     }
   }
+}
+
+.annotation-tools-row {
+  display: flex;
+  align-items: center;
+  margin: 5px;
+  border-bottom: 1px solid $grey-4;
+  background: $grey-1;
+  flex-shrink: 0;
+  overflow: hidden;
+
+  .preset-bar-wrapper {
+    // プリセット数に関わらずスタイルパネルが画面外に押し出されないよう、
+    // 一覧側に最大幅を設けたうえで横スクロールにする
+    flex: 0 1 60%;
+    min-width: 0;
+  }
+
+  .style-panel-wrapper {
+    flex-shrink: 0;
+  }
+}
+
+.body--dark .annotation-tools-row {
+  background: $dark;
+  border-bottom-color: $grey-8;
 }
 
 .doc-layout {

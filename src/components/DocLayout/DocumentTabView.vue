@@ -597,6 +597,23 @@ watch(annotations, (newAnnots, oldAnnots) => {
 watch(selectedAnnotationIds, (selectedIds) => {
   void registRelationalBySelect(selectedIds);
 });
+// アクティブなペインの選択状態を、スタイルパネル（MainTools/SubTools行）用にeditorStoreへ橋渡しする。
+// 選択状態自体はペインごとのこのコンポーネントが持つため、layerOrderAction等と同じ
+// 「意図・状態をeditorStoreに反映する」パターンを踏襲する
+watch(
+  [selectedAnnotations, () => editorStore.activeSide],
+  () => {
+    if (editorStore.activeSide === prop.layoutSide) {
+      editorStore.setActiveSelection(prop.file, selectedAnnotations.value);
+    } else if (
+      editorStore.activeSelection !== undefined &&
+      isSameFile(editorStore.activeSelection.file, prop.file)
+    ) {
+      editorStore.clearActiveSelection();
+    }
+  },
+  { immediate: true },
+);
 // 重ね順ツールバー（MainTools/SubTools）からの意図をここで実行する。
 // ツール自体は選択状態を持たないため、選択状態を持つこの場所でwatchして実処理を行う
 watch(
@@ -630,6 +647,14 @@ onBeforeUnmount(() => {
 
   stopAnnotationObservation?.();
   window.removeEventListener('keydown', handleGlobalKeydown);
+
+  // このペインの選択がスタイルパネルに反映されたままタブが閉じられた場合、選択状態を解除する
+  if (
+    editorStore.activeSelection !== undefined &&
+    isSameFile(editorStore.activeSelection.file, prop.file)
+  ) {
+    editorStore.clearActiveSelection();
+  }
 });
 </script>
 

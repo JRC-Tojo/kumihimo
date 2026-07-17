@@ -68,6 +68,7 @@ const isHovered = ref(false);
 // 関係性の検証結果（OK/NG）による表示上書き。線には塗りがないためstroke系のみ用いる
 const {
   relationalOverride,
+  strokeDash,
   withUpdatedTimestamp,
   displayAnnotation,
   beginInteraction,
@@ -98,6 +99,7 @@ const lineConfig = computed(() => {
     points: linePoints.value,
     stroke: relationalOverride.value?.stroke ?? annotation.color,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
+    dash: strokeDash.value,
     draggable: false,
     opacity: annotation.opacity || 1,
     hitStrokeWidth: 8,

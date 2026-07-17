@@ -11,8 +11,14 @@ export const ColorCode = z
 export type ColorCode = z.infer<typeof ColorCode>;
 
 /**
- * アノテーションスキーマ
+ * 線種（破線・点線等）
+ *
+ * 'double'はKonva/SVGが二重線の描画をネイティブでサポートしないため、
+ * 実際のキャンバス描画では'solid'と同等に扱う（既知の制限。プリセットプレビューアイコンのみ近似表現する）
  */
+export const StrokeType = z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']);
+export type StrokeType = z.infer<typeof StrokeType>;
+
 const AnnotationBase = z.object({
   id: AnnotationID,
   pageNumber: z.number().int().positive(),
@@ -20,6 +26,7 @@ const AnnotationBase = z.object({
   y: z.number(),
   color: ColorCode, // 16進カラーコード
   strokeWidth: z.number().optional().default(2),
+  strokeType: StrokeType.optional().default('solid'),
   opacity: z.number().min(0).max(1).optional(),
   content: z.string().optional(),
   createdAt: z.iso.datetime(),
@@ -36,6 +43,7 @@ export const BoxAnnotationStyle = AnnotationBase.extend({
   type: z.literal('box'),
   width: z.number().nonnegative(),
   height: z.number().nonnegative(),
+  fillColor: ColorCode.optional(),
 });
 export type BoxAnnotationStyle = z.infer<typeof BoxAnnotationStyle>;
 export const LineAnnotationStyle = AnnotationBase.extend({
@@ -50,6 +58,7 @@ export const CircleAnnotationStyle = AnnotationBase.extend({
   // 楕円化した場合の水平・垂直半径。省略時はradiusを使用する（正円）
   radiusX: z.number().positive().optional(),
   radiusY: z.number().positive().optional(),
+  fillColor: ColorCode.optional(),
 });
 export type CircleAnnotationStyle = z.infer<typeof CircleAnnotationStyle>;
 
@@ -95,6 +104,7 @@ export const PolygonAnnotationStyle = AnnotationBase.extend({
     .refine((pts) => pts.length % 2 === 0, {
       message: '座標配列の要素数は偶数である必要があります',
     }),
+  fillColor: ColorCode.optional(),
 });
 export type PolygonAnnotationStyle = z.infer<typeof PolygonAnnotationStyle>;
 

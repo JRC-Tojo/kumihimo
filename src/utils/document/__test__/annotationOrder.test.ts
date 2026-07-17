@@ -13,6 +13,7 @@ function makeBox(id: string, createdAt: string, zIndex?: number): BoxAnnotationS
     height: 10,
     color: '#000000' as BoxAnnotationStyle['color'],
     strokeWidth: 2,
+    strokeType: 'solid',
     createdAt,
     updatedAt: createdAt,
     comment: {},

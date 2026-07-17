@@ -1,6 +1,7 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
+import type { AnnotationTool } from 'src/models/docPage';
 import { DEFAULT_RELATIONAL_VERIFICATION_STYLE } from 'src/models/relational/style';
 import type { RelationalVerificationStyle } from 'src/models/relational/style';
 import { Dark } from 'quasar';
@@ -42,6 +43,24 @@ export const useSettingsStore = defineStore('settings', {
       } else {
         console.error(res.error);
       }
+    },
+
+    /**
+     * アノテーションプリセット一覧を保存する（追加・編集・削除・並び替えの共通経路）
+     *
+     * 保存成功時はローカルのappSettingsも即座に更新し、プリセットバー等の再描画を待たせない
+     * @returns 保存に成功したかどうか
+     */
+    async updateAnnotationPresets(newList: AnnotationTool[]): Promise<boolean> {
+      const api = useBackendApi();
+      const res = await api.saveSettings('tools', { annotations: newList });
+      if (!res.ok) {
+        console.error(res.error);
+        return false;
+      }
+
+      if (this.appSettings) this.appSettings.tools.annotations = newList;
+      return true;
     },
   },
 });

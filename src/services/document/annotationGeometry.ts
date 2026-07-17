@@ -145,9 +145,13 @@ const boxGeometry: AnnotationGeometryModule = {
       type: 'box',
       color: built.color,
       strokeWidth: style.strokeWidth,
+      strokeType: style.strokeType,
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
       opacity: style.fillOpacity,
+      fillColor: ColorCode.safeParse(style.fillColor).success
+        ? ColorCode.parse(style.fillColor)
+        : undefined,
     };
   },
   previewFromDrag(start, end, style) {
@@ -157,7 +161,7 @@ const boxGeometry: AnnotationGeometryModule = {
       y: Math.min(start.y, end.y),
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
-      fill: 'transparent',
+      fill: style.fillColor ?? 'transparent',
       opacity: style.fillOpacity,
       stroke: style.strokeColor,
       strokeWidth: style.strokeWidth,
@@ -257,6 +261,8 @@ const lineGeometry: AnnotationGeometryModule = {
       type: 'line',
       color: built.color,
       strokeWidth: style.strokeWidth,
+      strokeType: style.strokeType,
+      opacity: style.strokeOpacity,
       points: [0, 0, end.x - start.x, end.y - start.y],
     };
   },
@@ -317,6 +323,11 @@ const circleGeometry: AnnotationGeometryModule = {
       type: 'circle',
       color: built.color,
       strokeWidth: style.strokeWidth,
+      strokeType: style.strokeType,
+      opacity: style.fillOpacity,
+      fillColor: ColorCode.safeParse(style.fillColor).success
+        ? ColorCode.parse(style.fillColor)
+        : undefined,
       radius: Math.sqrt(deltaX * deltaX + deltaY * deltaY) / 2,
     };
   },
@@ -328,6 +339,8 @@ const circleGeometry: AnnotationGeometryModule = {
       x: start.x + deltaX / 2,
       y: start.y + deltaY / 2,
       radius: Math.sqrt(deltaX * deltaX + deltaY * deltaY) / 2,
+      fill: style.fillColor ?? 'transparent',
+      opacity: style.fillOpacity,
       stroke: style.strokeColor,
       strokeWidth: style.strokeWidth,
     };
@@ -376,6 +389,8 @@ const arrowGeometry: AnnotationGeometryModule = {
       type: 'arrow',
       color: built.color,
       strokeWidth: style.strokeWidth,
+      strokeType: style.strokeType,
+      opacity: style.strokeOpacity,
       points: [0, 0, end.x - start.x, end.y - start.y],
       startHead: style.startHead,
       endHead: style.endHead,
@@ -435,6 +450,8 @@ const polylineGeometry: AnnotationGeometryModule = {
       type: 'polyline',
       color: built.color,
       strokeWidth: style.strokeWidth,
+      strokeType: style.strokeType,
+      opacity: style.strokeOpacity,
       points: points.flatMap((p) => [p.x - origin.x, p.y - origin.y]),
       startHead: style.startHead,
       endHead: style.endHead,
@@ -513,7 +530,11 @@ const polygonGeometry: AnnotationGeometryModule = {
       type: 'polygon',
       color: built.color,
       strokeWidth: style.strokeWidth,
+      strokeType: style.strokeType,
       opacity: style.fillOpacity,
+      fillColor: ColorCode.safeParse(style.fillColor).success
+        ? ColorCode.parse(style.fillColor)
+        : undefined,
       points: points.flatMap((p) => [p.x - origin.x, p.y - origin.y]),
     };
   },
@@ -530,7 +551,8 @@ const polygonGeometry: AnnotationGeometryModule = {
       y: origin.y,
       points: flat,
       closed: points.length >= 3,
-      fill: 'transparent',
+      fill: style.fillColor ?? 'transparent',
+      opacity: style.fillOpacity,
       stroke: style.strokeColor,
       strokeWidth: style.strokeWidth,
     };
@@ -576,6 +598,7 @@ const textGeometry: AnnotationGeometryModule = {
       type: 'text',
       color: built.color,
       strokeWidth: style.strokeWidth,
+      strokeType: style.strokeType,
       opacity: style.fillOpacity,
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),

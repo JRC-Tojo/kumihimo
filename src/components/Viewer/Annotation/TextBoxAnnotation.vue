@@ -31,6 +31,7 @@ const textRef = ref<{ getNode: () => Konva.Text | null } | null>(null);
 
 const {
   relationalOverride,
+  strokeDash,
   withUpdatedTimestamp,
   displayAnnotation,
   endInteraction,
@@ -68,6 +69,7 @@ const rectConfig = computed(() => {
     stroke: relationalOverride.value?.stroke ?? annotation.color,
     // strokeWidth未指定/0（デフォルト状態）でも選択・視認しやすいよう、他形状と同様に細い枠線へフォールバックする
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 1),
+    dash: strokeDash.value,
     opacity: annotation.opacity ?? 1,
   };
 });

@@ -21,6 +21,7 @@ import {
   type Point,
   type Box,
 } from 'src/utils/document/annotationDrag';
+import { strokeTypeToDash } from 'src/utils/document/strokeDash';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
 
@@ -53,6 +54,11 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
       if (!isInteracting.value) displayAnnotation.value = next;
     },
     { immediate: true },
+  );
+
+  // 線種（破線・点線等）に対応するKonvaのdash設定。全種別の描画コンポーネントで共通利用する
+  const strokeDash = computed(() =>
+    strokeTypeToDash(displayAnnotation.value.strokeType, displayAnnotation.value.strokeWidth || 2),
   );
 
   /** ジェスチャー開始時に呼び、以降のprops更新を無視するようにする */
@@ -143,6 +149,7 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
 
   return {
     relationalOverride,
+    strokeDash,
     withUpdatedTimestamp,
     displayAnnotation,
     beginInteraction,
