@@ -74,16 +74,10 @@
             <label class="property-label">{{
               $t('pdfEditor.rightDrawer.annotation.fillColor')
             }}</label>
-            <div class="color-picker">
-              <q-btn round dense class="color-swatch" :style="{ backgroundColor: fillColor ?? 'transparent' }">
-                <q-popup-proxy cover transition-show="scale" transition-hide="scale">
-                  <q-color
-                    :model-value="fillColor ?? '#ffffff'"
-                    @update:model-value="(v) => (fillColor = v ?? undefined)"
-                  />
-                </q-popup-proxy>
-              </q-btn>
-            </div>
+            <StyleSwatchButton
+              v-model="fillColor"
+              :tooltip="$t('pdfEditor.rightDrawer.annotation.fillColor')"
+            />
           </div>
         </template>
 
@@ -193,6 +187,7 @@ import {
 } from 'src/stores/relationalStore';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import StyleSwatchButton from './StyleSwatchButton.vue';
 
 interface Prop {
   selectedAnnots: AnnotationStyle[];
@@ -537,23 +532,6 @@ async function onRemoveRelation(edge: RelationalEdge) {
       }
     }
 
-    .color-picker {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-
-      .color-swatch {
-        width: 32px;
-        height: 32px;
-        border: 1px solid $grey-4;
-
-        &:hover {
-          border-color: $primary;
-          box-shadow: 0 0 0 2px rgba($primary, 0.1);
-        }
-      }
-    }
-
     .slider-container {
       padding: 0.5rem 0;
 
@@ -654,16 +632,6 @@ async function onRemoveRelation(edge: RelationalEdge) {
       }
     }
 
-    .color-picker {
-      .color-swatch {
-        border-color: $grey-7;
-
-        &:hover {
-          border-color: $primary;
-          box-shadow: 0 0 0 2px rgba($primary, 0.2);
-        }
-      }
-    }
   }
 
   .drawer-empty {

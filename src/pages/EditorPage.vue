@@ -16,10 +16,17 @@
       />
     </q-bar>
 
-    <!-- サブツールバー（関係性/重ね順/保存/タイル等の汎用ツール） -->
-    <q-bar v-if="editorStore.subTools.length > 0" class="sub-toolbar">
-      <template v-for="tool in editorStore.subTools" :key="tool.id">
+    <!--
+      SubTools領域: MainToolsと同じ高さで常駐させ、内容の有無に関わらずレイアウトが
+      伸縮しないようにする。関係性/重ね順/保存/タイル等の汎用ツール、または
+      アノテーションプリセット一覧＋スタイルパネル（描画スタイルモード・選択編集モード）を
+      この領域内で出し分ける
+    -->
+    <q-bar class="sub-toolbar">
+      <template v-if="editorStore.subTools.length > 0">
         <q-btn
+          v-for="tool in editorStore.subTools"
+          :key="tool.id"
           :flat="!tool.isActive()"
           :outline="tool.isActive()"
           :color="tool.isActive() ? 'primary' : ''"
@@ -31,13 +38,11 @@
           @click="tool.onClicked()"
         />
       </template>
+      <template v-else-if="showAnnotationToolsRow">
+        <AnnotationPresetBar v-if="editorStore.activeAnnotationType" class="preset-bar-wrapper" />
+        <AnnotationStylePanel class="style-panel-wrapper" />
+      </template>
     </q-bar>
-
-    <!-- アノテーションプリセット一覧＋スタイルパネル（描画スタイルモード・選択編集モード） -->
-    <div v-if="showAnnotationToolsRow" class="annotation-tools-row">
-      <AnnotationPresetBar v-if="editorStore.activeAnnotationType" class="preset-bar-wrapper" />
-      <AnnotationStylePanel class="style-panel-wrapper" />
-    </div>
 
     <!-- ドキュメントレイアウト -->
     <div v-if="editorStore.tileMode === 'single'" class="doc-layout">
@@ -102,6 +107,7 @@ function handleMainToolClick(tool: IDocTool) {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  min-height: 44px;
   background: linear-gradient(135deg, $primary 0%, color.adjust($primary, $lightness: -5%) 100%);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
@@ -131,9 +137,13 @@ function handleMainToolClick(tool: IDocTool) {
 
 .sub-toolbar {
   display: flex;
-  margin: 5px;
+  align-items: center;
+  // MainToolsと同じ高さで常駐させ、中身の有無（汎用ツール／プリセット＋スタイルパネル／空）に
+  // 関わらずレイアウトが伸縮しないようにする
+  min-height: 44px;
   border-bottom: 1px solid $grey-4;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   background: $grey-1;
   flex-shrink: 0;
 
@@ -141,6 +151,7 @@ function handleMainToolClick(tool: IDocTool) {
     font-size: 0.85rem;
     transition: all 0.2s ease;
     border-radius: 6px;
+    flex-shrink: 0;
 
     &:hover {
       background-color: rgba($primary, 0.15);
@@ -150,6 +161,18 @@ function handleMainToolClick(tool: IDocTool) {
     &:active {
       transform: translateY(0);
     }
+  }
+
+  .preset-bar-wrapper {
+    // プリセット数に関わらずスタイルパネルが画面外に押し出されないよう、
+    // 一覧側に最大幅を設けたうえで横スクロールにする
+    flex: 0 1 60%;
+    min-width: 0;
+  }
+
+  .style-panel-wrapper {
+    flex-shrink: 0;
+    height: 100%;
   }
 }
 
@@ -162,32 +185,6 @@ function handleMainToolClick(tool: IDocTool) {
       background-color: rgba($primary, 0.25);
     }
   }
-}
-
-.annotation-tools-row {
-  display: flex;
-  align-items: center;
-  margin: 5px;
-  border-bottom: 1px solid $grey-4;
-  background: $grey-1;
-  flex-shrink: 0;
-  overflow: hidden;
-
-  .preset-bar-wrapper {
-    // プリセット数に関わらずスタイルパネルが画面外に押し出されないよう、
-    // 一覧側に最大幅を設けたうえで横スクロールにする
-    flex: 0 1 60%;
-    min-width: 0;
-  }
-
-  .style-panel-wrapper {
-    flex-shrink: 0;
-  }
-}
-
-.body--dark .annotation-tools-row {
-  background: $dark;
-  border-bottom-color: $grey-8;
 }
 
 .doc-layout {

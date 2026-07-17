@@ -127,6 +127,7 @@
  */
 import { computed } from 'vue';
 import type { DrawingAnnotationStyle } from 'src/models/docPage';
+import { strokeTypeToPreviewDash } from 'src/utils/document/strokeDashPreview';
 
 interface Props {
   annotationStyle: DrawingAnnotationStyle;
@@ -138,26 +139,7 @@ const previewStrokeWidth = computed(() =>
   Math.min(4, Math.max(1.2, props.annotationStyle.strokeWidth / 2)),
 );
 
-/**
- * 線種ごとのdasharray（アイコン用の簡易的な近似）
- *
- * 'double'（二重線）はKonva/SVGがネイティブでは二重線描画をサポートしないため、
- * 実キャンバス描画とは異なる専用のダッシュパターンで視覚的に区別する（既知の近似）
- */
-const previewDash = computed<string | undefined>(() => {
-  switch (props.annotationStyle.strokeType) {
-    case 'dashed':
-      return '3,2';
-    case 'dotted':
-      return '1,1.6';
-    case 'dash-dot':
-      return '3.5,1,1,1';
-    case 'double':
-      return '5,1';
-    default:
-      return undefined;
-  }
-});
+const previewDash = computed(() => strokeTypeToPreviewDash(props.annotationStyle.strokeType));
 
 /** box/circle/polygonの塗り色。fillPatternが'none'の場合は塗らない */
 const fillValue = computed(() => {
