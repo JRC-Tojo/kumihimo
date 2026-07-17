@@ -6,7 +6,7 @@
       x: displayAnnotation.x,
       y: displayAnnotation.y,
       id: displayAnnotation.id,
-      draggable: props.isEditing && !!props.isSelected,
+      draggable: props.isEditing && !!props.isSelected && !ctrlKey,
       dragBoundFunc,
       onDragstart: onGroupDragStart,
       onDragend: onDragEnd,
@@ -52,7 +52,6 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   update: [annotation: PolylineAnnotationStyle];
   delete: [id: AnnotationID];
-  duplicate: [annotation: PolylineAnnotationStyle];
 }>();
 
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
@@ -65,6 +64,7 @@ const {
   displayAnnotation,
   beginInteraction,
   endInteraction,
+  ctrlKey,
   dragBoundFunc,
   beginBodyDrag,
   commitBodyDrag,
@@ -131,10 +131,8 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
     return;
   }
 
-  const result = commitBodyDrag(e, { x: groupNode.x(), y: groupNode.y() });
-  if (result.kind === 'duplicate') emit('duplicate', result.annotation);
-  else emit('update', result.annotation);
-  endInteraction(result.annotation);
+  // commitBodyDragが内部でendInteractionを呼び済みのため、ここでは呼ばない
+  emit('update', commitBodyDrag(e, { x: groupNode.x(), y: groupNode.y() }));
 }
 
 const { onAnchorDragStart, onAnchorDrag, onAnchorDragEnd } = useMultiPointAnchors({

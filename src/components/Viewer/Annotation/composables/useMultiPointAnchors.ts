@@ -31,6 +31,10 @@ export function useMultiPointAnchors(options: UseMultiPointAnchorsOptions) {
 
   /** index: 何番目の頂点か（0始まり） */
   function onAnchorDrag(index: number, e: KonvaEvent) {
+    // Konvaのドラッグイベントは既定で親へbubbleする。ここで止めないと、
+    // 親グループの dragmove/dragend ハンドラ（ボディドラッグ用）が誤って呼ばれてしまう
+    e.cancelBubble = true;
+
     const shapeNode = options.getShapeNode();
     if (!shapeNode) return;
 
@@ -41,7 +45,18 @@ export function useMultiPointAnchors(options: UseMultiPointAnchorsOptions) {
     shapeNode.points(points);
   }
 
-  function onAnchorDragEnd() {
+  /**
+   * 頂点ドラッグ終了処理
+   *
+   * `e.cancelBubble = true`は絶対に削除しないこと。Konvaの`dragend`イベントは既定で
+   * 親ノードへbubbleするため、これを止めないと親グループ（ボディドラッグ用）の
+   * onDragendハンドラが直後に誤発火する。親側は`props.annotation`（DB書き込み未反映の
+   * 古い値）からpatchを組み立てるため、誤発火すると「頂点は新しい位置に動いたのに、
+   * 本体の線だけ元の座標へ戻る」という不具合が再発する
+   */
+  function onAnchorDragEnd(e: KonvaEvent) {
+    e.cancelBubble = true;
+
     const shapeNode = options.getShapeNode();
     if (!shapeNode) return;
     options.onCommit(shapeNode.points());

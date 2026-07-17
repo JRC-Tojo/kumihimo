@@ -111,19 +111,21 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
   function copySelected(): void {
     const targets = resolveSelected();
     if (targets.length === 0) return;
-    editorStore.setAnnotationClipboard(structuredClone(targets));
+    editorStore.setAnnotationClipboard(targets);
   }
 
   /**
    * アプリ内クリップボードの内容を現在のページへ貼り付ける（Ctrl+V）
    *
-   * 連続ペーストのたびに少しずつ位置をずらし、貼り付けた注釈群を選択状態にする
+   * ~~連続ペーストのたびに少しずつ位置をずらし、貼り付けた注釈群を選択状態にする~~
+   * → ひとまずは位置ずらしを行わない
    */
   async function pasteClipboard(): Promise<void> {
     const clipboard = editorStore.annotationClipboard;
     if (!clipboard || clipboard.length === 0) return;
 
-    const offsetStep = PASTE_OFFSET_STEP * (editorStore.annotationClipboardPasteCount + 1);
+    // const offsetStep = PASTE_OFFSET_STEP * (editorStore.annotationClipboardPasteCount + 1);
+    const offsetStep = 0;
     const res = await api.pasteAnnotations(
       deps.file,
       clipboard,

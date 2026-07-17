@@ -23,7 +23,6 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   update: [annotation: TextAnnotationStyle];
   delete: [id: AnnotationID];
-  duplicate: [annotation: TextAnnotationStyle];
 }>();
 
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
@@ -35,6 +34,7 @@ const {
   withUpdatedTimestamp,
   displayAnnotation,
   endInteraction,
+  ctrlKey,
   dragBoundFunc,
   beginBodyDrag,
   commitBodyDrag,
@@ -46,7 +46,7 @@ const groupConfig = computed(() => ({
   x: displayAnnotation.value.x,
   y: displayAnnotation.value.y,
   id: displayAnnotation.value.id,
-  draggable: props.isEditing,
+  draggable: props.isEditing && !ctrlKey.value,
   dragBoundFunc,
   onDragstart: onDragStart,
   onDragend: onDragEnd,
@@ -110,9 +110,7 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
     return;
   }
 
-  const result = commitBodyDrag(e, { x: groupNode.x(), y: groupNode.y() });
-  if (result.kind === 'duplicate') emit('duplicate', result.annotation);
-  else emit('update', result.annotation);
+  emit('update', commitBodyDrag(e, { x: groupNode.x(), y: groupNode.y() }));
 }
 
 /**

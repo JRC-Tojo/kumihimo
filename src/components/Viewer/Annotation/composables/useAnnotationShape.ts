@@ -15,7 +15,6 @@ import { useRelationalStore } from 'src/stores/relationalStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import { getRelationalStyleOverride } from '../relationalStyleOverride';
 import { useModifierKeys } from './useModifierKeys';
-import { duplicateAnnotation } from 'src/services/document/annotationGeometry';
 import {
   lockToDominantAxis,
   applyCenteredResize,
@@ -24,9 +23,6 @@ import {
 } from 'src/utils/document/annotationDrag';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
-
-/** ボディドラッグ確定時の結果。呼び出し元のコンポーネントはこの種別に応じてemitを出し分ける */
-export type BodyDragCommit<T> = { kind: 'update' | 'duplicate'; annotation: T };
 
 export function useAnnotationShape<T extends AnnotationStyle>(props: { annotation: T }) {
   const relationalStore = useRelationalStore();
@@ -103,26 +99,15 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
   /**
    * ボディドラッグ終了時の共通コミット処理
    *
-   * Ctrl押下中は元のアノテーションを変更せず、複製オブジェクトを新規作成する（Ctrl+drag複製）。
-   * それ以外は通常通りpatchを反映して更新する。呼び出し元は戻り値の`kind`に応じて
-   * `update`/`duplicate`いずれかのemitを行うこと
+   * Ctrl+drag複製はAnnotationLayer.vue側のステージレベル処理（プレビュー表示＋ドロップ位置での
+   * 複製確定）に一本化しており、ここでは通常の移動更新のみを扱う。Ctrl押下中はそもそも
+   * `draggable`をfalseにしてKonvaネイティブドラッグ自体を発生させない（各シェイプの
+   * draggable算出を参照）ため、このコミット処理がCtrl押下中に呼ばれることはない
    */
-  function commitBodyDrag(e: KonvaEvent, patch: { x: number; y: number }): BodyDragCommit<T> {
-    if (ctrlKey.value) {
-      const duplicated = duplicateAnnotation(
-        props.annotation,
-        props.annotation.pageNumber,
-        patch.x,
-        patch.y,
-      ) as T;
-      // 元のアノテーションは変更していないため、props.annotation（＝変更前の位置）へ戻す
-      endInteraction();
-      return { kind: 'duplicate', annotation: duplicated };
-    }
-
+  function commitBodyDrag(e: KonvaEvent, patch: { x: number; y: number }): T {
     const updated = withUpdatedTimestamp(patch);
     endInteraction(updated);
-    return { kind: 'update', annotation: updated };
+    return updated;
   }
 
   // ============ Transformer変形（Ctrl中心固定リサイズ、Box/Text向け） ============

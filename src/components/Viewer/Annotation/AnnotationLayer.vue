@@ -20,7 +20,6 @@
           :is-selected="selectedAnnotIds.includes(annotation.id)"
           @update="onRegisterAnnot"
           @delete="onRemoveAnnot"
-          @duplicate="onRegisterAnnot"
         />
 
         <component
@@ -29,6 +28,17 @@
           :config="drawingPreviewConfig"
         />
         <v-rect v-if="selectionBox.visible" :config="selectionBoxConfig" />
+
+        <!-- Ctrl+drag複製のプレビュー: 複製元は一切変更せず、ドラッグ解除位置に複製されるまでの
+             見た目上のプレビューのみをここに重ねて表示する（非対話・半透明） -->
+        <v-group v-if="duplicatePreviewAnnotation" :config="{ opacity: 0.55, listening: false }">
+          <component
+            :is="ANNOTATION_REGISTRY[duplicatePreviewAnnotation.type].component"
+            :annotation="duplicatePreviewAnnotation"
+            :is-editing="false"
+            :is-selected="false"
+          />
+        </v-group>
 
         <v-transformer
           ref="transformerRef"
@@ -59,6 +69,7 @@ import { useEditorStore } from 'src/stores/editorStore';
 import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
 import {
   ANNOTATION_GEOMETRY,
+  duplicateAnnotation,
   type ClickPointsDrawModule,
   type Point,
 } from 'src/services/document/annotationGeometry';
@@ -95,6 +106,27 @@ function setAnnotationRef(id: AnnotationID, el: unknown) {
   }
 }
 const pendingPointerTarget = ref<{ id: string; wasSelected: boolean } | null>(null);
+
+// Ctrl+drag複製: マウスダウン時点ではクリックなのかドラッグなのか確定しないため、
+// 実際にしきい値を超えて動いた時点で初めて複製プレビューへ昇格させる（昇格しなければ
+// 単なるCtrl+クリックとして選択解除を適用する）
+const DUPLICATE_DRAG_THRESHOLD_PX = 3;
+const ctrlDragCandidate = ref<{ id: AnnotationID; stagePos: { x: number; y: number } } | null>(
+  null,
+);
+const duplicateDragSource = ref<AnnotationStyle | null>(null);
+const duplicateDragStageStart = ref<{ x: number; y: number } | null>(null);
+const duplicateDragOffsetDoc = ref<Point>({ x: 0, y: 0 });
+// 複製元は一切変更せず、ドラッグ位置に追従する見た目上のプレビューのみを別途描画する
+const duplicatePreviewAnnotation = computed<AnnotationStyle | null>(() => {
+  const source = duplicateDragSource.value;
+  if (!source) return null;
+  return {
+    ...source,
+    x: source.x + duplicateDragOffsetDoc.value.x,
+    y: source.y + duplicateDragOffsetDoc.value.y,
+  };
+});
 
 const isDrawing = ref(false);
 const isSelecting = ref(false);
@@ -363,7 +395,12 @@ function handleMouseDown(e: KonvaMouseEvent) {
       const isSelected = selectedAnnotIds.value.includes(clickedId);
       pendingPointerTarget.value = { id: clickedId, wasSelected: isSelected };
 
-      if (!metaPressed && !isSelected) {
+      if (e.evt.ctrlKey && isSelected) {
+        // 選択済みの注釈へのCtrl+クリック: この時点ではクリックかドラッグか確定しない。
+        // ドラッグへ発展すればCtrl+drag複製として扱い（handleMouseMove/handleMouseUp）、
+        // 発展しなければ従来通り選択解除する
+        ctrlDragCandidate.value = { id: clickedId, stagePos: { x: pos.x, y: pos.y } };
+      } else if (!metaPressed && !isSelected) {
         selectedAnnotIds.value = [clickedId];
       } else if (metaPressed && isSelected) {
         selectedAnnotIds.value = selectedAnnotIds.value.filter((id) => id !== clickedId);
@@ -417,6 +454,37 @@ function handleMouseDown(e: KonvaMouseEvent) {
 }
 
 function handleMouseMove(e: KonvaMouseEvent) {
+  // Ctrl+クリック候補がしきい値を超えて動いたら、複製プレビューへ昇格させる
+  if (ctrlDragCandidate.value && !duplicateDragSource.value) {
+    const stage = e.target?.getStage();
+    const pos = stage?.getPointerPosition();
+    if (pos) {
+      const candidate = ctrlDragCandidate.value;
+      const dx = pos.x - candidate.stagePos.x;
+      const dy = pos.y - candidate.stagePos.y;
+      if (Math.hypot(dx, dy) > DUPLICATE_DRAG_THRESHOLD_PX) {
+        const source = props.annotations.find((a) => a.id === candidate.id);
+        ctrlDragCandidate.value = null;
+        if (source) {
+          duplicateDragSource.value = source;
+          duplicateDragStageStart.value = candidate.stagePos;
+        }
+      }
+    }
+  }
+
+  if (duplicateDragSource.value && duplicateDragStageStart.value) {
+    const stage = e.target?.getStage();
+    const pos = stage?.getPointerPosition();
+    if (pos) {
+      duplicateDragOffsetDoc.value = {
+        x: (pos.x - duplicateDragStageStart.value.x) / scale.value,
+        y: (pos.y - duplicateDragStageStart.value.y) / scale.value,
+      };
+    }
+    return;
+  }
+
   if (clickPointsBuffer.value) {
     const stage = e.target?.getStage();
     if (!stage) return;
@@ -478,6 +546,35 @@ function handleMouseMove(e: KonvaMouseEvent) {
 }
 
 function handleMouseUp(e: KonvaMouseEvent) {
+  if (duplicateDragSource.value) {
+    const source = duplicateDragSource.value;
+    const offset = duplicateDragOffsetDoc.value;
+    duplicateDragSource.value = null;
+    duplicateDragStageStart.value = null;
+    duplicateDragOffsetDoc.value = { x: 0, y: 0 };
+    pendingPointerTarget.value = null;
+
+    const duplicated = duplicateAnnotation(
+      source,
+      page.value,
+      source.x + offset.x,
+      source.y + offset.y,
+    );
+    void props.onRegisterAnnot(duplicated).then(() => {
+      selectedAnnotIds.value = [duplicated.id];
+    });
+    return;
+  }
+
+  if (ctrlDragCandidate.value) {
+    // ドラッグへ発展しなかった単なるCtrl+クリックだったため、元々の意図通り選択解除する
+    const { id } = ctrlDragCandidate.value;
+    ctrlDragCandidate.value = null;
+    selectedAnnotIds.value = selectedAnnotIds.value.filter((existingId) => existingId !== id);
+    pendingPointerTarget.value = null;
+    return;
+  }
+
   if (isDrawing.value && startPos.value) {
     const stage = e.target?.getStage();
     if (!stage) return;

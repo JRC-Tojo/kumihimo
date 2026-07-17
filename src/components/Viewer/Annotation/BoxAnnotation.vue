@@ -29,7 +29,6 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   update: [annotation: AnnotationStyle];
   delete: [id: AnnotationID];
-  duplicate: [annotation: AnnotationStyle];
 }>();
 
 const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
@@ -39,6 +38,7 @@ const {
   withUpdatedTimestamp,
   displayAnnotation,
   endInteraction,
+  ctrlKey,
   dragBoundFunc,
   beginBodyDrag,
   commitBodyDrag,
@@ -59,7 +59,7 @@ const rectConfig = computed(() => {
     fill: relationalOverride.value?.fill ?? 'transparent',
     stroke: relationalOverride.value?.stroke ?? annotation.color,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
-    draggable: props.isEditing,
+    draggable: props.isEditing && !ctrlKey.value,
     dragBoundFunc,
     opacity: annotation.opacity || 1,
   };
@@ -77,9 +77,7 @@ function onDragStart(e: KonvaEvent) {
 
 function onDragEnd(e: KonvaEvent) {
   const target = e.target;
-  const result = commitBodyDrag(e, { x: target.x(), y: target.y() });
-  if (result.kind === 'duplicate') emit('duplicate', result.annotation);
-  else emit('update', result.annotation);
+  emit('update', commitBodyDrag(e, { x: target.x(), y: target.y() }));
 }
 
 /**
