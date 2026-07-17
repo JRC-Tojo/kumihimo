@@ -100,7 +100,7 @@ function getNode() {
 defineExpose({ getNode });
 
 function onDragStart(e: Konva.KonvaEventObject<Event>) {
-  beginBodyDrag(e.target as Konva.Group);
+  beginBodyDrag(e.target);
 }
 
 function onDragEnd(e: Konva.KonvaEventObject<Event>) {

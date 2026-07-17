@@ -86,18 +86,18 @@ function onMouseLeave() {
 }
 
 function onDragStart(e: KonvaEvent) {
-  beginBodyDrag(e.target as Konva.Ellipse);
+  beginBodyDrag(e.target);
 }
 
 function onDragEnd(e: KonvaEvent) {
-  const target = e.target as Konva.Ellipse;
+  const target = e.target;
   const result = commitBodyDrag(e, { x: target.x(), y: target.y() });
   if (result.kind === 'duplicate') emit('duplicate', result.annotation);
   else emit('update', result.annotation);
 }
 
 function onTransformStart(e: KonvaEvent) {
-  const node = e.target as Konva.Ellipse;
+  const node = e.target;
   beginInteraction();
   transformStartCenter.value = { x: node.x(), y: node.y() };
 }

@@ -72,11 +72,11 @@ function getNode() {
 defineExpose({ getNode });
 
 function onDragStart(e: KonvaEvent) {
-  beginBodyDrag(e.target as Konva.Rect);
+  beginBodyDrag(e.target);
 }
 
 function onDragEnd(e: KonvaEvent) {
-  const target = e.target as Konva.Rect;
+  const target = e.target;
   const result = commitBodyDrag(e, { x: target.x(), y: target.y() });
   if (result.kind === 'duplicate') emit('duplicate', result.annotation);
   else emit('update', result.annotation);
