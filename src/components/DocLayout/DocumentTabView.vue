@@ -585,7 +585,7 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 // ================================
 
 onMounted(async () => {
-  editorStore.initStore(await callEditorTools(t));
+  editorStore.setMainTools(await callEditorTools(t));
   await loadDocument();
   void relationalStore.refreshFile(prop.file);
   window.addEventListener('keydown', handleGlobalKeydown);

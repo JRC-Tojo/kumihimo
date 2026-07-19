@@ -42,6 +42,8 @@ const DEFAULT_ANNOTATION_STYLE: DrawingAnnotationStyle = {
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
+    leftHeaderTools: [] as IDocTool[],
+    rightHeaderTools: [] as IDocTool[],
     mainTools: [] as IDocTool[],
     subTools: [] as IDocTool[],
     currentTools: 'hand' as PointerType,
@@ -146,13 +148,21 @@ export const useEditorStore = defineStore('editor', {
     /**
      * ストアの初期化（初回のみ実行）
      */
-    initStore(mainTools: IDocTool[], currentTools: PointerType = 'hand'): void {
+    initStore(leftHeaderTools: IDocTool[], rightHeaderTools: IDocTool[]): void {
       // 既に初期化済みの場合はスキップ
       if (this.isStoreInitialized) return;
 
+      this.leftHeaderTools = leftHeaderTools;
+      this.rightHeaderTools = rightHeaderTools;
+      this.isStoreInitialized = true;
+    },
+
+    /**
+     * 文書操作用のメインツールを配置
+     */
+    setMainTools(mainTools: IDocTool[], currentTools: PointerType = 'hand'): void {
       this.mainTools = mainTools;
       this.currentTools = currentTools;
-      this.isStoreInitialized = true;
     },
 
     /**

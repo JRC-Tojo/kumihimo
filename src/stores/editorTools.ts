@@ -23,13 +23,14 @@ function firstPresetStyleForType(toolType: DrawingAnnotationType) {
  */
 function callSavingTools(t: (key: string) => string): IDocTool[] {
   const editorStore = useEditorStore();
+  const isFileActive = () => editorStore.getActiveTab(editorStore.activeSide) !== null;
 
   const tools: IDocTool[] = [
     {
       id: 'save-overwrite',
       icon: 'save',
       label: t('pdfEditor.tools.save.overwrite'),
-      isActive: () => false,
+      isActive: isFileActive,
       onClicked: () => {
         const activeFile = editorStore.getActiveTab(editorStore.activeSide);
         if (!activeFile) return;
@@ -43,14 +44,50 @@ function callSavingTools(t: (key: string) => string): IDocTool[] {
       id: 'save-as',
       icon: 'save_as',
       label: t('pdfEditor.tools.save.saveAs'),
-      isActive: () => false,
+      isActive: isFileActive,
       onClicked: () => {
         /** TODO: 今後実装 */
       },
     },
-  ]
+  ];
 
-  return tools
+  return tools;
+}
+
+function callLayoutTools(t: (key: string) => string): IDocTool[] {
+  const editorStore = useEditorStore();
+
+  const tools: IDocTool[] = [
+    {
+      id: 'single-tab-mode',
+      icon: 'crop_portrait',
+      label: t('pdfEditor.tools.viewStyle.noGrid'),
+      isActive: () => editorStore.tileMode === 'single',
+      onClicked: () => {
+        editorStore.tileMode = 'single';
+      },
+    },
+    {
+      id: 'dubble-tab-mode',
+      icon: 'vertical_split',
+      label: t('pdfEditor.tools.viewStyle.split'),
+      isActive: () => editorStore.tileMode === 'dubble',
+      onClicked: () => {
+        editorStore.tileMode = 'dubble';
+      },
+    },
+    {
+      id: 'grid-tab-mode',
+      icon: 'grid_view',
+      label: t('pdfEditor.tools.viewStyle.grid'),
+      isActive: () => editorStore.tileMode === 'grid',
+      onClicked: () => {
+        editorStore.tileMode = 'grid';
+      },
+    },
+  ];
+
+  return tools;
 }
 
 /**
@@ -170,6 +207,7 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
       id: 'toggle-annotation-visibility',
       icon: 'visibility',
       label: t('pdfEditor.tools.annotationToggle'),
+      noMenu: true,
       isActive: () => editorStore.visibleAnnotations,
       onClicked: () => {
         editorStore.visibleAnnotations = !editorStore.visibleAnnotations;
@@ -193,6 +231,7 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
       id: 'toggle-left-drawer',
       icon: 'menu',
       label: t('pdfEditor.leftDrawer.title'),
+      noMenu: true,
       isActive: () => false,
       onClicked: () => {
         editorStore.leftDrawerModel = !editorStore.leftDrawerModel;
@@ -202,6 +241,7 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
       id: 'hand-mode',
       icon: 'pan_tool',
       label: t('pdfEditor.tools.handMode'),
+      noMenu: true,
       isActive: () => {
         return editorStore.currentTools === 'hand';
       },
@@ -213,6 +253,7 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
       id: 'select-mode',
       icon: 'touch_app',
       label: t('pdfEditor.tools.selectMode'),
+      noMenu: true,
       isActive: () => {
         return editorStore.currentTools === 'pointer';
       },
@@ -234,60 +275,10 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
 
   const tools: IDocTool[] = [
     {
-      id: 'save-menu',
-      icon: 'save',
-      label: t('pdfEditor.tools.save.title'),
-      isActive: () => false,
-      onClicked: () => {
-        const subTools: IDocTool[] = [
-          {
-            id: 'save-overwrite',
-            icon: 'save',
-            label: t('pdfEditor.tools.save.overwrite'),
-            isActive: () => false,
-            onClicked: () => {
-              const activeFile = editorStore.getActiveTab(editorStore.activeSide);
-              if (!activeFile) return;
-              void saveDocument(activeFile, {
-                success: t('pdfEditor.tools.save.success'),
-                failed: t('pdfEditor.tools.save.failed'),
-              });
-            },
-          },
-          {
-            id: 'save-as',
-            icon: 'save_as',
-            label: t('pdfEditor.tools.save.saveAs'),
-            isActive: () => false,
-            onClicked: () => {
-              /** TODO: 今後実装 */
-            },
-          },
-          {
-            id: 'auto-save-toggle',
-            icon: 'backup',
-            label: t('pdfEditor.tools.save.auto'),
-            isActive: () => editorStore.autoSaveAnnotations,
-            onClicked: async () => {
-              const previous = editorStore.autoSaveAnnotations;
-              editorStore.autoSaveAnnotations = !previous;
-              const result = await useBackendApi().saveSettings(
-                'autoSaveAnnotations',
-                editorStore.autoSaveAnnotations,
-              );
-              if (!result.ok) {
-                editorStore.autoSaveAnnotations = previous;
-              }
-            },
-          },
-        ];
-        editorStore.subTools = subTools;
-      },
-    },
-    {
       id: 'print',
       icon: 'print',
       label: t('pdfEditor.tools.print'),
+      noMenu: true,
       isActive: () => false,
       onClicked: () => {
         // TODO: 暫定実装
@@ -298,53 +289,17 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
       id: 'download',
       icon: 'download',
       label: t('pdfEditor.tools.download'),
+      noMenu: true,
       isActive: () => false,
       onClicked: () => {
         /** TODO: 今後実装 */
       },
     },
     {
-      id: 'tab-tile-menu',
-      icon: 'grid_view',
-      label: t('pdfEditor.tools.viewStyle.title'),
-      isActive: () => false,
-      onClicked: () => {
-        const subTools: IDocTool[] = [
-          {
-            id: 'single-tab-mode',
-            icon: 'crop_portrait',
-            label: t('pdfEditor.tools.viewStyle.noGrid'),
-            isActive: () => editorStore.tileMode === 'single',
-            onClicked: () => {
-              editorStore.tileMode = 'single';
-            },
-          },
-          {
-            id: 'dubble-tab-mode',
-            icon: 'vertical_split',
-            label: t('pdfEditor.tools.viewStyle.split'),
-            isActive: () => editorStore.tileMode === 'dubble',
-            onClicked: () => {
-              editorStore.tileMode = 'dubble';
-            },
-          },
-          {
-            id: 'grid-tab-mode',
-            icon: 'grid_view',
-            label: t('pdfEditor.tools.viewStyle.grid'),
-            isActive: () => editorStore.tileMode === 'grid',
-            onClicked: () => {
-              editorStore.tileMode = 'grid';
-            },
-          },
-        ];
-        editorStore.subTools = subTools;
-      },
-    },
-    {
       id: 'toggle-right-drawer',
       icon: 'info',
       label: t('pdfEditor.rightDrawer.title'),
+      noMenu: true,
       isActive: () => false,
       onClicked: () => {
         editorStore.rightDrawerModel = !editorStore.rightDrawerModel;
@@ -371,6 +326,14 @@ export async function callEditorTools(t: (key: string) => string): Promise<IDocT
  * ヘッダーのうち左上に表示するツールを取得
  */
 export function callLeftHeaderTools(t: (key: string) => string): IDocTool[] {
-  const saving = callSavingTools(t)
-  return saving
+  const saving = callSavingTools(t);
+  return saving;
+}
+
+/**
+ * ヘッダーのうち右上に表示するツールを取得
+ */
+export function callRightHeaderTools(t: (key: string) => string): IDocTool[] {
+  const saving = callLayoutTools(t);
+  return saving;
 }

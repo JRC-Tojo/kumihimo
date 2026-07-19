@@ -8,6 +8,7 @@ export interface IDocTool {
   id: string;
   icon: string;
   label: string;
+  noMenu?: boolean;
   isActive: () => boolean;
   isDisable?: () => boolean;
   onClicked: () => void | Promise<void>;

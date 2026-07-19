@@ -1,30 +1,41 @@
 <template>
   <q-page class="editor-page row">
     <div class="main-toolbar text-white">
-      <q-btn v-for="tool in editorStore.mainTools" :key="tool.id" :flat="!tool.isActive()" :outline="tool.isActive()"
-        :disable="tool.isDisable?.() ?? false" dense :icon="tool.icon" :title="tool.label" class="toolbar-btn"
-        @click="handleMainToolClick(tool)">
-        <q-menu anchor="center right" self="center left">
+      <q-btn
+        v-for="tool in editorStore.mainTools"
+        :key="tool.id"
+        :flat="!tool.isActive()"
+        :outline="tool.isActive()"
+        :disable="tool.isDisable?.() ?? false"
+        dense
+        :icon="tool.icon"
+        :title="tool.label"
+        class="toolbar-btn"
+        @click="handleMainToolClick(tool)"
+      >
+        <q-menu v-if="!tool.noMenu" anchor="center right" self="center left" auto-close>
           <div class="annotation-type-menu q-pa-sm">
-            <AnnotationPresetBar v-if="editorStore.activeAnnotationType" class="preset-bar-wrapper" />
+            <AnnotationPresetBar
+              v-if="editorStore.activeAnnotationType"
+              class="preset-bar-wrapper"
+            />
+            <q-btn
+              v-for="subtool in editorStore.subTools"
+              :key="subtool.id"
+              :flat="!subtool.isActive()"
+              :outline="subtool.isActive()"
+              :disable="subtool.isDisable?.() ?? false"
+              dense
+              :icon="subtool.icon"
+              :label="subtool.label"
+              class="toolbar-btn"
+              @click="subtool.onClicked"
+            />
           </div>
         </q-menu>
       </q-btn>
     </div>
-    <div class="col" style="display: flex; flex-direction: column;">
-      <!-- メインツールバー -->
-      <!-- <q-bar class="main-toolbar text-white">
-        <q-btn v-for="tool in editorStore.mainTools" :key="tool.id" :flat="!tool.isActive()" :outline="tool.isActive()"
-          :disable="tool.isDisable?.() ?? false" dense :icon="tool.icon" :title="tool.label" class="toolbar-btn"
-          @click="handleMainToolClick(tool)">
-          <q-menu anchor="bottom left" self="top left">
-            <div class="annotation-type-menu q-pa-sm">
-              <AnnotationPresetBar v-if="editorStore.activeAnnotationType" class="preset-bar-wrapper" />
-            </div>
-          </q-menu>
-        </q-btn>
-      </q-bar> -->
-
+    <div class="col" style="display: flex; flex-direction: column">
       <!--
         SubTools領域: MainToolsと同じ高さで常駐させ、内容の有無に関わらずレイアウトが
         伸縮しないようにする。関係性/重ね順/保存/タイル等の汎用ツール、または
@@ -40,26 +51,14 @@
         <DocTabsPage layout-side="ul" />
       </div>
       <div v-else-if="editorStore.tileMode === 'dubble'" class="doc-layout dubble">
-        <div class="ul">
-          <DocTabsPage layout-side="ul" />
-        </div>
-        <div class="ur">
-          <DocTabsPage layout-side="ur" />
-        </div>
+        <div class="ul"><DocTabsPage layout-side="ul" /></div>
+        <div class="ur"><DocTabsPage layout-side="ur" /></div>
       </div>
       <div v-else-if="editorStore.tileMode === 'grid'" class="doc-layout grid">
-        <div class="ul">
-          <DocTabsPage layout-side="ul" />
-        </div>
-        <div class="ur">
-          <DocTabsPage layout-side="ur" />
-        </div>
-        <div class="ll">
-          <DocTabsPage layout-side="ll" />
-        </div>
-        <div class="lr">
-          <DocTabsPage layout-side="lr" />
-        </div>
+        <div class="ul"><DocTabsPage layout-side="ul" /></div>
+        <div class="ur"><DocTabsPage layout-side="ur" /></div>
+        <div class="ll"><DocTabsPage layout-side="ll" /></div>
+        <div class="lr"><DocTabsPage layout-side="lr" /></div>
       </div>
     </div>
   </q-page>
@@ -127,9 +126,11 @@ function handleMainToolClick(tool: IDocTool) {
 }
 
 .body--dark .main-toolbar {
-  background: linear-gradient(135deg,
-      color.adjust($primary, $lightness: -10%) 0%,
-      color.adjust($primary, $lightness: -15%) 100%);
+  background: linear-gradient(
+    135deg,
+    color.adjust($primary, $lightness: -10%) 0%,
+    color.adjust($primary, $lightness: -15%) 100%
+  );
 }
 
 .sub-toolbar {

@@ -2,7 +2,42 @@
   <q-layout view="hHh LpR fFf">
     <q-header>
       <q-bar>
+        <q-toggle
+          v-model="autoSaveModel"
+          dense
+          size="sm"
+          :label="$t('pdfEditor.tools.save.auto')"
+          class="header-auto-save"
+        />
+        <q-btn
+          v-for="tool in editorStore.leftHeaderTools"
+          :key="tool.id"
+          dense
+          flat
+          :icon="tool.icon"
+          :title="$t(tool.label)"
+          :disable="tool.isDisable?.() ?? false"
+          class="header-btn"
+          @click="tool.onClicked"
+        />
+
+        <q-space />
+
         <q-toolbar-title class="text-center">{{ $t('title.app') }}</q-toolbar-title>
+
+        <q-space />
+
+        <q-btn
+          v-for="tool in editorStore.rightHeaderTools"
+          :key="tool.id"
+          dense
+          flat
+          :icon="tool.icon"
+          :title="$t(tool.label)"
+          :disable="tool.isDisable?.() ?? false"
+          class="header-btn"
+          @click="tool.onClicked"
+        />
       </q-bar>
     </q-header>
 
@@ -64,8 +99,10 @@ import EditorPage from 'src/pages/EditorPage.vue';
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from 'src/stores/editorStore';
+import { useBackendApi } from 'src/apis/backendApi';
 
 const { t: $t } = useI18n();
+const api = useBackendApi();
 const editorStore = useEditorStore();
 const showLeftDrawer = ref(true);
 const selectedTab = ref('docs');
@@ -75,6 +112,18 @@ const drawerWidth = computed(() => splitModel.value + 1);
 
 const splitterClass = computed(() => (!showLeftDrawer.value ? 'splitt' : ''));
 const compPadding = computed(() => (showLeftDrawer.value ? { paddingLeft: '0px' } : ''));
+
+const autoSaveModel = computed({
+  get: () => editorStore.autoSaveAnnotations,
+  set: (value: boolean) => {
+    editorStore.autoSaveAnnotations = value;
+    void api.saveSettings('autoSaveAnnotations', editorStore.autoSaveAnnotations).then((result) => {
+      if (!result.ok) {
+        editorStore.autoSaveAnnotations = !value;
+      }
+    });
+  },
+});
 </script>
 
 <style scoped lang="scss">
