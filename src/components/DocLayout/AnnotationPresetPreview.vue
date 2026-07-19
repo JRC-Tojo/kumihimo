@@ -1,5 +1,8 @@
 <template>
   <svg viewBox="0 0 24 24" class="annotation-preset-preview" aria-hidden="true">
+    <!-- ダークモードでも線色・文字色（黒等）が見えなくならないよう、常に明るい背景チップの上に描画する -->
+    <rect x="0.5" y="0.5" width="23" height="23" rx="4" class="preview-backdrop" />
+
     <!-- box -->
     <rect
       v-if="annotationStyle.type === 'box'"
@@ -160,5 +163,11 @@ const fillOpacityValue = computed(() => {
   width: 22px;
   height: 22px;
   display: block;
+}
+
+.preview-backdrop {
+  fill: #f4f4f5;
+  stroke: rgba(0, 0, 0, 0.12);
+  stroke-width: 1;
 }
 </style>

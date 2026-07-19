@@ -333,3 +333,92 @@ describe('ANNOTATION_GEOMETRY', () => {
     }
   });
 });
+
+describe('getSize / resizeTo（位置・サイズ操作盤向け）', () => {
+  it('box: getSizeはwidth/heightをそのまま返し、resizeToはそれを直接更新する', () => {
+    const style = {
+      type: 'box' as const,
+      id: '00000000-0000-4000-8000-000000000000' as never,
+      pageNumber: 1,
+      x: 0,
+      y: 0,
+      color: '#000000' as never,
+      strokeWidth: 2,
+      strokeType: 'solid' as const,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      comment: {},
+      width: 100,
+      height: 50,
+    };
+    expect(ANNOTATION_GEOMETRY.box.getSize(style)).toEqual({ width: 100, height: 50 });
+    expect(ANNOTATION_GEOMETRY.box.resizeTo(style, 200, 80)).toEqual({
+      width: 200,
+      height: 80,
+    });
+  });
+
+  it('circle: getSizeは直径（radius*2）を返し、resizeToはradiusX/radiusYへ変換する', () => {
+    const style = {
+      type: 'circle' as const,
+      id: '00000000-0000-4000-8000-000000000000' as never,
+      pageNumber: 1,
+      x: 0,
+      y: 0,
+      color: '#000000' as never,
+      strokeWidth: 2,
+      strokeType: 'solid' as const,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      comment: {},
+      radius: 10,
+    };
+    expect(ANNOTATION_GEOMETRY.circle.getSize(style)).toEqual({ width: 20, height: 20 });
+    expect(ANNOTATION_GEOMETRY.circle.resizeTo(style, 40, 30)).toEqual({
+      radiusX: 20,
+      radiusY: 15,
+    });
+  });
+
+  it('line: getSizeはpointsの絶対値を返し、resizeToは符号を保ったままサイズを変更する', () => {
+    const style = {
+      type: 'line' as const,
+      id: '00000000-0000-4000-8000-000000000000' as never,
+      pageNumber: 1,
+      x: 0,
+      y: 0,
+      color: '#000000' as never,
+      strokeWidth: 2,
+      strokeType: 'solid' as const,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      comment: {},
+      points: [0, 0, -10, 20],
+    };
+    expect(ANNOTATION_GEOMETRY.line.getSize(style)).toEqual({ width: 10, height: 20 });
+    expect(ANNOTATION_GEOMETRY.line.resizeTo(style, 30, 40)).toEqual({
+      points: [0, 0, -30, 40],
+    });
+  });
+
+  it('polygon: getSizeは全頂点の外接矩形の辺長を返し、resizeToは原点基準で比例縮尺する', () => {
+    const style = {
+      type: 'polygon' as const,
+      id: '00000000-0000-4000-8000-000000000000' as never,
+      pageNumber: 1,
+      x: 0,
+      y: 0,
+      color: '#000000' as never,
+      strokeWidth: 2,
+      strokeType: 'solid' as const,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      comment: {},
+      points: [0, 0, 20, 0, 10, 20],
+    };
+    expect(ANNOTATION_GEOMETRY.polygon.getSize(style)).toEqual({ width: 20, height: 20 });
+    expect(ANNOTATION_GEOMETRY.polygon.resizeTo(style, 40, 10)).toEqual({
+      points: [0, 0, 40, 0, 20, 10],
+    });
+  });
+});

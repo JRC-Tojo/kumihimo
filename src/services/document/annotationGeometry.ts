@@ -36,6 +36,18 @@ export interface AnnotationDefaultPreset {
 interface AnnotationGeometryModuleCommon<T extends AnnotationStyle> {
   /** アノテーションの外接矩形（OCR/プレビュー画像切り出し用、少し余白を含む）を計算する */
   boundingBox(style: T): BoundingBox;
+  /**
+   * 位置・サイズ操作盤（SubTools）向け: 現在の全体サイズ（幅・高さ）を返す
+   *
+   * boundingBoxと異なり余白を含まない、図形そのものの実サイズ（多頂点図形は外接矩形の辺長）
+   */
+  getSize(style: T): { width: number; height: number };
+  /**
+   * 位置・サイズ操作盤向け: 指定した全体サイズになるよう、型ごとのフィールドを更新するpatchを返す
+   *
+   * 多頂点図形（polyline/polygon）は原点を基準に各頂点を比例縮尺する
+   */
+  resizeTo(style: T, width: number, height: number): Partial<T>;
   /** 初期設定（初回起動時・既存設定への補完時）に投入するこの種別のデフォルトプリセット。1件以上必須 */
   defaultPresets: AnnotationDefaultPreset[];
 }
@@ -177,6 +189,14 @@ const boxGeometry: AnnotationGeometryModule = {
       height: height + BOUNDING_BOX_PADDING * 2,
     };
   },
+  getSize(style) {
+    if (style.type !== 'box') return { width: 0, height: 0 };
+    return { width: style.width, height: style.height };
+  },
+  resizeTo(style, width, height) {
+    if (style.type !== 'box') return {};
+    return { width, height };
+  },
   defaultPresets: [
     {
       name: 'ボックス（青枠）',
@@ -217,6 +237,42 @@ function lineLikeBoundingBox(
     width: maxX - minX,
     height: maxY - minY,
   };
+}
+
+/** 折れ線・ポリゴン共通: 相対座標の頂点配列（原点からのオフセット）からmin/max範囲を計算する（余白なし） */
+function computePointsSpan(points: number[]): { minX: number; maxX: number; minY: number; maxY: number } {
+  let minX = 0;
+  let maxX = 0;
+  let minY = 0;
+  let maxY = 0;
+
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    const px = points[i]!;
+    const py = points[i + 1]!;
+    minX = Math.min(minX, px);
+    maxX = Math.max(maxX, px);
+    minY = Math.min(minY, py);
+    maxY = Math.max(maxY, py);
+  }
+
+  return { minX, maxX, minY, maxY };
+}
+
+/**
+ * 折れ線・ポリゴン共通: 指定した全体サイズになるよう、原点（min座標）を基準に全頂点を比例縮尺する
+ *
+ * 縮尺元の辺長が0（縦横どちらかに潰れた図形）の場合はその軸の縮尺を1倍のまま据え置く
+ */
+function resizePointsTo(points: number[], width: number, height: number): number[] {
+  const { minX, maxX, minY, maxY } = computePointsSpan(points);
+  const oldWidth = maxX - minX;
+  const oldHeight = maxY - minY;
+  const scaleX = oldWidth > 0 ? width / oldWidth : 1;
+  const scaleY = oldHeight > 0 ? height / oldHeight : 1;
+
+  return points.map((v, i) =>
+    i % 2 === 0 ? minX + (v - minX) * scaleX : minY + (v - minY) * scaleY,
+  );
 }
 
 /** 折れ線・ポリゴン共通: 全頂点のmin/maxから外接矩形（線幅を考慮）を計算する（lineLikeBoundingBoxのN点版） */
@@ -279,6 +335,16 @@ const lineGeometry: AnnotationGeometryModule = {
   boundingBox(style) {
     if (style.type !== 'line') return { x: 0, y: 0, width: 0, height: 0 };
     return lineLikeBoundingBox(style.x, style.y, style.points, style.strokeWidth ?? 2);
+  },
+  getSize(style) {
+    if (style.type !== 'line') return { width: 0, height: 0 };
+    return { width: Math.abs(style.points[2] ?? 0), height: Math.abs(style.points[3] ?? 0) };
+  },
+  resizeTo(style, width, height) {
+    if (style.type !== 'line') return {};
+    const signX = (style.points[2] ?? 0) < 0 ? -1 : 1;
+    const signY = (style.points[3] ?? 0) < 0 ? -1 : 1;
+    return { points: [style.points[0] ?? 0, style.points[1] ?? 0, width * signX, height * signY] };
   },
   defaultPresets: [
     {
@@ -360,6 +426,18 @@ const circleGeometry: AnnotationGeometryModule = {
       height: extentY * 2,
     };
   },
+  getSize(style) {
+    if (style.type !== 'circle') return { width: 0, height: 0 };
+    return {
+      width: (style.radiusX ?? style.radius) * 2,
+      height: (style.radiusY ?? style.radius) * 2,
+    };
+  },
+  resizeTo(style, width, height) {
+    if (style.type !== 'circle') return {};
+    // radiusX/radiusYを明示することで楕円化する（正円のradiusは互換性のため残す）
+    return { radiusX: width / 2, radiusY: height / 2 };
+  },
   defaultPresets: [
     {
       name: '円（緑枠）',
@@ -416,6 +494,16 @@ const arrowGeometry: AnnotationGeometryModule = {
   boundingBox(style) {
     if (style.type !== 'arrow') return { x: 0, y: 0, width: 0, height: 0 };
     return lineLikeBoundingBox(style.x, style.y, style.points, style.strokeWidth ?? 2);
+  },
+  getSize(style) {
+    if (style.type !== 'arrow') return { width: 0, height: 0 };
+    return { width: Math.abs(style.points[2] ?? 0), height: Math.abs(style.points[3] ?? 0) };
+  },
+  resizeTo(style, width, height) {
+    if (style.type !== 'arrow') return {};
+    const signX = (style.points[2] ?? 0) < 0 ? -1 : 1;
+    const signY = (style.points[3] ?? 0) < 0 ? -1 : 1;
+    return { points: [style.points[0] ?? 0, style.points[1] ?? 0, width * signX, height * signY] };
   },
   defaultPresets: [
     {
@@ -483,6 +571,15 @@ const polylineGeometry: AnnotationGeometryModule = {
   boundingBox(style) {
     if (style.type !== 'polyline') return { x: 0, y: 0, width: 0, height: 0 };
     return multiPointBoundingBox(style.x, style.y, style.points, style.strokeWidth ?? 2);
+  },
+  getSize(style) {
+    if (style.type !== 'polyline') return { width: 0, height: 0 };
+    const { minX, maxX, minY, maxY } = computePointsSpan(style.points);
+    return { width: maxX - minX, height: maxY - minY };
+  },
+  resizeTo(style, width, height) {
+    if (style.type !== 'polyline') return {};
+    return { points: resizePointsTo(style.points, width, height) };
   },
   defaultPresets: [
     {
@@ -561,6 +658,15 @@ const polygonGeometry: AnnotationGeometryModule = {
     if (style.type !== 'polygon') return { x: 0, y: 0, width: 0, height: 0 };
     return multiPointBoundingBox(style.x, style.y, style.points, style.strokeWidth ?? 2);
   },
+  getSize(style) {
+    if (style.type !== 'polygon') return { width: 0, height: 0 };
+    const { minX, maxX, minY, maxY } = computePointsSpan(style.points);
+    return { width: maxX - minX, height: maxY - minY };
+  },
+  resizeTo(style, width, height) {
+    if (style.type !== 'polygon') return {};
+    return { points: resizePointsTo(style.points, width, height) };
+  },
   defaultPresets: [
     {
       name: 'ポリゴン（紫）',
@@ -635,6 +741,14 @@ const textGeometry: AnnotationGeometryModule = {
       width: width + BOUNDING_BOX_PADDING * 2,
       height: height + BOUNDING_BOX_PADDING * 2,
     };
+  },
+  getSize(style) {
+    if (style.type !== 'text') return { width: 0, height: 0 };
+    return { width: style.width, height: style.height };
+  },
+  resizeTo(style, width, height) {
+    if (style.type !== 'text') return {};
+    return { width, height };
   },
   defaultPresets: [
     {

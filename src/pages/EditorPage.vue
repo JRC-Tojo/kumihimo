@@ -44,6 +44,7 @@
       -->
       <q-bar class="sub-toolbar">
         <AnnotationStylePanel class="style-panel-wrapper" />
+        <AnnotationPositionSizeBtn />
       </q-bar>
 
       <!-- ドキュメントレイアウト -->
@@ -70,6 +71,7 @@ import DocTabsPage from './DocTabsPage.vue';
 import AnnotationPresetBar from 'src/components/DocLayout/AnnotationPresetBar.vue';
 import AnnotationStylePanel from 'src/components/DocLayout/AnnotationStylePanel.vue';
 import type { IDocTool } from 'src/models/docPage';
+import AnnotationPositionSizeBtn from 'src/components/DocLayout/AnnotationPositionSizeBtn.vue';
 
 /**
  * 文書ページコンポーネント

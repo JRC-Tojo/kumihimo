@@ -209,6 +209,13 @@ export default {
           open: 'Open',
         },
       },
+      positionSize: {
+        title: 'Position & Size',
+        x: 'X',
+        y: 'Y',
+        width: 'Width',
+        height: 'Height',
+      },
     },
     document: {
       noDocumentSelected: 'No document selected',

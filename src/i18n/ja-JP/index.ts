@@ -208,6 +208,13 @@ export default {
           open: '輪郭のみ',
         },
       },
+      positionSize: {
+        title: '位置・サイズ',
+        x: 'X',
+        y: 'Y',
+        width: '幅',
+        height: '高さ',
+      },
     },
     document: {
       noDocumentSelected: '表示する文書を選択してください',
