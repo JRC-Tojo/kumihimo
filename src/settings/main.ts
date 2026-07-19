@@ -152,6 +152,8 @@ export async function ensureDefaultAnnotationPresets(): Promise<Result<void>> {
 
     return saveSettings('tools', {
       annotations: [...settings.tools.annotations, ...missingDefaults],
+      recentColors: settings.tools.recentColors,
+      recentColorsLimit: settings.tools.recentColorsLimit,
     });
   });
 }

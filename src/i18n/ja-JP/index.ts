@@ -100,6 +100,12 @@ export default {
       display: '表示',
       data: 'データ',
     },
+    annotationTools: {
+      title: 'アノテーションツール',
+      recentColorsLimit: '直近使用色の保持数',
+      recentColorsLimitDesc:
+        'スタイルパネルの色スウォッチに表示する、直近で使用した色の保持件数です。',
+    },
     relationalVerification: {
       title: '関係性検証スタイル',
       ok: 'OK（検証成功）',

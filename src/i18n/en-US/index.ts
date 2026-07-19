@@ -101,6 +101,12 @@ export default {
       display: 'Display',
       data: 'Data',
     },
+    annotationTools: {
+      title: 'Annotation Tools',
+      recentColorsLimit: 'Recent colors to keep',
+      recentColorsLimitDesc:
+        'Number of recently used colors shown in the style panel\'s color swatches.',
+    },
     relationalVerification: {
       title: 'Relational Verification Style',
       ok: 'OK (Verified)',
