@@ -19,6 +19,41 @@ function firstPresetStyleForType(toolType: DrawingAnnotationType) {
 }
 
 /**
+ * 文書保存ツール一覧を取得
+ */
+function callSavingTools(t: (key: string) => string): IDocTool[] {
+  const editorStore = useEditorStore();
+
+  const tools: IDocTool[] = [
+    {
+      id: 'save-overwrite',
+      icon: 'save',
+      label: t('pdfEditor.tools.save.overwrite'),
+      isActive: () => false,
+      onClicked: () => {
+        const activeFile = editorStore.getActiveTab(editorStore.activeSide);
+        if (!activeFile) return;
+        void saveDocument(activeFile, {
+          success: t('pdfEditor.tools.save.success'),
+          failed: t('pdfEditor.tools.save.failed'),
+        });
+      },
+    },
+    {
+      id: 'save-as',
+      icon: 'save_as',
+      label: t('pdfEditor.tools.save.saveAs'),
+      isActive: () => false,
+      onClicked: () => {
+        /** TODO: 今後実装 */
+      },
+    },
+  ]
+
+  return tools
+}
+
+/**
  * アノテーションツール一覧を取得
  * @param t - i18n 翻訳関数
  * @returns アノテーションツール配列
@@ -325,8 +360,17 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
  * @returns 全エディタツール配列
  */
 export async function callEditorTools(t: (key: string) => string): Promise<IDocTool[]> {
+  // TODO: 戻り値を２次元配列にして，その区切りにq-separatorを描画する？
   const docs = callDocTools(t);
   const pointer = callPointerTools(t);
   const annotation = await callAnnotationTools(t);
   return Array.prototype.concat(pointer, annotation, docs);
+}
+
+/**
+ * ヘッダーのうち左上に表示するツールを取得
+ */
+export function callLeftHeaderTools(t: (key: string) => string): IDocTool[] {
+  const saving = callSavingTools(t)
+  return saving
 }
