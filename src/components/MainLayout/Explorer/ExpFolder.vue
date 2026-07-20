@@ -96,7 +96,7 @@ import { ExplorerContextKey } from './explorerContext';
 import ExpFile from './ExpFile.vue';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
 import { syncStoresAfterDelete } from 'src/utils/document/syncStoresAfterDelete';
-import { confirmDialog, promptDialog } from 'src/utils/dialog/confirmDialog';
+import { confirmDialog, promptDialog } from 'src/components/Dialog/confirmDialog';
 
 interface Prop {
   folder: ContainerElementFolder;

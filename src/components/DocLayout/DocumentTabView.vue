@@ -92,7 +92,7 @@ import { buildRelationalRule } from 'src/models/relational/ruleUtils';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
 import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
-import { confirmDialog } from 'src/utils/dialog/confirmDialog';
+import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
 
 interface Prop {
