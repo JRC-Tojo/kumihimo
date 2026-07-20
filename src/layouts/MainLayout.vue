@@ -49,37 +49,41 @@
           show-if-above
           bordered
           :breakpoint="0"
-          class="row"
+          class="drawer-shell"
         >
-          <div class="rail-container">
-            <q-tabs v-model="selectedTab" vertical switch-indicator class="rail-tabs">
-              <q-tab name="docs" icon="library_books" class="rail-tab" />
-              <q-tab name="exts" icon="extension" class="rail-tab" />
-            </q-tabs>
+          <div class="drawer-content">
+            <div class="rail-container">
+              <q-tabs v-model="selectedTab" vertical switch-indicator class="rail-tabs">
+                <q-tab name="docs" icon="library_books" class="rail-tab" />
+                <q-tab name="exts" icon="extension" class="rail-tab" />
+              </q-tabs>
 
-            <!-- <q-space /> -->
+              <!-- <q-space /> -->
 
-            <!-- 設定：ドキュメントタブと同様に、設定タブをタブ領域に開く -->
-            <q-btn
-              flat
-              dense
-              icon="settings"
-              size="md"
-              class="rail-tab"
-              @click="editorStore.openSettingsTab()"
-            >
-              <q-tooltip>{{ $t('settings.title') }}</q-tooltip>
-            </q-btn>
+              <!-- 設定：ドキュメントタブと同様に、設定タブをタブ領域に開く -->
+              <q-btn
+                flat
+                dense
+                icon="settings"
+                size="md"
+                class="rail-tab"
+                @click="editorStore.openSettingsTab()"
+              >
+                <q-tooltip>{{ $t('settings.title') }}</q-tooltip>
+              </q-btn>
+            </div>
+
+            <q-separator vertical />
+
+            <div class="panels-wrapper">
+              <q-tab-panels v-model="selectedTab" class="panels">
+                <q-tab-panel name="docs" class="q-pa-none">
+                  <explorer-view />
+                </q-tab-panel>
+                <q-tab-panel name="exts"> This is Extensions </q-tab-panel>
+              </q-tab-panels>
+            </div>
           </div>
-
-          <q-separator vertical />
-
-          <q-tab-panels v-model="selectedTab" class="panels">
-            <q-tab-panel name="docs">
-              <explorer-view />
-            </q-tab-panel>
-            <q-tab-panel name="exts"> This is Extensions </q-tab-panel>
-          </q-tab-panels>
         </q-drawer>
       </template>
 
@@ -134,14 +138,37 @@ const autoSaveModel = computed({
   }
 }
 
-.panels {
+.drawer-shell {
+  overflow: hidden;
+}
+
+.drawer-content {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.panels-wrapper {
   flex: 1 1 0;
-  overflow-x: hidden;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panels {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panels :deep(.q-tab-panel) {
+  height: 100%;
+  overflow: hidden;
 }
 
 .rail-container {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   height: 100%;
 
   .rail-tabs {
