@@ -149,9 +149,7 @@ export function useAnnotationStylePanel() {
       }
       if (mode.value === 'selection') {
         return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
-          a.type === 'box' || a.type === 'circle' || a.type === 'polygon'
-            ? a.fillColor
-            : undefined,
+          a.type === 'box' || a.type === 'circle' || a.type === 'polygon' ? a.fillColor : undefined,
         );
       }
       return undefined;

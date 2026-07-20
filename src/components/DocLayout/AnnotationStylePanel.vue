@@ -1,10 +1,7 @@
 <template>
   <div v-if="mode !== 'none'" class="annotation-style-panel">
     <!-- 線色 -->
-    <StyleSwatchButton
-      v-model="color"
-      :tooltip="t('pdfEditor.tools.stylePanel.color')"
-    />
+    <StyleSwatchButton v-model="color" :tooltip="t('pdfEditor.tools.stylePanel.color')" />
 
     <!-- 線幅 -->
     <StyleValueMenuButton
@@ -49,7 +46,12 @@
       :tooltip="t('pdfEditor.tools.stylePanel.opacity')"
     />
 
-    <q-separator v-if="isFillableType || isHeadedType || isTextType" vertical inset class="style-separator" />
+    <q-separator
+      v-if="isFillableType || isHeadedType || isTextType"
+      vertical
+      inset
+      class="style-separator"
+    />
 
     <!-- box/circle/polygon: 塗り色 -->
     <StyleSwatchButton
@@ -113,10 +115,7 @@
         <q-tooltip>{{ t('pdfEditor.tools.stylePanel.fontSize') }}</q-tooltip>
       </q-input>
 
-      <StyleSwatchButton
-        v-model="textColor"
-        :tooltip="t('pdfEditor.tools.stylePanel.textColor')"
-      />
+      <StyleSwatchButton v-model="textColor" :tooltip="t('pdfEditor.tools.stylePanel.textColor')" />
     </template>
   </div>
 </template>

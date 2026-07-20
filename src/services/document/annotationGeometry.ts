@@ -240,7 +240,12 @@ function lineLikeBoundingBox(
 }
 
 /** 折れ線・ポリゴン共通: 相対座標の頂点配列（原点からのオフセット）からmin/max範囲を計算する（余白なし） */
-function computePointsSpan(points: number[]): { minX: number; maxX: number; minY: number; maxY: number } {
+function computePointsSpan(points: number[]): {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+} {
   let minX = 0;
   let maxX = 0;
   let minY = 0;

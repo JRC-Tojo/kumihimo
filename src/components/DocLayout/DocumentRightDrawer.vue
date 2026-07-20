@@ -312,8 +312,7 @@ const textAlignOptions: { icon: string; value: 'left' | 'center' | 'right' }[] =
 ];
 
 const textAlign = computed<'left' | 'center' | 'right' | undefined>({
-  get: () =>
-    commonValue(prop.selectedAnnots, (a) => (a.type === 'text' ? a.textAlign : undefined)),
+  get: () => commonValue(prop.selectedAnnots, (a) => (a.type === 'text' ? a.textAlign : undefined)),
   set: (value) => {
     if (value === undefined) return;
     void applyPatch((annot) => (annot.type === 'text' ? { textAlign: value } : null));
@@ -321,8 +320,7 @@ const textAlign = computed<'left' | 'center' | 'right' | undefined>({
 });
 
 const fillColor = computed<string | undefined>({
-  get: () =>
-    commonValue(prop.selectedAnnots, (a) => (a.type === 'text' ? a.fillColor : undefined)),
+  get: () => commonValue(prop.selectedAnnots, (a) => (a.type === 'text' ? a.fillColor : undefined)),
   set: (value) => {
     if (value === undefined) return;
     const parsed = ColorCode.safeParse(value);
@@ -631,7 +629,6 @@ async function onRemoveRelation(edge: RelationalEdge) {
         border-left-color: $primary;
       }
     }
-
   }
 
   .drawer-empty {

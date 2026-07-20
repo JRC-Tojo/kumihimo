@@ -56,8 +56,7 @@ export const useEditorStore = defineStore('editor', {
     // 選択状態自体は各DocumentTabView（ペインごと）が持つため、layerOrderAction等と同じ
     // 「意図・状態をeditorStoreに橋渡しする」パターンでここに反映させる
     activeSelection: undefined as
-      | { file: ContainerElementFile; annotations: AnnotationStyle[] }
-      | undefined,
+      { file: ContainerElementFile; annotations: AnnotationStyle[] } | undefined,
 
     // ドキュメントレイアウトの状態
     tabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<ContainerElementFile[]>,

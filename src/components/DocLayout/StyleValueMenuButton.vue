@@ -3,14 +3,7 @@
     <span class="style-value-text">{{ displayText }}</span>
     <q-menu anchor="bottom middle" self="top middle">
       <div class="style-value-menu q-pa-md">
-        <q-slider
-          v-model="modelValue"
-          :min="min"
-          :max="max"
-          :step="step"
-          label
-          color="primary"
-        />
+        <q-slider v-model="modelValue" :min="min" :max="max" :step="step" label color="primary" />
       </div>
     </q-menu>
     <q-tooltip>{{ tooltip }}</q-tooltip>
@@ -35,7 +28,7 @@ interface Props {
 }
 const props = defineProps<Props>();
 
-const modelValue = defineModel<number | undefined>({required: true})
+const modelValue = defineModel<number | undefined>({ required: true });
 
 const displayText = computed(() => props.format(modelValue.value ?? props.min));
 </script>
