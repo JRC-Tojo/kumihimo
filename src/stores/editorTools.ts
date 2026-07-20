@@ -119,8 +119,12 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
       editorStore.currentTools = type;
 
       // 先頭プリセットを自動適用し、MainTool選択直後から即描画に移れるようにする
-      const style = firstPresetStyleForType(type);
-      if (style !== undefined) editorStore.currentAnnotationStyle = style;
+      // cf) ただし，以下の条件では自動適用しない
+      //     - 選択中のタイプと同じ種別が選択されたとき
+      if (type !== editorStore.currentAnnotationStyle.type) {
+        const style = firstPresetStyleForType(type);
+        if (style !== undefined) editorStore.currentAnnotationStyle = style;
+      }
     },
   }));
 

@@ -1,5 +1,11 @@
 <template>
-  <VueDraggable v-model="presetsForType" :animation="150" class="annotation-preset-bar">
+  <VueDraggable
+    v-model="presetsForType"
+    :animation="150"
+    :onMove="handleMove"
+    filter=".drag-disabled"
+    class="annotation-preset-bar"
+  >
     <div
       v-for="preset in presetsForType"
       :key="preset.id"
@@ -10,36 +16,19 @@
       <AnnotationPresetPreview :annotation-style="preset.style" />
       <q-tooltip :delay="400">{{ preset.name }}</q-tooltip>
 
-      <div class="preset-item-actions">
-        <q-btn
-          dense
-          flat
-          round
-          size="xs"
-          icon="edit"
-          :title="$t('pdfEditor.tools.presetBar.rename')"
-          @click.stop="onRename(preset)"
-        />
-        <q-btn
-          dense
-          flat
-          round
-          size="xs"
-          icon="sync"
-          :title="$t('pdfEditor.tools.presetBar.updateStyle')"
-          @click.stop="onUpdateStyle(preset)"
-        />
-        <q-btn
-          dense
-          flat
-          round
-          size="xs"
-          icon="delete"
-          color="negative"
-          :title="$t('pdfEditor.tools.presetBar.delete')"
-          @click.stop="onDelete(preset)"
-        />
-      </div>
+      <q-menu context-menu class="preset-item-actions">
+        <q-list dense style="min-width: 150px">
+          <q-item v-close-popup clickable @click="onRename(preset)">
+            <q-item-section>{{ $t('pdfEditor.tools.presetBar.rename') }}</q-item-section>
+          </q-item>
+          <q-item v-close-popup clickable @click="onUpdateStyle(preset)">
+            <q-item-section>{{ $t('pdfEditor.tools.presetBar.updateStyle') }}</q-item-section>
+          </q-item>
+          <q-item v-close-popup clickable @click="onDelete(preset)" class="text-negative">
+            <q-item-section>{{ $t('pdfEditor.tools.presetBar.delete') }}</q-item-section>
+          </q-item>
+        </q-list>
+      </q-menu>
     </div>
 
     <q-btn
@@ -47,7 +36,7 @@
       flat
       round
       icon="add"
-      class="preset-add-button"
+      class="preset-add-button drag-disabled"
       :title="$t('pdfEditor.tools.presetBar.add')"
       @click="onAdd"
     />
@@ -66,13 +55,13 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import { v4 as uuidv4 } from 'uuid';
-import { VueDraggable } from 'vue-draggable-plus';
+import { type MoveEvent, VueDraggable } from 'vue-draggable-plus';
 import AnnotationPresetPreview from './AnnotationPresetPreview.vue';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import type { AnnotationTool } from 'src/models/docPage';
 import { reorderPresetsOfType } from './composables/useAnnotationPresets';
-import { confirmDialog, promptDialog } from 'src/utils/dialog/confirmDialog';
+import { confirmDialog, promptDialog } from 'src/components/Dialog/confirmDialog';
 
 const { t } = useI18n();
 const $q = useQuasar();
@@ -94,6 +83,13 @@ const presetsForType = computed<AnnotationTool[]>({
     );
   },
 });
+
+const handleMove = (evt: MoveEvent) => {
+  // 割り込み先の要素が .drag-disabled を持っていたら移動をキャンセル
+  if (evt.related && evt.related.classList.contains('drag-disabled')) {
+    return false;
+  }
+};
 
 /** 現在のcurrentAnnotationStyleと一致するプリセットをハイライトする（内容までstringifyして比較） */
 function isActivePreset(preset: AnnotationTool): boolean {
@@ -236,7 +232,6 @@ async function onAdd() {
 .body--dark {
   .preset-item {
     background: $dark;
-    border-color: $grey-8;
   }
 
   .preset-item-actions {

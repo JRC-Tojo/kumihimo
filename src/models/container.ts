@@ -7,7 +7,7 @@ export const ContainerElementFile = z.object({
   containerID: ContainerID,
   type: z.literal('File'),
   path: z.string(),
-  fileSize: z.number().int().positive().optional(),
+  fileSize: z.number().int().nonnegative().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   lastViewedAt: z.coerce.date().optional(),
