@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  Success,
-  Failure,
-  unwrapOr,
-  unwrapOrThrow,
-  NotFoundError,
-  toError,
-} from '../result';
+import { Success, Failure, unwrapOr, unwrapOrThrow, NotFoundError, toError } from '../result';
 
 describe('Success/Failure', () => {
   it('引数なしのSuccessはvalue: undefinedを返す', () => {
