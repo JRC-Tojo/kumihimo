@@ -1,8 +1,9 @@
 <template>
   <!-- outerはレイアウト上占有するスペース（実際のズーム倍率での見た目サイズ）を確保する。
-       innerは実際にレンダリングした解像度（renderScale基準）のサイズのまま、CSS transformで
-       見た目上だけscaleに引き伸ばす。Konvaはtransformを適用したDOM上のgetBoundingClientRect比率から
-       ポインタ座標を自動補正するため、この二重構造でもアノテーションの当たり判定はズレない -->
+       innerは常に固定のRENDER_SCALEでレンダリングした解像度のサイズのまま、CSS transformで
+       見た目上だけscaleに引き伸ばす・縮める。Konvaはtransformを適用したDOM上の
+       getBoundingClientRect比率からポインタ座標を自動補正するため、この二重構造でも
+       アノテーションの当たり判定はズレない -->
   <div class="page-outer" :style="outerStyle">
     <div class="page-wrapper" :style="innerStyle">
       <canvas ref="canvasRef" class="pdf-canvas" />
@@ -10,7 +11,7 @@
       <AnnotationLayer
         v-if="canvasRendered"
         :annotations="currentPageAnnotations"
-        :scale="renderScale"
+        :scale="RENDER_SCALE"
         v-model:selected-annot-ids="selectedAnnotIds"
         v-model:page="page"
         v-model:canvas-size="canvasSize"
@@ -24,7 +25,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AnnotationLayer from './Annotation/AnnotationLayer.vue';
-import { debounce, useQuasar } from 'quasar';
+import { useQuasar } from 'quasar';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf.js';
 import type { PageSize } from './pdfManager';
 
@@ -44,19 +45,19 @@ const $q = useQuasar();
 const canvas = useTemplateRef('canvasRef');
 const canvasRendered = ref(false);
 const canvasSize = ref({ width: 0, height: 0, scaleX: 1, scaleY: 1 });
-// 実際にラスタライズしたレイアウトサイズ（CSS px、devicePixelRatio適用前、renderScale基準）
+// 実際にラスタライズしたレイアウトサイズ（CSS px、devicePixelRatio適用前、RENDER_SCALE基準）
 const layoutSize = ref<PageSize>({ width: 0, height: 0 });
 
 /**
- * 実際にPDFをラスタライズする上限スケール。ズームがこれを超えても再描画はせず、
- * `cssZoomFactor`によるCSS transformの拡大で見た目上のズームだけを実現する。
- * これにより高倍率ズーム時にcanvas・Konva Stageの内部ピクセルバッファが際限なく
- * 肥大化するのを防ぐ（拡大表示された分だけぼやけるが、実用上200%までは鮮明に保たれる）
+ * 実際にPDFをラスタライズする固定スケール。ズーム倍率（scale）が変化しても再描画は一切行わず、
+ * 常にこの解像度でラスタライズした内容を`cssZoomFactor`によるCSS transformで拡大・縮小して
+ * 見た目上のズームを実現する（ページ切り替え時のみ再描画する）。
+ * こうすることで、ズーム操作のたびにcanvas・Konva Stageの内部ピクセルバッファを作り直す
+ * コストを完全に無くし、かつ1ページあたりのメモリ使用量をズーム倍率によらず一定に保てる
  */
-const RENDER_SCALE_CAP = 2;
-const renderScale = computed(() => Math.min(scale.value, RENDER_SCALE_CAP));
-// renderScaleでラスタライズした内容を、CSS transformで実際のズーム倍率まで拡大する係数（1以上）
-const cssZoomFactor = computed(() => scale.value / renderScale.value);
+const RENDER_SCALE = 5;
+// ラスタライズ済みの内容を、CSS transformで実際のズーム倍率まで拡大・縮小する係数
+const cssZoomFactor = computed(() => scale.value / RENDER_SCALE);
 
 const outerStyle = computed(() => {
   if (layoutSize.value.width === 0) return undefined;
@@ -92,7 +93,7 @@ async function render(targetRenderScale: number) {
 
 onMounted(async () => {
   try {
-    await render(renderScale.value);
+    await render(RENDER_SCALE);
     canvasRendered.value = true;
   } catch (error) {
     $q.notify({
@@ -103,12 +104,9 @@ onMounted(async () => {
   }
 });
 
-// renderScaleの変化（＝実際に再ラスタライズが必要な変化）にのみ反応する。cssZoomFactorのみが
-// 変化するズーム（RENDER_SCALE_CAPを超えた範囲）はCSS transformで即座に反映されるため、
-// 重い再描画をトリガーしない
-const debouncedRender = debounce((s: number) => void render(s), 100);
-watch(renderScale, (s) => debouncedRender(s));
-watch(page, () => void render(renderScale.value));
+// ズーム倍率（scale）の変化ではCSS transformのみで見た目を更新し、再描画は発生させない。
+// ページ切り替え時のみラスタライズし直す
+watch(page, () => void render(RENDER_SCALE));
 </script>
 
 <style lang="scss" scoped>

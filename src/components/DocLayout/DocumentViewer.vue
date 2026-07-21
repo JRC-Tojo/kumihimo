@@ -129,9 +129,14 @@ function pageSizeStyle(idx: number): Record<string, string> | undefined {
   };
 }
 
+// 実際にスクロールするのは`.document-viewer-wrapper`（このコンポーネントの外、DocumentTabView.vue側）
+// であり、`viewerContainer`（.pdf-viewer-container）自体はoverflow指定を持たずコンテンツに合わせて
+// 伸びるだけの要素のため、これをrootに指定すると常に全ページが「交差している」と判定されてしまい
+// 仮想化が機能しない。rootをnull（＝ブラウザビューポート）にすることで、IntersectionObserverの
+// 仕様通り、途中の`.document-viewer-wrapper`によるoverflowクリップも考慮した交差判定になる
 function setupIntersectionObserver() {
   intersectionObserver?.disconnect();
-  if (prop.viewMode !== 'continuousSingle' || !viewerContainer.value) return;
+  if (prop.viewMode !== 'continuousSingle') return;
 
   intersectionObserver = new IntersectionObserver(
     (entries) => {
@@ -144,8 +149,9 @@ function setupIntersectionObserver() {
       }
       visiblePageIndices.value = next;
     },
-    // 前後1画面分は先読みで実描画しておき、スクロール時にプレースホルダーが見えるのを防ぐ
-    { root: viewerContainer.value, rootMargin: '100% 0px' },
+    // 前後1画面分程度は先読みで実描画しておき、スクロール時にプレースホルダーが見えるのを防ぐ
+    // （root:null時のrootMarginのパーセント指定はブラウザ差異があるため、固定pxで指定する）
+    { root: null, rootMargin: '1000px 0px' },
   );
   wrapperRefs.value.forEach((el) => {
     if (el) intersectionObserver!.observe(el);
