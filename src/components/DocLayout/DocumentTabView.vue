@@ -18,6 +18,7 @@
           v-if="!loading && onRender"
           :file="file"
           :page-count="pageCount"
+          :page-sizes="pageSizes"
           :view-mode="viewMode"
           :annotations="annotations"
           @render="onRender"
@@ -80,7 +81,14 @@ import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
-import { generateThumbnail, loadPdf, renderPage } from '../Viewer/pdfManager';
+import {
+  acquirePdf,
+  generateThumbnail,
+  getPageViewportSizes,
+  renderPage,
+  type AcquiredPdfDocument,
+  type PageSize,
+} from '../Viewer/pdfManager';
 import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
@@ -115,10 +123,19 @@ const loading = ref<boolean>(true);
 const thumbnails = ref<string[]>([]);
 
 // for document
-type RenderFunc = (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<void>;
+type RenderFunc = (
+  pageNumber: number,
+  canvas: HTMLCanvasElement,
+  scale: number,
+) => Promise<PageSize>;
 const onRender = ref<RenderFunc>();
 const currentPage = ref(1);
 const pageCount = ref(0);
+const pageSizes = ref<PageSize[]>([]);
+// acquirePdfで取得したPDFの解放ハンドル。onBeforeUnmountで必ずreleaseする
+let acquiredPdf: AcquiredPdfDocument | undefined;
+// acquirePdfの完了を待つ間にタブが閉じられたかどうかを記録する
+let isUnmounted = false;
 let stopAnnotationObservation: (() => void) | undefined;
 
 // for annotations
@@ -210,23 +227,34 @@ async function loadDocument() {
     return;
   }
 
-  // PDFファイルを読み込む
-  const loadDocument = await loadPdf(docSrc.data);
-  pageCount.value = loadDocument.numPages;
+  // PDFファイルを読み込む（ファイル単位でキャッシュされたPDFDocumentProxyを取得する。
+  // 使い終わったら`onBeforeUnmount`で必ず`release`すること）
+  const acquired = await acquirePdf(prop.file, docSrc.data);
+  // 取得待機中にタブが閉じられた場合は、参照を返却して以降の状態更新を行わない
+  if (isUnmounted) {
+    acquired.release();
+    return;
+  }
+  acquiredPdf = acquired;
+  const loadedDocument = acquired.document;
+  pageCount.value = loadedDocument.numPages;
+
+  // 連続表示モードでの仮想化（画面近傍のみ実描画）用に、全ページのレイアウトサイズを先に取得しておく
+  pageSizes.value = await getPageViewportSizes(loadedDocument);
 
   // レンダリング関数を設定
   onRender.value = async (
     pageNumber: number,
     canvas: HTMLCanvasElement,
     scale: number,
-  ): Promise<void> => {
-    return await renderPage(loadDocument, pageNumber, canvas, scale);
+  ): Promise<PageSize> => {
+    return await renderPage(loadedDocument, pageNumber, canvas, scale);
   };
 
   // サムネイルを生成
   thumbnails.value = await Promise.all(
     Array.from({ length: pageCount.value }, (_, idx) =>
-      generateThumbnail(loadDocument, idx + 1, 120),
+      generateThumbnail(loadedDocument, idx + 1, 120),
     ),
   );
 
@@ -637,6 +665,9 @@ watch(
   },
 );
 onBeforeUnmount(() => {
+  // 非同期のPDF取得完了後にも参照を返却できるよう、先に破棄状態を記録する
+  isUnmounted = true;
+
   // 自動保存の待機中にタブが閉じられた場合、変更を失わないよう即座に保存する
   // （ただし削除によるクローズの場合、実ファイルは既に無いため保存を試みない）
   if (autoSaveTimer) {
@@ -647,6 +678,10 @@ onBeforeUnmount(() => {
 
   stopAnnotationObservation?.();
   window.removeEventListener('keydown', handleGlobalKeydown);
+
+  // 読み込んだPDFDocumentProxyの参照を返却する（他のタブ・OCR処理から参照されていなければ
+  // 猶予期間後に破棄される。acquireに至らなかった場合は何もしない）
+  acquiredPdf?.release();
 
   // このペインの選択がスタイルパネルに反映されたままタブが閉じられた場合、選択状態を解除する
   if (

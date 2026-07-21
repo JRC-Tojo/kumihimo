@@ -4,10 +4,21 @@
  */
 
 import * as pdfjsLib from 'pdfjs-dist';
+import type { ContainerElementFile } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
-import { base64ToUint8Array } from 'src/utils/binary/base64';
+import {
+  acquirePdfDocument,
+  type AcquiredPdfDocument,
+} from 'src/repositories/document/pdfDocumentCache';
 
 export type PdfDocument = pdfjsLib.PDFDocumentProxy;
+export type { AcquiredPdfDocument };
+
+/** CSS px（devicePixelRatio適用前）でのページ寸法 */
+export interface PageSize {
+  width: number;
+  height: number;
+}
 
 /**
  * PDF.jsワーカーを初期化
@@ -20,20 +31,24 @@ function initWorker() {
 }
 
 /**
- * PDFファイルを読み込む
+ * PDFファイルを読み込む（ファイル単位でキャッシュされたPDFDocumentProxyを取得する）
+ *
+ * 同一ファイルへ複数箇所（ビューア表示・OCR用のテキスト/画像抽出）からアクセスしても
+ * PDF全体の再読込・pdf.jsのWorker生成が重複しないよう、`pdfDocumentCache`を介して取得する。
+ * 取得したら、使い終わり次第（タブを閉じる等）必ず戻り値の`release()`を呼ぶこと
  */
-export async function loadPdf(docSrc: DocumentSource): Promise<PdfDocument> {
-  try {
-    const typedArray = base64ToUint8Array(docSrc);
-    if (!typedArray.ok) throw typedArray.error;
-    return await pdfjsLib.getDocument({ data: typedArray.value }).promise;
-  } catch (error) {
-    throw new Error(`PDF読み込みエラー: ${error instanceof Error ? error.message : 'Unknown'}`);
-  }
+export async function acquirePdf(
+  file: ContainerElementFile,
+  docSrc: DocumentSource,
+): Promise<AcquiredPdfDocument> {
+  const res = await acquirePdfDocument(file, docSrc);
+  if (!res.ok) throw new Error(`PDF読み込みエラー: ${res.error.message}`);
+  return res.value;
 }
 
 /**
- * ページをCanvasにレンダリング
+ * ページをCanvasにレンダリングする。戻り値はCSS px（devicePixelRatio適用前）でのページ寸法で、
+ * レイアウト計算（連続表示モードのページサイズ確保等）に利用する
  */
 export async function renderPage(
   pdfDocument: PdfDocument,
@@ -41,7 +56,7 @@ export async function renderPage(
   canvas: HTMLCanvasElement,
   scale: number = 1,
   maxWidth: number = 0,
-): Promise<void> {
+): Promise<PageSize> {
   try {
     const page = await pdfDocument.getPage(pageNumber);
     let viewport = page.getViewport({ scale });
@@ -71,6 +86,7 @@ export async function renderPage(
     };
 
     await page.render(renderContext).promise;
+    return { width: viewport.width, height: viewport.height };
   } catch (error) {
     throw new Error(
       `ページレンダリングエラー: ${error instanceof Error ? error.message : 'Unknown'}`,
@@ -93,6 +109,23 @@ export async function generateThumbnail(
     );
     return '';
   }
+}
+
+/**
+ * 全ページのサイズ（スケール1でのCSS px寸法）を取得する
+ *
+ * 連続表示モードでページを仮想化（画面近傍のみ実描画）する際、未描画のページ分も
+ * レイアウト上の高さを確保しておく必要があるため、実際のレンダリング（重い処理）を伴わない
+ * メタ情報取得（`getViewport`のみ）で全ページ分のサイズを事前に取得しておく
+ */
+export async function getPageViewportSizes(pdfDocument: PdfDocument): Promise<PageSize[]> {
+  const sizes: PageSize[] = [];
+  for (let i = 1; i <= pdfDocument.numPages; i++) {
+    const page = await pdfDocument.getPage(i);
+    const viewport = page.getViewport({ scale: 1 });
+    sizes.push({ width: viewport.width, height: viewport.height });
+  }
+  return sizes;
 }
 
 // ワーカー初期化

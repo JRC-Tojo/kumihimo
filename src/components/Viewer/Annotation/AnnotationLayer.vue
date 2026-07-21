@@ -81,6 +81,9 @@ type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
 
 interface Props {
   annotations: AnnotationStyle[];
+  // Konvaステージの座標系のスケール（PdfPage側で解像度上限にクランプされた「実描画スケール」）。
+  // 見た目上のズーム倍率そのものではない点に注意（PdfPage.vueのrenderScaleを参照）
+  scale: number;
   onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
   onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
 }
@@ -90,7 +93,6 @@ const editorStore = useEditorStore();
 
 const page = defineModel<number>('page', { required: true });
 const canvasSize = defineModel<{ width: number; height: number }>('canvasSize', { required: true });
-const scale = defineModel<number>('scale', { required: true });
 const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
@@ -217,7 +219,7 @@ const visibleAnnotations = computed(() => {
 const editingTextStyle = computed(() => {
   const annotation = editingTextAnnotation.value;
   if (!annotation) return {};
-  const s = scale.value;
+  const s = props.scale;
   return {
     position: 'absolute' as const,
     left: `${annotation.x * s}px`,
@@ -314,7 +316,7 @@ function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<
 
   const origin = clickPointsBuffer.value[0];
   if (origin) {
-    const screenDistance = Math.hypot(pos.x - origin.x, pos.y - origin.y) * scale.value;
+    const screenDistance = Math.hypot(pos.x - origin.x, pos.y - origin.y) * props.scale;
     if (
       geometry.closable &&
       clickPointsBuffer.value.length >= 3 &&
@@ -425,7 +427,7 @@ function handleMouseDown(e: KonvaMouseEvent) {
 
     const pos = stage.getPointerPosition();
     if (!pos) return;
-    const adjustedPos = { x: pos.x / scale.value, y: pos.y / scale.value };
+    const adjustedPos = { x: pos.x / props.scale, y: pos.y / props.scale };
     handleClickPointsMouseDown(adjustedPos, module.geometry);
     return;
   }
@@ -437,8 +439,8 @@ function handleMouseDown(e: KonvaMouseEvent) {
 
   // 描画時はドキュメント座標に変換するため scale で割ります
   const adjustedPos = {
-    x: pos.x / scale.value,
-    y: pos.y / scale.value,
+    x: pos.x / props.scale,
+    y: pos.y / props.scale,
   };
 
   isDrawing.value = true;
@@ -478,8 +480,8 @@ function handleMouseMove(e: KonvaMouseEvent) {
     const pos = stage?.getPointerPosition();
     if (pos) {
       duplicateDragOffsetDoc.value = {
-        x: (pos.x - duplicateDragStageStart.value.x) / scale.value,
-        y: (pos.y - duplicateDragStageStart.value.y) / scale.value,
+        x: (pos.x - duplicateDragStageStart.value.x) / props.scale,
+        y: (pos.y - duplicateDragStageStart.value.y) / props.scale,
       };
     }
     return;
@@ -492,7 +494,7 @@ function handleMouseMove(e: KonvaMouseEvent) {
     const pos = stage.getPointerPosition();
     if (!pos) return;
 
-    updateClickPointsPreview({ x: pos.x / scale.value, y: pos.y / scale.value });
+    updateClickPointsPreview({ x: pos.x / props.scale, y: pos.y / props.scale });
     return;
   }
 
@@ -504,8 +506,8 @@ function handleMouseMove(e: KonvaMouseEvent) {
     if (!pos) return;
 
     const adjustedPos = {
-      x: pos.x / scale.value,
-      y: pos.y / scale.value,
+      x: pos.x / props.scale,
+      y: pos.y / props.scale,
     };
 
     updateDrawingPreview(adjustedPos.x, adjustedPos.y);
@@ -583,8 +585,8 @@ function handleMouseUp(e: KonvaMouseEvent) {
     if (!pos) return;
 
     const adjustedPos = {
-      x: pos.x / scale.value,
-      y: pos.y / scale.value,
+      x: pos.x / props.scale,
+      y: pos.y / props.scale,
     };
 
     isDrawing.value = false;

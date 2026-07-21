@@ -12,6 +12,7 @@ import { trackPdfAnnotation } from 'src/utils/tracker/trackPdfAnnot';
 import { fromEntries } from 'src/utils/obj/obj';
 import { calcBase64Hash } from 'src/utils/binary/base64';
 import type { AnnotationStyle } from 'src/models/document/pdf';
+import { invalidatePdfDocument } from 'src/repositories/document/pdfDocumentCache';
 
 /**
  * `.rdcfg`のハッシュ記録と実ファイルの内容が一致しない場合（＝アプリ外でファイルが更新された場合）に
@@ -88,6 +89,10 @@ export async function acceptExternalConfig(
     config.fileHash,
   );
   if (!saveRes.ok) return saveRes;
+
+  // 実ファイルの内容がアプリ外で更新されたことを受け入れるため、キャッシュ済みのPDFDocumentProxyが
+  // あれば破棄する（次回の読み込みで新しい内容を反映させる）
+  invalidatePdfDocument(file);
 
   return annotationService.registerAnnotationInfo(annotInfos, file, false);
 }

@@ -1,17 +1,24 @@
 <template>
-  <div class="page-wrapper">
-    <canvas ref="canvasRef" class="pdf-canvas" />
-    <!-- Konvaアノテーションレイヤー -->
-    <AnnotationLayer
-      v-if="canvasRendered"
-      :annotations="currentPageAnnotations"
-      v-model:selected-annot-ids="selectedAnnotIds"
-      v-model:page="page"
-      v-model:scale="scale"
-      v-model:canvas-size="canvasSize"
-      @register-annot="onRegisterAnnot"
-      @remove-annot="onRemoveAnnot"
-    />
+  <!-- outerはレイアウト上占有するスペース（実際のズーム倍率での見た目サイズ）を確保する。
+       innerは最後に実際にラスタライズした解像度（lastRenderedScale）のサイズのまま、CSS transformで
+       見た目上だけscaleへ引き伸ばす・縮める。Konvaはtransformを適用したDOM上の
+       getBoundingClientRect比率からポインタ座標を自動補正するため、この二重構造でも
+       アノテーションの当たり判定はズレない -->
+  <div class="page-outer" :style="outerStyle">
+    <div class="page-wrapper" :style="innerStyle">
+      <canvas ref="canvasRef" class="pdf-canvas" />
+      <!-- Konvaアノテーションレイヤー -->
+      <AnnotationLayer
+        v-if="canvasRendered"
+        :annotations="currentPageAnnotations"
+        :scale="lastRenderedScale"
+        v-model:selected-annot-ids="selectedAnnotIds"
+        v-model:page="page"
+        v-model:canvas-size="canvasSize"
+        @register-annot="onRegisterAnnot"
+        @remove-annot="onRemoveAnnot"
+      />
+    </div>
   </div>
 </template>
 
@@ -20,10 +27,11 @@ import { computed, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AnnotationLayer from './Annotation/AnnotationLayer.vue';
 import { debounce, useQuasar } from 'quasar';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf.js';
+import type { PageSize } from './pdfManager';
 
 interface Props {
   annotations: AnnotationStyle[];
-  onRender: (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<void>;
+  onRender: (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<PageSize>;
   onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
   onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
 }
@@ -37,20 +45,54 @@ const $q = useQuasar();
 const canvas = useTemplateRef('canvasRef');
 const canvasRendered = ref(false);
 const canvasSize = ref({ width: 0, height: 0, scaleX: 1, scaleY: 1 });
+// 実際にラスタライズしたレイアウトサイズ（CSS px、devicePixelRatio適用前、lastRenderedScale基準）
+const layoutSize = ref<PageSize>({ width: 0, height: 0 });
+// 最後に実際にラスタライズしたスケール。ズーム中はこれと`scale`の比率をCSS transformで埋める
+const lastRenderedScale = ref(1);
+
+/**
+ * ズーム操作が止まってから実際に再ラスタライズするまでの待ち時間（ミリ秒）。
+ * ズーム中の見た目はCSS transformのみで追従させ、操作が落ち着いた時点で
+ * その時点のスケールに合わせて描き直すことで、鮮明さとメモリ・描画コストを両立する
+ */
+const ZOOM_RERENDER_DEBOUNCE_MS = 400;
+
+// ラスタライズ済みの内容を、CSS transformで現在のズーム倍率まで拡大・縮小する係数。
+// lastRenderedScaleとscaleが乖離するほど画質は劣化する（乖離が大きいほど、CSSでの拡大時はぼやけ、
+// 縮小時は細い線がつぶれて薄く見える）ため、下のdebounce再描画で乖離を都度解消する
+const cssZoomFactor = computed(() => scale.value / lastRenderedScale.value);
+
+const outerStyle = computed(() => {
+  if (layoutSize.value.width === 0) return undefined;
+  return {
+    width: `${layoutSize.value.width * cssZoomFactor.value}px`,
+    height: `${layoutSize.value.height * cssZoomFactor.value}px`,
+  };
+});
+const innerStyle = computed(() => {
+  if (layoutSize.value.width === 0) return undefined;
+  return {
+    width: `${layoutSize.value.width}px`,
+    height: `${layoutSize.value.height}px`,
+    transform: `scale(${cssZoomFactor.value})`,
+    transformOrigin: 'top left',
+  };
+});
 
 const currentPageAnnotations = computed(() => {
   return props.annotations.filter((a) => a.pageNumber === page.value);
 });
 
-async function render(scale: number) {
+async function render(targetRenderScale: number) {
   if (canvas.value === null) return;
-  await props.onRender(page.value, canvas.value, scale);
+  layoutSize.value = await props.onRender(page.value, canvas.value, targetRenderScale);
   canvasSize.value = {
     width: canvas.value.width,
     height: canvas.value.height,
-    scaleX: scale,
-    scaleY: scale,
+    scaleX: targetRenderScale,
+    scaleY: targetRenderScale,
   };
+  lastRenderedScale.value = targetRenderScale;
 }
 
 onMounted(async () => {
@@ -66,8 +108,18 @@ onMounted(async () => {
   }
 });
 
-const debouncedRender = debounce((s: number) => void render(s), 100);
-watch(scale, (s) => debouncedRender(s));
+/**
+ * ズーム操作が落ち着いた時点で、その時点のスケール（上限まで）に合わせて再ラスタライズする。
+ * ドラッグ・ホイール中の連続したスケール変化のたびに走らせるとメモリ・描画コストが甚大なため、
+ * 一定時間操作が無かった場合にのみ発火させる（既にその解像度で描画済みなら何もしない）
+ */
+const debouncedRerenderForZoom = debounce(() => {
+  const target = scale.value;
+  if (target === lastRenderedScale.value) return;
+  void render(target);
+}, ZOOM_RERENDER_DEBOUNCE_MS);
+
+watch(scale, () => debouncedRerenderForZoom());
 watch(page, () => void render(scale.value));
 </script>
 
@@ -76,6 +128,13 @@ watch(page, () => void render(scale.value));
   display: block;
   background: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  image-rendering: pixelated;
+}
+
+.page-outer {
+  position: relative;
+  // 端数の丸め誤差でtransform後のサイズがわずかに外周をはみ出す場合に備えてクリップする
+  overflow: hidden;
 }
 
 .page-wrapper {
