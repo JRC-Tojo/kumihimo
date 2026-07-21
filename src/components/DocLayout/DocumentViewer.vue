@@ -186,7 +186,7 @@ function setupIntersectionObserver() {
   pageVisibleRatios.clear();
   if (prop.viewMode !== 'continuousSingle') return;
 
-  currentPageObserver = new IntersectionObserver(
+  const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
         const idx = wrapperElToIndex.get(entry.target as HTMLElement);
@@ -198,8 +198,10 @@ function setupIntersectionObserver() {
     { root: null, rootMargin: '0px', threshold: RATIO_THRESHOLDS },
   );
   wrapperRefs.value.forEach((el) => {
-    if (el) currentPageObserver!.observe(el);
+    if (el) observer.observe(el);
   });
+
+  currentPageObserver = observer;
 }
 
 /**

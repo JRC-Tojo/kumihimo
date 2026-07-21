@@ -19,7 +19,7 @@ import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64'
 import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
 import type { FileIdentity } from 'src/utils/document/fileKey';
-import { acquirePdfDocument, releasePdfDocument } from 'src/repositories/document/pdfDocumentCache';
+import { acquirePdfDocument } from 'src/repositories/document/pdfDocumentCache';
 
 /**
  * PDF をロードして PDFDocumentProxy を返す（Result でラップ）
@@ -27,7 +27,7 @@ import { acquirePdfDocument, releasePdfDocument } from 'src/repositories/documen
  * このまま返すPDFDocumentProxyはキャッシュされない使い捨てのため、呼び出し側は使い終わったら
  * 必ず`.destroy()`すること（破棄しないとpdf.js内部のWorkerスレッドが解放されない）。
  * ファイル単位で繰り返しアクセスする場合は、代わりに`pdfDocumentCache`の
- * `acquirePdfDocument`/`releasePdfDocument`を使うこと
+ * `acquirePdfDocument`（戻り値の`release()`で返却）を使うこと
  */
 export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PDFDocumentProxy>> {
   const data = base64ToUint8Array(src64);
@@ -88,11 +88,11 @@ export async function extractTextByAnnot(
   src64: DocumentSource,
   style: AnnotationStyle,
 ): Promise<Result<string>> {
-  const loaded = await acquirePdfDocument(file, src64);
-  if (!loaded.ok) return Failure(loaded.error);
+  const acquired = await acquirePdfDocument(file, src64);
+  if (!acquired.ok) return Failure(acquired.error);
 
   try {
-    const page = await loaded.value.getPage(style.pageNumber);
+    const page = await acquired.value.document.getPage(style.pageNumber);
     const textContent = await page.getTextContent();
     const bbox = calculateBoundingBox(style);
     // PDF のテキスト座標系（左下原点・Y軸上向き）を bbox の座標系（左上原点・Y軸下向き）に揃えるために使用
@@ -143,7 +143,7 @@ export async function extractTextByAnnot(
   } catch (e) {
     return Failure(toError(e));
   } finally {
-    releasePdfDocument(file);
+    acquired.value.release();
   }
 }
 
@@ -257,11 +257,15 @@ export async function extractImageFromRegion(
 ): Promise<Result<string>> {
   const targetRect = calculateBoundingBox(annotStyle);
 
-  const loaded = await acquirePdfDocument(file, src64);
-  if (!loaded.ok) return Failure(loaded.error);
+  const acquired = await acquirePdfDocument(file, src64);
+  if (!acquired.ok) return Failure(acquired.error);
 
   try {
-    const rendered = await renderPageToCanvasFromDoc(loaded.value, annotStyle.pageNumber, scale);
+    const rendered = await renderPageToCanvasFromDoc(
+      acquired.value.document,
+      annotStyle.pageNumber,
+      scale,
+    );
     if (!rendered.ok) return Failure(rendered.error);
     const canvas = rendered.value;
 
@@ -286,7 +290,7 @@ export async function extractImageFromRegion(
   } catch (e) {
     return Failure(toError(e));
   } finally {
-    releasePdfDocument(file);
+    acquired.value.release();
   }
 }
 
@@ -303,11 +307,15 @@ export async function extractAnnotationContextPreview(
 ): Promise<Result<string>> {
   const tightRect = calculateBoundingBox(annotStyle);
 
-  const loaded = await acquirePdfDocument(file, src64);
-  if (!loaded.ok) return Failure(loaded.error);
+  const acquired = await acquirePdfDocument(file, src64);
+  if (!acquired.ok) return Failure(acquired.error);
 
   try {
-    const rendered = await renderPageToCanvasFromDoc(loaded.value, annotStyle.pageNumber, scale);
+    const rendered = await renderPageToCanvasFromDoc(
+      acquired.value.document,
+      annotStyle.pageNumber,
+      scale,
+    );
     if (!rendered.ok) return Failure(rendered.error);
     const pageCanvas = rendered.value;
     const pageWidthPt = pageCanvas.width / scale;
@@ -365,7 +373,7 @@ export async function extractAnnotationContextPreview(
   } catch (e) {
     return Failure(toError(e));
   } finally {
-    releasePdfDocument(file);
+    acquired.value.release();
   }
 }
 

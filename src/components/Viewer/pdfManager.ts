@@ -6,9 +6,13 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import type { ContainerElementFile } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
-import { acquirePdfDocument, releasePdfDocument } from 'src/repositories/document/pdfDocumentCache';
+import {
+  acquirePdfDocument,
+  type AcquiredPdfDocument,
+} from 'src/repositories/document/pdfDocumentCache';
 
 export type PdfDocument = pdfjsLib.PDFDocumentProxy;
+export type { AcquiredPdfDocument };
 
 /** CSS px（devicePixelRatio適用前）でのページ寸法 */
 export interface PageSize {
@@ -31,20 +35,15 @@ function initWorker() {
  *
  * 同一ファイルへ複数箇所（ビューア表示・OCR用のテキスト/画像抽出）からアクセスしても
  * PDF全体の再読込・pdf.jsのWorker生成が重複しないよう、`pdfDocumentCache`を介して取得する。
- * 取得したら、使い終わり次第（タブを閉じる等）必ず`releasePdf`を呼ぶこと
+ * 取得したら、使い終わり次第（タブを閉じる等）必ず戻り値の`release()`を呼ぶこと
  */
 export async function acquirePdf(
   file: ContainerElementFile,
   docSrc: DocumentSource,
-): Promise<PdfDocument> {
+): Promise<AcquiredPdfDocument> {
   const res = await acquirePdfDocument(file, docSrc);
   if (!res.ok) throw new Error(`PDF読み込みエラー: ${res.error.message}`);
   return res.value;
-}
-
-/** `acquirePdf`で取得したPDFDocumentProxyの参照を返却する */
-export function releasePdf(file: ContainerElementFile): void {
-  releasePdfDocument(file);
 }
 
 /**

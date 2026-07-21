@@ -25,6 +25,18 @@ interface CacheEntry {
   promise: Promise<Result<PDFDocumentProxy>>;
   refCount: number;
   disposeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** `invalidatePdfDocument`で無効化済みか。trueの間は再利用されず、最後のreleaseで破棄される */
+  stale: boolean;
+  /** `destroyEntry`による二重destroyを防ぐためのフラグ */
+  destroyed: boolean;
+}
+
+/** `acquirePdfDocument`が返す、1回の取得に対応する解放ハンドル */
+export interface AcquiredPdfDocument {
+  document: PDFDocumentProxy;
+  /** 取得時点のentry実体に紐づく解放処理。ファイルキーではなくこのentry自体を減算するため、
+   * `invalidatePdfDocument`後に同キーで新しいentryが作られても誤って新entryを減算しない */
+  release: () => void;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -48,32 +60,51 @@ function clearDisposeTimer(entry: CacheEntry): void {
   }
 }
 
-async function disposeEntry(key: string): Promise<void> {
-  const entry = cache.get(key);
-  // 猶予期間の間に再取得されていれば何もしない
-  if (!entry || entry.refCount > 0) return;
+/** entryのPDFDocumentProxyを一度だけ破棄する */
+async function destroyEntry(entry: CacheEntry): Promise<void> {
+  if (entry.destroyed) return;
+  entry.destroyed = true;
+  clearDisposeTimer(entry);
 
-  cache.delete(key);
   const res = await entry.promise;
-  if (res.ok) void res.value.destroy();
+  if (res.ok) await res.value.destroy();
+}
+
+/** stale化されておらず未参照のentryを、猶予期間後に破棄する */
+function scheduleDispose(key: string, entry: CacheEntry): void {
+  clearDisposeTimer(entry);
+
+  entry.disposeTimer = setTimeout(() => {
+    // 猶予期間中の再取得、無効化、または後続entryへの置換があれば破棄しない
+    if (entry.refCount > 0 || entry.stale || cache.get(key) !== entry) return;
+
+    cache.delete(key);
+    void destroyEntry(entry);
+  }, DISPOSE_GRACE_MS);
 }
 
 /**
- * 指定ファイルのPDFDocumentProxyを取得する（参照カウントを+1する）
+ * 指定ファイルのPDFDocumentProxyを取得し、対応する解放ハンドルを返す（参照カウントを+1する）
  *
  * 同一ファイルへの2回目以降の呼び出しは、破棄猶予中も含めて既存のPDFDocumentProxyを再利用する。
- * 取得したら、使い終わり次第必ず`releasePdfDocument`を呼ぶこと（対応するreleaseを呼ばないと
- * PDFDocumentProxyとpdf.jsのWorkerスレッドが解放されなくなる）
+ * 取得したら、使い終わり次第必ず戻り値の`release()`を呼ぶこと（呼ばないとPDFDocumentProxyと
+ * pdf.jsのWorkerスレッドが解放されなくなる）
  */
 export async function acquirePdfDocument(
   file: FileIdentity,
   src64: DocumentSource,
-): Promise<Result<PDFDocumentProxy>> {
+): Promise<Result<AcquiredPdfDocument>> {
   const key = fileKey(file);
   let entry = cache.get(key);
 
   if (!entry) {
-    entry = { promise: loadDocument(src64), refCount: 0, disposeTimer: undefined };
+    entry = {
+      promise: loadDocument(src64),
+      refCount: 0,
+      disposeTimer: undefined,
+      stale: false,
+      destroyed: false,
+    };
     cache.set(key, entry);
   }
 
@@ -85,32 +116,37 @@ export async function acquirePdfDocument(
     // 読み込みに失敗した場合はキャッシュに残さず、次回呼び出しで再試行できるようにする
     entry.refCount -= 1;
     if (entry.refCount <= 0 && cache.get(key) === entry) cache.delete(key);
+    return Failure(res.error);
   }
-  return res;
-}
 
-/**
- * `acquirePdfDocument`で取得したPDFDocumentProxyの参照を返却する（参照カウントを-1する）
- *
- * 参照が0になっても即座には破棄せず、`DISPOSE_GRACE_MS`の間に再度acquireされれば破棄をキャンセルする
- */
-export function releasePdfDocument(file: FileIdentity): void {
-  const key = fileKey(file);
-  const entry = cache.get(key);
-  if (!entry) return;
+  // このacquire呼び出しで取得したentry実体を閉じ込め、release時にファイルキー経由で
+  // 引き直さないようにする（無効化後に同キーの新entryが作られても誤って減算しない）
+  const acquiredEntry = entry;
+  let released = false;
+  const release = (): void => {
+    if (released) return;
+    released = true;
 
-  entry.refCount = Math.max(0, entry.refCount - 1);
-  if (entry.refCount > 0) return;
+    acquiredEntry.refCount = Math.max(0, acquiredEntry.refCount - 1);
+    if (acquiredEntry.refCount > 0) return;
 
-  clearDisposeTimer(entry);
-  entry.disposeTimer = setTimeout(() => {
-    void disposeEntry(key);
-  }, DISPOSE_GRACE_MS);
+    // stale化されたentryは再利用対象外なので、最後の参照が返却された時点で破棄する
+    if (acquiredEntry.stale) {
+      void destroyEntry(acquiredEntry);
+      return;
+    }
+
+    scheduleDispose(key, acquiredEntry);
+  };
+
+  return Success({ document: res.value, release });
 }
 
 /**
  * 指定ファイルの内容が変化した（外部変更の取り込み等）際、キャッシュされたPDFDocumentProxyを
- * 即座に破棄する。破棄後の次回acquireで最新内容を読み込み直す
+ * 無効化する。表示中のタブやOCR処理が参照を保持している間は破棄せず、最後の`release()`まで
+ * 遅延する（保持中に即destroyすると、参照中の`getPage`/`render`が壊れるため）。
+ * 無効化後の次回acquireは新しいentryを作成し、最新内容を読み込み直す
  */
 export function invalidatePdfDocument(file: FileIdentity): void {
   const key = fileKey(file);
@@ -118,8 +154,11 @@ export function invalidatePdfDocument(file: FileIdentity): void {
   if (!entry) return;
 
   clearDisposeTimer(entry);
-  cache.delete(key);
-  void entry.promise.then((res) => {
-    if (res.ok) void res.value.destroy();
-  });
+  entry.stale = true;
+
+  // 以後のacquireは新しいentryを作成して最新のPDFを読むようにする
+  if (cache.get(key) === entry) cache.delete(key);
+
+  // 保持者がいない場合だけ直ちに破棄する
+  if (entry.refCount === 0) void destroyEntry(entry);
 }
