@@ -3,9 +3,9 @@
  *
  * パネルはIllustrator/Affinity的に「選択中の配置済みアノテーションがあればそれを直接編集し、
  * なければ次に描く注釈のスタイル（editorStore.currentAnnotationStyle）を編集する」という
- * デュアルモードで動作する。2つのモードはフィールド名が異なる（テンプレート側は`strokeColor`
- * /`strokeOpacity`、配置済み側は`color`/`opacity`）ため、パネルコンポーネントからは
- * 統一したフィールド名（color/strokeWidth/strokeType/opacity等）で読み書きできるようにする
+ * デュアルモードで動作する。2つのモードはフィールド名が異なる（テンプレート側は`strokeColor`、
+ * 配置済み側は`color`）ため、パネルコンポーネントからは統一したフィールド名
+ * （color/strokeWidth/strokeType/opacity等）で読み書きできるようにする
  */
 
 import { computed, type WritableComputedRef } from 'vue';
@@ -80,7 +80,7 @@ export function useAnnotationStylePanel() {
   /** 色以外の全種別共通フィールドを、モードに応じたget/setで統一的に扱うwritable computedを作る */
   function universalField<V>(
     drawKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity',
-    selectionKey: 'strokeWidth' | 'strokeType' | 'opacity',
+    selectionKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity',
   ): WritableComputedRef<V | undefined> {
     return computed<V | undefined>({
       get: () => {
@@ -107,7 +107,7 @@ export function useAnnotationStylePanel() {
 
   const strokeWidth = universalField<number>('strokeWidth', 'strokeWidth');
   const strokeType = universalField<StrokeType>('strokeType', 'strokeType');
-  const opacity = universalField<number>('strokeOpacity', 'opacity');
+  const opacity = universalField<number>('strokeOpacity', 'strokeOpacity');
 
   /**
    * 配置済みアノテーション（AnnotationStyle）の色系フィールドはColorCode（ブランド付き文字列）の

@@ -11,6 +11,7 @@ import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import type { AnnotationID, TextAnnotationStyle } from 'src/models/document/pdf';
 import { useAnnotationShape } from './composables/useAnnotationShape';
+import { hexToRgba } from 'src/utils/color/hexToRgba';
 
 interface Props {
   annotation: TextAnnotationStyle;
@@ -32,6 +33,9 @@ const textRef = ref<{ getNode: () => Konva.Text | null } | null>(null);
 const {
   relationalOverride,
   strokeDash,
+  resolvedStroke,
+  resolveFill,
+  resolveOpacity,
   withUpdatedTimestamp,
   displayAnnotation,
   endInteraction,
@@ -65,12 +69,11 @@ const rectConfig = computed(() => {
     y: 0,
     width: annotation.width ?? 0,
     height: annotation.height ?? 0,
-    fill: relationalOverride.value?.fill ?? annotation.fillColor ?? 'transparent',
-    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    fill: resolveFill(annotation.fillColor, annotation.fillOpacity),
+    stroke: resolvedStroke.value,
     // strokeWidth未指定/0（デフォルト状態）でも選択・視認しやすいよう、他形状と同様に細い枠線へフォールバックする
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 1),
     dash: strokeDash.value,
-    opacity: annotation.opacity ?? 1,
   };
 });
 
@@ -86,12 +89,11 @@ const textConfig = computed(() => {
     fontFamily: annotation.fontFamily,
     fontSize: annotation.fontSize,
     fontStyle: annotation.fontWeight >= 700 ? 'bold' : 'normal',
-    fill: annotation.textColor,
+    fill: hexToRgba(annotation.textColor, resolveOpacity(annotation.fillOpacity)),
     align: annotation.textAlign,
     padding: 4,
     wrap: 'word' as const,
     verticalAlign: 'top' as const,
-    opacity: annotation.opacity ?? 1,
   };
 });
 

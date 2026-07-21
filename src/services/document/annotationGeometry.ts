@@ -21,6 +21,7 @@ import dayjs from 'dayjs';
 import { AnnotationID, ColorCode, type AnnotationStyle } from 'src/models/document/pdf';
 import type { DrawingAnnotationStyle } from 'src/models/docPage';
 import type { BoundingBox } from 'src/models/common';
+import { hexToRgba } from 'src/utils/color/hexToRgba';
 
 export interface Point {
   x: number;
@@ -160,7 +161,8 @@ const boxGeometry: AnnotationGeometryModule = {
       strokeType: style.strokeType,
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
-      opacity: style.fillOpacity,
+      strokeOpacity: style.strokeOpacity,
+      fillOpacity: style.fillOpacity,
       fillColor: ColorCode.safeParse(style.fillColor).success
         ? ColorCode.parse(style.fillColor)
         : undefined,
@@ -173,9 +175,8 @@ const boxGeometry: AnnotationGeometryModule = {
       y: Math.min(start.y, end.y),
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
-      fill: style.fillColor ?? 'transparent',
-      opacity: style.fillOpacity,
-      stroke: style.strokeColor,
+      fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
+      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
     };
   },
@@ -323,7 +324,7 @@ const lineGeometry: AnnotationGeometryModule = {
       color: built.color,
       strokeWidth: style.strokeWidth,
       strokeType: style.strokeType,
-      opacity: style.strokeOpacity,
+      strokeOpacity: style.strokeOpacity,
       points: [0, 0, end.x - start.x, end.y - start.y],
     };
   },
@@ -333,7 +334,7 @@ const lineGeometry: AnnotationGeometryModule = {
       x: start.x,
       y: start.y,
       points: [0, 0, end.x - start.x, end.y - start.y],
-      stroke: style.strokeColor,
+      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
     };
   },
@@ -395,7 +396,8 @@ const circleGeometry: AnnotationGeometryModule = {
       color: built.color,
       strokeWidth: style.strokeWidth,
       strokeType: style.strokeType,
-      opacity: style.fillOpacity,
+      strokeOpacity: style.strokeOpacity,
+      fillOpacity: style.fillOpacity,
       fillColor: ColorCode.safeParse(style.fillColor).success
         ? ColorCode.parse(style.fillColor)
         : undefined,
@@ -410,9 +412,8 @@ const circleGeometry: AnnotationGeometryModule = {
       x: start.x + deltaX / 2,
       y: start.y + deltaY / 2,
       radius: Math.sqrt(deltaX * deltaX + deltaY * deltaY) / 2,
-      fill: style.fillColor ?? 'transparent',
-      opacity: style.fillOpacity,
-      stroke: style.strokeColor,
+      fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
+      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
     };
   },
@@ -473,7 +474,7 @@ const arrowGeometry: AnnotationGeometryModule = {
       color: built.color,
       strokeWidth: style.strokeWidth,
       strokeType: style.strokeType,
-      opacity: style.strokeOpacity,
+      strokeOpacity: style.strokeOpacity,
       points: [0, 0, end.x - start.x, end.y - start.y],
       startHead: style.startHead,
       endHead: style.endHead,
@@ -482,13 +483,14 @@ const arrowGeometry: AnnotationGeometryModule = {
   },
   previewFromDrag(start, end, style) {
     if (style.type !== 'arrow') return {};
+    const stroke = hexToRgba(style.strokeColor, style.strokeOpacity);
     return {
       x: start.x,
       y: start.y,
       points: [0, 0, end.x - start.x, end.y - start.y],
-      stroke: style.strokeColor,
+      stroke,
       strokeWidth: style.strokeWidth,
-      fill: style.strokeColor,
+      fill: stroke,
       fillEnabled: style.endHead !== 'open' && style.startHead !== 'open',
       pointerAtBeginning: style.startHead !== 'none',
       pointerAtEnding: style.endHead !== 'none',
@@ -544,7 +546,7 @@ const polylineGeometry: AnnotationGeometryModule = {
       color: built.color,
       strokeWidth: style.strokeWidth,
       strokeType: style.strokeType,
-      opacity: style.strokeOpacity,
+      strokeOpacity: style.strokeOpacity,
       points: points.flatMap((p) => [p.x - origin.x, p.y - origin.y]),
       startHead: style.startHead,
       endHead: style.endHead,
@@ -559,13 +561,14 @@ const polylineGeometry: AnnotationGeometryModule = {
     const flat = points.flatMap((p) => [p.x - origin.x, p.y - origin.y]);
     if (cursor) flat.push(cursor.x - origin.x, cursor.y - origin.y);
 
+    const stroke = hexToRgba(style.strokeColor, style.strokeOpacity);
     return {
       x: origin.x,
       y: origin.y,
       points: flat,
-      stroke: style.strokeColor,
+      stroke,
       strokeWidth: style.strokeWidth,
-      fill: style.strokeColor,
+      fill: stroke,
       fillEnabled: style.endHead !== 'open' && style.startHead !== 'open',
       pointerAtBeginning: style.startHead !== 'none',
       pointerAtEnding: style.endHead !== 'none',
@@ -633,7 +636,8 @@ const polygonGeometry: AnnotationGeometryModule = {
       color: built.color,
       strokeWidth: style.strokeWidth,
       strokeType: style.strokeType,
-      opacity: style.fillOpacity,
+      strokeOpacity: style.strokeOpacity,
+      fillOpacity: style.fillOpacity,
       fillColor: ColorCode.safeParse(style.fillColor).success
         ? ColorCode.parse(style.fillColor)
         : undefined,
@@ -653,9 +657,8 @@ const polygonGeometry: AnnotationGeometryModule = {
       y: origin.y,
       points: flat,
       closed: points.length >= 3,
-      fill: style.fillColor ?? 'transparent',
-      opacity: style.fillOpacity,
-      stroke: style.strokeColor,
+      fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
+      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
     };
   },
@@ -710,7 +713,8 @@ const textGeometry: AnnotationGeometryModule = {
       color: built.color,
       strokeWidth: style.strokeWidth,
       strokeType: style.strokeType,
-      opacity: style.fillOpacity,
+      strokeOpacity: style.strokeOpacity,
+      fillOpacity: style.fillOpacity,
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
       text: '',
@@ -731,9 +735,8 @@ const textGeometry: AnnotationGeometryModule = {
       y: Math.min(start.y, end.y),
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
-      fill: style.fillColor ?? 'transparent',
-      opacity: style.fillOpacity,
-      stroke: style.strokeColor,
+      fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
+      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
     };
   },

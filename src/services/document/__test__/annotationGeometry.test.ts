@@ -109,7 +109,8 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.width).toBe(20);
     expect(created.height).toBe(30);
     expect(created.strokeType).toBe('solid');
-    expect(created.opacity).toBe(0.5);
+    expect(created.strokeOpacity).toBe(1);
+    expect(created.fillOpacity).toBe(0.5);
     expect(String(created.fillColor)).toBe('#0000ff');
   });
 
@@ -126,7 +127,7 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.y).toBe(5);
     expect(created.points).toEqual([0, 0, 10, 20]);
     expect(created.strokeType).toBe('solid');
-    expect(created.opacity).toBe(1);
+    expect(created.strokeOpacity).toBe(1);
   });
 
   it('circle: createFromDragはドラッグの中点と半径を計算する', () => {
@@ -142,7 +143,8 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.y).toBe(4);
     expect(created.radius).toBe(5);
     expect(created.strokeType).toBe('solid');
-    expect(created.opacity).toBe(0.3);
+    expect(created.strokeOpacity).toBe(1);
+    expect(created.fillOpacity).toBe(0.3);
     expect(String(created.fillColor)).toBe('#009900');
   });
 
@@ -160,7 +162,7 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.endHead).toBe('triangle');
     expect(created.headSize).toBe(12);
     expect(created.strokeType).toBe('solid');
-    expect(created.opacity).toBe(1);
+    expect(created.strokeOpacity).toBe(1);
   });
 
   it('createFromDragは不正なstrokeColorに対してnullを返す', () => {
@@ -235,7 +237,7 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.points).toEqual([0, 0, 20, 0, 20, 30]);
     expect(created.endHead).toBe('triangle');
     expect(created.strokeType).toBe('solid');
-    expect(created.opacity).toBe(1);
+    expect(created.strokeOpacity).toBe(1);
   });
 
   it('polyline: createFromPointsは頂点が2未満の場合nullを返す', () => {
@@ -261,7 +263,8 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created).not.toBeNull();
     if (!created || created.type !== 'polygon') throw new Error('unexpected type');
     expect(created.points).toEqual([0, 0, 20, 0, 10, 20]);
-    expect(created.opacity).toBe(0.3);
+    expect(created.strokeOpacity).toBe(1);
+    expect(created.fillOpacity).toBe(0.3);
     expect(created.strokeType).toBe('solid');
     expect(String(created.fillColor)).toBe('#9900cc');
   });

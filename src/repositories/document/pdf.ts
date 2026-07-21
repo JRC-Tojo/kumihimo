@@ -401,7 +401,7 @@ export async function extractAnnotationsFromPdf(
           pageNumber: i,
           color: rgbArrayToHex(a.color),
           strokeWidth: a.borderWidth ?? a.border?.width ?? 2,
-          opacity: typeof a.opacity === 'number' ? a.opacity : undefined,
+          strokeOpacity: typeof a.opacity === 'number' ? a.opacity : undefined,
           content: typeof a.contents === 'string' ? a.contents : undefined,
           createdAt: now,
           updatedAt: now,
@@ -539,7 +539,7 @@ export async function embedAnnotationsIntoPdf(
       const page = pdfDoc.getPage(pageIndex);
 
       const color = hexToRgb(a.color || '#ff0000');
-      const opacity = typeof a.opacity === 'number' ? a.opacity : 1;
+      const opacity = a.strokeOpacity ?? a.opacity ?? 1;
       const strokeWidth = a.strokeWidth ?? 2;
 
       if (a.type === 'box') {

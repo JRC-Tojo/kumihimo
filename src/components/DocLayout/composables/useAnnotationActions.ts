@@ -162,12 +162,20 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
    * 選択中の注釈の重ね順を変更する（最前面/前面/背面/最背面）
    *
    * ツールバー（editorStore.layerOrderActionのwatch）・将来の右クリックメニューの両方から呼ぶ
+   *
+   * 同じ注釈一覧を毎回渡すと、選択内の各注釈が同じzIndex（front/backならmaxKey+1/minKey-1）を
+   * 取得してしまい選択内の相対順が不定になる。処理済みの注釈のzIndexをローカルで反映しながら
+   * 順に処理することで、次のcomputeReorderedZIndexが最新の状態を参照できるようにする
    */
   async function reorderSelected(action: LayerOrderAction): Promise<void> {
     const ids = deps.selectedAnnotationIds.value;
     if (ids.length === 0) return;
+
+    let workingAnnotations = deps.annotations.value;
     for (const id of ids) {
-      await api.reorderAnnotation(deps.file, deps.annotations.value, id, action);
+      const res = await api.reorderAnnotation(deps.file, workingAnnotations, id, action);
+      if (!res.ok) continue;
+      workingAnnotations = workingAnnotations.map((a) => (a.id === id ? res.data.style : a));
     }
   }
 

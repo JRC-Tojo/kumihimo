@@ -61,6 +61,8 @@ const isHovered = ref(false);
 const {
   relationalOverride,
   strokeDash,
+  resolvedStroke,
+  resolveFill,
   withUpdatedTimestamp,
   displayAnnotation,
   beginInteraction,
@@ -78,12 +80,11 @@ const shapeConfig = computed(() => {
     name: 'annotation-shape',
     points: annotation.points,
     closed: true,
-    fill: relationalOverride.value?.fill ?? annotation.fillColor ?? 'transparent',
-    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    fill: resolveFill(annotation.fillColor, annotation.fillOpacity),
+    stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,
     draggable: false,
-    opacity: annotation.opacity || 1,
     // 塗りがtransparent/薄い場合でも辺をクリックで選択できるよう、当たり判定の太さを広げる（Polylineと同様）
     hitStrokeWidth: 8,
   };

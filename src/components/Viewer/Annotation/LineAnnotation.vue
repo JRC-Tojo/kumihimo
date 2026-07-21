@@ -69,6 +69,7 @@ const isHovered = ref(false);
 const {
   relationalOverride,
   strokeDash,
+  resolvedStroke,
   withUpdatedTimestamp,
   displayAnnotation,
   beginInteraction,
@@ -97,11 +98,10 @@ const lineConfig = computed(() => {
     id: annotation.id,
     name: 'annotation-shape',
     points: linePoints.value,
-    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,
     draggable: false,
-    opacity: annotation.opacity || 1,
     hitStrokeWidth: 8,
   };
 });

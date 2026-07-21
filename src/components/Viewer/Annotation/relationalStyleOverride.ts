@@ -4,27 +4,12 @@
 
 import type { RelationalVerificationStyle } from 'src/models/relational/style';
 import type { RelationalStatus } from 'src/stores/relationalStore';
+import { hexToRgba } from 'src/utils/color/hexToRgba';
 
 export interface RelationalStyleOverride {
   stroke: string;
   strokeWidth: number;
   fill: string;
-}
-
-/**
- * `#rgb` / `#rrggbb` 形式の16進カラーコードを`rgba(...)`文字列に変換する
- *
- * Konvaのノードはfill/strokeそれぞれの個別のopacityを持たないため、
- * 塗りの不透明度はfillColor側にrgba合成して表現する
- */
-function hexToRgba(hex: string, alpha: number): string {
-  const normalized = hex.replace('#', '');
-  const parts =
-    normalized.length === 3
-      ? normalized.split('').map((c) => c + c)
-      : [normalized.slice(0, 2), normalized.slice(2, 4), normalized.slice(4, 6)];
-  const [r, g, b] = parts.map((c) => parseInt(c, 16) || 0);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 /**

@@ -201,7 +201,8 @@ export function remapFilePath(
  * 指定した注釈の重ね順（zIndex）を変更する
  *
  * `annotations`には対象と同じページ（同じファイル）の注釈一覧を渡す。ソートキー順の
- * 前後関係から新しいzIndexを算出し、`registerAnnotationStyle`で保存する
+ * 前後関係から新しいzIndexを算出し、`style`のみを部分更新する（`registerAnnotationStyle`は
+ * 新規登録用でcontextを巻き戻してしまうため使わない。既存のOCR抽出結果はそのまま返す）
  */
 export async function reorderAnnotationStyle(
   file: ContainerElementFile,
@@ -215,14 +216,22 @@ export async function reorderAnnotationStyle(
   const zIndex = computeReorderedZIndex(annotations, targetId, action);
   if (zIndex === null) return Failure(new Error('重ね順の算出に失敗しました'));
 
-  return registerAnnotationStyle(file, { ...target, zIndex, updatedAt: dayjs().toISOString() });
+  const existingInfo = await getAnnotationInfo(targetId);
+  if (!existingInfo.ok) return existingInfo;
+
+  const updatedStyle: AnnotationStyle = { ...target, zIndex, updatedAt: dayjs().toISOString() };
+  const saveRes = await annotationRepository.updateAnnotationStyle(updatedStyle);
+  if (!saveRes.ok) return saveRes;
+
+  return Success({ style: updatedStyle, context: existingInfo.value.context });
 }
 
 /**
  * 複数の注釈を複製し、指定したページへ貼り付ける（ペースト）
  *
  * 各`sources`要素を`duplicateAnnotation`で複製し、貼り付け位置が重ならないよう
- * `offsetStep`ずつ位置をずらしながら`registerAnnotationStyle`で保存する
+ * `offsetStep`ずつ位置をずらしながら`registerAnnotationStyle`で保存する。複製元の`zIndex`を
+ * そのまま引き継ぐと重ね順キーが衝突するため、`zIndex`はリセットしcreatedAt基準に戻す
  */
 export async function pasteAnnotations(
   file: ContainerElementFile,
@@ -238,7 +247,7 @@ export async function pasteAnnotations(
       source.x + offsetStep,
       source.y + offsetStep,
     );
-    const res = await registerAnnotationStyle(file, duplicated);
+    const res = await registerAnnotationStyle(file, { ...duplicated, zIndex: undefined });
     if (!res.ok) return res;
     results.push(res.value);
   }

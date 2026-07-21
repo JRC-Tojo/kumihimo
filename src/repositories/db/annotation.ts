@@ -148,6 +148,30 @@ export async function updateAnnotationContentText(
 }
 
 /**
+ * アノテーションのスタイル（`style`）のみをDBへ反映する
+ *
+ * 重ね順（zIndex）変更など、既存のOCR抽出結果（`context.text`）を保持したまま`style`だけを
+ * 更新したい場合に使う。`addAnnotationInfos`のようにレコード全体を`bulkPut`で上書きすると
+ * `context`が新規登録扱いで巻き戻ってしまうため、`annotationInfo.style`のみをドット記法で
+ * 部分更新し、contextには触れない
+ */
+export async function updateAnnotationStyle(style: AnnotationStyle): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const rawStyle = JSON.parse(JSON.stringify(style));
+    await db.annotations.update(style.id, {
+      'annotationInfo.style': rawStyle,
+      updatedAt: new Date().toISOString(),
+    });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * 特定ファイルのアノテーションDBレコードをすべて削除する
  *
  * 「保存せず閉じる」際、仮登録・確定済み問わずこのファイルの記録を一旦すべて消し去り、

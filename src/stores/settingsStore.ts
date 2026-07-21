@@ -100,9 +100,15 @@ export const useSettingsStore = defineStore('settings', {
     /**
      * 直近使用色として保持する件数を変更する（設定画面から呼ばれる）。上限を減らした場合は
      * 既存の直近使用色一覧もその場で切り詰める
+     *
+     * `AppSettings`スキーマの`recentColorsLimit`は正の整数のみを許容するため、不正な値
+     * （数値入力欄が空欄になった場合の0等）をそのままDBへ保存すると、次回起動時のZod
+     * バリデーションでアプリの初期化自体が失敗する。保存前にガードする
      * @returns 保存に成功したかどうか
      */
     async updateRecentColorsLimit(limit: number): Promise<boolean> {
+      if (!Number.isInteger(limit) || limit < 1) return false;
+
       const trimmed = (this.appSettings?.tools.recentColors ?? []).slice(0, limit);
 
       const api = useBackendApi();

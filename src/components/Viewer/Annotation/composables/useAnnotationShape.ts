@@ -22,6 +22,7 @@ import {
   type Box,
 } from 'src/utils/document/annotationDrag';
 import { strokeTypeToDash } from 'src/utils/document/strokeDash';
+import { hexToRgba } from 'src/utils/color/hexToRgba';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
 
@@ -60,6 +61,37 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
   const strokeDash = computed(() =>
     strokeTypeToDash(displayAnnotation.value.strokeType, displayAnnotation.value.strokeWidth || 2),
   );
+
+  /**
+   * 明示的な不透明度（strokeOpacity/fillOpacity）が未設定の場合、後方互換のため
+   * 旧`opacity`フィールド（枠線・塗り共通の単一値だった名残）にフォールバックする
+   */
+  function resolveOpacity(explicit: number | undefined): number {
+    return explicit ?? displayAnnotation.value.opacity ?? 1;
+  }
+
+  /**
+   * 枠線色。Konvaのノードはfill/strokeそれぞれ個別のopacityを持たないため、
+   * 線の不透明度は色側にrgba合成して表現する。関係性の検証結果による上書きがあれば優先する
+   */
+  const resolvedStroke = computed(() =>
+    hexToRgba(
+      relationalOverride.value?.stroke ?? displayAnnotation.value.color,
+      resolveOpacity(displayAnnotation.value.strokeOpacity),
+    ),
+  );
+
+  /**
+   * 塗り色に塗りの不透明度をrgbaで合成する（box/circle/polygon/textのみ呼び出す）
+   *
+   * 関係性の検証結果による上書きがある場合、上書き側は既に検証スタイル定義の不透明度を
+   * 含んだrgba値のためそのまま優先し、アノテーション自体のfillOpacityは重ねて適用しない
+   */
+  function resolveFill(fillColor: string | undefined, fillOpacity: number | undefined): string {
+    if (relationalOverride.value) return relationalOverride.value.fill;
+    if (!fillColor) return 'transparent';
+    return hexToRgba(fillColor, resolveOpacity(fillOpacity));
+  }
 
   /** ジェスチャー開始時に呼び、以降のprops更新を無視するようにする */
   function beginInteraction() {
@@ -150,6 +182,9 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
   return {
     relationalOverride,
     strokeDash,
+    resolveOpacity,
+    resolvedStroke,
+    resolveFill,
     withUpdatedTimestamp,
     displayAnnotation,
     beginInteraction,

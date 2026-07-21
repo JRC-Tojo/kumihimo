@@ -68,6 +68,7 @@ const isHovered = ref(false);
 const {
   relationalOverride,
   strokeDash,
+  resolvedStroke,
   withUpdatedTimestamp,
   displayAnnotation,
   beginInteraction,
@@ -96,9 +97,9 @@ const arrowConfig = computed(() => {
     id: annotation.id,
     name: 'annotation-shape',
     points: arrowPoints.value,
-    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
-    fill: relationalOverride.value?.stroke ?? annotation.color,
+    fill: resolvedStroke.value,
     // KonvaのArrowは矢じりの塗りつぶし可否を始点・終点で共通のフラグしか持たないため、
     // 片方でも'open'が指定されていればアウトラインのみの矢じりとして描画する
     fillEnabled: annotation.startHead !== 'open' && annotation.endHead !== 'open',
@@ -108,7 +109,6 @@ const arrowConfig = computed(() => {
     pointerWidth: headSize,
     dash: strokeDash.value,
     draggable: false,
-    opacity: annotation.opacity || 1,
     hitStrokeWidth: 8,
   };
 });

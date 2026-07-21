@@ -36,6 +36,8 @@ const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const {
   relationalOverride,
   strokeDash,
+  resolvedStroke,
+  resolveFill,
   withUpdatedTimestamp,
   displayAnnotation,
   endInteraction,
@@ -57,13 +59,12 @@ const rectConfig = computed(() => {
     y: annotation.y,
     width: annotation.width ?? 0,
     height: annotation.height ?? 0,
-    fill: relationalOverride.value?.fill ?? annotation.fillColor ?? 'transparent',
-    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    fill: resolveFill(annotation.fillColor, annotation.fillOpacity),
+    stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,
     draggable: props.isEditing && !ctrlKey.value,
     dragBoundFunc,
-    opacity: annotation.opacity || 1,
   };
 });
 

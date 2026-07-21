@@ -27,7 +27,10 @@ const AnnotationBase = z.object({
   color: ColorCode, // 16進カラーコード
   strokeWidth: z.number().optional().default(2),
   strokeType: StrokeType.optional().default('solid'),
+  // TODO: 旧フィールド。strokeOpacity/fillOpacity未設定の既存データ（枠線・塗りの区別がない）読み込み時の
+  // フォールバック用にのみ残す。新規保存時はstrokeOpacity/fillOpacityを使うこと
   opacity: z.number().min(0).max(1).optional(),
+  strokeOpacity: z.number().min(0).max(1).optional(),
   content: z.string().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -44,6 +47,7 @@ export const BoxAnnotationStyle = AnnotationBase.extend({
   width: z.number().nonnegative(),
   height: z.number().nonnegative(),
   fillColor: ColorCode.optional(),
+  fillOpacity: z.number().min(0).max(1).optional(),
 });
 export type BoxAnnotationStyle = z.infer<typeof BoxAnnotationStyle>;
 export const LineAnnotationStyle = AnnotationBase.extend({
@@ -59,6 +63,7 @@ export const CircleAnnotationStyle = AnnotationBase.extend({
   radiusX: z.number().positive().optional(),
   radiusY: z.number().positive().optional(),
   fillColor: ColorCode.optional(),
+  fillOpacity: z.number().min(0).max(1).optional(),
 });
 export type CircleAnnotationStyle = z.infer<typeof CircleAnnotationStyle>;
 
@@ -105,6 +110,7 @@ export const PolygonAnnotationStyle = AnnotationBase.extend({
       message: '座標配列の要素数は偶数である必要があります',
     }),
   fillColor: ColorCode.optional(),
+  fillOpacity: z.number().min(0).max(1).optional(),
 });
 export type PolygonAnnotationStyle = z.infer<typeof PolygonAnnotationStyle>;
 
@@ -120,6 +126,7 @@ export const TextAnnotationStyle = AnnotationBase.extend({
   textAlign: z.enum(['left', 'center', 'right']).default('left'),
   // 背景色。未指定の場合は背景なし（透明）。枠線の色・太さはbaseのcolor/strokeWidthを流用する
   fillColor: ColorCode.optional(),
+  fillOpacity: z.number().min(0).max(1).optional(),
 });
 export type TextAnnotationStyle = z.infer<typeof TextAnnotationStyle>;
 

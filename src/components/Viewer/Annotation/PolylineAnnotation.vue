@@ -61,6 +61,7 @@ const isHovered = ref(false);
 const {
   relationalOverride,
   strokeDash,
+  resolvedStroke,
   withUpdatedTimestamp,
   displayAnnotation,
   beginInteraction,
@@ -78,9 +79,9 @@ const shapeConfig = computed(() => {
     id: annotation.id,
     name: 'annotation-shape',
     points: annotation.points,
-    stroke: relationalOverride.value?.stroke ?? annotation.color,
+    stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
-    fill: relationalOverride.value?.stroke ?? annotation.color,
+    fill: resolvedStroke.value,
     // KonvaのArrowは矢じりの塗りつぶし可否を始点・終点で共通のフラグしか持たない（ArrowAnnotation.vueと同様）
     fillEnabled: annotation.startHead !== 'open' && annotation.endHead !== 'open',
     pointerAtBeginning: annotation.startHead !== 'none',
@@ -89,7 +90,6 @@ const shapeConfig = computed(() => {
     pointerWidth: headSize,
     dash: strokeDash.value,
     draggable: false,
-    opacity: annotation.opacity || 1,
     hitStrokeWidth: 8,
   };
 });
