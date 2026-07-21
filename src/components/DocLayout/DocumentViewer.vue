@@ -92,31 +92,49 @@ const pageRefs = ref<(HTMLElement | null)[]>([]);
 const viewerContainer = useTemplateRef('viewerContainer');
 
 // ============ 連続表示モードの仮想化 ============
-// ビューポート近傍（前後1画面分）のページのみ実際にPdfPage（Canvas+Konva Stage）をマウントし、
+// 「現在表示中のページ」をスクロール位置から正確に追跡し、そのページの前後
+// `ADJACENT_RENDER_MARGIN`ページ分のみ実際にPdfPage（Canvas+Konva Stage）をマウントする。
 // それ以外は`pageSizeStyle`でレイアウト上のサイズのみ確保したプレースホルダーにする。
-// これによりページ数が多い文書でも、常駐するcanvas・Konva Stageの数を画面近傍分に抑えられる
-const visiblePageIndices = ref<Set<number>>(new Set());
+// これによりページ数が多い文書でも、常駐するcanvas・Konva Stageの数を現在ページ近傍分に抑えられる。
+//
+// （以前はIntersectionObserverの`isIntersecting`だけで「描画すべきページ」集合を直接管理していたが、
+// 「現在ページ」自体がスクロールに追従しておらず固定されたままだったため、現在ページから離れた
+// 位置までスクロールすると描画判定の基準がずれてページが非表示になる不具合があった。
+// スクロール位置から正確に「現在ページ」を求め、そこからの相対位置で描画要否を判定する方式に改めた）
+
+/**
+ * 現在ページの前後何ページ分を常に実描画（非仮想化）しておくか。
+ * ビューポートの高さが低倍率ズーム等で複数ページ分に及ぶ場合は、この値を大きくすることで
+ * 画面内の全ページを確実に実描画できる
+ */
+const ADJACENT_RENDER_MARGIN = 1;
+
 const wrapperElToIndex = new Map<HTMLElement, number>();
 const wrapperRefs = ref<(HTMLElement | null)[]>([]);
-let intersectionObserver: IntersectionObserver | undefined;
+// ページ索引ごとの、実ビューポートに対する交差率（0〜1）。「現在ページ」の判定にのみ使う
+const pageVisibleRatios = new Map<number, number>();
+let currentPageObserver: IntersectionObserver | undefined;
+// スクロール追従によるcurrentPage更新が、下の`watch(currentPage, ...)`による
+// 「ページ位置へスクロールし直す」処理を誤って引き起こさないようにするためのガード
+let isSyncingCurrentPageFromScroll = false;
 
 function setWrapperRef(idx: number, el: HTMLElement | null) {
   const prevEl = wrapperRefs.value[idx];
   if (prevEl) {
     wrapperElToIndex.delete(prevEl);
-    intersectionObserver?.unobserve(prevEl);
+    currentPageObserver?.unobserve(prevEl);
+    pageVisibleRatios.delete(idx);
   }
   wrapperRefs.value[idx] = el;
   if (el) {
     wrapperElToIndex.set(el, idx);
-    intersectionObserver?.observe(el);
+    currentPageObserver?.observe(el);
   }
 }
 
 function shouldRenderPage(idx: number): boolean {
   if (prop.viewMode !== 'continuousSingle') return true;
-  // 現在ページ（フッターのページ送り等でジャンプした直後）は観測結果を待たず常に描画する
-  return idx === currentPage.value - 1 || visiblePageIndices.value.has(idx);
+  return Math.abs(idx - (currentPage.value - 1)) <= ADJACENT_RENDER_MARGIN;
 }
 
 /** プレースホルダー・実描画のどちらでも、現在のズーム倍率に応じたレイアウトサイズを確保する */
@@ -129,32 +147,54 @@ function pageSizeStyle(idx: number): Record<string, string> | undefined {
   };
 }
 
+/** 交差率が最も高いページを「現在ページ」としてcurrentPageへ反映する */
+function updateCurrentPageFromRatios() {
+  let maxIdx = -1;
+  let maxRatio = 0;
+  for (const [idx, ratio] of pageVisibleRatios) {
+    if (ratio > maxRatio) {
+      maxRatio = ratio;
+      maxIdx = idx;
+    }
+  }
+  if (maxIdx === -1) return; // どのページも見えていない（初期化前後等）場合は変更しない
+
+  const nextPage = maxIdx + 1;
+  if (nextPage === currentPage.value) return;
+
+  isSyncingCurrentPageFromScroll = true;
+  currentPage.value = nextPage;
+  void nextTick(() => {
+    isSyncingCurrentPageFromScroll = false;
+  });
+}
+
 // 実際にスクロールするのは`.document-viewer-wrapper`（このコンポーネントの外、DocumentTabView.vue側）
 // であり、`viewerContainer`（.pdf-viewer-container）自体はoverflow指定を持たずコンテンツに合わせて
-// 伸びるだけの要素のため、これをrootに指定すると常に全ページが「交差している」と判定されてしまい
-// 仮想化が機能しない。rootをnull（＝ブラウザビューポート）にすることで、IntersectionObserverの
-// 仕様通り、途中の`.document-viewer-wrapper`によるoverflowクリップも考慮した交差判定になる
+// 伸びるだけの要素のため、これをrootに指定すると常に全ページが「交差している」と判定されてしまう。
+// rootをnull（＝ブラウザビューポート）にすることで、IntersectionObserverの仕様通り、途中の
+// `.document-viewer-wrapper`によるoverflowクリップも考慮した交差判定になる。
+// thresholdを細かく刻むことで、スクロール中も各ページの交差率をなめらかに追跡できるようにする
+const RATIO_THRESHOLDS = Array.from({ length: 11 }, (_, i) => i / 10);
+
 function setupIntersectionObserver() {
-  intersectionObserver?.disconnect();
+  currentPageObserver?.disconnect();
+  pageVisibleRatios.clear();
   if (prop.viewMode !== 'continuousSingle') return;
 
-  intersectionObserver = new IntersectionObserver(
+  currentPageObserver = new IntersectionObserver(
     (entries) => {
-      const next = new Set(visiblePageIndices.value);
       for (const entry of entries) {
         const idx = wrapperElToIndex.get(entry.target as HTMLElement);
         if (idx === undefined) continue;
-        if (entry.isIntersecting) next.add(idx);
-        else next.delete(idx);
+        pageVisibleRatios.set(idx, entry.intersectionRatio);
       }
-      visiblePageIndices.value = next;
+      updateCurrentPageFromRatios();
     },
-    // 前後1画面分程度は先読みで実描画しておき、スクロール時にプレースホルダーが見えるのを防ぐ
-    // （root:null時のrootMarginのパーセント指定はブラウザ差異があるため、固定pxで指定する）
-    { root: null, rootMargin: '1000px 0px' },
+    { root: null, rootMargin: '0px', threshold: RATIO_THRESHOLDS },
   );
   wrapperRefs.value.forEach((el) => {
-    if (el) intersectionObserver!.observe(el);
+    if (el) currentPageObserver!.observe(el);
   });
 }
 
@@ -189,6 +229,9 @@ async function removeAnnotation(annotID: AnnotationID): Promise<void> {
 }
 
 watch(currentPage, () => {
+  // スクロール追従によるcurrentPage更新の場合、既にその位置へスクロール済みのため
+  // 「ページ位置へスクロールし直す」処理を呼ぶと無限ループ・スクロールの奪い合いになる
+  if (isSyncingCurrentPageFromScroll) return;
   void prop.onScrollToCurrentPage(viewerContainer.value?.getBoundingClientRect().height ?? 0);
 });
 
@@ -201,7 +244,7 @@ watch(
         void prop.onScrollToCurrentPage(viewerContainer.value?.getBoundingClientRect().height ?? 0);
       });
     } else {
-      intersectionObserver?.disconnect();
+      currentPageObserver?.disconnect();
     }
   },
 );
@@ -212,7 +255,7 @@ onMounted(() => {
   }
 });
 onBeforeUnmount(() => {
-  intersectionObserver?.disconnect();
+  currentPageObserver?.disconnect();
 });
 </script>
 
