@@ -52,4 +52,18 @@ describe('text repository helpers', () => {
 
     expect(decoded.error.message).toContain('Validation failed');
   });
+
+  it('returns a failure result when the source is not valid base64', () => {
+    const decoded = loadTextContents('not valid base64 !!!' as never);
+    expect(decoded.ok).toBeFalse();
+  });
+
+  it('returns a failure result when JSON parsing fails even though a schema is provided', () => {
+    const encoded = encodeTextContents('not-json');
+    expect(encoded.ok).toBeTrue();
+    if (!encoded.ok) return;
+
+    const decoded = loadTextContents(encoded.value, z.object({ title: z.string() }));
+    expect(decoded.ok).toBeFalse();
+  });
 });

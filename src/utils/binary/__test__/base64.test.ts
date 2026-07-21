@@ -67,4 +67,14 @@ describe('base64 utils', () => {
     if (!hashed.ok) return;
     expect(hashed.value).toBe('2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824');
   });
+
+  it('base64ToUint8Arrayは不正な文字列に対してFailureを返す', () => {
+    const out = base64ToUint8Array('not valid base64 !!!');
+    expect(out.ok).toBeFalse();
+  });
+
+  it('calcBase64Hashは不正な文字列に対してFailureを返す', async () => {
+    const hashed = await calcBase64Hash('not valid base64 !!!');
+    expect(hashed.ok).toBeFalse();
+  });
 });
