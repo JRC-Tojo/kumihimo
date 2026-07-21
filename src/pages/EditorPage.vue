@@ -4,6 +4,7 @@
       <q-btn
         v-for="tool in editorStore.mainTools"
         :key="tool.id"
+        :data-testid="`tool-${tool.id}`"
         :flat="!tool.isActive()"
         :outline="tool.isActive()"
         :disable="tool.isDisable?.() ?? false"
@@ -22,6 +23,7 @@
             <q-btn
               v-for="subtool in editorStore.subTools"
               :key="subtool.id"
+              :data-testid="`subtool-${subtool.id}`"
               :flat="!subtool.isActive()"
               :outline="subtool.isActive()"
               :disable="subtool.isDisable?.() ?? false"

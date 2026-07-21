@@ -9,7 +9,7 @@ import { ContainerID } from 'src/models/container';
 import { ContainerSkel } from 'src/models/container';
 import * as db from '../inMemory/IndexedDB';
 import type { Result } from 'src/models/error/result';
-import { Success } from 'src/models/error/result';
+import { Failure, NotFoundError, Success } from 'src/models/error/result';
 import { DocumentSource } from 'src/models/document/common';
 import { fromEntries } from 'src/utils/obj/obj';
 import z from 'zod';
@@ -112,10 +112,19 @@ export async function deleteFile(c: Container, element: ContainerElement): Promi
 
 /**
  * ファイルの実態を読み込む
+ *
+ * 未作成のファイル（関係性ファイル等、初回読み込み時にまだ存在しない場合がある）を
+ * 呼び出し側が判別できるよう、キー自体が存在しない場合は`NotFoundError`を返す
+ * （local/box側の「ファイル不存在」ハンドリングと挙動を揃えるため）
  */
 export async function loadSrcData(cId: ContainerID, path: string): Promise<Result<DocumentSource>> {
   const docKey = getDocKey(cId, path);
-  return db.getValue(SOURCE_STORE_NAME, DocumentSource, docKey);
+  const res = await db.getValue(SOURCE_STORE_NAME, DocumentSource.optional(), docKey);
+  if (!res.ok) return res;
+  if (res.value === undefined) {
+    return Failure(new NotFoundError(`File not found in cache (path: ${path})`));
+  }
+  return Success(res.value);
 }
 
 /**

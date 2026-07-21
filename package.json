@@ -9,8 +9,10 @@
   "scripts": {
     "lint": "eslint -c ./eslint.config.js \"./src*/**/*.{ts,js,cjs,mjs,vue}\"",
     "format": "prettier --write \"**/*.{js,ts,vue,css,scss,html,md,json}\" --ignore-path .gitignore",
-    "test": "bun test",
-    "bun:test": "bun test",
+    "test": "bun test src",
+    "bun:test": "bun test src",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "dev": "quasar dev -m pwa",
     "build": "quasar build -m pwa",
     "postinstall": "quasar prepare"
@@ -39,6 +41,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@intlify/unplugin-vue-i18n": "^11.0.0",
+    "@playwright/test": "^1.61.1",
     "@quasar/app-vite": "^2.5.1",
     "@types/bun": "^1.3.14",
     "@types/jsdom": "^28.0.3",

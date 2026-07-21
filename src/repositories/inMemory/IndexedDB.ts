@@ -17,6 +17,28 @@ let currentVersion = -1;
 let db: IDBDatabase | null = null;
 const isInitialized = ref(false);
 
+// 複数箇所から同時に新規ストア作成が要求されると、それぞれが独立にバージョンを上げて
+// indexedDB.open()を呼び出してしまい、バージョン競合（onblocked）や読み取り失敗を
+// 引き起こす。このキューで初期化処理を直列化し、常に1件ずつ処理されるようにする
+let initQueue: Promise<void> = Promise.resolve();
+
+/**
+ * 指定したストアが利用可能な状態であることを保証する
+ *
+ * 呼び出しが重なっても直列に処理されるため、DBバージョンの競合が発生しない
+ */
+function ensureStoreReady(storeName: string): Promise<Result<void>> {
+  const task = initQueue.then(() =>
+    isNeedInitialize(storeName) ? initialize(storeName) : Promise.resolve(Success()),
+  );
+  // キュー自体は個々の処理の成否に関わらず、次の要求へ進められるようにしておく
+  initQueue = task.then(
+    () => undefined,
+    () => undefined,
+  );
+  return task;
+}
+
 /**
  * IndexedDB の初期化
  */
@@ -98,10 +120,8 @@ export async function getValue<T extends z.ZodType>(
   targetZodType: T,
   key?: string,
 ): Promise<Result<z.infer<T>>> {
-  if (isNeedInitialize(storeName)) {
-    const initRes = await initialize(storeName);
-    if (!initRes.ok) return initRes;
-  }
+  const initRes = await ensureStoreReady(storeName);
+  if (!initRes.ok) return initRes;
 
   const transaction = db!.transaction([storeName], 'readonly');
   const store = transaction.objectStore(storeName);
@@ -130,10 +150,8 @@ export async function getValue<T extends z.ZodType>(
  * ストアに値を登録する
  */
 export async function setValue<T>(storeName: string, key: string, value: T): Promise<Result<void>> {
-  if (isNeedInitialize(storeName)) {
-    const initRes = await initialize(storeName);
-    if (!initRes.ok) return initRes;
-  }
+  const initRes = await ensureStoreReady(storeName);
+  if (!initRes.ok) return initRes;
 
   return new Promise((resolve) => {
     const transaction = db!.transaction([storeName], 'readwrite');
@@ -156,10 +174,8 @@ export async function setValue<T>(storeName: string, key: string, value: T): Pro
  * 登録済みの値を削除する
  */
 export async function deleteValue(storeName: string, key: string): Promise<Result<void>> {
-  if (isNeedInitialize(storeName)) {
-    const initRes = await initialize(storeName);
-    if (!initRes.ok) return initRes;
-  }
+  const initRes = await ensureStoreReady(storeName);
+  if (!initRes.ok) return initRes;
 
   return new Promise((resolve) => {
     const transaction = db!.transaction([storeName], 'readwrite');

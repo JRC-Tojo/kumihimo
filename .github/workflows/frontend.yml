@@ -75,7 +75,7 @@ jobs:
         run: bun install && bun run quasar prepare
 
       - name: Run tests with coverage
-        run: bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage
+        run: bun test src --coverage --coverage-reporter=lcov --coverage-dir=coverage
 
       - name: Coverage Report
         uses: 70-10/bun-coverage-report-action@v1.0.3
@@ -103,6 +103,62 @@ jobs:
 
       - name: Type check
         run: bunx vue-tsc --noEmit
+
+  e2e:
+    name: E2E Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: lint
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install && bun run quasar prepare
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        id: playwright
+        run: bunx playwright test
+        continue-on-error: true
+
+      - name: Publish HTML report to gh-pages
+        if: always()
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: playwright-report
+          destination_dir: reports/pr-${{ github.event.pull_request.number }}
+          keep_files: true
+
+      - name: Comment test summary on PR
+        if: always()
+        uses: daun/playwright-report-summary@v3
+        with:
+          report-file: playwright-report/results.json
+
+      - name: Comment full report link on PR
+        if: always()
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            📊 Playwrightフルレポート（スクリーンショット・トレース閲覧可）: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/pr-${{ github.event.pull_request.number }}/
+
+      - name: Fail job if Playwright tests failed
+        if: steps.playwright.outcome == 'failure'
+        run: exit 1
 
   # セキュリティスキャンは現状GitHub Botに一任
   # security-scan:

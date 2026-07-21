@@ -1,0 +1,32 @@
+name: PR Report Cleanup
+
+# frontend.ymlのe2eジョブがgh-pagesブランチのreports/pr-<番号>/配下に公開する
+# Playwrightレポートは、PRのクローズ（マージ含む）時に不要になるため削除する
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+
+      - name: Remove this PR's report directory
+        run: |
+          TARGET="reports/pr-${{ github.event.pull_request.number }}"
+          if [ -d "$TARGET" ]; then
+            git rm -r --quiet "$TARGET"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "Remove Playwright report for PR #${{ github.event.pull_request.number }}"
+            git push
+          else
+            echo "No report directory found for this PR ($TARGET); nothing to do."
+          fi

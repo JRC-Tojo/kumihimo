@@ -98,7 +98,7 @@ export default defineConfig((ctx) => {
     // Full list of options: https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#devserver
     devServer: {
       // https: true,
-      open: true, // opens browser window automatically
+      open: !process.env.PW_TEST, // Playwright実行時（PW_TEST設定時）はブラウザの自動起動を抑止する
     },
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework
