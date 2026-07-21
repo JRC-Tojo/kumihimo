@@ -18,8 +18,17 @@ import type { AnnotationStyle } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import type { FileIdentity } from 'src/utils/document/fileKey';
+import { acquirePdfDocument, releasePdfDocument } from 'src/repositories/document/pdfDocumentCache';
 
-/** PDF をロードして PDFDocumentProxy を返す（Result でラップ） */
+/**
+ * PDF をロードして PDFDocumentProxy を返す（Result でラップ）
+ *
+ * このまま返すPDFDocumentProxyはキャッシュされない使い捨てのため、呼び出し側は使い終わったら
+ * 必ず`.destroy()`すること（破棄しないとpdf.js内部のWorkerスレッドが解放されない）。
+ * ファイル単位で繰り返しアクセスする場合は、代わりに`pdfDocumentCache`の
+ * `acquirePdfDocument`/`releasePdfDocument`を使うこと
+ */
 export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PDFDocumentProxy>> {
   const data = base64ToUint8Array(src64);
   if (!data.ok) return data;
@@ -40,6 +49,8 @@ export async function getNumPages(src64: DocumentSource): Promise<Result<number>
     return Success(loaded.value.numPages);
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    void loaded.value.destroy();
   }
 }
 
@@ -60,17 +71,24 @@ export async function extractTextByPage(
     return Success(strings.join(' '));
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    void loaded.value.destroy();
   }
 }
 
 /**
  * 指定ページ内の、アノテーション領域に含まれるテキストを抽出する
+ *
+ * `file`はキャッシュキー（ファイル単位でのPDFDocumentProxy再利用）に使う。同一ファイルに対する
+ * 短時間の連続呼び出し（例: アノテーション移動のたびの内容再読込）で毎回PDF全体を
+ * 読み込み直さないようにするため、`pdfDocumentCache`経由でPDFDocumentProxyを取得する
  */
 export async function extractTextByAnnot(
+  file: FileIdentity,
   src64: DocumentSource,
   style: AnnotationStyle,
 ): Promise<Result<string>> {
-  const loaded = await loadPdfFromSrc64(src64);
+  const loaded = await acquirePdfDocument(file, src64);
   if (!loaded.ok) return Failure(loaded.error);
 
   try {
@@ -124,10 +142,17 @@ export async function extractTextByAnnot(
     return Success(extractedTexts.join(' '));
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    releasePdfDocument(file);
   }
 }
 
-/** 全ページのテキストを抽出する（ページごとの配列を返す） */
+/**
+ * 全ページのテキストを抽出する（ページごとの配列を返す）
+ *
+ * `extractTextByPage`をページ数分呼ぶとページごとにPDF全体を読み込み直してしまうため、
+ * ここでは1回だけ読み込んだPDFDocumentProxyを使い回す
+ */
 export async function extractAllText(src64: DocumentSource): Promise<Result<string[]>> {
   const loaded = await loadPdfFromSrc64(src64);
   if (!loaded.ok) return Failure(loaded.error);
@@ -135,26 +160,29 @@ export async function extractAllText(src64: DocumentSource): Promise<Result<stri
     const pages: string[] = [];
     for (let i = 1; i <= loaded.value.numPages; i++) {
       // await を順に行う — 大きな PDF は並列化を検討
-      const pageText = await extractTextByPage(src64, i);
-      if (!pageText.ok) return Failure(pageText.error);
-      pages.push(pageText.value);
+      const page = await loaded.value.getPage(i);
+      const textContent = await page.getTextContent();
+      const strings = (textContent.items as Array<{ str?: string }>).map((it) =>
+        typeof it.str === 'string' ? it.str : '',
+      );
+      pages.push(strings.join(' '));
     }
     return Success(pages);
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    void loaded.value.destroy();
   }
 }
 
-/** 指定ページをレンダリングして Canvas を返す（ブラウザ環境向け） */
-export async function renderPageToCanvas(
-  src64: DocumentSource,
+/** 既に取得済みのPDFDocumentProxyから、指定ページをレンダリングしたCanvasを返す（内部用） */
+async function renderPageToCanvasFromDoc(
+  pdf: PDFDocumentProxy,
   pageNumber: number,
-  scale = 1,
+  scale: number,
 ): Promise<Result<HTMLCanvasElement>> {
-  const loaded = await loadPdfFromSrc64(src64);
-  if (!loaded.ok) return Failure(loaded.error);
   try {
-    const page = await loaded.value.getPage(pageNumber);
+    const page = await pdf.getPage(pageNumber);
     const viewport = page.getViewport({ scale });
 
     const canvas = document.createElement('canvas');
@@ -167,6 +195,21 @@ export async function renderPageToCanvas(
     return Success(canvas);
   } catch (e) {
     return Failure(toError(e));
+  }
+}
+
+/** 指定ページをレンダリングして Canvas を返す（ブラウザ環境向け。都度PDFを読み込んで使い捨てる） */
+export async function renderPageToCanvas(
+  src64: DocumentSource,
+  pageNumber: number,
+  scale = 1,
+): Promise<Result<HTMLCanvasElement>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+  try {
+    return await renderPageToCanvasFromDoc(loaded.value, pageNumber, scale);
+  } finally {
+    void loaded.value.destroy();
   }
 }
 
@@ -207,14 +250,18 @@ function estimateCharWidths(
  * 直線の場合は線幅を考慮する
  */
 export async function extractImageFromRegion(
+  file: FileIdentity,
   src64: DocumentSource,
   annotStyle: AnnotationStyle,
   scale = 2,
 ): Promise<Result<string>> {
   const targetRect = calculateBoundingBox(annotStyle);
 
+  const loaded = await acquirePdfDocument(file, src64);
+  if (!loaded.ok) return Failure(loaded.error);
+
   try {
-    const rendered = await renderPageToCanvas(src64, annotStyle.pageNumber, scale);
+    const rendered = await renderPageToCanvasFromDoc(loaded.value, annotStyle.pageNumber, scale);
     if (!rendered.ok) return Failure(rendered.error);
     const canvas = rendered.value;
 
@@ -238,6 +285,8 @@ export async function extractImageFromRegion(
     return Success(tmp.toDataURL('image/png'));
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    releasePdfDocument(file);
   }
 }
 
@@ -247,14 +296,18 @@ export async function extractImageFromRegion(
  * アノテーション位置に強調枠を描画した上で返す（ページ全体ではなく、アノテーション周辺にズームする）
  */
 export async function extractAnnotationContextPreview(
+  file: FileIdentity,
   src64: DocumentSource,
   annotStyle: AnnotationStyle,
   scale = 2,
 ): Promise<Result<string>> {
   const tightRect = calculateBoundingBox(annotStyle);
 
+  const loaded = await acquirePdfDocument(file, src64);
+  if (!loaded.ok) return Failure(loaded.error);
+
   try {
-    const rendered = await renderPageToCanvas(src64, annotStyle.pageNumber, scale);
+    const rendered = await renderPageToCanvasFromDoc(loaded.value, annotStyle.pageNumber, scale);
     if (!rendered.ok) return Failure(rendered.error);
     const pageCanvas = rendered.value;
     const pageWidthPt = pageCanvas.width / scale;
@@ -311,6 +364,8 @@ export async function extractAnnotationContextPreview(
     return Success(tmp.toDataURL('image/png'));
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    releasePdfDocument(file);
   }
 }
 
@@ -502,6 +557,8 @@ export async function extractAnnotationsFromPdf(
     return Success(annotations);
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    void loaded.value.destroy();
   }
 }
 

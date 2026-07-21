@@ -19,11 +19,19 @@
         />
       </div>
 
-      <!-- 連続表示 -->
+      <!-- 連続表示: ページ数が多い文書で全ページ分のcanvas・Konva Stageが常駐しないよう、
+           ビューポート近傍のページのみ実際にPdfPageをマウントし、それ以外は
+           レイアウト上のサイズのみ確保したプレースホルダーにする（仮想化） -->
       <div v-if="viewMode === 'continuousSingle'" class="continuous-pages">
-        <div v-for="page in pageCount" :key="page" class="q-mb-md continuous-page-wrapper">
+        <div
+          v-for="page in pageCount"
+          :key="page"
+          class="q-mb-md continuous-page-wrapper"
+          :ref="(el) => setWrapperRef(page - 1, el as HTMLElement | null)"
+        >
           <div
             :class="['continuous-page', { active: page === currentPage }]"
+            :style="pageSizeStyle(page - 1)"
             :ref="
               (el) => {
                 if (el) pageRefs[page - 1] = el as HTMLElement;
@@ -31,6 +39,7 @@
             "
           >
             <PdfPage
+              v-if="shouldRenderPage(page - 1)"
               :page="page"
               :annotations="annotations"
               v-model:selected-annot-ids="selectedAnnotIds"
@@ -47,16 +56,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import PdfPage from 'src/components/Viewer/PdfPage.vue';
 import type { ViewMode } from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { ContainerElementFile } from 'src/models/container';
+import type { PageSize } from 'src/components/Viewer/pdfManager';
 
-type RenderFunc = (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<void>;
+type RenderFunc = (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<PageSize>;
 interface Prop {
   pageCount: number;
+  pageSizes: PageSize[];
   viewMode: ViewMode;
   file: ContainerElementFile;
   annotations: AnnotationStyle[];
@@ -79,6 +90,67 @@ const scale = computed(() => zoomLevel.value / 100);
 // 連続表示モード用
 const pageRefs = ref<(HTMLElement | null)[]>([]);
 const viewerContainer = useTemplateRef('viewerContainer');
+
+// ============ 連続表示モードの仮想化 ============
+// ビューポート近傍（前後1画面分）のページのみ実際にPdfPage（Canvas+Konva Stage）をマウントし、
+// それ以外は`pageSizeStyle`でレイアウト上のサイズのみ確保したプレースホルダーにする。
+// これによりページ数が多い文書でも、常駐するcanvas・Konva Stageの数を画面近傍分に抑えられる
+const visiblePageIndices = ref<Set<number>>(new Set());
+const wrapperElToIndex = new Map<HTMLElement, number>();
+const wrapperRefs = ref<(HTMLElement | null)[]>([]);
+let intersectionObserver: IntersectionObserver | undefined;
+
+function setWrapperRef(idx: number, el: HTMLElement | null) {
+  const prevEl = wrapperRefs.value[idx];
+  if (prevEl) {
+    wrapperElToIndex.delete(prevEl);
+    intersectionObserver?.unobserve(prevEl);
+  }
+  wrapperRefs.value[idx] = el;
+  if (el) {
+    wrapperElToIndex.set(el, idx);
+    intersectionObserver?.observe(el);
+  }
+}
+
+function shouldRenderPage(idx: number): boolean {
+  if (prop.viewMode !== 'continuousSingle') return true;
+  // 現在ページ（フッターのページ送り等でジャンプした直後）は観測結果を待たず常に描画する
+  return idx === currentPage.value - 1 || visiblePageIndices.value.has(idx);
+}
+
+/** プレースホルダー・実描画のどちらでも、現在のズーム倍率に応じたレイアウトサイズを確保する */
+function pageSizeStyle(idx: number): Record<string, string> | undefined {
+  const size = prop.pageSizes[idx];
+  if (!size) return undefined;
+  return {
+    width: `${size.width * scale.value}px`,
+    height: `${size.height * scale.value}px`,
+  };
+}
+
+function setupIntersectionObserver() {
+  intersectionObserver?.disconnect();
+  if (prop.viewMode !== 'continuousSingle' || !viewerContainer.value) return;
+
+  intersectionObserver = new IntersectionObserver(
+    (entries) => {
+      const next = new Set(visiblePageIndices.value);
+      for (const entry of entries) {
+        const idx = wrapperElToIndex.get(entry.target as HTMLElement);
+        if (idx === undefined) continue;
+        if (entry.isIntersecting) next.add(idx);
+        else next.delete(idx);
+      }
+      visiblePageIndices.value = next;
+    },
+    // 前後1画面分は先読みで実描画しておき、スクロール時にプレースホルダーが見えるのを防ぐ
+    { root: viewerContainer.value, rootMargin: '100% 0px' },
+  );
+  wrapperRefs.value.forEach((el) => {
+    if (el) intersectionObserver!.observe(el);
+  });
+}
 
 /**
  * ズームをホイールで制御
@@ -119,11 +191,23 @@ watch(
   () => {
     if (prop.viewMode === 'continuousSingle') {
       void nextTick(() => {
+        setupIntersectionObserver();
         void prop.onScrollToCurrentPage(viewerContainer.value?.getBoundingClientRect().height ?? 0);
       });
+    } else {
+      intersectionObserver?.disconnect();
     }
   },
 );
+
+onMounted(() => {
+  if (prop.viewMode === 'continuousSingle') {
+    void nextTick(setupIntersectionObserver);
+  }
+});
+onBeforeUnmount(() => {
+  intersectionObserver?.disconnect();
+});
 </script>
 
 <style scoped lang="scss">

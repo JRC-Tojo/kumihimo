@@ -13,7 +13,10 @@ import {
   extractTextByAnnot,
 } from 'src/repositories/document/pdf';
 import { Image2Text } from 'src/utils/ocr/main';
-import { duplicateAnnotation } from 'src/services/document/annotationGeometry';
+import {
+  ANNOTATION_GEOMETRY,
+  duplicateAnnotation,
+} from 'src/services/document/annotationGeometry';
 import { computeReorderedZIndex, type LayerOrderAction } from 'src/utils/document/annotationOrder';
 
 /**
@@ -60,7 +63,8 @@ export async function getAnnotationPreviewImage(
   );
   if (!fileSrc.ok) return fileSrc;
 
-  return extractAnnotationContextPreview(fileSrc.value, info.value.style, scale);
+  const fileIdentity = { containerID: address.value.cID, path: address.value.filePath };
+  return extractAnnotationContextPreview(fileIdentity, fileSrc.value, info.value.style, scale);
 }
 
 /**
@@ -100,12 +104,12 @@ async function loadAnnotContent(
   if (!fileSrc.ok) return fileSrc;
 
   // PDFにテキスト情報がすでに含まれている場合はその情報を取得
-  const directText = await extractTextByAnnot(fileSrc.value, annotationInfo.style);
+  const directText = await extractTextByAnnot(file, fileSrc.value, annotationInfo.style);
   if (directText.ok && directText.value !== '') {
     annotationInfo.context.text = directText.value;
   } else {
     // 画像から文字情報を読み取り
-    const img = await extractImageFromRegion(fileSrc.value, annotationInfo.style, 4);
+    const img = await extractImageFromRegion(file, fileSrc.value, annotationInfo.style, 4);
     // 画像化・OCR処理が失敗した場合は空文字列を与える
     const text = img.ok ? await Image2Text(img.value).catch(() => '') : '';
     annotationInfo.context.text = text;
@@ -123,19 +127,44 @@ async function loadAnnotContent(
   return Success();
 }
 
+/** アノテーションのページ番号・外接矩形が変化したかどうかを判定する（内容再読み込みの要否判定用） */
+const GEOMETRY_EPSILON = 0.01;
+function hasGeometryChanged(
+  previous: AnnotationStyle | undefined,
+  next: AnnotationStyle,
+): boolean {
+  if (!previous) return true; // 新規アノテーションは必ず読み込む
+  if (previous.pageNumber !== next.pageNumber) return true;
+  if (previous.type !== next.type) return true;
+
+  const prevBox = ANNOTATION_GEOMETRY[previous.type].boundingBox(previous);
+  const nextBox = ANNOTATION_GEOMETRY[next.type].boundingBox(next);
+  return (
+    Math.abs(prevBox.x - nextBox.x) > GEOMETRY_EPSILON ||
+    Math.abs(prevBox.y - nextBox.y) > GEOMETRY_EPSILON ||
+    Math.abs(prevBox.width - nextBox.width) > GEOMETRY_EPSILON ||
+    Math.abs(prevBox.height - nextBox.height) > GEOMETRY_EPSILON
+  );
+}
+
 /**
  * アノテーション情報を登録する
  *
- * アノテーション位置やサイズの情報からアノテーションされているコンテンツを読み取る
+ * 位置・サイズ（ページ番号込みの外接矩形）が変化した場合のみ、アノテーションされている
+ * コンテンツ（テキスト抽出・OCR）を読み取り直す。色やスタイルのみの変更のたびにPDF全体の
+ * 再読込・OCRを走らせるとメモリ・処理コストが大きいため、実際に内容が変わり得る場合のみに絞る
  */
 export async function registerAnnotationStyle(
   file: ContainerElementFile,
   aStyle: AnnotationStyle,
 ): Promise<Result<AnnotationInfo>> {
+  const previous = await annotationRepository.getAnnotationInfo(aStyle.id);
+
   const annotationInfo: AnnotationInfo = {
     style: aStyle,
     context: {
-      text: undefined,
+      // 内容を再読み込みしない場合に備え、既存のOCR結果を引き継ぐ（undefinedで上書きしない）
+      text: previous.ok ? previous.value.context.text : undefined,
     },
   };
 
@@ -143,8 +172,10 @@ export async function registerAnnotationStyle(
   const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
   if (!saveRes.ok) return saveRes;
 
-  // コンテンツの読み込みは投げっぱなし（失敗しても空文字列がコンテンツとして格納されるだけ）
-  void loadAnnotContent(file, annotationInfo);
+  if (hasGeometryChanged(previous.ok ? previous.value.style : undefined, aStyle)) {
+    // コンテンツの読み込みは投げっぱなし（失敗しても空文字列がコンテンツとして格納されるだけ）
+    void loadAnnotContent(file, annotationInfo);
+  }
 
   return Success(annotationInfo);
 }

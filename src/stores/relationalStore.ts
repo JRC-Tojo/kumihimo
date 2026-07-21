@@ -6,6 +6,7 @@ import type { AnnotationID } from 'src/models/document/pdf';
 import type { Relational } from 'src/models/relational/common';
 import type { RelationalCheckedRule } from 'src/models/relational/fileSchema';
 import { runConcurrently } from 'src/utils/promise/concurrent';
+import { fileKey } from 'src/utils/document/fileKey';
 
 /**
  * 関係性の検証状態
@@ -22,12 +23,7 @@ export interface RelationalEdge {
   targetVal: string;
 }
 
-/**
- * ファイルのキャッシュキー（containerIDまで含めて同一性判定する）
- */
-export function fileKey(f: ContainerElementFile): string {
-  return `${f.containerID}|${f.path}`;
-}
+export { fileKey };
 
 function edgeKey(r: Relational): string {
   return `${r.srcID}|${r.targetID}|${JSON.stringify(r.rule)}`;
