@@ -64,7 +64,11 @@ import { useBackendApi } from 'src/apis/backendApi';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PageSize } from 'src/components/Viewer/pdfManager';
 
-type RenderFunc = (pageNumber: number, canvas: HTMLCanvasElement, scale: number) => Promise<PageSize>;
+type RenderFunc = (
+  pageNumber: number,
+  canvas: HTMLCanvasElement,
+  scale: number,
+) => Promise<PageSize>;
 interface Prop {
   pageCount: number;
   pageSizes: PageSize[];

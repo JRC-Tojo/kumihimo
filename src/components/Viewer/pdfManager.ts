@@ -6,10 +6,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import type { ContainerElementFile } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
-import {
-  acquirePdfDocument,
-  releasePdfDocument,
-} from 'src/repositories/document/pdfDocumentCache';
+import { acquirePdfDocument, releasePdfDocument } from 'src/repositories/document/pdfDocumentCache';
 
 export type PdfDocument = pdfjsLib.PDFDocumentProxy;
 

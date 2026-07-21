@@ -13,10 +13,7 @@ import {
   extractTextByAnnot,
 } from 'src/repositories/document/pdf';
 import { Image2Text } from 'src/utils/ocr/main';
-import {
-  ANNOTATION_GEOMETRY,
-  duplicateAnnotation,
-} from 'src/services/document/annotationGeometry';
+import { ANNOTATION_GEOMETRY, duplicateAnnotation } from 'src/services/document/annotationGeometry';
 import { computeReorderedZIndex, type LayerOrderAction } from 'src/utils/document/annotationOrder';
 
 /**
@@ -129,10 +126,7 @@ async function loadAnnotContent(
 
 /** アノテーションのページ番号・外接矩形が変化したかどうかを判定する（内容再読み込みの要否判定用） */
 const GEOMETRY_EPSILON = 0.01;
-function hasGeometryChanged(
-  previous: AnnotationStyle | undefined,
-  next: AnnotationStyle,
-): boolean {
+function hasGeometryChanged(previous: AnnotationStyle | undefined, next: AnnotationStyle): boolean {
   if (!previous) return true; // 新規アノテーションは必ず読み込む
   if (previous.pageNumber !== next.pageNumber) return true;
   if (previous.type !== next.type) return true;
