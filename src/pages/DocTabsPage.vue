@@ -79,7 +79,7 @@ import { VueDraggable } from 'vue-draggable-plus';
 import { useBackendApi } from 'src/apis/backendApi';
 import { Path } from 'src/utils/binary/path';
 import { saveDocument } from 'src/utils/document/saveDocument';
-import { unsavedChangesDialog } from 'src/utils/dialog/confirmDialog';
+import { unsavedChangesDialog } from 'src/components/Dialog/confirmDialog';
 
 interface Prop {
   layoutSide: LayoutSide;

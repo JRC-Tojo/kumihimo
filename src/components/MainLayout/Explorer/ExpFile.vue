@@ -65,7 +65,7 @@ import { ExplorerContextKey } from './explorerContext';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
 import { syncStoresAfterDelete } from 'src/utils/document/syncStoresAfterDelete';
 import { useUnsavedIndicator } from 'src/composables/useUnsavedIndicator';
-import { confirmDialog } from 'src/utils/dialog/confirmDialog';
+import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 
 interface Prop {
   file: ContainerElementFile;

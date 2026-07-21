@@ -2,7 +2,9 @@
   <v-rect
     ref="rectRef"
     :config="rectConfig"
+    @dragstart="onDragStart"
     @dragend="onDragEnd"
+    @transformstart="onTransformStart"
     @transform="onTransform"
     @transformend="onTransformEnd"
   />
@@ -11,11 +13,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
-import dayjs from 'dayjs';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import { useRelationalStore } from 'src/stores/relationalStore';
-import { useSettingsStore } from 'src/stores/settingsStore';
-import { getRelationalStyleOverride } from './relationalStyleOverride';
+import { useAnnotationShape } from './composables/useAnnotationShape';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
 
@@ -32,33 +31,40 @@ const emit = defineEmits<{
   delete: [id: AnnotationID];
 }>();
 
-const relationalStore = useRelationalStore();
-const settingsStore = useSettingsStore();
-
 const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 
-// 関係性の検証結果（OK/NG）による表示上書き。関連なし・検証保留中は元のスタイルを維持する
-const relationalOverride = computed(() =>
-  getRelationalStyleOverride(
-    relationalStore.statusForAnnotation(props.annotation.id),
-    settingsStore.relationalVerificationStyle,
-  ),
-);
+const {
+  relationalOverride,
+  strokeDash,
+  resolvedStroke,
+  resolveFill,
+  withUpdatedTimestamp,
+  displayAnnotation,
+  endInteraction,
+  ctrlKey,
+  dragBoundFunc,
+  beginBodyDrag,
+  commitBodyDrag,
+  beginTransform,
+  applyCenteredCorrection,
+} = useAnnotationShape(props);
 
 const rectConfig = computed(() => {
-  if (props.annotation.type !== 'box') return;
+  const annotation = displayAnnotation.value;
+  if (annotation.type !== 'box') return;
   return {
-    id: props.annotation.id,
+    id: annotation.id,
     name: 'annotation-shape',
-    x: props.annotation.x,
-    y: props.annotation.y,
-    width: props.annotation.width ?? 0,
-    height: props.annotation.height ?? 0,
-    fill: relationalOverride.value?.fill ?? 'transparent',
-    stroke: relationalOverride.value?.stroke ?? props.annotation.color,
-    strokeWidth: relationalOverride.value?.strokeWidth ?? (props.annotation.strokeWidth || 2),
-    draggable: props.isEditing,
-    opacity: props.annotation.opacity || 1,
+    x: annotation.x,
+    y: annotation.y,
+    width: annotation.width ?? 0,
+    height: annotation.height ?? 0,
+    fill: resolveFill(annotation.fillColor, annotation.fillOpacity),
+    stroke: resolvedStroke.value,
+    strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
+    dash: strokeDash.value,
+    draggable: props.isEditing && !ctrlKey.value,
+    dragBoundFunc,
   };
 });
 
@@ -68,15 +74,13 @@ function getNode() {
 
 defineExpose({ getNode });
 
+function onDragStart(e: KonvaEvent) {
+  beginBodyDrag(e.target);
+}
+
 function onDragEnd(e: KonvaEvent) {
-  const target = e.target as Konva.Rect;
-  const updatedAnnotation = {
-    ...props.annotation,
-    x: target.x(),
-    y: target.y(),
-    updatedAt: dayjs().toISOString(),
-  };
-  emit('update', updatedAnnotation);
+  const target = e.target;
+  emit('update', commitBodyDrag(e, { x: target.x(), y: target.y() }));
 }
 
 /**
@@ -98,24 +102,25 @@ function syncNodeGeometry(node: Konva.Rect) {
   return { width: nextWidth, height: nextHeight };
 }
 
+function onTransformStart(e: KonvaEvent) {
+  const node = e.target as Konva.Rect;
+  beginTransform({ x: node.x(), y: node.y(), width: node.width(), height: node.height() });
+}
+
 function onTransform(e: KonvaEvent) {
   const node = e.target as Konva.Rect;
-  syncNodeGeometry(node);
+  const { width, height } = syncNodeGeometry(node);
+  applyCenteredCorrection(node, { width, height });
 }
 
 function onTransformEnd(e: KonvaEvent) {
   const node = e.target as Konva.Rect;
   const { width, height } = syncNodeGeometry(node);
+  applyCenteredCorrection(node, { width, height });
 
-  const updatedAnnotation = {
-    ...props.annotation,
-    x: node.x(),
-    y: node.y(),
-    width,
-    height,
-    updatedAt: dayjs().toISOString(),
-  };
-  emit('update', updatedAnnotation);
+  const updated = withUpdatedTimestamp({ x: node.x(), y: node.y(), width, height });
+  emit('update', updated);
+  endInteraction(updated);
 }
 </script>
 

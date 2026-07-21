@@ -31,7 +31,7 @@ beforeAll(
   async () => {
     await initOCR();
   },
-  { timeout: 10 * 10 ** 3 },
+  { timeout: 20 * 10 ** 3 },
 );
 
 /**

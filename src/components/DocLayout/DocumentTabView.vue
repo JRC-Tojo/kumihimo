@@ -57,6 +57,7 @@
       :key="JSON.stringify(selectedAnnotations)"
       :selected-annots="selectedAnnotations"
       :file="prop.file"
+      :on-delete-selected="annotationActions.deleteSelected"
       v-model:drawer-open="editorStore.rightDrawerModel"
       @add-relation="startRelationalFromDrawer"
       class="col-1"
@@ -91,7 +92,8 @@ import { buildRelationalRule } from 'src/models/relational/ruleUtils';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
 import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
-import { confirmDialog } from 'src/utils/dialog/confirmDialog';
+import { confirmDialog } from 'src/components/Dialog/confirmDialog';
+import { useAnnotationActions } from './composables/useAnnotationActions';
 
 interface Prop {
   file: ContainerElementFile;
@@ -127,6 +129,16 @@ const selectedAnnotations = computed(() =>
     .map((aId) => annotations.value.find((annot) => annot.id === aId))
     .filter((annot) => annot !== void 0),
 );
+// アノテーションに対するショートカット操作（削除・微調整・コピー・貼り付け・複製・重ね順変更）をまとめる。
+// キーボードハンドラにロジックを直書きせず、将来の右クリックコンテキストメニューからも
+// 同じ関数を呼べるようにするための共有アクション層
+const annotationActions = useAnnotationActions({
+  file: prop.file,
+  annotations,
+  selectedAnnotationIds,
+  currentPage,
+});
+
 // バックエンド側のアノテーション情報の更新を反映する
 const observed = api.observedAnnotationStylesByFile(prop.file);
 if (observed.ok) {
@@ -505,12 +517,18 @@ function scheduleAutoSave() {
 
 // ================================
 
+/** 矢印キー1回あたりの微調整量（px、文書座標） */
+const NUDGE_STEP = 1;
+
 /**
- * Spaceキーで関係性の簡易閲覧ダイアログを開く（単一選択時のみ、テキスト入力中は無視）
- * 複数ペイン表示時は、フォーカスされているペイン（layoutSide）でのみ反応する
+ * アノテーション編集のキーボードショートカットをまとめて処理する
+ *
+ * Spaceキー（関係性の簡易閲覧）に加え、削除（Delete/Backspace）・微調整（矢印キー）・
+ * コピー（Ctrl+C）・貼り付け（Ctrl+V）を扱う。実際の処理はすべて`useAnnotationActions`に
+ * 委譲し、ここでは対象の絞り込み（選択の有無）とイベントの振り分けのみを行う。
+ * テキスト入力中は無視し、複数ペイン表示時はフォーカスされているペイン（layoutSide）でのみ反応する
  */
 function handleGlobalKeydown(e: KeyboardEvent) {
-  if (e.code !== 'Space') return;
   if (editorStore.activeSide !== prop.layoutSide) return;
 
   const activeEl = document.activeElement;
@@ -519,17 +537,55 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
   if (isTextInput) return;
 
-  if (selectedAnnotationIds.value.length !== 1) return;
+  if (e.code === 'Space') {
+    if (selectedAnnotationIds.value.length !== 1) return;
+    e.preventDefault();
+    peekAnnotId.value = selectedAnnotationIds.value[0];
+    peekDialogOpen.value = true;
+    return;
+  }
 
-  e.preventDefault();
-  peekAnnotId.value = selectedAnnotationIds.value[0];
-  peekDialogOpen.value = true;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedAnnotationIds.value.length === 0) return;
+    e.preventDefault();
+    void annotationActions.deleteSelected();
+    return;
+  }
+
+  if (
+    e.key === 'ArrowUp' ||
+    e.key === 'ArrowDown' ||
+    e.key === 'ArrowLeft' ||
+    e.key === 'ArrowRight'
+  ) {
+    if (selectedAnnotationIds.value.length === 0) return;
+    e.preventDefault();
+    const dx = e.key === 'ArrowLeft' ? -NUDGE_STEP : e.key === 'ArrowRight' ? NUDGE_STEP : 0;
+    const dy = e.key === 'ArrowUp' ? -NUDGE_STEP : e.key === 'ArrowDown' ? NUDGE_STEP : 0;
+    void annotationActions.nudgeSelected(dx, dy);
+    return;
+  }
+
+  const isModifierPressed = e.ctrlKey || e.metaKey;
+
+  if (isModifierPressed && e.key.toLowerCase() === 'c') {
+    if (selectedAnnotationIds.value.length === 0) return;
+    e.preventDefault();
+    annotationActions.copySelected();
+    return;
+  }
+
+  if (isModifierPressed && e.key.toLowerCase() === 'v') {
+    e.preventDefault();
+    void annotationActions.pasteClipboard();
+    return;
+  }
 }
 
 // ================================
 
 onMounted(async () => {
-  editorStore.initStore(await callEditorTools(t));
+  editorStore.setMainTools(await callEditorTools(t));
   await loadDocument();
   void relationalStore.refreshFile(prop.file);
   window.addEventListener('keydown', handleGlobalKeydown);
@@ -541,6 +597,35 @@ watch(annotations, (newAnnots, oldAnnots) => {
 watch(selectedAnnotationIds, (selectedIds) => {
   void registRelationalBySelect(selectedIds);
 });
+// アクティブなペインの選択状態を、スタイルパネル（MainTools/SubTools行）用にeditorStoreへ橋渡しする。
+// 選択状態自体はペインごとのこのコンポーネントが持つため、layerOrderAction等と同じ
+// 「意図・状態をeditorStoreに反映する」パターンを踏襲する
+watch(
+  [selectedAnnotations, () => editorStore.activeSide],
+  () => {
+    if (editorStore.activeSide === prop.layoutSide) {
+      editorStore.setActiveSelection(prop.file, selectedAnnotations.value);
+    } else if (
+      editorStore.activeSelection !== undefined &&
+      isSameFile(editorStore.activeSelection.file, prop.file)
+    ) {
+      editorStore.clearActiveSelection();
+    }
+  },
+  { immediate: true },
+);
+// 重ね順ツールバー（MainTools/SubTools）からの意図をここで実行する。
+// ツール自体は選択状態を持たないため、選択状態を持つこの場所でwatchして実処理を行う
+watch(
+  () => editorStore.layerOrderAction,
+  (action) => {
+    if (action === undefined) return;
+    if (editorStore.activeSide !== prop.layoutSide) return;
+    void annotationActions.reorderSelected(action).finally(() => {
+      editorStore.clearLayerOrderAction();
+    });
+  },
+);
 // 待機状態がストア側から解除された場合（キャンセル操作やモードオフなど）に通知を閉じる
 watch(
   () => editorStore.relationalPendingId,
@@ -562,6 +647,14 @@ onBeforeUnmount(() => {
 
   stopAnnotationObservation?.();
   window.removeEventListener('keydown', handleGlobalKeydown);
+
+  // このペインの選択がスタイルパネルに反映されたままタブが閉じられた場合、選択状態を解除する
+  if (
+    editorStore.activeSelection !== undefined &&
+    isSameFile(editorStore.activeSelection.file, prop.file)
+  ) {
+    editorStore.clearActiveSelection();
+  }
 });
 </script>
 

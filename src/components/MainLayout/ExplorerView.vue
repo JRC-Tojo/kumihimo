@@ -1,6 +1,6 @@
 <template>
   <div class="explorer-view">
-    <div class="explorer-view-header">
+    <div class="explorer-view-header q-pa-sm">
       <q-btn
         flat
         dense
@@ -40,22 +40,24 @@
       </q-btn>
     </div>
 
-    <ExpContainer
-      v-for="container in containers"
-      :key="container.id"
-      :ref="(el) => setContainerRef(container.id, el)"
-      :container="container"
-      @closed="loadContainers"
-    />
+    <div class="explorer-view-content">
+      <ExpContainer
+        v-for="container in containers"
+        :key="container.id"
+        :ref="(el) => setContainerRef(container.id, el)"
+        :container="container"
+        @closed="loadContainers"
+      />
 
-    <q-btn
-      v-show="containers.length === 0"
-      outline
-      :label="$t('explorer.demo')"
-      color="primary"
-      class="full-width q-my-sm"
-      @click="onCreateDemo"
-    />
+      <q-btn
+        v-show="containers.length === 0"
+        outline
+        :label="$t('explorer.demo')"
+        color="primary"
+        class="full-width q-my-sm"
+        @click="onCreateDemo"
+      />
+    </div>
 
     <NewContainerDialog v-model="showNewContainerDialog" @created="loadContainers" />
   </div>
@@ -151,9 +153,26 @@ onMounted(loadContainers);
 </script>
 
 <style lang="scss" scoped>
+.explorer-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .explorer-view-header {
   display: flex;
   justify-content: flex-end;
   gap: 2px;
+  flex-shrink: 0;
+  padding-bottom: 4px;
+}
+
+.explorer-view-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 </style>

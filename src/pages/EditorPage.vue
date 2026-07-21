@@ -1,7 +1,6 @@
 <template>
-  <q-page class="editor-page">
-    <!-- メインツールバー -->
-    <q-bar class="main-toolbar text-white">
+  <q-page class="editor-page row">
+    <div class="main-toolbar text-white">
       <q-btn
         v-for="tool in editorStore.mainTools"
         :key="tool.id"
@@ -13,39 +12,55 @@
         :title="tool.label"
         class="toolbar-btn"
         @click="handleMainToolClick(tool)"
-      />
-    </q-bar>
-
-    <!-- サブツールバー -->
-    <q-bar v-if="editorStore.subTools.length > 0" class="sub-toolbar">
-      <template v-for="tool in editorStore.subTools" :key="tool.id">
-        <q-btn
-          :flat="!tool.isActive()"
-          :outline="tool.isActive()"
-          :color="tool.isActive() ? 'primary' : ''"
-          dense
-          :icon="tool.icon"
-          :title="tool.label"
-          :label="tool.label"
-          class="toolbar-btn-sub"
-          @click="tool.onClicked()"
-        />
-      </template>
-    </q-bar>
-
-    <!-- ドキュメントレイアウト -->
-    <div v-if="editorStore.tileMode === 'single'" class="doc-layout">
-      <DocTabsPage layout-side="ul" />
+      >
+        <q-menu v-if="!tool.noMenu" anchor="center right" self="center left" auto-close>
+          <div class="annotation-type-menu q-pa-sm">
+            <AnnotationPresetBar
+              v-if="editorStore.activeAnnotationType"
+              class="preset-bar-wrapper"
+            />
+            <q-btn
+              v-for="subtool in editorStore.subTools"
+              :key="subtool.id"
+              :flat="!subtool.isActive()"
+              :outline="subtool.isActive()"
+              :disable="subtool.isDisable?.() ?? false"
+              dense
+              :icon="subtool.icon"
+              :label="subtool.label"
+              class="toolbar-btn"
+              @click="subtool.onClicked"
+            />
+          </div>
+        </q-menu>
+      </q-btn>
     </div>
-    <div v-else-if="editorStore.tileMode === 'dubble'" class="doc-layout dubble">
-      <div class="ul"><DocTabsPage layout-side="ul" /></div>
-      <div class="ur"><DocTabsPage layout-side="ur" /></div>
-    </div>
-    <div v-else-if="editorStore.tileMode === 'grid'" class="doc-layout grid">
-      <div class="ul"><DocTabsPage layout-side="ul" /></div>
-      <div class="ur"><DocTabsPage layout-side="ur" /></div>
-      <div class="ll"><DocTabsPage layout-side="ll" /></div>
-      <div class="lr"><DocTabsPage layout-side="lr" /></div>
+    <div class="col" style="display: flex; flex-direction: column">
+      <!--
+        SubTools領域: MainToolsと同じ高さで常駐させ、内容の有無に関わらずレイアウトが
+        伸縮しないようにする。関係性/重ね順/保存/タイル等の汎用ツール、または
+        アノテーションプリセット一覧＋スタイルパネル（描画スタイルモード・選択編集モード）を
+        この領域内で出し分ける
+      -->
+      <q-bar class="sub-toolbar">
+        <AnnotationStylePanel class="style-panel-wrapper" />
+        <AnnotationPositionSizeBtn />
+      </q-bar>
+
+      <!-- ドキュメントレイアウト -->
+      <div v-if="editorStore.tileMode === 'single'" class="doc-layout">
+        <DocTabsPage layout-side="ul" />
+      </div>
+      <div v-else-if="editorStore.tileMode === 'dubble'" class="doc-layout dubble">
+        <div class="ul"><DocTabsPage layout-side="ul" /></div>
+        <div class="ur"><DocTabsPage layout-side="ur" /></div>
+      </div>
+      <div v-else-if="editorStore.tileMode === 'grid'" class="doc-layout grid">
+        <div class="ul"><DocTabsPage layout-side="ul" /></div>
+        <div class="ur"><DocTabsPage layout-side="ur" /></div>
+        <div class="ll"><DocTabsPage layout-side="ll" /></div>
+        <div class="lr"><DocTabsPage layout-side="lr" /></div>
+      </div>
     </div>
   </q-page>
 </template>
@@ -53,7 +68,10 @@
 <script setup lang="ts">
 import { useEditorStore } from 'src/stores/editorStore';
 import DocTabsPage from './DocTabsPage.vue';
+import AnnotationPresetBar from 'src/components/DocLayout/AnnotationPresetBar.vue';
+import AnnotationStylePanel from 'src/components/DocLayout/AnnotationStylePanel.vue';
 import type { IDocTool } from 'src/models/docPage';
+import AnnotationPositionSizeBtn from 'src/components/DocLayout/AnnotationPositionSizeBtn.vue';
 
 /**
  * 文書ページコンポーネント
@@ -64,6 +82,9 @@ const editorStore = useEditorStore();
 
 function handleMainToolClick(tool: IDocTool) {
   editorStore.subTools = [];
+  // アノテーション種別以外のツールをクリックした場合、プリセットバー・スタイルパネルの
+  // 描画スタイルモードを終了する（tool.onClicked内で改めてtypeがセットされる場合は再度上書きされる）
+  editorStore.activeAnnotationType = undefined;
   void tool.onClicked();
 }
 </script>
@@ -72,8 +93,6 @@ function handleMainToolClick(tool: IDocTool) {
 @use 'sass:color';
 
 .editor-page {
-  display: flex;
-  flex-direction: column;
   height: 100%;
   padding: 0;
   overflow: hidden;
@@ -81,8 +100,10 @@ function handleMainToolClick(tool: IDocTool) {
 
 .main-toolbar {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
   flex-wrap: wrap;
+  min-height: 44px;
   background: linear-gradient(135deg, $primary 0%, color.adjust($primary, $lightness: -5%) 100%);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
@@ -102,6 +123,10 @@ function handleMainToolClick(tool: IDocTool) {
   }
 }
 
+.annotation-type-menu {
+  min-width: 0;
+}
+
 .body--dark .main-toolbar {
   background: linear-gradient(
     135deg,
@@ -112,9 +137,13 @@ function handleMainToolClick(tool: IDocTool) {
 
 .sub-toolbar {
   display: flex;
-  margin: 5px;
+  align-items: center;
+  // MainToolsと同じ高さで常駐させ、中身の有無（汎用ツール／プリセット＋スタイルパネル／空）に
+  // 関わらずレイアウトが伸縮しないようにする
+  min-height: 44px;
   border-bottom: 1px solid $grey-4;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   background: $grey-1;
   flex-shrink: 0;
 
@@ -122,6 +151,7 @@ function handleMainToolClick(tool: IDocTool) {
     font-size: 0.85rem;
     transition: all 0.2s ease;
     border-radius: 6px;
+    flex-shrink: 0;
 
     &:hover {
       background-color: rgba($primary, 0.15);
@@ -131,6 +161,18 @@ function handleMainToolClick(tool: IDocTool) {
     &:active {
       transform: translateY(0);
     }
+  }
+
+  .preset-bar-wrapper {
+    // プリセット数に関わらずスタイルパネルが画面外に押し出されないよう、
+    // 一覧側に最大幅を設けたうえで横スクロールにする
+    flex: 0 1 60%;
+    min-width: 0;
+  }
+
+  .style-panel-wrapper {
+    flex-shrink: 0;
+    height: 100%;
   }
 }
 
@@ -164,6 +206,7 @@ function handleMainToolClick(tool: IDocTool) {
     grid-area: ul;
     overflow: hidden;
   }
+
   .ur {
     grid-area: ur;
     overflow: hidden;
@@ -183,14 +226,17 @@ function handleMainToolClick(tool: IDocTool) {
     grid-area: ul;
     overflow: hidden;
   }
+
   .ur {
     grid-area: ur;
     overflow: hidden;
   }
+
   .ll {
     grid-area: ll;
     overflow: hidden;
   }
+
   .lr {
     grid-area: lr;
     overflow: hidden;

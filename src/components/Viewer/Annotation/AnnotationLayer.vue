@@ -6,54 +6,39 @@
       @mousedown="handleMouseDown"
       @mousemove="handleMouseMove"
       @mouseup="handleMouseUp"
+      @dblclick="handleDblClick"
       :style="{ cursor: cursor }"
     >
       <v-layer>
-        <template v-for="annotation in annotations" :key="annotation.id">
-          <BoxAnnotation
-            v-if="annotation.type === 'box'"
-            ref="boxRefs"
-            :annotation="annotation"
-            :is-editing="isEditing"
-            :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="onRegisterAnnot"
-            @delete="onRemoveAnnot"
-          />
-
-          <LineAnnotation
-            v-else-if="annotation.type === 'line'"
-            ref="lineRefs"
-            :annotation="annotation"
-            :is-editing="isEditing"
-            :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="onRegisterAnnot"
-            @delete="onRemoveAnnot"
-          />
-
-          <CircleAnnotation
-            v-else-if="annotation.type === 'circle'"
-            ref="circleRefs"
-            :annotation="annotation"
-            :is-editing="isEditing"
-            :is-selected="selectedAnnotIds.includes(annotation.id)"
-            @update="onRegisterAnnot"
-            @delete="onRemoveAnnot"
-          />
-        </template>
-
-        <v-rect
-          v-if="isDrawing && drawingPreview && drawingType === 'box'"
-          :config="drawingPreview.rect"
+        <component
+          v-for="annotation in visibleAnnotations"
+          :key="annotation.id"
+          :is="ANNOTATION_REGISTRY[annotation.type].component"
+          :ref="(el: unknown) => setAnnotationRef(annotation.id, el)"
+          :annotation="annotation"
+          :is-editing="isEditing"
+          :is-selected="selectedAnnotIds.includes(annotation.id)"
+          @update="onRegisterAnnot"
+          @delete="onRemoveAnnot"
         />
-        <v-line
-          v-if="isDrawing && drawingPreview && drawingType === 'line'"
-          :config="drawingPreview.line"
-        />
-        <v-circle
-          v-if="isDrawing && drawingPreview && drawingType === 'circle'"
-          :config="drawingPreview.circle"
+
+        <component
+          v-if="(isDrawing || !!clickPointsBuffer) && drawingPreviewConfig"
+          :is="drawingPreviewComponent"
+          :config="drawingPreviewConfig"
         />
         <v-rect v-if="selectionBox.visible" :config="selectionBoxConfig" />
+
+        <!-- Ctrl+drag複製のプレビュー: 複製元は一切変更せず、ドラッグ解除位置に複製されるまでの
+             見た目上のプレビューのみをここに重ねて表示する（非対話・半透明） -->
+        <v-group v-if="duplicatePreviewAnnotation" :config="{ opacity: 0.55, listening: false }">
+          <component
+            :is="ANNOTATION_REGISTRY[duplicatePreviewAnnotation.type].component"
+            :annotation="duplicatePreviewAnnotation"
+            :is-editing="false"
+            :is-selected="false"
+          />
+        </v-group>
 
         <v-transformer
           ref="transformerRef"
@@ -62,18 +47,34 @@
         />
       </v-layer>
     </v-stage>
+
+    <!-- テキストボックスのインライン編集用オーバーレイ（Konvaの外、通常のDOM要素として重ねる） -->
+    <textarea
+      v-if="editingTextAnnotation"
+      ref="textareaRef"
+      v-model="editingTextValue"
+      :style="editingTextStyle"
+      @blur="commitTextEdit"
+      @keydown.esc="cancelTextEdit"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
-import BoxAnnotation from './BoxAnnotation.vue';
-import LineAnnotation from './LineAnnotation.vue';
-import CircleAnnotation from './CircleAnnotation.vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type Konva from 'konva';
-import { startDrawingAnnotation } from './annotationDrawingManager';
+import dayjs from 'dayjs';
+import { createAnnotationFromPoints, startDrawingAnnotation } from './annotationDrawingManager';
 import { useEditorStore } from 'src/stores/editorStore';
-import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
+import {
+  ANNOTATION_GEOMETRY,
+  duplicateAnnotation,
+  type ClickPointsDrawModule,
+  type Point,
+} from 'src/services/document/annotationGeometry';
+import { ANNOTATION_REGISTRY } from './registry';
+import { getAnnotationSortKey } from 'src/utils/document/annotationOrder';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -94,10 +95,38 @@ const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { requi
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
-const boxRefs = ref<AnnotationNodeHandle[]>([]);
-const lineRefs = ref<AnnotationNodeHandle[]>([]);
-const circleRefs = ref<AnnotationNodeHandle[]>([]);
+// アノテーションIDごとのコンポーネントハンドル。種別ごとの配列(boxRefs等)を廃止し、単一のMapに統一する
+const annotationRefs = new Map<AnnotationID, AnnotationNodeHandle>();
+function setAnnotationRef(id: AnnotationID, el: unknown) {
+  const handle = el as AnnotationNodeHandle | null;
+  if (handle) {
+    annotationRefs.set(id, handle);
+  } else {
+    annotationRefs.delete(id);
+  }
+}
 const pendingPointerTarget = ref<{ id: string; wasSelected: boolean } | null>(null);
+
+// Ctrl+drag複製: マウスダウン時点ではクリックなのかドラッグなのか確定しないため、
+// 実際にしきい値を超えて動いた時点で初めて複製プレビューへ昇格させる（昇格しなければ
+// 単なるCtrl+クリックとして選択解除を適用する）
+const DUPLICATE_DRAG_THRESHOLD_PX = 3;
+const ctrlDragCandidate = ref<{ id: AnnotationID; stagePos: { x: number; y: number } } | null>(
+  null,
+);
+const duplicateDragSource = ref<AnnotationStyle | null>(null);
+const duplicateDragStageStart = ref<{ x: number; y: number } | null>(null);
+const duplicateDragOffsetDoc = ref<Point>({ x: 0, y: 0 });
+// 複製元は一切変更せず、ドラッグ位置に追従する見た目上のプレビューのみを別途描画する
+const duplicatePreviewAnnotation = computed<AnnotationStyle | null>(() => {
+  const source = duplicateDragSource.value;
+  if (!source) return null;
+  return {
+    ...source,
+    x: source.x + duplicateDragOffsetDoc.value.x,
+    y: source.y + duplicateDragOffsetDoc.value.y,
+  };
+});
 
 const isDrawing = ref(false);
 const isSelecting = ref(false);
@@ -105,22 +134,19 @@ const startPos = ref<{ x: number; y: number } | null>(null);
 const selectionStartPos = ref<{ x: number; y: number } | null>(null);
 const selectionBox = ref({ visible: false, x: 0, y: 0, width: 0, height: 0 });
 const selectionModeRef = ref<'window' | 'cross' | null>(null);
-const drawingPreview = ref<{
-  rect?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    fill: string;
-    opacity: number;
-    stroke?: string;
-    strokeWidth?: number;
-  };
-  line?: { x: number; y: number; points: number[]; stroke: string; strokeWidth: number };
-  circle?: { x: number; y: number; radius: number; stroke: string; strokeWidth: number };
-} | null>(null);
+const drawingPreviewConfig = ref<Record<string, unknown> | null>(null);
+// クリックで頂点を置いていく方式（折れ線・ポリゴン）の描画中バッファ
+const clickPointsBuffer = ref<Point[] | null>(null);
+// テキストボックスのインライン編集状態
+const editingTextId = ref<AnnotationID | null>(null);
+const editingTextValue = ref('');
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const drawingType = computed(() => editorStore.currentTools);
-const isDrawingTool = computed(() => ['box', 'line', 'circle'].includes(drawingType.value));
+const drawingPreviewComponent = computed(() => {
+  if (!(drawingType.value in ANNOTATION_REGISTRY)) return null;
+  return ANNOTATION_REGISTRY[drawingType.value as AnnotationStyle['type']].previewComponent;
+});
+const isDrawingTool = computed(() => drawingType.value in ANNOTATION_REGISTRY);
 // 編集は明示的な 'hand'（読み取り専用）モード以外で許可されます。
 const isEditingMode = computed(() => drawingType.value !== 'hand');
 const isEditing = computed(() => isEditingMode.value);
@@ -135,6 +161,9 @@ const transformerConfig = computed(() => ({
     -180, -150, -120, -90, -60, -45, -30, -15, 0, 15, 30, 45, 60, 90, 120, 135, 150, 180, 270,
   ],
   rotationSnapTolerance: 30,
+  // コーナードラッグは既定で自由変形にする（要件5）。Konva標準の`keepRatio() || e.shiftKey`により、
+  // Shift押下時のみ縦横比維持に自動的に切り替わる（要件6。追加実装不要）
+  keepRatio: false,
 }));
 const selectedTransformableIds = computed(() =>
   props.annotations
@@ -165,6 +194,175 @@ type SelectionMode = 'window' | 'cross';
 function getSelectionMode(startX: number, endX: number): SelectionMode {
   return endX >= startX ? 'window' : 'cross';
 }
+
+// ポリゴンの始点を再クリックしたとみなす画面上の許容距離（px）
+const CLOSE_THRESHOLD_PX = 10;
+
+const editingTextAnnotation = computed<TextAnnotationStyle | null>(() => {
+  if (!editingTextId.value) return null;
+  const found = props.annotations.find((a) => a.id === editingTextId.value);
+  return found && found.type === 'text' ? found : null;
+});
+
+// テキスト編集中のアノテーションはKonva側の描画から除外する。
+// <textarea>オーバーレイに表示は完全に一任し、確定前の古いテキストが背後に二重表示されるのを防ぐ。
+// 重ね順（zIndex未設定の場合はcreatedAt）の昇順で並べることで、後に描画される＝手前に表示される
+const visibleAnnotations = computed(() => {
+  const filtered = editingTextId.value
+    ? props.annotations.filter((a) => a.id !== editingTextId.value)
+    : props.annotations;
+  return [...filtered].sort((a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b));
+});
+
+const editingTextStyle = computed(() => {
+  const annotation = editingTextAnnotation.value;
+  if (!annotation) return {};
+  const s = scale.value;
+  return {
+    position: 'absolute' as const,
+    left: `${annotation.x * s}px`,
+    top: `${annotation.y * s}px`,
+    width: `${annotation.width * s}px`,
+    height: `${annotation.height * s}px`,
+    margin: 0,
+    zIndex: 20,
+    fontFamily: annotation.fontFamily,
+    fontSize: `${annotation.fontSize * s}px`,
+    // Konva側の描画（fontStyle: 'bold' | 'normal'）と一致させるため、数値のfontWeightではなく
+    // 同じ二値判定でbold/normalに変換する（そうしないと編集中と確定時で太さの見え方がズレる）
+    fontWeight: annotation.fontWeight >= 700 ? 'bold' : 'normal',
+    lineHeight: 1.2,
+    color: annotation.textColor,
+    textAlign: annotation.textAlign,
+    background: annotation.fillColor ?? 'transparent',
+    // strokeWidth未指定/0（デフォルト状態）でもTextBoxAnnotation.vue側の描画と同じく細い枠線を表示する
+    border: `${(annotation.strokeWidth || 1) * s}px solid ${annotation.color}`,
+    padding: `${4 * s}px`,
+    boxSizing: 'border-box' as const,
+    whiteSpace: 'pre-wrap' as const,
+    wordBreak: 'break-word' as const,
+    resize: 'none' as const,
+    outline: 'none' as const,
+    overflow: 'hidden' as const,
+  };
+});
+
+function startTextEdit(annotation: TextAnnotationStyle) {
+  editingTextId.value = annotation.id;
+  editingTextValue.value = annotation.text;
+  selectedAnnotIds.value = [annotation.id];
+  void nextTick(() => textareaRef.value?.focus());
+}
+
+function commitTextEdit() {
+  const annotation = editingTextAnnotation.value;
+  editingTextId.value = null;
+  if (!annotation) return;
+  if (annotation.text === editingTextValue.value) return;
+
+  void props.onRegisterAnnot({
+    ...annotation,
+    text: editingTextValue.value,
+    updatedAt: dayjs().toISOString(),
+  });
+}
+
+function cancelTextEdit() {
+  editingTextId.value = null;
+}
+
+function handleDblClick(e: KonvaMouseEvent) {
+  if (clickPointsBuffer.value) {
+    // ダブルクリックを構成する2回のmousedownで追加された頂点を取り除いてから確定する
+    // （そうしないと確定位置にも頂点が打たれてしまう）
+    clickPointsBuffer.value = clickPointsBuffer.value.slice(0, -1);
+    finishClickPointsDrawing();
+    return;
+  }
+
+  if (drawingType.value !== 'pointer') return;
+  const clickedId = e.target.attrs?.id as AnnotationID | undefined;
+  if (!clickedId) return;
+
+  const annotation = props.annotations.find((a) => a.id === clickedId);
+  if (!annotation) return;
+  if (!ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit) return;
+  if (annotation.type !== 'text') return;
+
+  startTextEdit(annotation);
+}
+
+function updateClickPointsPreview(cursorPos: Point | null) {
+  if (!clickPointsBuffer.value) return;
+  const style = editorStore.currentAnnotationStyle;
+  if (!(style.type in ANNOTATION_GEOMETRY)) return;
+
+  const module = ANNOTATION_GEOMETRY[style.type];
+  if (module.drawMode !== 'clickPoints') return;
+
+  drawingPreviewConfig.value = module.previewFromPoints(clickPointsBuffer.value, cursorPos, style);
+}
+
+function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<AnnotationStyle>) {
+  selectedAnnotIds.value = [];
+
+  if (!clickPointsBuffer.value) {
+    clickPointsBuffer.value = [pos];
+    updateClickPointsPreview(pos);
+    return;
+  }
+
+  const origin = clickPointsBuffer.value[0];
+  if (origin) {
+    const screenDistance = Math.hypot(pos.x - origin.x, pos.y - origin.y) * scale.value;
+    if (
+      geometry.closable &&
+      clickPointsBuffer.value.length >= 3 &&
+      screenDistance <= CLOSE_THRESHOLD_PX
+    ) {
+      finishClickPointsDrawing();
+      return;
+    }
+  }
+
+  clickPointsBuffer.value = [...clickPointsBuffer.value, pos];
+  updateClickPointsPreview(pos);
+}
+
+function finishClickPointsDrawing() {
+  if (!clickPointsBuffer.value) return;
+  const style = editorStore.currentAnnotationStyle;
+  const points = clickPointsBuffer.value;
+  clickPointsBuffer.value = null;
+  drawingPreviewConfig.value = null;
+
+  const annotation = createAnnotationFromPoints(page.value, points, style);
+  if (annotation) {
+    void props.onRegisterAnnot(annotation);
+  }
+}
+
+function cancelClickPointsDrawing() {
+  clickPointsBuffer.value = null;
+  drawingPreviewConfig.value = null;
+}
+
+// ツール切替時に未完了のクリック頂点バッファを破棄する。
+// 放置すると幽霊プレビューが残ったり、その後ポインタツールでのダブルクリックが
+// 切替前のスタイルで意図しないアノテーションを確定させてしまう
+watch(drawingType, () => {
+  if (clickPointsBuffer.value) cancelClickPointsDrawing();
+});
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return;
+  if (clickPointsBuffer.value) {
+    cancelClickPointsDrawing();
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
 
 function handleMouseDown(e: KonvaMouseEvent) {
   if (isDrawing.value || isSelecting.value) return;
@@ -197,7 +395,12 @@ function handleMouseDown(e: KonvaMouseEvent) {
       const isSelected = selectedAnnotIds.value.includes(clickedId);
       pendingPointerTarget.value = { id: clickedId, wasSelected: isSelected };
 
-      if (!metaPressed && !isSelected) {
+      if (e.evt.ctrlKey && isSelected) {
+        // 選択済みの注釈へのCtrl+クリック: この時点ではクリックかドラッグか確定しない。
+        // ドラッグへ発展すればCtrl+drag複製として扱い（handleMouseMove/handleMouseUp）、
+        // 発展しなければ従来通り選択解除する
+        ctrlDragCandidate.value = { id: clickedId, stagePos: { x: pos.x, y: pos.y } };
+      } else if (!metaPressed && !isSelected) {
         selectedAnnotIds.value = [clickedId];
       } else if (metaPressed && isSelected) {
         selectedAnnotIds.value = selectedAnnotIds.value.filter((id) => id !== clickedId);
@@ -212,6 +415,21 @@ function handleMouseDown(e: KonvaMouseEvent) {
   }
 
   if (!isEditing.value || drawingType.value === 'hand') return;
+  if (!(drawingType.value in ANNOTATION_REGISTRY)) return;
+
+  const module = ANNOTATION_REGISTRY[drawingType.value];
+
+  if (module.geometry.drawMode === 'clickPoints') {
+    // 頂点追加中は既存シェイプの上でもクリックを継続として扱う。新規開始は空白領域のみ
+    if (!clickPointsBuffer.value && e.target !== stage) return;
+
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    const adjustedPos = { x: pos.x / scale.value, y: pos.y / scale.value };
+    handleClickPointsMouseDown(adjustedPos, module.geometry);
+    return;
+  }
+
   if (e.target !== stage) return;
 
   const pos = stage.getPointerPosition();
@@ -236,6 +454,48 @@ function handleMouseDown(e: KonvaMouseEvent) {
 }
 
 function handleMouseMove(e: KonvaMouseEvent) {
+  // Ctrl+クリック候補がしきい値を超えて動いたら、複製プレビューへ昇格させる
+  if (ctrlDragCandidate.value && !duplicateDragSource.value) {
+    const stage = e.target?.getStage();
+    const pos = stage?.getPointerPosition();
+    if (pos) {
+      const candidate = ctrlDragCandidate.value;
+      const dx = pos.x - candidate.stagePos.x;
+      const dy = pos.y - candidate.stagePos.y;
+      if (Math.hypot(dx, dy) > DUPLICATE_DRAG_THRESHOLD_PX) {
+        const source = props.annotations.find((a) => a.id === candidate.id);
+        ctrlDragCandidate.value = null;
+        if (source) {
+          duplicateDragSource.value = source;
+          duplicateDragStageStart.value = candidate.stagePos;
+        }
+      }
+    }
+  }
+
+  if (duplicateDragSource.value && duplicateDragStageStart.value) {
+    const stage = e.target?.getStage();
+    const pos = stage?.getPointerPosition();
+    if (pos) {
+      duplicateDragOffsetDoc.value = {
+        x: (pos.x - duplicateDragStageStart.value.x) / scale.value,
+        y: (pos.y - duplicateDragStageStart.value.y) / scale.value,
+      };
+    }
+    return;
+  }
+
+  if (clickPointsBuffer.value) {
+    const stage = e.target?.getStage();
+    if (!stage) return;
+
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+
+    updateClickPointsPreview({ x: pos.x / scale.value, y: pos.y / scale.value });
+    return;
+  }
+
   if (isDrawing.value && startPos.value) {
     const stage = e.target?.getStage();
     if (!stage) return;
@@ -286,6 +546,35 @@ function handleMouseMove(e: KonvaMouseEvent) {
 }
 
 function handleMouseUp(e: KonvaMouseEvent) {
+  if (duplicateDragSource.value) {
+    const source = duplicateDragSource.value;
+    const offset = duplicateDragOffsetDoc.value;
+    duplicateDragSource.value = null;
+    duplicateDragStageStart.value = null;
+    duplicateDragOffsetDoc.value = { x: 0, y: 0 };
+    pendingPointerTarget.value = null;
+
+    const duplicated = duplicateAnnotation(
+      source,
+      page.value,
+      source.x + offset.x,
+      source.y + offset.y,
+    );
+    void props.onRegisterAnnot(duplicated).then(() => {
+      selectedAnnotIds.value = [duplicated.id];
+    });
+    return;
+  }
+
+  if (ctrlDragCandidate.value) {
+    // ドラッグへ発展しなかった単なるCtrl+クリックだったため、元々の意図通り選択解除する
+    const { id } = ctrlDragCandidate.value;
+    ctrlDragCandidate.value = null;
+    selectedAnnotIds.value = selectedAnnotIds.value.filter((existingId) => existingId !== id);
+    pendingPointerTarget.value = null;
+    return;
+  }
+
   if (isDrawing.value && startPos.value) {
     const stage = e.target?.getStage();
     if (!stage) return;
@@ -299,12 +588,15 @@ function handleMouseUp(e: KonvaMouseEvent) {
     };
 
     isDrawing.value = false;
-    drawingPreview.value = null;
+    drawingPreviewConfig.value = null;
 
     if (endDrawingAnnotation) {
       const annotation = endDrawingAnnotation(adjustedPos.x, adjustedPos.y);
       if (annotation) {
-        void props.onRegisterAnnot(annotation);
+        const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
+        void props.onRegisterAnnot(annotation).then(() => {
+          if (shouldStartTextEdit && annotation.type === 'text') startTextEdit(annotation);
+        });
       }
     }
 
@@ -334,8 +626,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
   };
 
   if (selectionRect.width > 0 && selectionRect.height > 0) {
-    const refs = [...boxRefs.value, ...lineRefs.value, ...circleRefs.value];
-    const selectedIds = refs
+    const selectedIds = Array.from(annotationRefs.values())
       .map((ref) => ref.getNode())
       .filter((node): node is Konva.Node => Boolean(node))
       .map((node) => {
@@ -386,54 +677,25 @@ function handleMouseUp(e: KonvaMouseEvent) {
 function updateDrawingPreview(endX: number, endY: number) {
   if (!startPos.value) return;
 
-  const deltaX = endX - startPos.value.x;
-  const deltaY = endY - startPos.value.y;
-
   const style = editorStore.currentAnnotationStyle;
-  if (style.type === 'box') {
-    drawingPreview.value = {
-      rect: {
-        x: Math.min(startPos.value.x, endX),
-        y: Math.min(startPos.value.y, endY),
-        width: Math.abs(deltaX),
-        height: Math.abs(deltaY),
-        fill: 'transparent',
-        opacity: style.fillOpacity,
-        stroke: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-      },
-    };
-  } else if (style.type === 'line') {
-    drawingPreview.value = {
-      line: {
-        x: startPos.value.x,
-        y: startPos.value.y,
-        points: [0, 0, deltaX, deltaY],
-        stroke: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-      },
-    };
-  } else if (style.type === 'circle') {
-    const radius = Math.sqrt(deltaX * deltaX + deltaY * deltaY) / 2;
-    drawingPreview.value = {
-      circle: {
-        x: startPos.value.x + deltaX / 2,
-        y: startPos.value.y + deltaY / 2,
-        radius,
-        stroke: style.strokeColor,
-        strokeWidth: style.strokeWidth,
-      },
-    };
-  }
+  if (!(style.type in ANNOTATION_GEOMETRY)) return;
+
+  const module = ANNOTATION_GEOMETRY[style.type];
+  if (module.drawMode !== 'drag') return;
+
+  drawingPreviewConfig.value = module.previewFromDrag(startPos.value, { x: endX, y: endY }, style);
 }
 
 function syncTransformerSelection() {
   const transformer = transformerRef.value?.getNode();
   if (!transformer) return;
 
-  const refs = [...boxRefs.value, ...circleRefs.value];
   const nodes = selectedTransformableIds.value
-    .map((id) => refs.find((ref) => ref.getNode()?.attrs.id === id)?.getNode())
+    .filter((id) => {
+      const annotation = props.annotations.find((a) => a.id === id);
+      return annotation !== undefined && ANNOTATION_REGISTRY[annotation.type].supportsTransformer;
+    })
+    .map((id) => annotationRefs.get(id)?.getNode())
     .filter((node): node is Konva.Node => Boolean(node));
 
   transformer.nodes(nodes);

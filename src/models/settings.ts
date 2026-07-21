@@ -8,6 +8,7 @@ import {
   DEFAULT_RELATIONAL_VERIFICATION_STYLE,
 } from './relational/style';
 import { localeKeys } from 'src/i18n';
+import { ColorCode } from './document/pdf';
 
 /**
  * アプリケーション設定スキーマ
@@ -24,8 +25,12 @@ export const AppSettings = z.object({
   tools: z
     .object({
       annotations: AnnotationTool.array(),
+      // スタイルパネルの色スウォッチで直近に使用した色（新しい順）。上限はrecentColorsLimit
+      recentColors: ColorCode.array().optional().default([]),
+      // 直近使用色として保持する件数（スタイルパネル・設定画面から変更可能）
+      recentColorsLimit: z.number().int().positive().optional().default(5),
     })
-    .default({ annotations: [] }),
+    .default({ annotations: [], recentColors: [], recentColorsLimit: 5 }),
   // 関係性検証結果（OK/NG）をアノテーションに反映する際のスタイル
   relationalVerificationStyle: RelationalVerificationStyle.default(
     DEFAULT_RELATIONAL_VERIFICATION_STYLE,

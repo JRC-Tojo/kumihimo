@@ -118,6 +118,31 @@
           </SettingsItemRow>
         </section>
 
+        <!-- ツール -->
+        <section
+          v-if="visibleSections.some((s) => s.id === 'annotationTools')"
+          id="annotationTools"
+          class="settings-section"
+        >
+          <h6 class="settings-section-title">{{ $t('settings.annotationTools.title') }}</h6>
+
+          <SettingsItemRow
+            v-show="isVisible('recentColorsLimit')"
+            :title="$t('settings.annotationTools.recentColorsLimit')"
+            :description="$t('settings.annotationTools.recentColorsLimitDesc')"
+          >
+            <q-input
+              v-model.number="settings.tools.recentColorsLimit"
+              type="number"
+              dense
+              outlined
+              :min="1"
+              style="width: 100px"
+              @update:model-value="(val) => onUpdateRecentColorsLimit(Number(val))"
+            />
+          </SettingsItemRow>
+        </section>
+
         <!-- 関係性検証スタイル -->
         <section
           v-if="visibleSections.some((s) => s.id === 'relational')"
@@ -242,6 +267,12 @@ const itemMetas = computed<SettingsItemMeta[]>(() => [
     description: $t('settings.sortByDesc'),
   },
   {
+    id: 'recentColorsLimit',
+    sectionId: 'annotationTools',
+    title: $t('settings.annotationTools.recentColorsLimit'),
+    description: $t('settings.annotationTools.recentColorsLimitDesc'),
+  },
+  {
     id: 'relationalOk',
     sectionId: 'relational',
     title: $t('settings.relationalVerification.ok'),
@@ -270,6 +301,7 @@ const itemMetas = computed<SettingsItemMeta[]>(() => [
 const sectionDefs = computed(() => [
   { id: 'general', title: $t('settings.sections.general') },
   { id: 'display', title: $t('settings.sections.display') },
+  { id: 'annotationTools', title: $t('settings.annotationTools.title') },
   { id: 'relational', title: $t('settings.relationalVerification.title') },
   { id: 'data', title: $t('settings.sections.data') },
 ]);
@@ -314,6 +346,17 @@ function updateSettings<K extends keyof AppSettings>(key: K) {
     // 開いている文書タブなど、設定をリアクティブに参照している箇所にも反映する
     await settingsStore.loadSettings();
   };
+}
+
+/**
+ * 直近使用色の保持件数を保存する
+ *
+ * `tools`はキー単位で丸ごと保存されるため、プリセット一覧等を巻き戻さないよう
+ * `settingsStore.updateRecentColorsLimit`（現在値を引き継いで保存する）経由で更新する
+ */
+async function onUpdateRecentColorsLimit(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return;
+  await settingsStore.updateRecentColorsLimit(Math.floor(value));
 }
 </script>
 

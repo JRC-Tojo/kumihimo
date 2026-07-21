@@ -10,52 +10,76 @@
           <div class="property-value">{{ selectedAnnotationType }}</div>
         </div>
 
-        <!-- 色選択 -->
-        <div class="property-group q-mb-md">
-          <label class="property-label">{{ $t('pdfEditor.rightDrawer.annotation.color') }}</label>
-          <div class="color-picker">
-            <input
-              v-model="annotationColor"
-              type="color"
-              class="color-input"
-              @change="updateAnnotationColor"
-              disabled
+        <!-- arrow/polyline: 開始側の矢じり形状・矢じりサイズ（終端側・線色等はスタイルパネルで調整する） -->
+        <template v-if="isHeadedSelection">
+          <div class="property-group q-mb-md">
+            <label class="property-label">{{
+              $t('pdfEditor.rightDrawer.annotation.startHead')
+            }}</label>
+            <q-select
+              :model-value="startHead"
+              :options="headOptions"
+              emit-value
+              map-options
+              dense
+              outlined
+              @update:model-value="(v: ArrowHeadType) => (startHead = v)"
             />
-            <span class="color-value">{{ annotationColor }}</span>
           </div>
-        </div>
+          <div class="property-group q-mb-md">
+            <label class="property-label">{{
+              $t('pdfEditor.rightDrawer.annotation.headSize')
+            }}</label>
+            <div class="slider-container">
+              <q-slider
+                :model-value="headSize ?? 10"
+                :min="4"
+                :max="40"
+                :step="1"
+                label
+                @update:model-value="(v) => (headSize = v ?? undefined)"
+              />
+            </div>
+          </div>
+        </template>
 
-        <!-- 線の太さ -->
-        <div class="property-group q-mb-md">
-          <label class="property-label">{{ $t('pdfEditor.rightDrawer.annotation.stroke') }}</label>
-          <div class="slider-container">
-            <q-slider
-              v-model="annotationStrokeWidth"
-              :min="1"
-              :max="10"
-              :step="0.5"
-              label
-              @update:model-value="updateAnnotationStrokeWidth"
-              disable
+        <!-- text: フォントウェイト・文字揃え・背景色（フォント種別/サイズ/文字色はスタイルパネルで調整する） -->
+        <template v-if="isTextSelection">
+          <div class="property-group q-mb-md">
+            <label class="property-label">{{
+              $t('pdfEditor.rightDrawer.annotation.fontWeight')
+            }}</label>
+            <q-select
+              :model-value="fontWeight"
+              :options="fontWeightOptions"
+              emit-value
+              map-options
+              dense
+              outlined
+              @update:model-value="(v: number) => (fontWeight = v)"
             />
           </div>
-        </div>
-
-        <!-- 透明度 -->
-        <div class="property-group q-mb-md">
-          <label class="property-label">{{ $t('pdfEditor.rightDrawer.annotation.opacity') }}</label>
-          <div class="slider-container">
-            <q-slider
-              v-model="annotationOpacity"
-              :min="0"
-              :max="1"
-              :step="0.1"
-              label
-              @update:model-value="updateAnnotationOpacity"
-              disable
+          <div class="property-group q-mb-md">
+            <label class="property-label">{{
+              $t('pdfEditor.rightDrawer.annotation.textAlign')
+            }}</label>
+            <q-btn-toggle
+              :model-value="textAlign"
+              :options="textAlignOptions"
+              dense
+              @update:model-value="(v: 'left' | 'center' | 'right') => (textAlign = v)"
             />
           </div>
-        </div>
+          <div class="property-group q-mb-md">
+            <label class="property-label">{{
+              $t('pdfEditor.rightDrawer.annotation.fillColor')
+            }}</label>
+            <StyleSwatchButton
+              v-model="fillColor"
+              :tooltip="$t('pdfEditor.rightDrawer.annotation.fillColor')"
+            />
+          </div>
+        </template>
 
         <!-- 関係性設定 -->
         <q-separator class="q-my-md" />
@@ -150,7 +174,9 @@
 
 <script setup lang="ts">
 import { useBackendApi } from 'src/apis/backendApi';
-import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import dayjs from 'dayjs';
+import { ColorCode, type AnnotationID, type AnnotationStyle } from 'src/models/document/pdf';
+import type { ArrowHeadType } from 'src/models/document/pdf';
 import type { ContainerElementFile } from 'src/models/container';
 import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
 import {
@@ -161,10 +187,13 @@ import {
 } from 'src/stores/relationalStore';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import StyleSwatchButton from './StyleSwatchButton.vue';
 
 interface Prop {
   selectedAnnots: AnnotationStyle[];
   file: ContainerElementFile;
+  /** 選択中の注釈を削除する（useAnnotationActionsの共有実装。DocumentTabView.vueから渡される） */
+  onDeleteSelected: () => Promise<void>;
 }
 const prop = defineProps<Prop>();
 
@@ -188,55 +217,125 @@ const getDefault = <K extends keyof AnnotationStyle>(
     return undefined;
   }
 };
-const annotationColor = ref(getDefault('color'));
-const annotationStrokeWidth = ref(getDefault('strokeWidth'));
-const annotationOpacity = ref(getDefault('opacity'));
 const selectedAnnotationType = computed(() => getDefault('type'));
 
-/**
- * アノテーションの色を更新
- */
-const updateAnnotationColor = () => {
-  // TODO: バックエンドに反映
-};
+/** 複数選択時、全アイテムで値が一致していればその値を、食い違っていればundefined（混在）を返す */
+function commonValue<T, V>(items: T[], getter: (item: T) => V): V | undefined {
+  if (items.length === 0) return undefined;
+  const first = getter(items[0] as T);
+  return items.every((item) => getter(item) === first) ? first : undefined;
+}
 
 /**
- * アノテーションの線の太さを更新
+ * 選択中の各アノテーションに、種別に応じたpatchを適用して保存する（対象外の種別はnullを返してスキップする）
  */
-const updateAnnotationStrokeWidth = () => {
-  // TODO: バックエンドに反映
-};
+async function applyPatch(
+  building: (annot: AnnotationStyle) => Partial<AnnotationStyle> | null,
+): Promise<void> {
+  const now = dayjs().toISOString();
+  await Promise.all(
+    prop.selectedAnnots.map((annot) => {
+      const patch = building(annot);
+      if (!patch) return Promise.resolve();
+      return api.registerAnnotationStyle(prop.file, {
+        ...annot,
+        ...patch,
+        updatedAt: now,
+      } as AnnotationStyle);
+    }),
+  );
+}
 
-/**
- * アノテーションの透明度を更新
- */
-const updateAnnotationOpacity = () => {
-  // TODO: バックエンドに反映
-};
+// ================================ 型別の詳細プロパティ ================================
+// スタイルパネル（AnnotationStylePanel.vue）で扱う共通4項目・種別ごとの主要項目とは別に、
+// より細かい型別プロパティのみをここで扱う
+
+const isHeadedSelection = computed(
+  () =>
+    prop.selectedAnnots.length > 0 &&
+    prop.selectedAnnots.every((a) => a.type === 'arrow' || a.type === 'polyline'),
+);
+const isTextSelection = computed(
+  () => prop.selectedAnnots.length > 0 && prop.selectedAnnots.every((a) => a.type === 'text'),
+);
+
+const headOptions: { label: string; value: ArrowHeadType }[] = [
+  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.none'), value: 'none' },
+  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.triangle'), value: 'triangle' },
+  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.open'), value: 'open' },
+];
+
+const startHead = computed<ArrowHeadType | undefined>({
+  get: () =>
+    commonValue(prop.selectedAnnots, (a) =>
+      a.type === 'arrow' || a.type === 'polyline' ? a.startHead : undefined,
+    ),
+  set: (value) => {
+    if (value === undefined) return;
+    void applyPatch((annot) =>
+      annot.type === 'arrow' || annot.type === 'polyline' ? { startHead: value } : null,
+    );
+  },
+});
+
+const headSize = computed<number | undefined>({
+  get: () =>
+    commonValue(prop.selectedAnnots, (a) =>
+      a.type === 'arrow' || a.type === 'polyline' ? a.headSize : undefined,
+    ),
+  set: (value) => {
+    if (value === undefined) return;
+    void applyPatch((annot) =>
+      annot.type === 'arrow' || annot.type === 'polyline' ? { headSize: value } : null,
+    );
+  },
+});
+
+const fontWeightOptions: { label: string; value: number }[] = [
+  { label: t('pdfEditor.rightDrawer.annotation.fontWeightOptions.normal'), value: 400 },
+  { label: t('pdfEditor.rightDrawer.annotation.fontWeightOptions.bold'), value: 700 },
+];
+
+const fontWeight = computed<number | undefined>({
+  get: () =>
+    commonValue(prop.selectedAnnots, (a) => (a.type === 'text' ? a.fontWeight : undefined)),
+  set: (value) => {
+    if (value === undefined) return;
+    void applyPatch((annot) => (annot.type === 'text' ? { fontWeight: value } : null));
+  },
+});
+
+const textAlignOptions: { icon: string; value: 'left' | 'center' | 'right' }[] = [
+  { icon: 'format_align_left', value: 'left' },
+  { icon: 'format_align_center', value: 'center' },
+  { icon: 'format_align_right', value: 'right' },
+];
+
+const textAlign = computed<'left' | 'center' | 'right' | undefined>({
+  get: () => commonValue(prop.selectedAnnots, (a) => (a.type === 'text' ? a.textAlign : undefined)),
+  set: (value) => {
+    if (value === undefined) return;
+    void applyPatch((annot) => (annot.type === 'text' ? { textAlign: value } : null));
+  },
+});
+
+const fillColor = computed<string | undefined>({
+  get: () => commonValue(prop.selectedAnnots, (a) => (a.type === 'text' ? a.fillColor : undefined)),
+  set: (value) => {
+    if (value === undefined) return;
+    const parsed = ColorCode.safeParse(value);
+    if (!parsed.success) return;
+    void applyPatch((annot) => (annot.type === 'text' ? { fillColor: parsed.data } : null));
+  },
+});
 
 /**
  * アノテーションを削除
  *
- * 削除前に紐づいていた関係性の相手ファイルも合わせて再検証し、
- * 開いていないタブ側に孤立した関係性が古いキャッシュとして残らないようにする
+ * 実処理は`useAnnotationActions`（キーボードショートカットのDeleteと共通）に委譲する
  */
 const deleteAnnot = async () => {
-  const edgesBeforeDelete = prop.selectedAnnots.flatMap((annot) =>
-    relationalStore.edgesForAnnotation(annot.id).map((edge) => ({ edge, selfId: annot.id })),
-  );
-
-  const removeRes = await Promise.all(
-    prop.selectedAnnots.map((annot) => api.removeAnnotation(annot.id)),
-  );
-  // TODO: エラーハンドリング
-  removeRes.forEach((res) => {
-    if (!res.ok) console.error(res.error);
-  });
-
-  await relationalStore.refreshFile(prop.file);
-  await Promise.all(
-    edgesBeforeDelete.map(({ edge, selfId }) => refreshBothEndpoints(edge, selfId)),
-  );
+  await prop.onDeleteSelected();
 };
 
 // ================================ 関係性 ================================
@@ -431,33 +530,6 @@ async function onRemoveRelation(edge: RelationalEdge) {
       }
     }
 
-    .color-picker {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-
-      .color-input {
-        width: 50px;
-        height: 40px;
-        border: 1px solid $grey-4;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-
-        &:hover {
-          border-color: $primary;
-          box-shadow: 0 0 0 2px rgba($primary, 0.1);
-        }
-      }
-
-      .color-value {
-        font-size: 0.9rem;
-        font-family: monospace;
-        color: $grey-7;
-        font-weight: 500;
-      }
-    }
-
     .slider-container {
       padding: 0.5rem 0;
 
@@ -555,22 +627,6 @@ async function onRemoveRelation(edge: RelationalEdge) {
         background-color: $grey-8;
         color: $grey-4;
         border-left-color: $primary;
-      }
-    }
-
-    .color-picker {
-      .color-input {
-        border-color: $grey-7;
-        background-color: $grey-8;
-
-        &:hover {
-          border-color: $primary;
-          box-shadow: 0 0 0 2px rgba($primary, 0.2);
-        }
-      }
-
-      .color-value {
-        color: $grey-4;
       }
     }
   }

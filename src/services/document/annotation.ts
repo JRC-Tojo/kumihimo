@@ -1,7 +1,8 @@
+import dayjs from 'dayjs';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
-import { Success } from 'src/models/error/result';
+import { Success, Failure } from 'src/models/error/result';
 import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
 import * as containerService from 'src/services/container/main';
 import * as annotationRepository from 'src/repositories/db/annotation';
@@ -12,6 +13,8 @@ import {
   extractTextByAnnot,
 } from 'src/repositories/document/pdf';
 import { Image2Text } from 'src/utils/ocr/main';
+import { duplicateAnnotation } from 'src/services/document/annotationGeometry';
+import { computeReorderedZIndex, type LayerOrderAction } from 'src/utils/document/annotationOrder';
 
 /**
  * 読み込み中の文書におけるアノテーション一覧を格納するDBを初期化する
@@ -108,8 +111,13 @@ async function loadAnnotContent(
     annotationInfo.context.text = text;
   }
 
-  // 更新版のアノテーション情報を登録する
-  const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
+  // 抽出したテキストのみをDBへ反映する。
+  // OCR完了まで時間がかかるため、ここで`annotationInfo`（呼び出し時点のstyleを保持したまま）を
+  // まるごと書き戻すと、処理中に行われた頂点ドラッグ等の編集結果を古いstyleで上書きしてしまう
+  const saveRes = await annotationRepository.updateAnnotationContentText(
+    annotationInfo.style.id,
+    annotationInfo.context.text ?? '',
+  );
   if (!saveRes.ok) return saveRes;
 
   return Success();
@@ -187,4 +195,61 @@ export function remapFilePath(
   newPath: string,
 ): Promise<Result<void>> {
   return annotationRepository.remapFilePath(containerID, oldPath, newPath);
+}
+
+/**
+ * 指定した注釈の重ね順（zIndex）を変更する
+ *
+ * `annotations`には対象と同じページ（同じファイル）の注釈一覧を渡す。ソートキー順の
+ * 前後関係から新しいzIndexを算出し、`style`のみを部分更新する（`registerAnnotationStyle`は
+ * 新規登録用でcontextを巻き戻してしまうため使わない。既存のOCR抽出結果はそのまま返す）
+ */
+export async function reorderAnnotationStyle(
+  file: ContainerElementFile,
+  annotations: AnnotationStyle[],
+  targetId: AnnotationID,
+  action: LayerOrderAction,
+): Promise<Result<AnnotationInfo>> {
+  const target = annotations.find((a) => a.id === targetId);
+  if (!target) return Failure(new Error('対象のアノテーションが見つかりません'));
+
+  const zIndex = computeReorderedZIndex(annotations, targetId, action);
+  if (zIndex === null) return Failure(new Error('重ね順の算出に失敗しました'));
+
+  const existingInfo = await getAnnotationInfo(targetId);
+  if (!existingInfo.ok) return existingInfo;
+
+  const updatedStyle: AnnotationStyle = { ...target, zIndex, updatedAt: dayjs().toISOString() };
+  const saveRes = await annotationRepository.updateAnnotationStyle(updatedStyle);
+  if (!saveRes.ok) return saveRes;
+
+  return Success({ style: updatedStyle, context: existingInfo.value.context });
+}
+
+/**
+ * 複数の注釈を複製し、指定したページへ貼り付ける（ペースト）
+ *
+ * 各`sources`要素を`duplicateAnnotation`で複製し、貼り付け位置が重ならないよう
+ * `offsetStep`ずつ位置をずらしながら`registerAnnotationStyle`で保存する。複製元の`zIndex`を
+ * そのまま引き継ぐと重ね順キーが衝突するため、`zIndex`はリセットしcreatedAt基準に戻す
+ */
+export async function pasteAnnotations(
+  file: ContainerElementFile,
+  sources: AnnotationStyle[],
+  pageNumber: number,
+  offsetStep: number,
+): Promise<Result<AnnotationInfo[]>> {
+  const results: AnnotationInfo[] = [];
+  for (const source of sources) {
+    const duplicated = duplicateAnnotation(
+      source,
+      pageNumber,
+      source.x + offsetStep,
+      source.y + offsetStep,
+    );
+    const res = await registerAnnotationStyle(file, { ...duplicated, zIndex: undefined });
+    if (!res.ok) return res;
+    results.push(res.value);
+  }
+  return Success(results);
 }

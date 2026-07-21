@@ -3,8 +3,9 @@ import { defineStore, acceptHMRUpdate } from 'pinia';
 import { nextTick } from 'vue';
 import type { ContainerElement, ContainerElementFile, ContainerID } from 'src/models/container';
 import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
-import type { AnnotationID } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
+import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
 const sides = ['ul', 'ur', 'll', 'lr'] as const;
@@ -41,11 +42,21 @@ const DEFAULT_ANNOTATION_STYLE: DrawingAnnotationStyle = {
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
+    leftHeaderTools: [] as IDocTool[],
+    rightHeaderTools: [] as IDocTool[],
     mainTools: [] as IDocTool[],
     subTools: [] as IDocTool[],
     currentTools: 'hand' as PointerType,
     currentAnnotationStyle: DEFAULT_ANNOTATION_STYLE as DrawingAnnotationStyle,
     isStoreInitialized: false,
+
+    // アノテーション種別のMainToolが選択中かどうか（プリセットバー・スタイルパネルの表示条件に使う）
+    activeAnnotationType: undefined as DrawingAnnotationType | undefined,
+    // アクティブなペインで現在選択中のアノテーション（スタイルパネルの選択編集モードで使う）。
+    // 選択状態自体は各DocumentTabView（ペインごと）が持つため、layerOrderAction等と同じ
+    // 「意図・状態をeditorStoreに橋渡しする」パターンでここに反映させる
+    activeSelection: undefined as
+      { file: ContainerElementFile; annotations: AnnotationStyle[] } | undefined,
 
     // ドキュメントレイアウトの状態
     tabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<ContainerElementFile[]>,
@@ -81,6 +92,16 @@ export const useEditorStore = defineStore('editor', {
     // 削除によるタブクローズの対象（tabKey）。DocumentTabView等がonBeforeUnmount時に
     // 「削除によるクローズか、通常のタブクローズか」を判別するための一時的なマーカー
     deletingTabKeys: new Set<string>(),
+
+    // アノテーションのアプリ内クリップボード（OSクリップボードは使わない。explorerStore.clipboardと同じ思想）
+    annotationClipboard: null as AnnotationStyle[] | null,
+    // 連続ペースト時に少しずつ位置をずらすためのカウンタ。コピーのたびにリセットする
+    annotationClipboardPasteCount: 0,
+
+    // 重ね順操作の意図フラグ（relationalModeと同じパターン）。
+    // ツールバー（MainTools/SubTools）は選択状態を持たないため、意図だけをここにセットし、
+    // 実際の処理は選択状態を持つDocumentTabView側でwatchして実行する
+    layerOrderAction: undefined as LayerOrderAction | undefined,
   }),
 
   actions: {
@@ -110,15 +131,37 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * アクティブなペインの選択中アノテーションをスタイルパネル用に反映する
+     */
+    setActiveSelection(file: ContainerElementFile, annotations: AnnotationStyle[]): void {
+      this.activeSelection = annotations.length > 0 ? { file, annotations } : undefined;
+    },
+
+    /**
+     * スタイルパネル用の選択状態を解除する
+     */
+    clearActiveSelection(): void {
+      this.activeSelection = undefined;
+    },
+
+    /**
      * ストアの初期化（初回のみ実行）
      */
-    initStore(mainTools: IDocTool[], currentTools: PointerType = 'hand'): void {
+    initStore(leftHeaderTools: IDocTool[], rightHeaderTools: IDocTool[]): void {
       // 既に初期化済みの場合はスキップ
       if (this.isStoreInitialized) return;
 
+      this.leftHeaderTools = leftHeaderTools;
+      this.rightHeaderTools = rightHeaderTools;
+      this.isStoreInitialized = true;
+    },
+
+    /**
+     * 文書操作用のメインツールを配置
+     */
+    setMainTools(mainTools: IDocTool[], currentTools: PointerType = 'hand'): void {
       this.mainTools = mainTools;
       this.currentTools = currentTools;
-      this.isStoreInitialized = true;
     },
 
     /**
@@ -314,6 +357,45 @@ export const useEditorStore = defineStore('editor', {
         const newPendingPath = pathMap[pendingFile.path];
         if (newPendingPath !== undefined) pendingFile.path = newPendingPath;
       }
+    },
+
+    /**
+     * アノテーションのアプリ内クリップボードにコピーする（ペースト回数カウンタもリセットする）
+     */
+    setAnnotationClipboard(items: AnnotationStyle[]): void {
+      this.annotationClipboard = items;
+      this.annotationClipboardPasteCount = 0;
+    },
+
+    /**
+     * アノテーションのアプリ内クリップボードを空にする
+     */
+    clearAnnotationClipboard(): void {
+      this.annotationClipboard = null;
+      this.annotationClipboardPasteCount = 0;
+    },
+
+    /**
+     * ペースト回数カウンタをインクリメントする（連続ペースト時に貼り付け位置を少しずつずらすため）
+     */
+    incrementClipboardPasteCount(): void {
+      this.annotationClipboardPasteCount += 1;
+    },
+
+    /**
+     * 重ね順操作（最前面/前面/背面/最背面）の意図をセットする
+     *
+     * 実際の対象（選択中の注釈）解決と実行は、選択状態を持つDocumentTabView側のwatchで行う
+     */
+    requestLayerOrder(action: LayerOrderAction): void {
+      this.layerOrderAction = action;
+    },
+
+    /**
+     * 重ね順操作の意図フラグを解除する
+     */
+    clearLayerOrderAction(): void {
+      this.layerOrderAction = undefined;
     },
 
     /**

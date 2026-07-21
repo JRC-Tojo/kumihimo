@@ -96,7 +96,11 @@ import { ExplorerContextKey } from './explorerContext';
 import ExpFile from './ExpFile.vue';
 import ExpFolder from './ExpFolder.vue';
 import { syncStoresAfterRename } from 'src/utils/document/syncStoresAfterRename';
-import { confirmDialog, promptDialog, unsavedChangesDialog } from 'src/utils/dialog/confirmDialog';
+import {
+  confirmDialog,
+  promptDialog,
+  unsavedChangesDialog,
+} from 'src/components/Dialog/confirmDialog';
 import { saveDocument } from 'src/utils/document/saveDocument';
 
 interface Prop {

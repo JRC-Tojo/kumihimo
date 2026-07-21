@@ -17,6 +17,7 @@ import { Success, Failure, toError } from 'src/models/error/result';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
+import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
 
 /** PDF をロードして PDFDocumentProxy を返す（Result でラップ） */
 export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PDFDocumentProxy>> {
@@ -171,49 +172,7 @@ export async function renderPageToCanvas(
 
 /** annotStyle の種類に応じて外接矩形を計算する（アノテーション自体のタイトな範囲） */
 function calculateBoundingBox(style: AnnotationStyle): BoundingBox {
-  const padding = 2; // 矩形の外側に少し余白を付与
-
-  switch (style.type) {
-    case 'box': {
-      const { x, y, width, height } = style;
-      return {
-        x: Math.max(0, x - padding),
-        y: Math.max(0, y - padding),
-        width: width + padding * 2,
-        height: height + padding * 2,
-      };
-    }
-    case 'line': {
-      const { x, y, points, strokeWidth = 2 } = style;
-      const [, , dx, dy] = points; // points: [0, 0, x2-x, y2-y]
-      const x2 = x + (dx ?? 2);
-      const y2 = y + (dy ?? 2);
-
-      // 線幅を考慮した外接矩形を計算
-      const halfStroke = strokeWidth / 2 + padding;
-      const minX = Math.min(x, x2) - halfStroke;
-      const maxX = Math.max(x, x2) + halfStroke;
-      const minY = Math.min(y, y2) - halfStroke;
-      const maxY = Math.max(y, y2) + halfStroke;
-
-      return {
-        x: Math.max(0, minX),
-        y: Math.max(0, minY),
-        width: maxX - minX,
-        height: maxY - minY,
-      };
-    }
-    case 'circle': {
-      const { x, y, radius } = style;
-      const extent = radius + padding;
-      return {
-        x: Math.max(0, x - extent),
-        y: Math.max(0, y - extent),
-        width: extent * 2,
-        height: extent * 2,
-      };
-    }
-  }
+  return ANNOTATION_GEOMETRY[style.type].boundingBox(style);
 }
 
 /**
@@ -442,7 +401,7 @@ export async function extractAnnotationsFromPdf(
           pageNumber: i,
           color: rgbArrayToHex(a.color),
           strokeWidth: a.borderWidth ?? a.border?.width ?? 2,
-          opacity: typeof a.opacity === 'number' ? a.opacity : undefined,
+          strokeOpacity: typeof a.opacity === 'number' ? a.opacity : undefined,
           content: typeof a.contents === 'string' ? a.contents : undefined,
           createdAt: now,
           updatedAt: now,
@@ -580,7 +539,7 @@ export async function embedAnnotationsIntoPdf(
       const page = pdfDoc.getPage(pageIndex);
 
       const color = hexToRgb(a.color || '#ff0000');
-      const opacity = typeof a.opacity === 'number' ? a.opacity : 1;
+      const opacity = a.strokeOpacity ?? a.opacity ?? 1;
       const strokeWidth = a.strokeWidth ?? 2;
 
       if (a.type === 'box') {
@@ -608,13 +567,14 @@ export async function embedAnnotationsIntoPdf(
           color: rgb(color.r, color.g, color.b),
         });
       } else if (a.type === 'circle') {
-        const { x, y, radius } = a;
+        const { x, y, radius, radiusX, radiusY } = a;
         const pageHeight = page.getSize().height;
         page.drawEllipse({
           x,
           y: pageHeight - y,
-          xScale: radius,
-          yScale: radius,
+          // 楕円化されている場合はradiusX/radiusYを使い、未設定（正円）の場合はradiusにフォールバックする
+          xScale: radiusX ?? radius,
+          yScale: radiusY ?? radius,
           borderColor: rgb(color.r, color.g, color.b),
           borderWidth: strokeWidth,
           opacity,

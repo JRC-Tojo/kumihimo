@@ -108,6 +108,7 @@ function generateRandomAnnots(): AnnotationStyle[] {
       height: 80,
       color: color,
       strokeWidth: 3,
+      strokeType: 'solid',
       createdAt: now,
       updatedAt: now,
       comment: {},

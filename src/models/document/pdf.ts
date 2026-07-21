@@ -11,8 +11,14 @@ export const ColorCode = z
 export type ColorCode = z.infer<typeof ColorCode>;
 
 /**
- * アノテーションスキーマ
+ * 線種（破線・点線等）
+ *
+ * 'double'はKonva/SVGが二重線の描画をネイティブでサポートしないため、
+ * 実際のキャンバス描画では'solid'と同等に扱う（既知の制限。プリセットプレビューアイコンのみ近似表現する）
  */
+export const StrokeType = z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']);
+export type StrokeType = z.infer<typeof StrokeType>;
+
 const AnnotationBase = z.object({
   id: AnnotationID,
   pageNumber: z.number().int().positive(),
@@ -20,7 +26,11 @@ const AnnotationBase = z.object({
   y: z.number(),
   color: ColorCode, // 16進カラーコード
   strokeWidth: z.number().optional().default(2),
+  strokeType: StrokeType.optional().default('solid'),
+  // TODO: 旧フィールド。strokeOpacity/fillOpacity未設定の既存データ（枠線・塗りの区別がない）読み込み時の
+  // フォールバック用にのみ残す。新規保存時はstrokeOpacity/fillOpacityを使うこと
   opacity: z.number().min(0).max(1).optional(),
+  strokeOpacity: z.number().min(0).max(1).optional(),
   content: z.string().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -29,11 +39,15 @@ const AnnotationBase = z.object({
       chat: z.unknown().optional(), // TODO: チャットの形式は要検討
     })
     .default({}),
+  // 重ね順。未設定の場合はcreatedAtを実効的な重ね順キーとして扱う（utils/document/annotationOrder.ts参照）
+  zIndex: z.number().optional(),
 });
 export const BoxAnnotationStyle = AnnotationBase.extend({
   type: z.literal('box'),
   width: z.number().nonnegative(),
   height: z.number().nonnegative(),
+  fillColor: ColorCode.optional(),
+  fillOpacity: z.number().min(0).max(1).optional(),
 });
 export type BoxAnnotationStyle = z.infer<typeof BoxAnnotationStyle>;
 export const LineAnnotationStyle = AnnotationBase.extend({
@@ -43,9 +57,78 @@ export const LineAnnotationStyle = AnnotationBase.extend({
 export type LineAnnotationStyle = z.infer<typeof LineAnnotationStyle>;
 export const CircleAnnotationStyle = AnnotationBase.extend({
   type: z.literal('circle'),
+  // 後方互換のため維持する正円時の半径。radiusX/radiusY未設定時のフォールバック値として扱う
   radius: z.number().positive(),
+  // 楕円化した場合の水平・垂直半径。省略時はradiusを使用する（正円）
+  radiusX: z.number().positive().optional(),
+  radiusY: z.number().positive().optional(),
+  fillColor: ColorCode.optional(),
+  fillOpacity: z.number().min(0).max(1).optional(),
 });
 export type CircleAnnotationStyle = z.infer<typeof CircleAnnotationStyle>;
+
+/**
+ * 矢印の矢じり形状
+ *
+ * 'none': 矢じりなし（直線と同じ見た目）, 'triangle': 塗りつぶし三角形, 'open': 輪郭のみの矢じり
+ */
+export const ArrowHeadType = z.enum(['none', 'triangle', 'open']);
+export type ArrowHeadType = z.infer<typeof ArrowHeadType>;
+
+export const ArrowAnnotationStyle = AnnotationBase.extend({
+  type: z.literal('arrow'),
+  // lineと同じく [x1, y1, x2, y2] で、x/yを起点とした相対座標
+  points: z.array(z.number()).length(4),
+  startHead: ArrowHeadType.default('none'),
+  endHead: ArrowHeadType.default('triangle'),
+  headSize: z.number().positive().optional().default(10),
+});
+export type ArrowAnnotationStyle = z.infer<typeof ArrowAnnotationStyle>;
+
+export const PolylineAnnotationStyle = AnnotationBase.extend({
+  type: z.literal('polyline'),
+  // [x1,y1,x2,y2,...]で、x/y（先頭の頂点）を起点とした相対座標。折れ矢印はendHead/startHeadで表現する
+  points: z
+    .array(z.number())
+    .min(4)
+    .refine((pts) => pts.length % 2 === 0, {
+      message: '座標配列の要素数は偶数である必要があります',
+    }),
+  startHead: ArrowHeadType.default('none'),
+  endHead: ArrowHeadType.default('none'),
+  headSize: z.number().positive().optional().default(10),
+});
+export type PolylineAnnotationStyle = z.infer<typeof PolylineAnnotationStyle>;
+
+export const PolygonAnnotationStyle = AnnotationBase.extend({
+  type: z.literal('polygon'),
+  // [x1,y1,x2,y2,...]で3頂点以上必須。x/y（先頭の頂点）を起点とした相対座標
+  points: z
+    .array(z.number())
+    .min(6)
+    .refine((pts) => pts.length % 2 === 0, {
+      message: '座標配列の要素数は偶数である必要があります',
+    }),
+  fillColor: ColorCode.optional(),
+  fillOpacity: z.number().min(0).max(1).optional(),
+});
+export type PolygonAnnotationStyle = z.infer<typeof PolygonAnnotationStyle>;
+
+export const TextAnnotationStyle = AnnotationBase.extend({
+  type: z.literal('text'),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+  text: z.string().default(''),
+  fontFamily: z.string().default('sans-serif'),
+  fontSize: z.number().positive().default(16),
+  fontWeight: z.number().default(400),
+  textColor: ColorCode,
+  textAlign: z.enum(['left', 'center', 'right']).default('left'),
+  // 背景色。未指定の場合は背景なし（透明）。枠線の色・太さはbaseのcolor/strokeWidthを流用する
+  fillColor: ColorCode.optional(),
+  fillOpacity: z.number().min(0).max(1).optional(),
+});
+export type TextAnnotationStyle = z.infer<typeof TextAnnotationStyle>;
 
 /**
  * アノテーション本体の情報
@@ -56,5 +139,9 @@ export const AnnotationStyle = z.discriminatedUnion('type', [
   BoxAnnotationStyle,
   LineAnnotationStyle,
   CircleAnnotationStyle,
+  ArrowAnnotationStyle,
+  PolylineAnnotationStyle,
+  PolygonAnnotationStyle,
+  TextAnnotationStyle,
 ]);
 export type AnnotationStyle = z.infer<typeof AnnotationStyle>;

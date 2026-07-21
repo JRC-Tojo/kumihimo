@@ -3,13 +3,12 @@
  * アノテーション作成・編集イベントの管理
  */
 
-import { v4 as uuidv4 } from 'uuid';
-import dayjs from 'dayjs';
-import { AnnotationID, ColorCode, type AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationStyle } from 'src/models/document/pdf';
 import type { DrawingAnnotationStyle } from 'src/models/docPage';
+import { ANNOTATION_GEOMETRY, type Point } from 'src/services/document/annotationGeometry';
 
 /**
- * アノテーションの描画開始時に呼び出す
+ * アノテーションの描画開始時に呼び出す（ドラッグ方式の種別用）
  *
  * 終了時に呼び出すことで新規アノテーションオブジェクトを取得する関数を返す
  */
@@ -30,67 +29,30 @@ function endDrawingAnnotation(
   endX: number,
   endY: number,
   annotationStyle: DrawingAnnotationStyle,
-) {
-  const newAnnotation = createAnnotation(pageNumber, startX, startY, endX, endY, annotationStyle);
-  return newAnnotation;
+): AnnotationStyle | null {
+  const module = ANNOTATION_GEOMETRY[annotationStyle.type];
+  if (module.drawMode !== 'drag') return null;
+
+  return module.createFromDrag(
+    pageNumber,
+    { x: startX, y: startY },
+    { x: endX, y: endY },
+    annotationStyle,
+  );
 }
 
-function createAnnotation(
+/**
+ * クリックで頂点を置いていく方式（折れ線・ポリゴン）で、確定時に呼び出す
+ *
+ * これまでに置いた頂点座標列からアノテーション実体を生成する
+ */
+export function createAnnotationFromPoints(
   pageNumber: number,
-  startX: number,
-  startY: number,
-  endX: number,
-  endY: number,
+  points: Point[],
   annotationStyle: DrawingAnnotationStyle,
 ): AnnotationStyle | null {
-  const deltaX = endX - startX;
-  const deltaY = endY - startY;
+  const module = ANNOTATION_GEOMETRY[annotationStyle.type];
+  if (module.drawMode !== 'clickPoints') return null;
 
-  const baseAnnotation = {
-    id: AnnotationID.parse(uuidv4()),
-    pageNumber: pageNumber,
-    x: Math.min(startX, endX),
-    y: Math.min(startY, endY),
-    createdAt: dayjs().toISOString(),
-    updatedAt: dayjs().toISOString(),
-    comment: {},
-  };
-
-  const strokeColor = ColorCode.safeParse(annotationStyle.strokeColor);
-  if (!strokeColor.success) return null;
-
-  if (annotationStyle.type === 'box') {
-    return {
-      ...baseAnnotation,
-      type: annotationStyle.type,
-      color: strokeColor.data,
-      strokeWidth: annotationStyle.strokeWidth,
-      width: Math.abs(deltaX),
-      height: Math.abs(deltaY),
-      opacity: annotationStyle.fillOpacity,
-    };
-  } else if (annotationStyle.type === 'circle') {
-    const radius = Math.sqrt(deltaX * deltaX + deltaY * deltaY) / 2;
-    return {
-      ...baseAnnotation,
-      type: annotationStyle.type,
-      color: strokeColor.data,
-      strokeWidth: annotationStyle.strokeWidth,
-      x: startX + deltaX / 2,
-      y: startY + deltaY / 2,
-      radius,
-    };
-  } else if (annotationStyle.type === 'line') {
-    return {
-      ...baseAnnotation,
-      type: annotationStyle.type,
-      color: strokeColor.data,
-      strokeWidth: annotationStyle.strokeWidth,
-      x: startX,
-      y: startY,
-      points: [0, 0, deltaX, deltaY],
-    };
-  }
-
-  return null;
+  return module.createFromPoints(pageNumber, points, annotationStyle);
 }
