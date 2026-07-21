@@ -61,13 +61,13 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import dayjs from 'dayjs';
 import { useEditorStore } from 'src/stores/editorStore';
-import { useBackendApi } from 'src/apis/backendApi';
+import { useAnnotationHistory } from './composables/useAnnotationHistory';
 import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 
 const { t } = useI18n();
 const editorStore = useEditorStore();
-const api = useBackendApi();
+const history = useAnnotationHistory();
 
 /** 単一選択時のみ対象とする（複数選択時は各注釈で位置・サイズの意味がずれるため対象外） */
 const target = computed<AnnotationStyle | undefined>(() => {
@@ -79,7 +79,7 @@ async function applyPatch(patch: Partial<AnnotationStyle>): Promise<void> {
   const annot = target.value;
   const file = editorStore.activeSelection?.file;
   if (!annot || !file) return;
-  await api.registerAnnotationStyle(file, {
+  await history.registerWithHistory(file, annot, {
     ...annot,
     ...patch,
     updatedAt: dayjs().toISOString(),

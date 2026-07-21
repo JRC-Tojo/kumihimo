@@ -6,6 +6,7 @@ import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'sr
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
+import { useHistoryStore } from './historyStore';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
 const sides = ['ul', 'ur', 'll', 'lr'] as const;
@@ -207,6 +208,16 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 指定した要素が、いずれかのペインでまだ開かれているかどうかを判定する
+     *
+     * 同一ファイルが複数ペインに同時に開かれている場合、履歴（historyStore）は
+     * containerID+path単位で共有しているため、全ペインから閉じられるまではクリアしてはならない
+     */
+    isTabOpenAnywhere(elem: { containerID: ContainerID; path: string }): boolean {
+      return sides.some((side) => this.tabs[side].some((tab) => tabKey(tab) === tabKey(elem)));
+    },
+
+    /**
      * タブを閉じる
      */
     closeTab(elem: ContainerElement, layoutSide: LayoutSide): void {
@@ -222,6 +233,11 @@ export const useEditorStore = defineStore('editor', {
         const nextIdx = Math.max(0, targetIdx - 1);
         const nextTab = this.tabs[layoutSide][nextIdx];
         this.activeTabPaths[layoutSide] = nextTab ? tabKey(nextTab) : null;
+      }
+
+      // 他のペインにも開かれていなければ、このタブのUndo/Redo履歴を破棄する
+      if (!this.isTabOpenAnywhere(elem)) {
+        useHistoryStore().clear(elem);
       }
     },
 
@@ -249,6 +265,11 @@ export const useEditorStore = defineStore('editor', {
           this.activeTabPaths[side] = lastTab ? tabKey(lastTab) : null;
         }
       });
+
+      // このループでpathsは全ペインから無条件に取り除かれているため、
+      // ループ後は必ずどのペインにも存在しない状態になっている
+      const historyStore = useHistoryStore();
+      paths.forEach((path) => historyStore.clear({ containerID, path }));
     },
 
     /**

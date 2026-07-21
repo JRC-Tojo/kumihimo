@@ -92,6 +92,7 @@ import {
 import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
+import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
 import { callEditorTools } from 'src/stores/editorTools';
 import type { ContainerElementFile } from 'src/models/container';
@@ -114,6 +115,7 @@ const api = useBackendApi();
 const $q = useQuasar();
 const { t } = useI18n();
 const editorStore = useEditorStore();
+const historyStore = useHistoryStore();
 const relationalStore = useRelationalStore();
 
 // TODO: PDFの読み込みに失敗した場合、Loading画面を抜けてエラーが起きた旨を通知する仕様に修正
@@ -552,9 +554,12 @@ const NUDGE_STEP = 1;
  * アノテーション編集のキーボードショートカットをまとめて処理する
  *
  * Spaceキー（関係性の簡易閲覧）に加え、削除（Delete/Backspace）・微調整（矢印キー）・
- * コピー（Ctrl+C）・貼り付け（Ctrl+V）を扱う。実際の処理はすべて`useAnnotationActions`に
- * 委譲し、ここでは対象の絞り込み（選択の有無）とイベントの振り分けのみを行う。
- * テキスト入力中は無視し、複数ペイン表示時はフォーカスされているペイン（layoutSide）でのみ反応する
+ * コピー（Ctrl+C）・貼り付け（Ctrl+V）・元に戻す（Ctrl+Z）・やり直す（Ctrl+Y／Ctrl+Shift+Z）を扱う。
+ * 実際の処理はすべて`useAnnotationActions`／`historyStore`に委譲し、ここでは対象の絞り込み
+ * （選択の有無）とイベントの振り分けのみを行う。
+ * テキスト入力中は無視し、複数ペイン表示時はフォーカスされているペイン（layoutSide）でのみ反応する。
+ * このコンポーネントは常にアクティブなタブに対して1つだけマウントされるため、historyStoreへの
+ * 操作対象は常に`prop.file`（＝現在このペインでアクティブなタブ）となり、他タブへの誤操作は起きない
  */
 function handleGlobalKeydown(e: KeyboardEvent) {
   if (editorStore.activeSide !== prop.layoutSide) return;
@@ -606,6 +611,21 @@ function handleGlobalKeydown(e: KeyboardEvent) {
   if (isModifierPressed && e.key.toLowerCase() === 'v') {
     e.preventDefault();
     void annotationActions.pasteClipboard();
+    return;
+  }
+
+  if (isModifierPressed && !e.shiftKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    void historyStore.undo(prop.file);
+    return;
+  }
+
+  if (
+    (isModifierPressed && e.shiftKey && e.key.toLowerCase() === 'z') ||
+    (isModifierPressed && e.key.toLowerCase() === 'y')
+  ) {
+    e.preventDefault();
+    void historyStore.redo(prop.file);
     return;
   }
 }

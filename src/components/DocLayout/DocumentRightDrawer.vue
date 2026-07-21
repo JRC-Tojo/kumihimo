@@ -188,6 +188,7 @@ import {
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import StyleSwatchButton from './StyleSwatchButton.vue';
+import { useAnnotationHistory } from './composables/useAnnotationHistory';
 
 interface Prop {
   selectedAnnots: AnnotationStyle[];
@@ -202,6 +203,7 @@ const emit = defineEmits<{
 }>();
 
 const api = useBackendApi();
+const history = useAnnotationHistory();
 const relationalStore = useRelationalStore();
 const { t } = useI18n();
 
@@ -233,17 +235,15 @@ async function applyPatch(
   building: (annot: AnnotationStyle) => Partial<AnnotationStyle> | null,
 ): Promise<void> {
   const now = dayjs().toISOString();
-  await Promise.all(
-    prop.selectedAnnots.map((annot) => {
+  const items = prop.selectedAnnots
+    .map((annot) => {
       const patch = building(annot);
-      if (!patch) return Promise.resolve();
-      return api.registerAnnotationStyle(prop.file, {
-        ...annot,
-        ...patch,
-        updatedAt: now,
-      } as AnnotationStyle);
-    }),
-  );
+      return patch
+        ? { previous: annot, next: { ...annot, ...patch, updatedAt: now } as AnnotationStyle }
+        : null;
+    })
+    .filter((i): i is { previous: AnnotationStyle; next: AnnotationStyle } => i !== null);
+  await history.registerManyWithHistory(prop.file, items);
 }
 
 // ================================ 型別の詳細プロパティ ================================

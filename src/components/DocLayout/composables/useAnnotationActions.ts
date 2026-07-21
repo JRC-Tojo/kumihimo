@@ -11,15 +11,10 @@ import { type Ref } from 'vue';
 import dayjs from 'dayjs';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useEditorStore } from 'src/stores/editorStore';
-import { useRelationalStore, type RelationalEdge } from 'src/stores/relationalStore';
+import { useAnnotationHistory } from './useAnnotationHistory';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
-
-/** 2つのファイルがcontainerID込みで同一かどうか */
-function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
-  return a.containerID === b.containerID && a.path === b.path;
-}
 
 /** 連続ペースト・複製時に位置をずらす基準量（px、文書座標） */
 const PASTE_OFFSET_STEP = 20;
@@ -34,7 +29,7 @@ export interface UseAnnotationActionsDeps {
 export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
   const api = useBackendApi();
   const editorStore = useEditorStore();
-  const relationalStore = useRelationalStore();
+  const history = useAnnotationHistory();
 
   /** 選択中の注釈IDを実体（AnnotationStyle）に解決する */
   function resolveSelected(): AnnotationStyle[] {
@@ -44,66 +39,36 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
   }
 
   /**
-   * 削除対象アノテーションについて、このファイルだけでなく紐づく関係性の相手側アノテーションの
-   * ファイルの関係性キャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
-   * キャッシュに古い情報が残ったままにならないようにする）
-   */
-  async function refreshRelationalCachesAfterDelete(
-    edgesBeforeDelete: { edge: RelationalEdge; selfId: AnnotationID }[],
-  ): Promise<void> {
-    await relationalStore.refreshFile(deps.file);
-
-    await Promise.all(
-      edgesBeforeDelete.map(async ({ edge, selfId }) => {
-        const otherId =
-          edge.relational.srcID === selfId ? edge.relational.targetID : edge.relational.srcID;
-        const otherFileRes = await api.resolveAnnotationFile(otherId);
-        if (otherFileRes.ok && !isSameFile(otherFileRes.data, deps.file)) {
-          await relationalStore.refreshFile(otherFileRes.data);
-        }
-      }),
-    );
-  }
-
-  /**
    * 選択中の注釈をすべて削除する（Delete/Backspace、右ドロワーの削除ボタン、
    * 将来の右クリック「削除」から共用）
    *
-   * 削除前に紐づいていた関係性の相手ファイルも合わせて再検証し、
-   * 開いていないタブ側に孤立した関係性が古いキャッシュとして残らないようにする
+   * 削除・関係性キャッシュの再検証・Undo履歴への記録は`useAnnotationHistory`にまとめて委譲する
+   * （削除前に紐づいていた関係性の相手ファイルの再検証、undo時の関係性復元も含む）
    */
   async function deleteSelected(): Promise<void> {
     const targets = resolveSelected();
     if (targets.length === 0) return;
 
-    const edgesBeforeDelete = targets.flatMap((annot) =>
-      relationalStore.edgesForAnnotation(annot.id).map((edge) => ({ edge, selfId: annot.id })),
-    );
-
-    await Promise.all(targets.map((annot) => api.removeAnnotation(annot.id)));
+    await history.removeManyWithHistory(deps.file, targets);
     deps.selectedAnnotationIds.value = [];
-
-    await refreshRelationalCachesAfterDelete(edgesBeforeDelete);
   }
 
   /**
    * 選択中の注釈を微調整する（矢印キー）
    *
    * line/arrow/polyline/polygonのpointsはx/yからの相対オフセットのため、x/yのみ変更すれば
-   * 図形全体が移動する
+   * 図形全体が移動する。1回のキー押下で選択中の全注釈をまとめて1つのUndoステップとして記録する
    */
   async function nudgeSelected(dx: number, dy: number): Promise<void> {
     const targets = resolveSelected();
     if (targets.length === 0) return;
-    await Promise.all(
-      targets.map((annot) =>
-        api.registerAnnotationStyle(deps.file, {
-          ...annot,
-          x: annot.x + dx,
-          y: annot.y + dy,
-          updatedAt: dayjs().toISOString(),
-        }),
-      ),
+    const now = dayjs().toISOString();
+    await history.registerManyWithHistory(
+      deps.file,
+      targets.map((annot) => ({
+        previous: annot,
+        next: { ...annot, x: annot.x + dx, y: annot.y + dy, updatedAt: now },
+      })),
     );
   }
 
@@ -135,6 +100,10 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     editorStore.incrementClipboardPasteCount();
     if (!res.ok) return;
 
+    history.recordCreatedBatch(
+      deps.file,
+      res.data.map((info) => info.style),
+    );
     deps.selectedAnnotationIds.value = res.data.map((info) => info.style.id);
   }
 
@@ -155,6 +124,10 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     );
     if (!res.ok) return;
 
+    history.recordCreatedBatch(
+      deps.file,
+      res.data.map((info) => info.style),
+    );
     deps.selectedAnnotationIds.value = res.data.map((info) => info.style.id);
   }
 
@@ -172,11 +145,15 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     if (ids.length === 0) return;
 
     let workingAnnotations = deps.annotations.value;
+    const pairs: { before: AnnotationStyle; after: AnnotationStyle }[] = [];
     for (const id of ids) {
+      const before = workingAnnotations.find((a) => a.id === id);
       const res = await api.reorderAnnotation(deps.file, workingAnnotations, id, action);
-      if (!res.ok) continue;
+      if (!res.ok || !before) continue;
+      pairs.push({ before, after: res.data.style });
       workingAnnotations = workingAnnotations.map((a) => (a.id === id ? res.data.style : a));
     }
+    history.recordChangedBatch(deps.file, pairs);
   }
 
   return {
