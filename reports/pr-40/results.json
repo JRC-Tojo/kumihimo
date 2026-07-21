@@ -1,0 +1,1548 @@
+{
+  "config": {
+    "argv": [
+      "/opt/hostedtoolcache/node/22.23.1/x64/bin/node",
+      "/home/runner/work/RelationalDocuments/RelationalDocuments/node_modules/.bin/playwright",
+      "test"
+    ],
+    "configFile": "/home/runner/work/RelationalDocuments/RelationalDocuments/playwright.config.ts",
+    "rootDir": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "ci": {
+        "commitHref": "https://github.com/JRC-Tojo/RelationalDocuments/commit/c9c49d541cc4fb9f0bda8ffed9da9c0b0a5386be",
+        "commitHash": "c9c49d541cc4fb9f0bda8ffed9da9c0b0a5386be",
+        "prHref": "https://github.com/JRC-Tojo/RelationalDocuments/pull/40",
+        "prTitle": "フロントエンドテストを作成",
+        "prBaseHash": "5439b0ae8dc8071bbc8374852a94c3a3a8b9e884",
+        "buildHref": "https://github.com/JRC-Tojo/RelationalDocuments/actions/runs/29834059349"
+      },
+      "gitCommit": {
+        "shortHash": "c9c49d5",
+        "hash": "c9c49d541cc4fb9f0bda8ffed9da9c0b0a5386be",
+        "subject": "Merge 700dad59a814174cd2bcca77935151ef2a376260 into 5439b0ae8dc8071bbc8374852a94c3a3a8b9e884",
+        "body": "Merge 700dad59a814174cd2bcca77935151ef2a376260 into 5439b0ae8dc8071bbc8374852a94c3a3a8b9e884\n",
+        "author": {
+          "name": "JRC-Tojo",
+          "email": "jrc.tojo@gmail.com",
+          "time": 1784640084000
+        },
+        "committer": {
+          "name": "GitHub",
+          "email": "noreply@github.com",
+          "time": 1784640084000
+        },
+        "branch": "HEAD"
+      },
+      "gitDiff": "diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml\nindex 42b9677..77f7f2b 100644\n--- a/.github/workflows/deploy.yml\n+++ b/.github/workflows/deploy.yml\n@@ -7,11 +7,11 @@ on:\n   # Allows you to run this workflow manually from the Actions tab\n   workflow_dispatch:\n \n-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages\n+# gh-pagesブランチへcommitを積むため、GITHUB_TOKENにcontents書き込み権限が必要\n+# （PRごとのE2Eレポート公開（frontend.yml）と同じブランチ・同じ公開サイトを共有するため、\n+#  GitHub Actions公式のPagesデプロイ方式ではなく、gh-pagesブランチへの直接publishに統一している）\n permissions:\n-  contents: read\n-  pages: write\n-  id-token: write\n+  contents: write\n \n # Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.\n # However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.\n@@ -39,22 +39,10 @@ jobs:\n       - name: Build\n         run: bun run build\n \n-      - name: Upload artifact\n-        uses: actions/upload-pages-artifact@v3\n+      - name: Deploy to gh-pages branch\n+        uses: peaceiris/actions-gh-pages@v4\n         with:\n-          path: \"dist/pwa\"\n-\n-  deploy:\n-    environment:\n-      name: github-pages\n-      url: ${{ steps.deployment.outputs.page_url }}\n-\n-    runs-on: ubuntu-latest\n-    needs: build\n-    steps:\n-      - name: Deploy to GitHub Pages\n-        id: deployment\n-        uses: actions/deploy-pages@v4\n-    \n-    outputs:\n-      page_url: ${{ steps.deployment.outputs.page_url }}\n\\ No newline at end of file\n+          github_token: ${{ secrets.GITHUB_TOKEN }}\n+          publish_dir: dist/pwa\n+          # reports/配下（PRごとのPlaywrightレポート、frontend.ymlが管理）を消さないよう保持する\n+          keep_files: true\ndiff --git a/.github/workflows/frontend.yml b/.github/workflows/frontend.yml\nindex d363098..f84111b 100644\n--- a/.github/workflows/frontend.yml\n+++ b/.github/workflows/frontend.yml\n@@ -75,7 +75,7 @@ jobs:\n         run: bun install && bun run quasar prepare\n \n       - name: Run tests with coverage\n-        run: bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage\n+        run: bun test src --coverage --coverage-reporter=lcov --coverage-dir=coverage\n \n       - name: Coverage Report\n         uses: 70-10/bun-coverage-report-action@v1.0.3\n@@ -104,6 +104,62 @@ jobs:\n       - name: Type check\n         run: bunx vue-tsc --noEmit\n \n+  e2e:\n+    name: E2E Tests (Playwright)\n+    runs-on: ubuntu-latest\n+    needs: lint\n+    permissions:\n+      contents: write\n+      pull-requests: write\n+    steps:\n+      - uses: actions/checkout@v6\n+\n+      - name: Setup Node.js\n+        uses: actions/setup-node@v6\n+        with:\n+          node-version: '22'\n+\n+      - name: Setup Bun\n+        uses: oven-sh/setup-bun@v2\n+\n+      - name: Install dependencies\n+        run: bun install && bun run quasar prepare\n+\n+      - name: Install Playwright browsers\n+        run: bunx playwright install --with-deps chromium\n+\n+      - name: Run Playwright tests\n+        id: playwright\n+        run: bunx playwright test\n+        continue-on-error: true\n+\n+      - name: Publish HTML report to gh-pages\n+        if: always()\n+        uses: peaceiris/actions-gh-pages@v4\n+        with:\n+          github_token: ${{ secrets.GITHUB_TOKEN }}\n+          publish_dir: playwright-report\n+          destination_dir: reports/pr-${{ github.event.pull_request.number }}\n+          keep_files: true\n+\n+      - name: Comment test summary on PR\n+        if: always()\n+        uses: daun/playwright-report-summary@v3\n+        with:\n+          report-file: playwright-report/results.json\n+\n+      - name: Comment full report link on PR\n+        if: always()\n+        uses: peter-evans/create-or-update-comment@v4\n+        with:\n+          issue-number: ${{ github.event.pull_request.number }}\n+          body: |\n+            📊 Playwrightフルレポート（スクリーンショット・ト��ース閲覧可）: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/pr-${{ github.event.pull_request.number }}/\n+\n+      - name: Fail job if Playwright tests failed\n+        if: steps.playwright.outcome == 'failure'\n+        run: exit 1\n+\n   # セキュリティスキャンは現状GitHub Botに一任\n   # security-scan:\n   #   name: Security Scan\ndiff --git a/.github/workflows/prReportCleanup.yml b/.github/workflows/prReportCleanup.yml\nnew file mode 100644\nindex 0000000..419c549\n--- /dev/null\n+++ b/.github/workflows/prReportCleanup.yml\n@@ -0,0 +1,32 @@\n+name: PR Report Cleanup\n+\n+# frontend.ymlのe2eジョブがgh-pagesブランチのreports/pr-<番号>/配下に公開する\n+# Playwrightレポートは、PRのクローズ（マージ含む）時に不要になるため削除する\n+on:\n+  pull_request:\n+    types: [closed]\n+\n+permissions:\n+  contents: write\n+\n+jobs:\n+  cleanup:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - name: Checkout gh-pages branch\n+        uses: actions/checkout@v6\n+        with:\n+          ref: gh-pages\n+\n+      - name: Remove this PR's report directory\n+        run: |\n+          TARGET=\"reports/pr-${{ github.event.pull_request.number }}\"\n+          if [ -d \"$TARGET\" ]; then\n+            git rm -r --quiet \"$TARGET\"\n+            git config user.name \"github-actions[bot]\"\n+            git config user.email \"github-actions[bot]@users.noreply.github.com\"\n+            git commit -m \"Remove Playwright report for PR #${{ github.event.pull_request.number }}\"\n+            git push\n+          else\n+            echo \"No report directory found for this PR ($TARGET); nothing to do.\"\n+          fi\ndiff --git a/.gitignore b/.gitignore\nindex e7b2d9b..745db8b 100644\n--- a/.gitignore\n+++ b/.gitignore\n@@ -13,6 +13,10 @@ node_modules\n /dist\n /quasar.config.*.temporary.compiled*\n \n+# Playwright related directories\n+/playwright-report\n+/test-results\n+\n # Cordova related directories and files\n /src-cordova/node_modules\n /src-cordova/platforms\ndiff --git a/bun.lock b/bun.lock\nindex 6530547..b422c73 100644\n--- a/bun.lock\n+++ b/bun.lock\n@@ -28,6 +28,7 @@\n       \"devDependencies\": {\n         \"@eslint/js\": \"^9.39.4\",\n         \"@intlify/unplugin-vue-i18n\": \"^11.0.0\",\n+        \"@playwright/test\": \"^1.61.1\",\n         \"@quasar/app-vite\": \"^2.5.1\",\n         \"@types/bun\": \"^1.3.14\",\n         \"@types/jsdom\": \"^28.0.3\",\n@@ -510,6 +511,8 @@\n \n     \"@pkgr/core\": [\"@pkgr/core@0.3.6\", \"\", {}, \"sha512-SEeaJLb3qBNF/OaXnaR1NmmBbFYk1zC0ZH/52fATcRPLFg/p791YrcyFFy44Bo9sLaGuSuLp5Q6axbb/O+v/RA==\"],\n \n+    \"@playwright/test\": [\"@playwright/test@1.61.1\", \"\", { \"dependencies\": { \"playwright\": \"1.61.1\" }, \"bin\": { \"playwright\": \"cli.js\" } }, \"sha512-8nKv6+0RJSL9FE4jYOEGXnPeM/Hg12qZpmqzZjRh3qM0Y7c3z1mrOTfFLids72RDQYVh9WpLEfR5WdpNX4fkig==\"],\n+\n     \"@protobufjs/aspromise\": [\"@protobufjs/aspromise@1.1.2\", \"\", {}, \"sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==\"],\n \n     \"@protobufjs/base64\": [\"@protobufjs/base64@1.1.2\", \"\", {}, \"sha512-AZkcAA5vnN/v4PDqKyMR5lx7hZttPDgClv83E//FMNhR2TMcLUhfRUBHCmSl0oi9zMgDDqRUJkSxO3wm85+XLg==\"],\n@@ -1522,6 +1525,10 @@\n \n     \"platform\": [\"platform@1.3.6\", \"\", {}, \"sha512-fnWVljUchTro6RiCFvCXBbNhJc2NijN7oIQxbwsyL0buWJPG85v81ehlHI9fXrJsMNgTofEoWIQeClKpgxFLrg==\"],\n \n+    \"playwright\": [\"playwright@1.61.1\", \"\", { \"dependencies\": { \"playwright-core\": \"1.61.1\" }, \"optionalDependencies\": { \"fsevents\": \"2.3.2\" }, \"bin\": { \"playwright\": \"cli.js\" } }, \"sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==\"],\n+\n+    \"playwright-core\": [\"playwright-core@1.61.1\", \"\", { \"bin\": { \"playwright-core\": \"cli.js\" } }, \"sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==\"],\n+\n     \"possible-typed-array-names\": [\"possible-typed-array-names@1.1.0\", \"\", {}, \"sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==\"],\n \n     \"postcss\": [\"postcss@8.5.19\", \"\", { \"dependencies\": { \"nanoid\": \"^3.3.12\", \"picocolors\": \"^1.1.1\", \"source-map-js\": \"^1.2.1\" } }, \"sha512-Mz8SaolMd8nB+G13WkORcxQKHZ/NE4xXevtkJHVuG+guo9/wYKlIMTKAqGdEmYOXR2ijPjTYNHssizdaVSUNdQ==\"],\n@@ -2142,6 +2149,8 @@\n \n     \"pkijs/tslib\": [\"tslib@2.8.1\", \"\", {}, \"sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==\"],\n \n+    \"playwright/fsevents\": [\"fsevents@2.3.2\", \"\", { \"os\": \"darwin\" }, \"sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==\"],\n+\n     \"ppu-ocv/@napi-rs/canvas\": [\"@napi-rs/canvas@1.0.2\", \"\", { \"optionalDependencies\": { \"@napi-rs/canvas-android-arm64\": \"1.0.2\", \"@napi-rs/canvas-darwin-arm64\": \"1.0.2\", \"@napi-rs/canvas-darwin-x64\": \"1.0.2\", \"@napi-rs/canvas-linux-arm-gnueabihf\": \"1.0.2\", \"@napi-rs/canvas-linux-arm64-gnu\": \"1.0.2\", \"@napi-rs/canvas-linux-arm64-musl\": \"1.0.2\", \"@napi-rs/canvas-linux-riscv64-gnu\": \"1.0.2\", \"@napi-rs/canvas-linux-x64-gnu\": \"1.0.2\", \"@napi-rs/canvas-linux-x64-musl\": \"1.0.2\", \"@napi-rs/canvas-win32-arm64-msvc\": \"1.0.2\", \"@napi-rs/canvas-win32-x64-msvc\": \"1.0.2\" } }, \"sha512-EYEqlMYaCbpZDz+IgDH5xp9MTd3ui4dmGqbQYryhMLnSRxrhHKq5KQWHHKxFUcEP4Hp8/BWgvqXocX4j7iSbOQ==\"],\n \n     \"pvtsutils/tslib\": [\"tslib@2.8.1\", \"\", {}, \"sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==\"],\ndiff --git a/e2e/annotationCreate.spec.ts b/e2e/annotationCreate.spec.ts\nnew file mode 100644\nindex 0000000..3e93f5d\n--- /dev/null\n+++ b/e2e/annotationCreate.spec.ts\n@@ -0,0 +1,57 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーション作成機能のE2Eテスト\n+ *\n+ * ドラッグ型（矩形）・クリック頂点型（ポリゴン）それぞれの作成を検証する。\n+ * Konvaのシェイプ自体はDOM要素化されないため、作成後にselect-modeへ切り替えて\n+ * 同じ座標をクリックし、右ドレワーのプロパティパネルで種別を確認する\n+ */\n+\n+test.beforeEach(async ({ page }) => {\n+  await openDemoDocument(page);\n+});\n+\n+test('矩形アノテーションをドラッグで作成できる', async ({ page }) => {\n+  const canvas = stageCanvas(page);\n+\n+  await toolButton(page, 'annotation-box').click();\n+  const { centerX, centerY } = await dragDrawAt(page, canvas, 0.85, 0.85);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+});\n+\n+test('ポリゴンアノテーションをクリックで作成できる', async ({ page }) => {\n+  const canvas = stageCanvas(page);\n+  const box = await canvas.boundingBox();\n+  if (!box) throw new Error('ステージのcanvasが見つかりません');\n+\n+  const p1 = { x: box.x + box.width * 0.8, y: box.y + box.height * 0.8 };\n+  const p2 = { x: box.x + box.width * 0.9, y: box.y + box.height * 0.8 };\n+  const p3 = { x: box.x + box.width * 0.85, y: box.y + box.height * 0.9 };\n+\n+  await toolButton(page, 'annotation-polygon').click();\n+  await page.mouse.click(p1.x, p1.y);\n+  await page.mouse.click(p2.x, p2.y);\n+  await page.mouse.dblclick(p3.x, p3.y);\n+\n+  const centroid = {\n+    x: (p1.x + p2.x + p3.x) / 3,\n+    y: (p1.y + p2.y + p3.y) / 3,\n+  };\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centroid.x, centroid.y);\n+\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('polygon');\n+});\ndiff --git a/e2e/annotationDelete.spec.ts b/e2e/annotationDelete.spec.ts\nnew file mode 100644\nindex 0000000..bb92cc0\n--- /dev/null\n+++ b/e2e/annotationDelete.spec.ts\n@@ -0,0 +1,46 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーション削除機能のE2Eテスト\n+ *\n+ * 選択中のアノテーションはDeleteキー（グローバルのkeydownリスナー）で削除できる。\n+ * 削除後は右ドレワーが「未選択」表示に戻ることを確認する\n+ */\n+\n+test.beforeEach(async ({ page }) => {\n+  await openDemoDocument(page);\n+});\n+\n+test('選択したアノテーションをDeleteキーで削除できる', async ({ page }) => {\n+  await toolButton(page, 'annotation-box').click();\n+  const { centerX, centerY } = await dragDrawAt(page, stageCanvas(page), 0.85, 0.85);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+\n+  await page.keyboard.press('Delete');\n+\n+  await expect(page.locator('.drawer-empty')).toBeVisible();\n+  await expect(page.locator('.annotation-properties')).toHaveCount(0);\n+});\n+\n+test('右ドレワーの削除ボタンでアノテーションを削除できる', async ({ page }) => {\n+  await toolButton(page, 'annotation-circle').click();\n+  const { centerX, centerY } = await dragDrawAt(page, stageCanvas(page), 0.85, 0.6);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('circle');\n+\n+  await page.getByRole('button', { name: '削除' }).click();\n+\n+  await expect(page.locator('.drawer-empty')).toBeVisible();\n+});\ndiff --git a/e2e/annotationEdit.spec.ts b/e2e/annotationEdit.spec.ts\nnew file mode 100644\nindex 0000000..9c3d909\n--- /dev/null\n+++ b/e2e/annotationEdit.spec.ts\n@@ -0,0 +1,69 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーション編集機能（スタイル変更・位置サイズ変更）のE2Eテスト\n+ */\n+\n+test.beforeEach(async ({ page }) => {\n+  await openDemoDocument(page);\n+\n+  await toolButton(page, 'annotation-box').click();\n+  const { centerX, centerY } = await dragDrawAt(page, stageCanvas(page), 0.8, 0.8, 80, 60);\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+});\n+\n+test('位置・サイズパネルで幅を変更できる', async ({ page }) => {\n+  const positionSizeBtn = page.locator('.style-icon-btn', {\n+    has: page.locator('i:text-is(\"crop_free\")'),\n+  });\n+  await positionSizeBtn.click();\n+\n+  const widthInput = page\n+    .locator('.position-size-row')\n+    .nth(1)\n+    .locator('.position-size-input input')\n+    .nth(0);\n+  await expect(widthInput).toBeVisible();\n+\n+  const originalWidth = Number(await widthInput.inputValue());\n+  const newWidth = originalWidth + 50;\n+\n+  await widthInput.fill(String(newWidth));\n+  await widthInput.blur();\n+\n+  // メニューを閉じて開き直し、変更が保持されていることを確認する\n+  await page.keyboard.press('Escape');\n+  await positionSizeBtn.click();\n+\n+  const widthInputAfterReopen = page\n+    .locator('.position-size-row')\n+    .nth(1)\n+    .locator('.position-size-input input')\n+    .nth(0);\n+  await expect(widthInputAfterReopen).toHaveValue(String(newWidth));\n+});\n+\n+test('スタイルパネルで線幅を変更できる', async ({ page }) => {\n+  const strokeWidthBtn = page.locator('.style-value-btn').nth(0);\n+  const before = await strokeWidthBtn.locator('.style-value-text').innerText();\n+\n+  await strokeWidthBtn.click();\n+  const slider = page.locator('.style-value-menu [role=\"slider\"]').first();\n+  await slider.focus();\n+  for (let i = 0; i < 5; i++) {\n+    await slider.press('ArrowRight');\n+  }\n+  await page.keyboard.press('Escape');\n+\n+  const after = await strokeWidthBtn.locator('.style-value-text').innerText();\n+  expect(after).not.toBe(before);\n+});\ndiff --git a/e2e/annotationPersistence.spec.ts b/e2e/annotationPersistence.spec.ts\nnew file mode 100644\nindex 0000000..4c562cc\n--- /dev/null\n+++ b/e2e/annotationPersistence.spec.ts\n@@ -0,0 +1,43 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+  DEMO_FIRST_FILE_NAME,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーションの永続化（IndexedDBへの保存）を確認するE2Eテスト\n+ *\n+ * 作成したアノテーションが、タブを閉じて同じ文書を開き直した後も残っていることを検証する\n+ */\n+\n+test('作成したアノテーションはタブを閉じて再度開いても保持される', async ({ page }) => {\n+  await openDemoDocument(page);\n+\n+  await toolButton(page, 'annotation-box').click();\n+  const { centerX, centerY } = await dragDrawAt(page, stageCanvas(page), 0.85, 0.85);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+\n+  // 保存を待ってからタブを閉じる（自動保存はデバウンスされるため）\n+  await page.waitForTimeout(1500);\n+\n+  const tabItem = page.locator('.tab-item', { hasText: DEMO_FIRST_FILE_NAME });\n+  await tabItem.hover();\n+  await tabItem.locator('.tab-close-btn').click();\n+  await expect(tabItem).toHaveCount(0);\n+\n+  const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n+  await fileEntry.click();\n+  await expect(stageCanvas(page)).toBeVisible();\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+});\ndiff --git a/e2e/fixtures/demoContainer.ts b/e2e/fixtures/demoContainer.ts\nnew file mode 100644\nindex 0000000..db38c97\n--- /dev/null\n+++ b/e2e/fixtures/demoContainer.ts\n@@ -0,0 +1,97 @@\n+import { test as base, expect, type Page, type Locator } from '@playwright/test';\n+\n+/**\n+ * デモコンテナ（`cache`型・IndexedDBのみで完結する）を作成し、最初のPDF文書を開いた状態を\n+ * 提供するPlaywrightフィクスチャ\n+ *\n+ * 実際のローカルフォルダ・Boxストレージへは一切アクセスせず、アプリに既存の\n+ * 「デモデータ作成」機能（`src/utils/appInitializer.ts`のcreateDemoData）をそのまま\n+ * モックデータ生成として利用する。各テストはブラウザコンテキストが独立しており、\n+ * IndexedDBも都度まっさらな状態から始まる\n+ */\n+\n+/** appInitializer.tsのsampleDocsで最初に生成されるファイル名 */\n+export const DEMO_FIRST_FILE_NAME = 'システム要件定義書.pdf';\n+\n+/** Konvaステージのcanvas要素（アノテーションレイヤー）を返す */\n+export function stageCanvas(page: Page): Locator {\n+  return page.locator('.annotation-layer-wrapper canvas').first();\n+}\n+\n+/** メインツールバー・サブツールバーのボタンをtool.idで特定する */\n+export function toolButton(page: Page, toolId: string): Locator {\n+  return page.getByTestId(`tool-${toolId}`);\n+}\n+\n+export function subToolButton(page: Page, toolId: string): Locator {\n+  return page.getByTestId(`subtool-${toolId}`);\n+}\n+\n+/**\n+ * デモコンテナを作成し、最初のPDF文書をエディタで開く\n+ *\n+ * 前提: ブラウザコンテキストのIndexedDBが空（＝コンテナが1つも読み込まれていない）状態。\n+ * その場合のみExplorerViewに「Create Demo Data」ボタンが表示される\n+ */\n+export async function openDemoDocument(page: Page): Promise<void> {\n+  await page.goto('/');\n+\n+  // 開発サーバー（Vite）はコールドスタート時、初めて触れるコード経路ごとに依存関係の\n+  // 事前バンドルをやり直し、その都度ページを自動リロードすることがある（複数回起こりうる）。\n+  // これが収まりきる前に操作すると、途中の非同期処理（デモデータ作成等）が中断されてしまう\n+  // ため、ネットワークが落ち着くまで待つ（devServerのHMR用WebSocketは待機の妨げにならない）\n+  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => undefined);\n+\n+  // AppSettings.localeの既定値は'ja-JP'（src/models/settings.ts）のため、\n+  // フレッシュなIndexedDBでは���に日本語UIで起動する\n+  await page.getByRole('button', { name: 'デモデータを作成' }).click();\n+\n+  // コンテナ行（折りたたみ状態）をクリックして展開する\n+  // デモデータ作成は6文書分のフェッチ・パック・保存を伴うため、通常より長めに待つ\n+  const containerRow = page.locator('.exp-container-row', { hasText: 'DEMO CONTAINER' });\n+  await expect(containerRow).toBeVisible({ timeout: 30000 });\n+  await containerRow.click();\n+\n+  const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n+  await expect(fileEntry).toBeVisible();\n+  await fileEntry.click();\n+\n+  await expect(stageCanvas(page)).toBeVisible();\n+\n+  // 右ドレワーはデフォルトで閉じているため、以降の検証のために開いておく\n+  await toolButton(page, 'toggle-right-drawer').click();\n+}\n+\n+/**\n+ * ステージのCanvas上で、境界ボックスに対する割合位置(xFrac/yFrac)から始まる矩形をドラッグ操作で描く\n+ *\n+ * デモデータ側のランダム生成アノテーション（ドキュメント座標でx<500, y<600の範囲にのみ存在）と\n+ * 衝突しないよう、テストからは常にステージ右下寄りの領域（xFrac/yFracとも0.8以上）を使う\n+ */\n+export async function dragDrawAt(\n+  page: Page,\n+  canvas: Locator,\n+  xFrac: number,\n+  yFrac: number,\n+  widthPx = 60,\n+  heightPx = 40,\n+): Promise<{ centerX: number; centerY: number }> {\n+  const box = await canvas.boundingBox();\n+  if (!box) throw new Error('ステージのcanvasが見つかりません');\n+\n+  const startX = box.x + box.width * xFrac;\n+  const startY = box.y + box.height * yFrac;\n+  const endX = Math.min(startX + widthPx, box.x + box.width - 1);\n+  const endY = Math.min(startY + heightPx, box.y + box.height - 1);\n+\n+  await page.mouse.move(startX, startY);\n+  await page.mouse.down();\n+  await page.mouse.move((startX + endX) / 2, (startY + endY) / 2);\n+  await page.mouse.move(endX, endY);\n+  await page.mouse.up();\n+\n+  return { centerX: (startX + endX) / 2, centerY: (startY + endY) / 2 };\n+}\n+\n+export const test = base;\n+export { expect };\ndiff --git a/e2e/relationalLink.spec.ts b/e2e/relationalLink.spec.ts\nnew file mode 100644\nindex 0000000..888c95b\n--- /dev/null\n+++ b/e2e/relationalLink.spec.ts\n@@ -0,0 +1,48 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーション間の関係性（リレーショナル）リンク機能のE2Eテスト\n+ *\n+ * 右ドレワーの「Add Relation」から待機モードに入り、次に追加したアノテーションと\n+ * 自動的にリンクされる（`registRelationalByAdd`、DocumentTabView.vue）挙動を検証する\n+ */\n+\n+test('2つのアノテーション間に関係性を作成・削除できる', async ({ page }) => {\n+  await openDemoDocument(page);\n+  const canvas = stageCanvas(page);\n+\n+  // 1つ目のアノテーション（基準側）を作成して選択する\n+  await toolButton(page, 'annotation-box').click();\n+  const first = await dragDrawAt(page, canvas, 0.85, 0.85, 60, 40);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(first.centerX, first.centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+\n+  // 関係性登録の待機を開始する\n+  await page.getByRole('button', { name: 'リンクを追加' }).click();\n+\n+  // 2つ目のアノテーション（対象側）を離れた位置に作成する。待機中に追加されるため自動的にリンクされる\n+  await toolButton(page, 'annotation-circle').click();\n+  await dragDrawAt(page, canvas, 0.4, 0.85, 60, 40);\n+\n+  // 基準側を再選択し、関係性が1件登録されていることを確認する\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(first.centerX, first.centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+\n+  const relationRows = page.locator('.relation-list .relation-row');\n+  await expect(relationRows).toHaveCount(1);\n+\n+  // 関係性を削除する\n+  await relationRows.first().getByRole('button').click();\n+  await expect(page.locator('.relation-list .relation-row')).toHaveCount(0);\n+  await expect(page.getByText('リンクはありません')).toBeVisible();\n+});\ndiff --git a/package.json b/package.json\nindex 5d63bfc..df45210 100644\n--- a/package.json\n+++ b/package.json\n@@ -9,8 +9,10 @@\n   \"scripts\": {\n     \"lint\": \"eslint -c ./eslint.config.js \\\"./src*/**/*.{ts,js,cjs,mjs,vue}\\\"\",\n     \"format\": \"prettier --write \\\"**/*.{js,ts,vue,css,scss,html,md,json}\\\" --ignore-path .gitignore\",\n-    \"test\": \"bun test\",\n-    \"bun:test\": \"bun test\",\n+    \"test\": \"bun test src\",\n+    \"bun:test\": \"bun test src\",\n+    \"test:e2e\": \"playwright test\",\n+    \"test:e2e:ui\": \"playwright test --ui\",\n     \"dev\": \"quasar dev -m pwa\",\n     \"build\": \"quasar build -m pwa\",\n     \"postinstall\": \"quasar prepare\"\n@@ -39,6 +41,7 @@\n   \"devDependencies\": {\n     \"@eslint/js\": \"^9.39.4\",\n     \"@intlify/unplugin-vue-i18n\": \"^11.0.0\",\n+    \"@playwright/test\": \"^1.61.1\",\n     \"@quasar/app-vite\": \"^2.5.1\",\n     \"@types/bun\": \"^1.3.14\",\n     \"@types/jsdom\": \"^28.0.3\",\ndiff --git a/playwright.config.ts b/playwright.config.ts\nnew file mode 100644\nindex 0000000..d3184e7\n--- /dev/null\n+++ b/playwright.config.ts\n@@ -0,0 +1,55 @@\n+import { defineConfig, devices } from '@playwright/test';\n+\n+/**\n+ * Playwright E2E テスト設定\n+ *\n+ * アノテーション描画やドキュメント操作など、実ブラウザでの操作を伴う機能を検証する。\n+ * webServer には `bun run dev`（Quasar dev server, pwa モード）を利用し、\n+ * 環境変数 PW_TEST を通じて devServer の自動ブラウザオープンを抑止する。\n+ */\n+export default defineConfig({\n+  testDir: './e2e',\n+  fullyParallel: true,\n+  forbidOnly: !!process.env.CI,\n+  retries: process.env.CI ? 2 : 0,\n+  ...(process.env.CI ? { workers: 2 } : {}),\n+  reporter: process.env.CI\n+    ? [\n+        ['list'],\n+        ['html', { open: 'never', outputFolder: 'playwright-report' }],\n+        ['json', { outputFile: 'playwright-report/results.json' }],\n+        ['github'],\n+      ]\n+    : [['list'], ['html', { open: 'never' }]],\n+  use: {\n+    // quasar.config.tsのvueRouterBaseは本番/開発を問わず常に'/RelationalDocuments/'固定\n+    // （NODE_ENV分岐があるのはpublicPathのみ）のため、dev serverもこのパス配下で動作する\n+    baseURL: 'http://localhost:9200/RelationalDocuments/',\n+    trace: 'on-first-retry',\n+    screenshot: 'only-on-failure',\n+  },\n+\n+  projects: [\n+    {\n+      name: 'chromium',\n+      use: {\n+        ...devices['Desktop Chrome'],\n+        // GPU/DRMデバイスの無いコンテナ環境（CI含む）でGPUプロセスが繰り返しクラッシュし\n+        // ブラウザ全体が使用不能になるのを防ぐため、GPUを無効化してソフトウェア描画で動かす\n+        // （ソフトウェアラスタライザ自体は無効化しない。両方無効化すると描画手段自体が無くなりクラッシュする）。\n+        // /dev/shmが小さいコンテナでレンダラーがクラッシュするのを避けるため、共有メモリ使用も無効化する\n+        launchOptions: {\n+          args: ['--disable-gpu', '--disable-dev-shm-usage'],\n+        },\n+      },\n+    },\n+  ],\n+\n+  webServer: {\n+    command: 'bun run dev',\n+    url: 'http://localhost:9200/RelationalDocuments/',\n+    reuseExistingServer: !process.env.CI,\n+    timeout: 120_000,\n+    env: { PW_TEST: '1' },\n+  },\n+});\ndiff --git a/quasar.config.ts b/quasar.config.ts\nindex 7f0b035..9c083c3 100644\n--- a/quasar.config.ts\n+++ b/quasar.config.ts\n@@ -98,7 +98,7 @@ export default defineConfig((ctx) => {\n     // Full list of options: https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#devserver\n     devServer: {\n       // https: true,\n-      open: true, // opens browser window automatically\n+      open: !process.env.PW_TEST, // Playwright実行��（PW_TEST設定時）はブラウザの自動起動を抑止する\n     },\n \n     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework\ndiff --git a/src/pages/EditorPage.vue b/src/pages/EditorPage.vue\nindex 7eb2abb..65db93f 100644\n--- a/src/pages/EditorPage.vue\n+++ b/src/pages/EditorPage.vue\n@@ -4,6 +4,7 @@\n       <q-btn\n         v-for=\"tool in editorStore.mainTools\"\n         :key=\"tool.id\"\n+        :data-testid=\"`tool-${tool.id}`\"\n         :flat=\"!tool.isActive()\"\n         :outline=\"tool.isActive()\"\n         :disable=\"tool.isDisable?.() ?? false\"\n@@ -22,6 +23,7 @@\n             <q-btn\n               v-for=\"subtool in editorStore.subTools\"\n               :key=\"subtool.id\"\n+              :data-testid=\"`subtool-${subtool.id}`\"\n               :flat=\"!subtool.isActive()\"\n               :outline=\"subtool.isActive()\"\n               :disable=\"subtool.isDisable?.() ?? false\"\ndiff --git a/src/repositories/container/cache.ts b/src/repositories/container/cache.ts\nindex f39f84b..d4eddbb 100644\n--- a/src/repositories/container/cache.ts\n+++ b/src/repositories/container/cache.ts\n@@ -9,7 +9,7 @@ import { ContainerID } from 'src/models/container';\n import { ContainerSkel } from 'src/models/container';\n import * as db from '../inMemory/IndexedDB';\n import type { Result } from 'src/models/error/result';\n-import { Success } from 'src/models/error/result';\n+import { Failure, NotFoundError, Success } from 'src/models/error/result';\n import { DocumentSource } from 'src/models/document/common';\n import { fromEntries } from 'src/utils/obj/obj';\n import z from 'zod';\n@@ -112,10 +112,19 @@ export async function deleteFile(c: Container, element: ContainerElement): Promi\n \n /**\n  * ファイルの実態を読み込む\n+ *\n+ * 未作成のファイル（関係性ファイル等、初回読み込み時にまだ存在しない場合がある）を\n+ * 呼び出し側が判別できるよう、キー自体が存在しない場合は`NotFoundError`を返す\n+ * （local/box側の「ファイル不存在」ハンドリングと挙動を揃えるため）\n  */\n export async function loadSrcData(cId: ContainerID, path: string): Promise<Result<DocumentSource>> {\n   const docKey = getDocKey(cId, path);\n-  return db.getValue(SOURCE_STORE_NAME, DocumentSource, docKey);\n+  const res = await db.getValue(SOURCE_STORE_NAME, DocumentSource.optional(), docKey);\n+  if (!res.ok) return res;\n+  if (res.value === undefined) {\n+    return Failure(new NotFoundError(`File not found in cache (path: ${path})`));\n+  }\n+  return Success(res.value);\n }\n \n /**\ndiff --git a/src/repositories/inMemory/IndexedDB.ts b/src/repositories/inMemory/IndexedDB.ts\nindex a4446c7..23ed6ce 100644\n--- a/src/repositories/inMemory/IndexedDB.ts\n+++ b/src/repositories/inMemory/IndexedDB.ts\n@@ -17,6 +17,28 @@ let currentVersion = -1;\n let db: IDBDatabase | null = null;\n const isInitialized = ref(false);\n \n+// 複数箇所から同時に新規ストア作成が要求されると、それぞれが独立にバージョンを上げて\n+// indexedDB.open()を呼び出してしまい、バージョン競合（onblocked）や読み取り失敗を\n+// 引き起こす。このキューで初期化処理を直列化し、常に1件ずつ処理されるようにする\n+let initQueue: Promise<void> = Promise.resolve();\n+\n+/**\n+ * 指定したストアが利用可能な状態であることを保証する\n+ *\n+ * 呼び出しが重なっても直列に処理されるため、DBバージョンの競合が発生しない\n+ */\n+function ensureStoreReady(storeName: string): Promise<Result<void>> {\n+  const task = initQueue.then(() =>\n+    isNeedInitialize(storeName) ? initialize(storeName) : Promise.resolve(Success()),\n+  );\n+  // キュー自体は個々の処理の成否に関わらず、次の要求へ進められるようにしておく\n+  initQueue = task.then(\n+    () => undefined,\n+    () => undefined,\n+  );\n+  return task;\n+}\n+\n /**\n  * IndexedDB の初期化\n  */\n@@ -98,10 +120,8 @@ export async function getValue<T extends z.ZodType>(\n   targetZodType: T,\n   key?: string,\n ): Promise<Result<z.infer<T>>> {\n-  if (isNeedInitialize(storeName)) {\n-    const initRes = await initialize(storeName);\n-    if (!initRes.ok) return initRes;\n-  }\n+  const initRes = await ensureStoreReady(storeName);\n+  if (!initRes.ok) return initRes;\n \n   const transaction = db!.transaction([storeName], 'readonly');\n   const store = transaction.objectStore(storeName);\n@@ -130,10 +150,8 @@ export async function getValue<T extends z.ZodType>(\n  * ストアに値を登録する\n  */\n export async function setValue<T>(storeName: string, key: string, value: T): Promise<Result<void>> {\n-  if (isNeedInitialize(storeName)) {\n-    const initRes = await initialize(storeName);\n-    if (!initRes.ok) return initRes;\n-  }\n+  const initRes = await ensureStoreReady(storeName);\n+  if (!initRes.ok) return initRes;\n \n   return new Promise((resolve) => {\n     const transaction = db!.transaction([storeName], 'readwrite');\n@@ -156,10 +174,8 @@ export async function setValue<T>(storeName: string, key: string, value: T): Pro\n  * 登録済みの値を削除する\n  */\n export async function deleteValue(storeName: string, key: string): Promise<Result<void>> {\n-  if (isNeedInitialize(storeName)) {\n-    const initRes = await initialize(storeName);\n-    if (!initRes.ok) return initRes;\n-  }\n+  const initRes = await ensureStoreReady(storeName);\n+  if (!initRes.ok) return initRes;\n \n   return new Promise((resolve) => {\n     const transaction = db!.transaction([storeName], 'readwrite');",
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results",
+        "repeatEach": 1,
+        "retries": 2,
+        "metadata": {
+          "ci": {
+            "commitHref": "https://github.com/JRC-Tojo/RelationalDocuments/commit/c9c49d541cc4fb9f0bda8ffed9da9c0b0a5386be",
+            "commitHash": "c9c49d541cc4fb9f0bda8ffed9da9c0b0a5386be",
+            "prHref": "https://github.com/JRC-Tojo/RelationalDocuments/pull/40",
+            "prTitle": "フロントエンドテストを作成",
+            "prBaseHash": "5439b0ae8dc8071bbc8374852a94c3a3a8b9e884",
+            "buildHref": "https://github.com/JRC-Tojo/RelationalDocuments/actions/runs/29834059349"
+          },
+          "gitCommit": {
+            "shortHash": "c9c49d5",
+            "hash": "c9c49d541cc4fb9f0bda8ffed9da9c0b0a5386be",
+            "subject": "Merge 700dad59a814174cd2bcca77935151ef2a376260 into 5439b0ae8dc8071bbc8374852a94c3a3a8b9e884",
+            "body": "Merge 700dad59a814174cd2bcca77935151ef2a376260 into 5439b0ae8dc8071bbc8374852a94c3a3a8b9e884\n",
+            "author": {
+              "name": "JRC-Tojo",
+              "email": "jrc.tojo@gmail.com",
+              "time": 1784640084000
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "time": 1784640084000
+            },
+            "branch": "HEAD"
+          },
+          "gitDiff": "diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml\nindex 42b9677..77f7f2b 100644\n--- a/.github/workflows/deploy.yml\n+++ b/.github/workflows/deploy.yml\n@@ -7,11 +7,11 @@ on:\n   # Allows you to run this workflow manually from the Actions tab\n   workflow_dispatch:\n \n-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages\n+# gh-pagesブランチへcommitを積むため、GITHUB_TOKENにcontents書き込み権限が必要\n+# （PRごとのE2Eレポート公開（frontend.yml）と同じブランチ・同じ公開サイトを共有するため、\n+#  GitHub Actions公式のPagesデプロイ方式ではなく、gh-pagesブランチへの直接publishに統一している）\n permissions:\n-  contents: read\n-  pages: write\n-  id-token: write\n+  contents: write\n \n # Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.\n # However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.\n@@ -39,22 +39,10 @@ jobs:\n       - name: Build\n         run: bun run build\n \n-      - name: Upload artifact\n-        uses: actions/upload-pages-artifact@v3\n+      - name: Deploy to gh-pages branch\n+        uses: peaceiris/actions-gh-pages@v4\n         with:\n-          path: \"dist/pwa\"\n-\n-  deploy:\n-    environment:\n-      name: github-pages\n-      url: ${{ steps.deployment.outputs.page_url }}\n-\n-    runs-on: ubuntu-latest\n-    needs: build\n-    steps:\n-      - name: Deploy to GitHub Pages\n-        id: deployment\n-        uses: actions/deploy-pages@v4\n-    \n-    outputs:\n-      page_url: ${{ steps.deployment.outputs.page_url }}\n\\ No newline at end of file\n+          github_token: ${{ secrets.GITHUB_TOKEN }}\n+          publish_dir: dist/pwa\n+          # reports/配下（PRごとのPlaywrightレポート、frontend.ymlが管理）を消さないよう保持する\n+          keep_files: true\ndiff --git a/.github/workflows/frontend.yml b/.github/workflows/frontend.yml\nindex d363098..f84111b 100644\n--- a/.github/workflows/frontend.yml\n+++ b/.github/workflows/frontend.yml\n@@ -75,7 +75,7 @@ jobs:\n         run: bun install && bun run quasar prepare\n \n       - name: Run tests with coverage\n-        run: bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage\n+        run: bun test src --coverage --coverage-reporter=lcov --coverage-dir=coverage\n \n       - name: Coverage Report\n         uses: 70-10/bun-coverage-report-action@v1.0.3\n@@ -104,6 +104,62 @@ jobs:\n       - name: Type check\n         run: bunx vue-tsc --noEmit\n \n+  e2e:\n+    name: E2E Tests (Playwright)\n+    runs-on: ubuntu-latest\n+    needs: lint\n+    permissions:\n+      contents: write\n+      pull-requests: write\n+    steps:\n+      - uses: actions/checkout@v6\n+\n+      - name: Setup Node.js\n+        uses: actions/setup-node@v6\n+        with:\n+          node-version: '22'\n+\n+      - name: Setup Bun\n+        uses: oven-sh/setup-bun@v2\n+\n+      - name: Install dependencies\n+        run: bun install && bun run quasar prepare\n+\n+      - name: Install Playwright browsers\n+        run: bunx playwright install --with-deps chromium\n+\n+      - name: Run Playwright tests\n+        id: playwright\n+        run: bunx playwright test\n+        continue-on-error: true\n+\n+      - name: Publish HTML report to gh-pages\n+        if: always()\n+        uses: peaceiris/actions-gh-pages@v4\n+        with:\n+          github_token: ${{ secrets.GITHUB_TOKEN }}\n+          publish_dir: playwright-report\n+          destination_dir: reports/pr-${{ github.event.pull_request.number }}\n+          keep_files: true\n+\n+      - name: Comment test summary on PR\n+        if: always()\n+        uses: daun/playwright-report-summary@v3\n+        with:\n+          report-file: playwright-report/results.json\n+\n+      - name: Comment full report link on PR\n+        if: always()\n+        uses: peter-evans/create-or-update-comment@v4\n+        with:\n+          issue-number: ${{ github.event.pull_request.number }}\n+          body: |\n+            📊 Playwrightフルレポート（スクリーンショット・ト��ース閲覧可）: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/pr-${{ github.event.pull_request.number }}/\n+\n+      - name: Fail job if Playwright tests failed\n+        if: steps.playwright.outcome == 'failure'\n+        run: exit 1\n+\n   # セキュリティスキャンは現状GitHub Botに一任\n   # security-scan:\n   #   name: Security Scan\ndiff --git a/.github/workflows/prReportCleanup.yml b/.github/workflows/prReportCleanup.yml\nnew file mode 100644\nindex 0000000..419c549\n--- /dev/null\n+++ b/.github/workflows/prReportCleanup.yml\n@@ -0,0 +1,32 @@\n+name: PR Report Cleanup\n+\n+# frontend.ymlのe2eジョブがgh-pagesブランチのreports/pr-<番号>/配下に公開する\n+# Playwrightレポートは、PRのクローズ（マージ含む）時に不要になるため削除する\n+on:\n+  pull_request:\n+    types: [closed]\n+\n+permissions:\n+  contents: write\n+\n+jobs:\n+  cleanup:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - name: Checkout gh-pages branch\n+        uses: actions/checkout@v6\n+        with:\n+          ref: gh-pages\n+\n+      - name: Remove this PR's report directory\n+        run: |\n+          TARGET=\"reports/pr-${{ github.event.pull_request.number }}\"\n+          if [ -d \"$TARGET\" ]; then\n+            git rm -r --quiet \"$TARGET\"\n+            git config user.name \"github-actions[bot]\"\n+            git config user.email \"github-actions[bot]@users.noreply.github.com\"\n+            git commit -m \"Remove Playwright report for PR #${{ github.event.pull_request.number }}\"\n+            git push\n+          else\n+            echo \"No report directory found for this PR ($TARGET); nothing to do.\"\n+          fi\ndiff --git a/.gitignore b/.gitignore\nindex e7b2d9b..745db8b 100644\n--- a/.gitignore\n+++ b/.gitignore\n@@ -13,6 +13,10 @@ node_modules\n /dist\n /quasar.config.*.temporary.compiled*\n \n+# Playwright related directories\n+/playwright-report\n+/test-results\n+\n # Cordova related directories and files\n /src-cordova/node_modules\n /src-cordova/platforms\ndiff --git a/bun.lock b/bun.lock\nindex 6530547..b422c73 100644\n--- a/bun.lock\n+++ b/bun.lock\n@@ -28,6 +28,7 @@\n       \"devDependencies\": {\n         \"@eslint/js\": \"^9.39.4\",\n         \"@intlify/unplugin-vue-i18n\": \"^11.0.0\",\n+        \"@playwright/test\": \"^1.61.1\",\n         \"@quasar/app-vite\": \"^2.5.1\",\n         \"@types/bun\": \"^1.3.14\",\n         \"@types/jsdom\": \"^28.0.3\",\n@@ -510,6 +511,8 @@\n \n     \"@pkgr/core\": [\"@pkgr/core@0.3.6\", \"\", {}, \"sha512-SEeaJLb3qBNF/OaXnaR1NmmBbFYk1zC0ZH/52fATcRPLFg/p791YrcyFFy44Bo9sLaGuSuLp5Q6axbb/O+v/RA==\"],\n \n+    \"@playwright/test\": [\"@playwright/test@1.61.1\", \"\", { \"dependencies\": { \"playwright\": \"1.61.1\" }, \"bin\": { \"playwright\": \"cli.js\" } }, \"sha512-8nKv6+0RJSL9FE4jYOEGXnPeM/Hg12qZpmqzZjRh3qM0Y7c3z1mrOTfFLids72RDQYVh9WpLEfR5WdpNX4fkig==\"],\n+\n     \"@protobufjs/aspromise\": [\"@protobufjs/aspromise@1.1.2\", \"\", {}, \"sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==\"],\n \n     \"@protobufjs/base64\": [\"@protobufjs/base64@1.1.2\", \"\", {}, \"sha512-AZkcAA5vnN/v4PDqKyMR5lx7hZttPDgClv83E//FMNhR2TMcLUhfRUBHCmSl0oi9zMgDDqRUJkSxO3wm85+XLg==\"],\n@@ -1522,6 +1525,10 @@\n \n     \"platform\": [\"platform@1.3.6\", \"\", {}, \"sha512-fnWVljUchTro6RiCFvCXBbNhJc2NijN7oIQxbwsyL0buWJPG85v81ehlHI9fXrJsMNgTofEoWIQeClKpgxFLrg==\"],\n \n+    \"playwright\": [\"playwright@1.61.1\", \"\", { \"dependencies\": { \"playwright-core\": \"1.61.1\" }, \"optionalDependencies\": { \"fsevents\": \"2.3.2\" }, \"bin\": { \"playwright\": \"cli.js\" } }, \"sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==\"],\n+\n+    \"playwright-core\": [\"playwright-core@1.61.1\", \"\", { \"bin\": { \"playwright-core\": \"cli.js\" } }, \"sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==\"],\n+\n     \"possible-typed-array-names\": [\"possible-typed-array-names@1.1.0\", \"\", {}, \"sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==\"],\n \n     \"postcss\": [\"postcss@8.5.19\", \"\", { \"dependencies\": { \"nanoid\": \"^3.3.12\", \"picocolors\": \"^1.1.1\", \"source-map-js\": \"^1.2.1\" } }, \"sha512-Mz8SaolMd8nB+G13WkORcxQKHZ/NE4xXevtkJHVuG+guo9/wYKlIMTKAqGdEmYOXR2ijPjTYNHssizdaVSUNdQ==\"],\n@@ -2142,6 +2149,8 @@\n \n     \"pkijs/tslib\": [\"tslib@2.8.1\", \"\", {}, \"sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==\"],\n \n+    \"playwright/fsevents\": [\"fsevents@2.3.2\", \"\", { \"os\": \"darwin\" }, \"sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==\"],\n+\n     \"ppu-ocv/@napi-rs/canvas\": [\"@napi-rs/canvas@1.0.2\", \"\", { \"optionalDependencies\": { \"@napi-rs/canvas-android-arm64\": \"1.0.2\", \"@napi-rs/canvas-darwin-arm64\": \"1.0.2\", \"@napi-rs/canvas-darwin-x64\": \"1.0.2\", \"@napi-rs/canvas-linux-arm-gnueabihf\": \"1.0.2\", \"@napi-rs/canvas-linux-arm64-gnu\": \"1.0.2\", \"@napi-rs/canvas-linux-arm64-musl\": \"1.0.2\", \"@napi-rs/canvas-linux-riscv64-gnu\": \"1.0.2\", \"@napi-rs/canvas-linux-x64-gnu\": \"1.0.2\", \"@napi-rs/canvas-linux-x64-musl\": \"1.0.2\", \"@napi-rs/canvas-win32-arm64-msvc\": \"1.0.2\", \"@napi-rs/canvas-win32-x64-msvc\": \"1.0.2\" } }, \"sha512-EYEqlMYaCbpZDz+IgDH5xp9MTd3ui4dmGqbQYryhMLnSRxrhHKq5KQWHHKxFUcEP4Hp8/BWgvqXocX4j7iSbOQ==\"],\n \n     \"pvtsutils/tslib\": [\"tslib@2.8.1\", \"\", {}, \"sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==\"],\ndiff --git a/e2e/annotationCreate.spec.ts b/e2e/annotationCreate.spec.ts\nnew file mode 100644\nindex 0000000..3e93f5d\n--- /dev/null\n+++ b/e2e/annotationCreate.spec.ts\n@@ -0,0 +1,57 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーション作成機能のE2Eテスト\n+ *\n+ * ドラッグ型（矩形）・クリック頂点型（ポリゴン）それぞれの作成を検証する。\n+ * Konvaのシェイプ自体はDOM要素化されないため、作成後にselect-modeへ切り替えて\n+ * 同じ座標をクリックし、右ドレワーのプロパティパネルで種別を確認する\n+ */\n+\n+test.beforeEach(async ({ page }) => {\n+  await openDemoDocument(page);\n+});\n+\n+test('矩形アノテーションをドラッグで作成できる', async ({ page }) => {\n+  const canvas = stageCanvas(page);\n+\n+  await toolButton(page, 'annotation-box').click();\n+  const { centerX, centerY } = await dragDrawAt(page, canvas, 0.85, 0.85);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+});\n+\n+test('ポリゴンアノテーションをクリックで作成できる', async ({ page }) => {\n+  const canvas = stageCanvas(page);\n+  const box = await canvas.boundingBox();\n+  if (!box) throw new Error('ステージのcanvasが見つかりません');\n+\n+  const p1 = { x: box.x + box.width * 0.8, y: box.y + box.height * 0.8 };\n+  const p2 = { x: box.x + box.width * 0.9, y: box.y + box.height * 0.8 };\n+  const p3 = { x: box.x + box.width * 0.85, y: box.y + box.height * 0.9 };\n+\n+  await toolButton(page, 'annotation-polygon').click();\n+  await page.mouse.click(p1.x, p1.y);\n+  await page.mouse.click(p2.x, p2.y);\n+  await page.mouse.dblclick(p3.x, p3.y);\n+\n+  const centroid = {\n+    x: (p1.x + p2.x + p3.x) / 3,\n+    y: (p1.y + p2.y + p3.y) / 3,\n+  };\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centroid.x, centroid.y);\n+\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('polygon');\n+});\ndiff --git a/e2e/annotationDelete.spec.ts b/e2e/annotationDelete.spec.ts\nnew file mode 100644\nindex 0000000..bb92cc0\n--- /dev/null\n+++ b/e2e/annotationDelete.spec.ts\n@@ -0,0 +1,46 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーション削除機能のE2Eテスト\n+ *\n+ * 選択中のアノテーションはDeleteキー（グローバルのkeydownリスナー）で削除できる。\n+ * 削除後は右ドレワーが「未選択」表示に戻ることを確認する\n+ */\n+\n+test.beforeEach(async ({ page }) => {\n+  await openDemoDocument(page);\n+});\n+\n+test('選択したアノテーションをDeleteキーで削除できる', async ({ page }) => {\n+  await toolButton(page, 'annotation-box').click();\n+  const { centerX, centerY } = await dragDrawAt(page, stageCanvas(page), 0.85, 0.85);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+\n+  await page.keyboard.press('Delete');\n+\n+  await expect(page.locator('.drawer-empty')).toBeVisible();\n+  await expect(page.locator('.annotation-properties')).toHaveCount(0);\n+});\n+\n+test('右ドレワーの削除ボタンでアノテーションを削除できる', async ({ page }) => {\n+  await toolButton(page, 'annotation-circle').click();\n+  const { centerX, centerY } = await dragDrawAt(page, stageCanvas(page), 0.85, 0.6);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('circle');\n+\n+  await page.getByRole('button', { name: '削除' }).click();\n+\n+  await expect(page.locator('.drawer-empty')).toBeVisible();\n+});\ndiff --git a/e2e/annotationEdit.spec.ts b/e2e/annotationEdit.spec.ts\nnew file mode 100644\nindex 0000000..9c3d909\n--- /dev/null\n+++ b/e2e/annotationEdit.spec.ts\n@@ -0,0 +1,69 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーション編集機能（スタイル変更・位置サイズ変更）のE2Eテスト\n+ */\n+\n+test.beforeEach(async ({ page }) => {\n+  await openDemoDocument(page);\n+\n+  await toolButton(page, 'annotation-box').click();\n+  const { centerX, centerY } = await dragDrawAt(page, stageCanvas(page), 0.8, 0.8, 80, 60);\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+});\n+\n+test('位置・サイズパネルで幅を変更できる', async ({ page }) => {\n+  const positionSizeBtn = page.locator('.style-icon-btn', {\n+    has: page.locator('i:text-is(\"crop_free\")'),\n+  });\n+  await positionSizeBtn.click();\n+\n+  const widthInput = page\n+    .locator('.position-size-row')\n+    .nth(1)\n+    .locator('.position-size-input input')\n+    .nth(0);\n+  await expect(widthInput).toBeVisible();\n+\n+  const originalWidth = Number(await widthInput.inputValue());\n+  const newWidth = originalWidth + 50;\n+\n+  await widthInput.fill(String(newWidth));\n+  await widthInput.blur();\n+\n+  // メニューを閉じて開き直し、変更が保持されていることを確認する\n+  await page.keyboard.press('Escape');\n+  await positionSizeBtn.click();\n+\n+  const widthInputAfterReopen = page\n+    .locator('.position-size-row')\n+    .nth(1)\n+    .locator('.position-size-input input')\n+    .nth(0);\n+  await expect(widthInputAfterReopen).toHaveValue(String(newWidth));\n+});\n+\n+test('スタイルパネルで線幅を変更できる', async ({ page }) => {\n+  const strokeWidthBtn = page.locator('.style-value-btn').nth(0);\n+  const before = await strokeWidthBtn.locator('.style-value-text').innerText();\n+\n+  await strokeWidthBtn.click();\n+  const slider = page.locator('.style-value-menu [role=\"slider\"]').first();\n+  await slider.focus();\n+  for (let i = 0; i < 5; i++) {\n+    await slider.press('ArrowRight');\n+  }\n+  await page.keyboard.press('Escape');\n+\n+  const after = await strokeWidthBtn.locator('.style-value-text').innerText();\n+  expect(after).not.toBe(before);\n+});\ndiff --git a/e2e/annotationPersistence.spec.ts b/e2e/annotationPersistence.spec.ts\nnew file mode 100644\nindex 0000000..4c562cc\n--- /dev/null\n+++ b/e2e/annotationPersistence.spec.ts\n@@ -0,0 +1,43 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+  DEMO_FIRST_FILE_NAME,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーションの永続化（IndexedDBへの保存）を確認するE2Eテスト\n+ *\n+ * 作成したアノテーションが、タブを閉じて同じ文書を開き直した後も残っていることを検証する\n+ */\n+\n+test('作成したアノテーションはタブを閉じて再度開いても保持される', async ({ page }) => {\n+  await openDemoDocument(page);\n+\n+  await toolButton(page, 'annotation-box').click();\n+  const { centerX, centerY } = await dragDrawAt(page, stageCanvas(page), 0.85, 0.85);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+\n+  // 保存を待ってからタブを閉じる（自動保存はデバウンスされるため）\n+  await page.waitForTimeout(1500);\n+\n+  const tabItem = page.locator('.tab-item', { hasText: DEMO_FIRST_FILE_NAME });\n+  await tabItem.hover();\n+  await tabItem.locator('.tab-close-btn').click();\n+  await expect(tabItem).toHaveCount(0);\n+\n+  const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n+  await fileEntry.click();\n+  await expect(stageCanvas(page)).toBeVisible();\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(centerX, centerY);\n+\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+});\ndiff --git a/e2e/fixtures/demoContainer.ts b/e2e/fixtures/demoContainer.ts\nnew file mode 100644\nindex 0000000..db38c97\n--- /dev/null\n+++ b/e2e/fixtures/demoContainer.ts\n@@ -0,0 +1,97 @@\n+import { test as base, expect, type Page, type Locator } from '@playwright/test';\n+\n+/**\n+ * デモコンテナ（`cache`型・IndexedDBのみで完結する）を作成し、最初のPDF文書を開いた状態を\n+ * 提供するPlaywrightフィクスチャ\n+ *\n+ * 実際のローカルフォルダ・Boxストレージへは一切アクセスせず、アプリに既存の\n+ * 「デモデータ作成」機能（`src/utils/appInitializer.ts`のcreateDemoData）をそのまま\n+ * モックデータ生成として利用する。各テストはブラウザコンテキストが独立しており、\n+ * IndexedDBも都度まっさらな状態から始まる\n+ */\n+\n+/** appInitializer.tsのsampleDocsで最初に生成されるファイル名 */\n+export const DEMO_FIRST_FILE_NAME = 'システム要件定義書.pdf';\n+\n+/** Konvaステージのcanvas要素（アノテーションレイヤー）を返す */\n+export function stageCanvas(page: Page): Locator {\n+  return page.locator('.annotation-layer-wrapper canvas').first();\n+}\n+\n+/** メインツールバー・サブツールバーのボタンをtool.idで特定する */\n+export function toolButton(page: Page, toolId: string): Locator {\n+  return page.getByTestId(`tool-${toolId}`);\n+}\n+\n+export function subToolButton(page: Page, toolId: string): Locator {\n+  return page.getByTestId(`subtool-${toolId}`);\n+}\n+\n+/**\n+ * デモコンテナを作成し、最初のPDF文書をエディタで開く\n+ *\n+ * 前提: ブラウザコンテキストのIndexedDBが空（＝コンテナが1つも読み込まれていない）状態。\n+ * その場合のみExplorerViewに「Create Demo Data」ボタンが表示される\n+ */\n+export async function openDemoDocument(page: Page): Promise<void> {\n+  await page.goto('/');\n+\n+  // 開発サーバー（Vite）はコールドスタート時、初めて触れるコード経路ごとに依存関係の\n+  // 事前バンドルをやり直し、その都度ページを自動リロードすることがある（複数回起こりうる）。\n+  // これが収まりきる前に操作すると、途中の非同期処理（デモデータ作成等）が中断されてしまう\n+  // ため、ネットワークが落ち着くまで待つ（devServerのHMR用WebSocketは待機の妨げにならない）\n+  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => undefined);\n+\n+  // AppSettings.localeの既定値は'ja-JP'（src/models/settings.ts）のため、\n+  // フレッシュなIndexedDBでは���に日本語UIで起動する\n+  await page.getByRole('button', { name: 'デモデータを作成' }).click();\n+\n+  // コンテナ行（折りたたみ状態）をクリックして展開する\n+  // デモデータ作成は6文書分のフェッチ・パック・保存を伴うため、通常より長めに待つ\n+  const containerRow = page.locator('.exp-container-row', { hasText: 'DEMO CONTAINER' });\n+  await expect(containerRow).toBeVisible({ timeout: 30000 });\n+  await containerRow.click();\n+\n+  const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n+  await expect(fileEntry).toBeVisible();\n+  await fileEntry.click();\n+\n+  await expect(stageCanvas(page)).toBeVisible();\n+\n+  // 右ドレワーはデフォルトで閉じているため、以降の検証のために開いておく\n+  await toolButton(page, 'toggle-right-drawer').click();\n+}\n+\n+/**\n+ * ステージのCanvas上で、境界ボックスに対する割合位置(xFrac/yFrac)から始まる矩形をドラッグ操作で描く\n+ *\n+ * デモデータ側のランダム生成アノテーション（ドキュメント座標でx<500, y<600の範囲にのみ存在）と\n+ * 衝突しないよう、テストからは常にステージ右下寄りの領域（xFrac/yFracとも0.8以上）を使う\n+ */\n+export async function dragDrawAt(\n+  page: Page,\n+  canvas: Locator,\n+  xFrac: number,\n+  yFrac: number,\n+  widthPx = 60,\n+  heightPx = 40,\n+): Promise<{ centerX: number; centerY: number }> {\n+  const box = await canvas.boundingBox();\n+  if (!box) throw new Error('ステージのcanvasが見つかりません');\n+\n+  const startX = box.x + box.width * xFrac;\n+  const startY = box.y + box.height * yFrac;\n+  const endX = Math.min(startX + widthPx, box.x + box.width - 1);\n+  const endY = Math.min(startY + heightPx, box.y + box.height - 1);\n+\n+  await page.mouse.move(startX, startY);\n+  await page.mouse.down();\n+  await page.mouse.move((startX + endX) / 2, (startY + endY) / 2);\n+  await page.mouse.move(endX, endY);\n+  await page.mouse.up();\n+\n+  return { centerX: (startX + endX) / 2, centerY: (startY + endY) / 2 };\n+}\n+\n+export const test = base;\n+export { expect };\ndiff --git a/e2e/relationalLink.spec.ts b/e2e/relationalLink.spec.ts\nnew file mode 100644\nindex 0000000..888c95b\n--- /dev/null\n+++ b/e2e/relationalLink.spec.ts\n@@ -0,0 +1,48 @@\n+import {\n+  test,\n+  expect,\n+  openDemoDocument,\n+  stageCanvas,\n+  toolButton,\n+  dragDrawAt,\n+} from './fixtures/demoContainer';\n+\n+/**\n+ * アノテーション間の関係性（リレーショナル）リンク機能のE2Eテスト\n+ *\n+ * 右ドレワーの「Add Relation」から待機モードに入り、次に追加したアノテーションと\n+ * 自動的にリンクされる（`registRelationalByAdd`、DocumentTabView.vue）挙動を検証する\n+ */\n+\n+test('2つのアノテーション間に関係性を作成・削除できる', async ({ page }) => {\n+  await openDemoDocument(page);\n+  const canvas = stageCanvas(page);\n+\n+  // 1つ目のアノテーション（基準側）を作成して選択する\n+  await toolButton(page, 'annotation-box').click();\n+  const first = await dragDrawAt(page, canvas, 0.85, 0.85, 60, 40);\n+\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(first.centerX, first.centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+\n+  // 関係性登録の待機を開始する\n+  await page.getByRole('button', { name: 'リンクを追加' }).click();\n+\n+  // 2つ目のアノテーション（対象側）を離れた位置に作成する。待機中に追加されるため自動的にリンクされる\n+  await toolButton(page, 'annotation-circle').click();\n+  await dragDrawAt(page, canvas, 0.4, 0.85, 60, 40);\n+\n+  // 基準側を再選択し、関係性が1件登録されていることを確認する\n+  await toolButton(page, 'select-mode').click();\n+  await page.mouse.click(first.centerX, first.centerY);\n+  await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n+\n+  const relationRows = page.locator('.relation-list .relation-row');\n+  await expect(relationRows).toHaveCount(1);\n+\n+  // 関係性を削除する\n+  await relationRows.first().getByRole('button').click();\n+  await expect(page.locator('.relation-list .relation-row')).toHaveCount(0);\n+  await expect(page.getByText('リンクはありません')).toBeVisible();\n+});\ndiff --git a/package.json b/package.json\nindex 5d63bfc..df45210 100644\n--- a/package.json\n+++ b/package.json\n@@ -9,8 +9,10 @@\n   \"scripts\": {\n     \"lint\": \"eslint -c ./eslint.config.js \\\"./src*/**/*.{ts,js,cjs,mjs,vue}\\\"\",\n     \"format\": \"prettier --write \\\"**/*.{js,ts,vue,css,scss,html,md,json}\\\" --ignore-path .gitignore\",\n-    \"test\": \"bun test\",\n-    \"bun:test\": \"bun test\",\n+    \"test\": \"bun test src\",\n+    \"bun:test\": \"bun test src\",\n+    \"test:e2e\": \"playwright test\",\n+    \"test:e2e:ui\": \"playwright test --ui\",\n     \"dev\": \"quasar dev -m pwa\",\n     \"build\": \"quasar build -m pwa\",\n     \"postinstall\": \"quasar prepare\"\n@@ -39,6 +41,7 @@\n   \"devDependencies\": {\n     \"@eslint/js\": \"^9.39.4\",\n     \"@intlify/unplugin-vue-i18n\": \"^11.0.0\",\n+    \"@playwright/test\": \"^1.61.1\",\n     \"@quasar/app-vite\": \"^2.5.1\",\n     \"@types/bun\": \"^1.3.14\",\n     \"@types/jsdom\": \"^28.0.3\",\ndiff --git a/playwright.config.ts b/playwright.config.ts\nnew file mode 100644\nindex 0000000..d3184e7\n--- /dev/null\n+++ b/playwright.config.ts\n@@ -0,0 +1,55 @@\n+import { defineConfig, devices } from '@playwright/test';\n+\n+/**\n+ * Playwright E2E テスト設定\n+ *\n+ * アノテーション描画やドキュメント操作など、実ブラウザでの操作を伴う機能を検証する。\n+ * webServer には `bun run dev`（Quasar dev server, pwa モード）を利用し、\n+ * 環境変数 PW_TEST を通じて devServer の自動ブラウザオープンを抑止する。\n+ */\n+export default defineConfig({\n+  testDir: './e2e',\n+  fullyParallel: true,\n+  forbidOnly: !!process.env.CI,\n+  retries: process.env.CI ? 2 : 0,\n+  ...(process.env.CI ? { workers: 2 } : {}),\n+  reporter: process.env.CI\n+    ? [\n+        ['list'],\n+        ['html', { open: 'never', outputFolder: 'playwright-report' }],\n+        ['json', { outputFile: 'playwright-report/results.json' }],\n+        ['github'],\n+      ]\n+    : [['list'], ['html', { open: 'never' }]],\n+  use: {\n+    // quasar.config.tsのvueRouterBaseは本番/開発を問わず常に'/RelationalDocuments/'固定\n+    // （NODE_ENV分岐があるのはpublicPathのみ）のため、dev serverもこのパス配下で動作する\n+    baseURL: 'http://localhost:9200/RelationalDocuments/',\n+    trace: 'on-first-retry',\n+    screenshot: 'only-on-failure',\n+  },\n+\n+  projects: [\n+    {\n+      name: 'chromium',\n+      use: {\n+        ...devices['Desktop Chrome'],\n+        // GPU/DRMデバイスの無いコンテナ環境（CI含む）でGPUプロセスが繰り返しクラッシュし\n+        // ブラウザ全体が使用不能になるのを防ぐため、GPUを無効化してソフトウェア描画で動かす\n+        // （ソフトウェアラスタライザ自体は無効化しない。両方無効化すると描画手段自体が無くなりクラッシュする）。\n+        // /dev/shmが小さいコンテナでレンダラーがクラッシュするのを避けるため、共有メモリ使用も無効化する\n+        launchOptions: {\n+          args: ['--disable-gpu', '--disable-dev-shm-usage'],\n+        },\n+      },\n+    },\n+  ],\n+\n+  webServer: {\n+    command: 'bun run dev',\n+    url: 'http://localhost:9200/RelationalDocuments/',\n+    reuseExistingServer: !process.env.CI,\n+    timeout: 120_000,\n+    env: { PW_TEST: '1' },\n+  },\n+});\ndiff --git a/quasar.config.ts b/quasar.config.ts\nindex 7f0b035..9c083c3 100644\n--- a/quasar.config.ts\n+++ b/quasar.config.ts\n@@ -98,7 +98,7 @@ export default defineConfig((ctx) => {\n     // Full list of options: https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#devserver\n     devServer: {\n       // https: true,\n-      open: true, // opens browser window automatically\n+      open: !process.env.PW_TEST, // Playwright実行��（PW_TEST設定時）はブラウザの自動起動を抑止する\n     },\n \n     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework\ndiff --git a/src/pages/EditorPage.vue b/src/pages/EditorPage.vue\nindex 7eb2abb..65db93f 100644\n--- a/src/pages/EditorPage.vue\n+++ b/src/pages/EditorPage.vue\n@@ -4,6 +4,7 @@\n       <q-btn\n         v-for=\"tool in editorStore.mainTools\"\n         :key=\"tool.id\"\n+        :data-testid=\"`tool-${tool.id}`\"\n         :flat=\"!tool.isActive()\"\n         :outline=\"tool.isActive()\"\n         :disable=\"tool.isDisable?.() ?? false\"\n@@ -22,6 +23,7 @@\n             <q-btn\n               v-for=\"subtool in editorStore.subTools\"\n               :key=\"subtool.id\"\n+              :data-testid=\"`subtool-${subtool.id}`\"\n               :flat=\"!subtool.isActive()\"\n               :outline=\"subtool.isActive()\"\n               :disable=\"subtool.isDisable?.() ?? false\"\ndiff --git a/src/repositories/container/cache.ts b/src/repositories/container/cache.ts\nindex f39f84b..d4eddbb 100644\n--- a/src/repositories/container/cache.ts\n+++ b/src/repositories/container/cache.ts\n@@ -9,7 +9,7 @@ import { ContainerID } from 'src/models/container';\n import { ContainerSkel } from 'src/models/container';\n import * as db from '../inMemory/IndexedDB';\n import type { Result } from 'src/models/error/result';\n-import { Success } from 'src/models/error/result';\n+import { Failure, NotFoundError, Success } from 'src/models/error/result';\n import { DocumentSource } from 'src/models/document/common';\n import { fromEntries } from 'src/utils/obj/obj';\n import z from 'zod';\n@@ -112,10 +112,19 @@ export async function deleteFile(c: Container, element: ContainerElement): Promi\n \n /**\n  * ファイルの実態を読み込む\n+ *\n+ * 未作成のファイル（関係性ファイル等、初回読み込み時にまだ存在しない場合がある）を\n+ * 呼び出し側が判別できるよう、キー自体が存在しない場合は`NotFoundError`を返す\n+ * （local/box側の「ファイル不存在」ハンドリングと挙動を揃えるため）\n  */\n export async function loadSrcData(cId: ContainerID, path: string): Promise<Result<DocumentSource>> {\n   const docKey = getDocKey(cId, path);\n-  return db.getValue(SOURCE_STORE_NAME, DocumentSource, docKey);\n+  const res = await db.getValue(SOURCE_STORE_NAME, DocumentSource.optional(), docKey);\n+  if (!res.ok) return res;\n+  if (res.value === undefined) {\n+    return Failure(new NotFoundError(`File not found in cache (path: ${path})`));\n+  }\n+  return Success(res.value);\n }\n \n /**\ndiff --git a/src/repositories/inMemory/IndexedDB.ts b/src/repositories/inMemory/IndexedDB.ts\nindex a4446c7..23ed6ce 100644\n--- a/src/repositories/inMemory/IndexedDB.ts\n+++ b/src/repositories/inMemory/IndexedDB.ts\n@@ -17,6 +17,28 @@ let currentVersion = -1;\n let db: IDBDatabase | null = null;\n const isInitialized = ref(false);\n \n+// 複数箇所から同時に新規ストア作成が要求されると、それぞれが独立にバージョンを上げて\n+// indexedDB.open()を呼び出してしまい、バージョン競合（onblocked）や読み取り失敗を\n+// 引き起こす。このキューで初期化処理を直列化し、常に1件ずつ処理されるようにする\n+let initQueue: Promise<void> = Promise.resolve();\n+\n+/**\n+ * 指定したストアが利用可能な状態であることを保証する\n+ *\n+ * 呼び出しが重なっても直列に処理されるため、DBバージョンの競合が発生しない\n+ */\n+function ensureStoreReady(storeName: string): Promise<Result<void>> {\n+  const task = initQueue.then(() =>\n+    isNeedInitialize(storeName) ? initialize(storeName) : Promise.resolve(Success()),\n+  );\n+  // キュー自体は個々の処理の成否に関わらず、次の要求へ進められるようにしておく\n+  initQueue = task.then(\n+    () => undefined,\n+    () => undefined,\n+  );\n+  return task;\n+}\n+\n /**\n  * IndexedDB の初期化\n  */\n@@ -98,10 +120,8 @@ export async function getValue<T extends z.ZodType>(\n   targetZodType: T,\n   key?: string,\n ): Promise<Result<z.infer<T>>> {\n-  if (isNeedInitialize(storeName)) {\n-    const initRes = await initialize(storeName);\n-    if (!initRes.ok) return initRes;\n-  }\n+  const initRes = await ensureStoreReady(storeName);\n+  if (!initRes.ok) return initRes;\n \n   const transaction = db!.transaction([storeName], 'readonly');\n   const store = transaction.objectStore(storeName);\n@@ -130,10 +150,8 @@ export async function getValue<T extends z.ZodType>(\n  * ストアに値を登録する\n  */\n export async function setValue<T>(storeName: string, key: string, value: T): Promise<Result<void>> {\n-  if (isNeedInitialize(storeName)) {\n-    const initRes = await initialize(storeName);\n-    if (!initRes.ok) return initRes;\n-  }\n+  const initRes = await ensureStoreReady(storeName);\n+  if (!initRes.ok) return initRes;\n \n   return new Promise((resolve) => {\n     const transaction = db!.transaction([storeName], 'readwrite');\n@@ -156,10 +174,8 @@ export async function setValue<T>(storeName: string, key: string, value: T): Pro\n  * 登録済みの値を削除する\n  */\n export async function deleteValue(storeName: string, key: string): Promise<Result<void>> {\n-  if (isNeedInitialize(storeName)) {\n-    const initRes = await initialize(storeName);\n-    if (!initRes.ok) return initRes;\n-  }\n+  const initRes = await ensureStoreReady(storeName);\n+  if (!initRes.ok) return initRes;\n \n   return new Promise((resolve) => {\n     const transaction = db!.transaction([storeName], 'readwrite');",
+          "actualWorkers": 2
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "html",
+        {
+          "open": "never",
+          "outputFolder": "playwright-report"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "playwright-report/results.json"
+        }
+      ],
+      [
+        "github",
+        null
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 2,
+    "webServer": {
+      "command": "bun run dev",
+      "url": "http://localhost:9200/RelationalDocuments/",
+      "reuseExistingServer": false,
+      "timeout": 120000,
+      "env": {
+        "PW_TEST": "1"
+      }
+    }
+  },
+  "suites": [
+    {
+      "title": "annotationCreate.spec.ts",
+      "file": "annotationCreate.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "矩形アノテーションをドラッグで作成できる",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 17905,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-21T13:33:07.030Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-矩形アノテーションをドラッグで作成できる-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-矩形アノテーションをドラッグで作成できる-chromium/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                },
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 23086,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:31:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts",
+                      "column": 72,
+                      "line": 31
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 29 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n \u001b[90m 30 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 31 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 32 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 33 |\u001b[39m\n \u001b[90m 34 |\u001b[39m test(\u001b[32m'ポリゴンアノテーションをクリックで作成できる'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts",
+                        "column": 72,
+                        "line": 31
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  29 |   await page.mouse.click(centerX, centerY);\n  30 |\n> 31 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  32 | });\n  33 |\n  34 | test('ポリゴンアノテーションをクリックで作成できる', async ({ page }) => {\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:31:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-07-21T13:33:28.019Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-矩形アノテーションをドラッグで作成できる-chromium-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-矩形アノテーションをドラッグで作成できる-chromium-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-矩形アノテーションをドラッグで作成できる-chromium-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts",
+                    "column": 72,
+                    "line": 31
+                  }
+                },
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 8744,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 2,
+                  "startTime": "2026-07-21T13:33:53.400Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-矩形アノテーションをドラッグで作成できる-chromium-retry2/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-矩形アノテーションをドラッグで作成できる-chromium-retry2/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "2ef2672eeb4b96263b79-6f086b66bef16ac4e1e5",
+          "file": "annotationCreate.spec.ts",
+          "line": 22,
+          "column": 1
+        },
+        {
+          "title": "ポリゴンアノテーションをクリックで作成できる",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 17589,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-21T13:33:06.878Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-ポリゴンアノテーションをクリックで作成できる-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-ポリゴンアノテーションをクリックで作成できる-chromium/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                },
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 18859,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-07-21T13:33:27.525Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-ポリゴンアノテーションをクリックで作成できる-chromium-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-ポリゴンアノテーションをクリックで作成できる-chromium-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-ポリゴンアノテーションをクリックで作成できる-chromium-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                },
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 9467,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationCreate.spec.ts:19:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 2,
+                  "startTime": "2026-07-21T13:33:47.830Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-ポリゴンアノテーションをクリックで作成できる-chromium-retry2/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationCreate-ポリゴンアノテーションをクリックで作成できる-chromium-retry2/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "2ef2672eeb4b96263b79-c6e9b9733ef0c562bfdc",
+          "file": "annotationCreate.spec.ts",
+          "line": 34,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "annotationDelete.spec.ts",
+      "file": "annotationDelete.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "選択したアノテーションをDeleteキーで削除できる",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 11033,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:27:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                      "column": 72,
+                      "line": 27
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 25 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 27 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 28 |\u001b[39m\n \u001b[90m 29 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mkeyboard\u001b[33m.\u001b[39mpress(\u001b[32m'Delete'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 30 |\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                        "column": 72,
+                        "line": 27
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  25 |   await toolButton(page, 'select-mode').click();\n  26 |   await page.mouse.click(centerX, centerY);\n> 27 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  28 |\n  29 |   await page.keyboard.press('Delete');\n  30 |\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:27:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-21T13:33:57.905Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-選択したアノテーションをDeleteキーで削除できる-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-選択したアノテーションをDeleteキーで削除できる-chromium/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                    "column": 72,
+                    "line": 27
+                  }
+                },
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 13337,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:18:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:18:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-07-21T13:34:09.617Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-選択したアノテーションをDeleteキーで削除できる-chromium-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-選択したアノテーションをDeleteキーで削除できる-chromium-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-選択したアノテーションをDeleteキーで削除できる-chromium-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                },
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 11186,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:27:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                      "column": 72,
+                      "line": 27
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 25 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 27 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 28 |\u001b[39m\n \u001b[90m 29 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mkeyboard\u001b[33m.\u001b[39mpress(\u001b[32m'Delete'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 30 |\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                        "column": 72,
+                        "line": 27
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  25 |   await toolButton(page, 'select-mode').click();\n  26 |   await page.mouse.click(centerX, centerY);\n> 27 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  28 |\n  29 |   await page.keyboard.press('Delete');\n  30 |\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:27:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 2,
+                  "startTime": "2026-07-21T13:34:24.167Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-選択したアノテーションをDeleteキーで削除できる-chromium-retry2/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-選択したアノテーションをDeleteキーで削除できる-chromium-retry2/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                    "column": 72,
+                    "line": 27
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "db2df98a0507da37248c-18927f86cda592fcdbab",
+          "file": "annotationDelete.spec.ts",
+          "line": 21,
+          "column": 1
+        },
+        {
+          "title": "右ドレワーの削除ボタンでアノテーションを削除できる",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 11078,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"circle\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"circle\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:41:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                      "column": 72,
+                      "line": 41
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 39 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 40 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 41 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'circle'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 42 |\u001b[39m\n \u001b[90m 43 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m { name\u001b[33m:\u001b[39m \u001b[32m'削除'\u001b[39m })\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 44 |\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                        "column": 72,
+                        "line": 41
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"circle\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  39 |   await toolButton(page, 'select-mode').click();\n  40 |   await page.mouse.click(centerX, centerY);\n> 41 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('circle');\n     |                                                                        ^\n  42 |\n  43 |   await page.getByRole('button', { name: '削除' }).click();\n  44 |\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:41:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-21T13:34:03.035Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-右ドレワーの削除ボタンでアノテーションを削除できる-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-右ドレワーの削除ボタンでアノテーションを削除できる-chromium/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                    "column": 72,
+                    "line": 41
+                  }
+                },
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 13072,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:18:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:18:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-07-21T13:34:15.110Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-右ドレワーの削除ボタンでアノテーションを削除できる-chromium-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-右ドレワーの削除ボタンでアノテーションを削除できる-chromium-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-右ドレワーの削除ボタンでアノテーションを削除できる-chromium-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                },
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 10973,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"circle\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"circle\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:41:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                      "column": 72,
+                      "line": 41
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 39 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 40 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 41 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'circle'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 42 |\u001b[39m\n \u001b[90m 43 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m { name\u001b[33m:\u001b[39m \u001b[32m'削除'\u001b[39m })\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 44 |\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                        "column": 72,
+                        "line": 41
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"circle\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  39 |   await toolButton(page, 'select-mode').click();\n  40 |   await page.mouse.click(centerX, centerY);\n> 41 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('circle');\n     |                                                                        ^\n  42 |\n  43 |   await page.getByRole('button', { name: '削除' }).click();\n  44 |\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts:41:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 2,
+                  "startTime": "2026-07-21T13:34:29.885Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-右ドレワーの削除ボタンでアノテーションを削除できる-chromium-retry2/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationDelete-右ドレワーの削除ボタンでアノテーションを削除できる-chromium-retry2/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationDelete.spec.ts",
+                    "column": 72,
+                    "line": 41
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "db2df98a0507da37248c-5b50f01d167ced158147",
+          "file": "annotationDelete.spec.ts",
+          "line": 35,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "annotationEdit.spec.ts",
+      "file": "annotationEdit.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "位置・サイズパネルで幅を変更できる",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 12,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 11023,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                      "column": 72,
+                      "line": 21
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 19 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 20 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 22 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 23 |\u001b[39m\n \u001b[90m 24 |\u001b[39m test(\u001b[32m'位置・サイズパネルで幅を変更できる'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                        "column": 72,
+                        "line": 21
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  19 |   await toolButton(page, 'select-mode').click();\n  20 |   await page.mouse.click(centerX, centerY);\n> 21 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  22 | });\n  23 |\n  24 | test('位置・サイズパネルで幅を変更できる', async ({ page }) => {\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-21T13:34:36.064Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-位置・サイズパネルで幅を変更できる-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-位置・サイズパネルで幅を変更できる-chromium/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                    "column": 72,
+                    "line": 21
+                  }
+                },
+                {
+                  "workerIndex": 14,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 16005,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                      "column": 72,
+                      "line": 21
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 19 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 20 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 22 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 23 |\u001b[39m\n \u001b[90m 24 |\u001b[39m test(\u001b[32m'位置・サイズパネルで幅を変更できる'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                        "column": 72,
+                        "line": 21
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  19 |   await toolButton(page, 'select-mode').click();\n  20 |   await page.mouse.click(centerX, centerY);\n> 21 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  22 | });\n  23 |\n  24 | test('位置・サイズパネルで幅を変更できる', async ({ page }) => {\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-07-21T13:34:47.733Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-位置・サイズパネルで幅を変更できる-chromium-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-位置・サイズパネルで幅を変更できる-chromium-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-位置・サイズパネルで幅を変更できる-chromium-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                    "column": 72,
+                    "line": 21
+                  }
+                },
+                {
+                  "workerIndex": 16,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 12713,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                      "column": 72,
+                      "line": 21
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 19 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 20 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 22 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 23 |\u001b[39m\n \u001b[90m 24 |\u001b[39m test(\u001b[32m'位置・サイズパネルで幅を変更できる'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                        "column": 72,
+                        "line": 21
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  19 |   await toolButton(page, 'select-mode').click();\n  20 |   await page.mouse.click(centerX, centerY);\n> 21 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  22 | });\n  23 |\n  24 | test('位置・サイズパネルで幅を変更できる', async ({ page }) => {\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 2,
+                  "startTime": "2026-07-21T13:35:05.275Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-位置・サイズパネルで幅を変更できる-chromium-retry2/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-位置・サイズパネルで幅を変更できる-chromium-retry2/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                    "column": 72,
+                    "line": 21
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "edcd07dd7fde450cb5ff-54f8fc76b57f6186ef73",
+          "file": "annotationEdit.spec.ts",
+          "line": 24,
+          "column": 1
+        },
+        {
+          "title": "スタイルパネルで線幅を変更できる",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 13,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 8927,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:15:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:15:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-21T13:34:41.570Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-スタイルパネルで線幅を変更できる-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-スタイルパネルで線幅を変更できる-chromium/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                },
+                {
+                  "workerIndex": 15,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 16207,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                      "column": 72,
+                      "line": 21
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 19 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 20 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 22 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 23 |\u001b[39m\n \u001b[90m 24 |\u001b[39m test(\u001b[32m'位置・サイズパネルで幅を変更できる'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                        "column": 72,
+                        "line": 21
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  19 |   await toolButton(page, 'select-mode').click();\n  20 |   await page.mouse.click(centerX, centerY);\n> 21 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  22 | });\n  23 |\n  24 | test('位置・サイズパネルで幅を変更できる', async ({ page }) => {\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-07-21T13:34:51.362Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-スタイルパネルで線幅を変更できる-chromium-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-スタイルパネルで線幅を変更できる-chromium-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-スタイルパネルで線幅を変更できる-chromium-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                    "column": 72,
+                    "line": 21
+                  }
+                },
+                {
+                  "workerIndex": 17,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 12030,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                      "column": 72,
+                      "line": 21
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 19 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 20 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 22 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 23 |\u001b[39m\n \u001b[90m 24 |\u001b[39m test(\u001b[32m'位置・サイズパネルで幅を変更できる'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                        "column": 72,
+                        "line": 21
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  19 |   await toolButton(page, 'select-mode').click();\n  20 |   await page.mouse.click(centerX, centerY);\n> 21 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  22 | });\n  23 |\n  24 | test('位置・サイズパネルで幅を変更できる', async ({ page }) => {\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts:21:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 2,
+                  "startTime": "2026-07-21T13:35:09.992Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-スタイルパネルで線幅を変更できる-chromium-retry2/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationEdit-スタイルパネルで線幅を変更できる-chromium-retry2/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationEdit.spec.ts",
+                    "column": 72,
+                    "line": 21
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "edcd07dd7fde450cb5ff-f1cba067086e1416ee9c",
+          "file": "annotationEdit.spec.ts",
+          "line": 55,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "annotationPersistence.spec.ts",
+      "file": "annotationPersistence.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "作成したアノテーションはタブを閉じて再度開いても保持される",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 18,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 8803,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts:18:3",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                      "column": 27,
+                      "line": 56
+                    },
+                    "snippet": "   at fixtures/demoContainer.ts:56\n\n\u001b[0m \u001b[90m 54 |\u001b[39m\n \u001b[90m 55 |\u001b[39m   \u001b[36mconst\u001b[39m fileEntry \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.exp-file'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[33mDEMO_FIRST_FILE_NAME\u001b[39m })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 56 |\u001b[39m   \u001b[36mawait\u001b[39m expect(fileEntry)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 57 |\u001b[39m   \u001b[36mawait\u001b[39m fileEntry\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 58 |\u001b[39m\n \u001b[90m 59 |\u001b[39m   \u001b[36mawait\u001b[39m expect(stageCanvas(page))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                        "column": 27,
+                        "line": 56
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.exp-file').filter({ hasText: 'システム要件定義書.pdf' })\u001b[22m\n\n\n   at fixtures/demoContainer.ts:56\n\n  54 |\n  55 |   const fileEntry = page.locator('.exp-file', { hasText: DEMO_FIRST_FILE_NAME });\n> 56 |   await expect(fileEntry).toBeVisible();\n     |                           ^\n  57 |   await fileEntry.click();\n  58 |\n  59 |   await expect(stageCanvas(page)).toBeVisible();\n    at openDemoDocument (/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts:56:27)\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts:18:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-21T13:35:18.620Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationPersistence-作成したアノテーションはタブを閉じて再度開いても保持される-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationPersistence-作成したアノテーションはタブを閉じて再度開いても保持される-chromium/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/fixtures/demoContainer.ts",
+                    "column": 27,
+                    "line": 56
+                  }
+                },
+                {
+                  "workerIndex": 20,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 15924,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts:25:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts",
+                      "column": 72,
+                      "line": 25
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 23 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 24 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 25 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 26 |\u001b[39m\n \u001b[90m 27 |\u001b[39m   \u001b[90m// 保存を待ってからタブを閉じる（自動保存はデバウンスされるため）\u001b[39m\n \u001b[90m 28 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForTimeout(\u001b[35m1500\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts",
+                        "column": 72,
+                        "line": 25
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  23 |   await toolButton(page, 'select-mode').click();\n  24 |   await page.mouse.click(centerX, centerY);\n> 25 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  26 |\n  27 |   // 保存を待ってからタブを閉じる（自動保存はデバウンスされるため）\n  28 |   await page.waitForTimeout(1500);\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts:25:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-07-21T13:35:28.366Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationPersistence-作成したアノテーションはタブを閉じて再度開いても保持される-chromium-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationPersistence-作成したアノテーションはタブを閉じて再度開いても保持される-chromium-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationPersistence-作成したアノテーションはタブを閉じて再度開いても保持される-chromium-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts",
+                    "column": 72,
+                    "line": 25
+                  }
+                },
+                {
+                  "workerIndex": 22,
+                  "parallelIndex": 1,
+                  "status": "failed",
+                  "duration": 10936,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts:25:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts",
+                      "column": 72,
+                      "line": 25
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 23 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 24 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(centerX\u001b[33m,\u001b[39m centerY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 25 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 26 |\u001b[39m\n \u001b[90m 27 |\u001b[39m   \u001b[90m// 保存を待ってからタブを閉じる（自動保存はデバウンスされるため）\u001b[39m\n \u001b[90m 28 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForTimeout(\u001b[35m1500\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts",
+                        "column": 72,
+                        "line": 25
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  23 |   await toolButton(page, 'select-mode').click();\n  24 |   await page.mouse.click(centerX, centerY);\n> 25 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  26 |\n  27 |   // 保存を待ってからタブを閉じる（自動保存はデバウンスされるため）\n  28 |   await page.waitForTimeout(1500);\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts:25:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 2,
+                  "startTime": "2026-07-21T13:35:46.034Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationPersistence-作成したアノテーションはタブを閉じて再度開いても保持される-chromium-retry2/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/annotationPersistence-作成したアノテーションはタブを閉じて再度開いても保持される-chromium-retry2/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/annotationPersistence.spec.ts",
+                    "column": 72,
+                    "line": 25
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "a8cb2df72c96d7ff71ff-ae8da8660fd94f7df599",
+          "file": "annotationPersistence.spec.ts",
+          "line": 17,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "relationalLink.spec.ts",
+      "file": "relationalLink.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "2つのアノテーション間に関係性を作成・削除できる",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 19,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 11014,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts:27:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                      "column": 72,
+                      "line": 27
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 25 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(first\u001b[33m.\u001b[39mcenterX\u001b[33m,\u001b[39m first\u001b[33m.\u001b[39mcenterY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 27 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 28 |\u001b[39m\n \u001b[90m 29 |\u001b[39m   \u001b[90m// 関係性登録の待機を開始する\u001b[39m\n \u001b[90m 30 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m { name\u001b[33m:\u001b[39m \u001b[32m'リンクを追加'\u001b[39m })\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                        "column": 72,
+                        "line": 27
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  25 |   await toolButton(page, 'select-mode').click();\n  26 |   await page.mouse.click(first.centerX, first.centerY);\n> 27 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  28 |\n  29 |   // 関係性登録の待機を開始する\n  30 |   await page.getByRole('button', { name: 'リンクを追加' }).click();\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts:27:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-21T13:35:22.878Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/relationalLink-2つのアノテーション間に関係性を作成・削除できる-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/relationalLink-2つのアノテーション間に関係性を作成・削除できる-chromium/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                    "column": 72,
+                    "line": 27
+                  }
+                },
+                {
+                  "workerIndex": 21,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 15229,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts:27:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                      "column": 72,
+                      "line": 27
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 25 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(first\u001b[33m.\u001b[39mcenterX\u001b[33m,\u001b[39m first\u001b[33m.\u001b[39mcenterY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 27 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 28 |\u001b[39m\n \u001b[90m 29 |\u001b[39m   \u001b[90m// 関係性登録の待機を開始する\u001b[39m\n \u001b[90m 30 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m { name\u001b[33m:\u001b[39m \u001b[32m'リンクを追加'\u001b[39m })\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                        "column": 72,
+                        "line": 27
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  25 |   await toolButton(page, 'select-mode').click();\n  26 |   await page.mouse.click(first.centerX, first.centerY);\n> 27 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  28 |\n  29 |   // 関係性登録の待機を開始する\n  30 |   await page.getByRole('button', { name: 'リンクを追加' }).click();\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts:27:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-07-21T13:35:34.870Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/relationalLink-2つのアノテーション間に関係性を作成・削除できる-chromium-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/relationalLink-2つのアノテーション間に関係性を作成・削除できる-chromium-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/relationalLink-2つのアノテーション間に関係性を作成・削除できる-chromium-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                    "column": 72,
+                    "line": 27
+                  }
+                },
+                {
+                  "workerIndex": 23,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 10665,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts:27:72",
+                    "location": {
+                      "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                      "column": 72,
+                      "line": 27
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 25 |\u001b[39m   \u001b[36mawait\u001b[39m toolButton(page\u001b[33m,\u001b[39m \u001b[32m'select-mode'\u001b[39m)\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mmouse\u001b[33m.\u001b[39mclick(first\u001b[33m.\u001b[39mcenterX\u001b[33m,\u001b[39m first\u001b[33m.\u001b[39mcenterY)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 27 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.annotation-properties .property-value'\u001b[39m))\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'box'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 28 |\u001b[39m\n \u001b[90m 29 |\u001b[39m   \u001b[90m// 関係性登録の待機を開始する\u001b[39m\n \u001b[90m 30 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m { name\u001b[33m:\u001b[39m \u001b[32m'リンクを追加'\u001b[39m })\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                        "column": 72,
+                        "line": 27
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.annotation-properties .property-value')\nExpected: \u001b[32m\"box\"\u001b[39m\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.annotation-properties .property-value')\u001b[22m\n\n\n  25 |   await toolButton(page, 'select-mode').click();\n  26 |   await page.mouse.click(first.centerX, first.centerY);\n> 27 |   await expect(page.locator('.annotation-properties .property-value')).toHaveText('box');\n     |                                                                        ^\n  28 |\n  29 |   // 関係性登録の待機を開始する\n  30 |   await page.getByRole('button', { name: 'リンクを追加' }).click();\n    at /home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts:27:72"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 2,
+                  "startTime": "2026-07-21T13:35:52.182Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/relationalLink-2つのアノテーション間に関係性を作成・削除できる-chromium-retry2/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/runner/work/RelationalDocuments/RelationalDocuments/test-results/relationalLink-2つのアノテーション間に関係性を作成・削除できる-chromium-retry2/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/runner/work/RelationalDocuments/RelationalDocuments/e2e/relationalLink.spec.ts",
+                    "column": 72,
+                    "line": 27
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "84d3dbf10ed8b59c22a6-0e607ebc6b67f3f83bed",
+          "file": "relationalLink.spec.ts",
+          "line": 17,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-21T13:33:01.229Z",
+    "duration": 182009.245,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 8,
+    "flaky": 0
+  }
+}
