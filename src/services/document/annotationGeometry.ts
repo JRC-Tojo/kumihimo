@@ -191,11 +191,18 @@ export interface ClickPointsDrawModule<
   drawMode: 'clickPoints';
   /** 確定時、これまでにクリックした頂点座標列からアノテーション実体を生成する */
   createFromPoints(pageNumber: number, points: Point[], style: DrawingAnnotationStyle): T | null;
-  /** 描画中のプレビュー形状のKonva設定を計算する（cursorは最後に置いた頂点から現在のマウス位置へのラバーバンド用） */
+  /**
+   * 描画中のプレビュー形状のKonva設定を計算する（cursorは最後に置いた頂点から現在のマウス位置へのラバーバンド用）
+   *
+   * `options.closing`は、始点付近にカーソルがあり今クリックすれば閉合確定できる状態かどうかを示す
+   * （closable=trueの種別のみ使用。polygonはこの間だけ閉じた図形として塗りを適用し、
+   * ユーザーに「ここで閉じられる」ことを視覚的に伝える）
+   */
   previewFromPoints(
     points: Point[],
     cursor: Point | null,
     style: DrawingAnnotationStyle,
+    options?: { closing?: boolean },
   ): Record<string, unknown>;
   /** trueの場合、始点付近を再クリックすると新しい頂点を追加せず形状を閉じて確定できる */
   closable: boolean;
@@ -619,9 +626,14 @@ const circleGeometry: AnnotationGeometryModule = {
 };
 
 const arrowGeometry: AnnotationGeometryModule = {
-  drawMode: 'drag',
-  createFromDrag(pageNumber, start, end, style) {
+  drawMode: 'clickPoints',
+  closable: false,
+  maxPoints: 2,
+  createFromPoints(pageNumber, points, style) {
     if (style.type !== 'arrow') return null;
+    if (points.length < 2) return null;
+    const start = points[0]!;
+    const end = points[1]!;
     const built = buildBaseAnnotation(pageNumber, start.x, start.y, style);
     if (!built) return null;
 
@@ -638,8 +650,11 @@ const arrowGeometry: AnnotationGeometryModule = {
       headSize: style.headSize,
     };
   },
-  previewFromDrag(start, end, style) {
+  previewFromPoints(points, cursor, style) {
     if (style.type !== 'arrow') return {};
+    const start = points[0];
+    if (!start) return {};
+    const end = points[1] ?? cursor ?? start;
     const stroke = hexToRgba(style.strokeColor, style.strokeOpacity);
     return {
       x: start.x,
@@ -817,22 +832,30 @@ const polygonGeometry: AnnotationGeometryModule = {
       points: points.flatMap((p) => [p.x - origin.x, p.y - origin.y]),
     };
   },
-  previewFromPoints(points, cursor, style) {
+  previewFromPoints(points, cursor, style, options) {
     if (style.type !== 'polygon') return {};
     const origin = points[0];
     if (!origin) return {};
 
+    const closing = options?.closing ?? false;
     const flat = points.flatMap((p) => [p.x - origin.x, p.y - origin.y]);
-    if (cursor) flat.push(cursor.x - origin.x, cursor.y - origin.y);
+    // 始点をクリックすれば閉合確定できる状態のときは、カーソル位置（ほぼ始点と一致）を
+    // 余分な頂点として追加しない（既に置いた頂点だけで、確定後と同じ形に見せる）
+    if (cursor && !closing) flat.push(cursor.x - origin.x, cursor.y - origin.y);
 
     return {
       x: origin.x,
       y: origin.y,
       points: flat,
-      // 未確定（始点を再クリックして閉合するまで）の間は、途中の点数に関わらず絶対に
-      // 閉じた図形として見せない。実際に閉じるのは確定時（createFromPoints）のみ
-      closed: false,
-      fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
+      // 未確定（始点を再クリックして閉合するまで）の間は、途中の点数に関わらず基本的に
+      // 閉じた図形として見せない。ただし始点付近にカーソルがあり今クリックすれば閉合確定
+      // できる状態（closing）のときだけは、閉じた図形として塗りを適用し、ユーザーに
+      // 「ここで閉じられる」ことを視覚的に伝える
+      closed: closing,
+      fill:
+        closing || style.fillColor
+          ? hexToRgba(style.fillColor ?? style.strokeColor, style.fillOpacity)
+          : 'transparent',
       stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),

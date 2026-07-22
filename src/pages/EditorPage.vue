@@ -93,6 +93,9 @@ function handleMainToolClick(tool: IDocTool) {
   // アノテーション種別以外のツールをクリックした場合、プリセットバー・スタイルパネルの
   // 描画スタイルモードを終了する（tool.onClicked内で改めてtypeがセットされる場合は再度上書きされる）
   editorStore.activeAnnotationType = undefined;
+  // メインツールを明示的に選び直した場合は、プリセットのダブルクリックによる
+  // 連続描画モード（stickyDrawMode）も一旦解除する
+  editorStore.stickyDrawMode = false;
   void tool.onClicked();
 }
 </script>

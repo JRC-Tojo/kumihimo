@@ -61,6 +61,9 @@ export const useEditorStore = defineStore('editor', {
 
     // アノテーション種別のMainToolが選択中かどうか（プリセットバー・スタイルパネルの表示条件に使う）
     activeAnnotationType: undefined as DrawingAnnotationType | undefined,
+    // プリセットをダブルクリックして選んだ場合、描き終えても選択モードへ自動的に戻さず
+    // 同じツール・スタイルで連続して描き続けられるようにするフラグ
+    stickyDrawMode: false,
     // アクティブなペインで現在選択中のアノテーション（スタイルパネルの選択編集モードで使う）。
     // 選択状態自体は各DocumentTabView（ペインごと）が持つため、layerOrderAction等と同じ
     // 「意図・状態をeditorStoreに橋渡しする」パターンでここに反映させる

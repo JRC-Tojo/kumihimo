@@ -59,6 +59,31 @@ export function promptDialog(opts: PromptDialogOptions): Promise<string | undefi
   });
 }
 
+export interface ImportPresetsDialogOptions {
+  title: string;
+  message: string;
+}
+
+/**
+ * プリセットインポート時、既存プリセットへの追加か完全な置き換えかを選択させる3択ダイアログを表示する
+ */
+export function importPresetsDialog(
+  opts: ImportPresetsDialogOptions,
+): Promise<'append' | 'replace' | 'cancel'> {
+  return new Promise((resolve) => {
+    Dialog.create({
+      component: ConfirmDialog,
+      componentProps: {
+        title: opts.title,
+        message: opts.message,
+        variant: 'importPresets',
+      },
+    })
+      .onOk((value: 'append' | 'replace') => resolve(value))
+      .onCancel(() => resolve('cancel'));
+  });
+}
+
 export interface UnsavedChangesDialogOptions {
   title: string;
   message: string;

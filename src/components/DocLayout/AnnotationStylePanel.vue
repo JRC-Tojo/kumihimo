@@ -73,6 +73,31 @@
       </q-tooltip>
     </div>
 
+    <!-- 合成モード（半透明の図形を下地の文書とどう重ねるか） -->
+    <q-btn dense flat :ripple="false" class="style-icon-btn">
+      <BlendModePreview :blend-mode="blendMode ?? 'normal'" />
+      <q-menu anchor="bottom left" self="top left">
+        <q-list dense class="style-menu-list">
+          <q-item
+            v-for="opt in blendModeOptions"
+            :key="opt.value"
+            v-close-popup
+            clickable
+            :active="blendMode === opt.value"
+            @click="blendMode = opt.value"
+          >
+            <q-item-section avatar>
+              <BlendModePreview :blend-mode="opt.value" />
+            </q-item-section>
+            <q-item-section>{{ opt.label }}</q-item-section>
+          </q-item>
+        </q-list>
+      </q-menu>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.blendMode') }}
+      </q-tooltip>
+    </q-btn>
+
     <q-separator
       v-if="isFillableType || isHeadedType || isTextType"
       vertical
@@ -86,6 +111,34 @@
       v-model="fillColor"
       :tooltip="t('pdfEditor.tools.stylePanel.fillColor')"
     />
+
+    <!-- box/circle/polygon/text: 塗りの不透明度 -->
+    <div v-if="isFillableType" class="opacity-control">
+      <q-slider
+        :model-value="fillOpacityPercent"
+        :min="0"
+        :max="100"
+        :step="2"
+        color="primary"
+        class="opacity-slider"
+        @update:model-value="(v) => (fillOpacityPercent = v ?? 100)"
+      />
+      <q-input
+        :model-value="fillOpacityPercent"
+        type="number"
+        dense
+        borderless
+        min="0"
+        max="100"
+        step="2"
+        class="style-number-input"
+        @update:model-value="(v) => (fillOpacityPercent = Number(v))"
+      />
+      <span class="opacity-unit">%</span>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.fillOpacity') }}
+      </q-tooltip>
+    </div>
 
     <!-- arrow/polyline: 終端の矢じり形状 -->
     <q-btn v-if="isHeadedType" dense flat :ripple="false" class="style-icon-btn">
@@ -190,7 +243,8 @@ import { useI18n } from 'vue-i18n';
 import { useAnnotationStylePanel } from './composables/useAnnotationStylePanel';
 import StyleSwatchButton from './StyleSwatchButton.vue';
 import StrokeTypePreview from './StrokeTypePreview.vue';
-import type { ArrowHeadType } from 'src/models/document/pdf';
+import BlendModePreview from './BlendModePreview.vue';
+import type { ArrowHeadType, BlendMode } from 'src/models/document/pdf';
 
 const { t } = useI18n();
 
@@ -201,7 +255,9 @@ const {
   strokeWidth,
   strokeType,
   opacity,
+  blendMode,
   fillColor,
+  fillOpacity,
   endHead,
   fontFamily,
   fontSize,
@@ -227,6 +283,29 @@ const opacityPercent = computed<number>({
     opacity.value = Math.min(100, Math.max(0, v)) / 100;
   },
 });
+
+/** 塗りの不透明度（0〜1）を、スライダー・数値入力で扱いやすいパーセント（0〜100）表示に変換する */
+const fillOpacityPercent = computed<number>({
+  get: () => Math.round((fillOpacity.value ?? 1) * 100),
+  set: (v) => {
+    fillOpacity.value = Math.min(100, Math.max(0, v)) / 100;
+  },
+});
+
+const blendModeOptions = computed<{ label: string; value: BlendMode }[]>(() => [
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.normal'), value: 'normal' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.multiply'), value: 'multiply' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.screen'), value: 'screen' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.overlay'), value: 'overlay' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.darken'), value: 'darken' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.lighten'), value: 'lighten' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.colorDodge'), value: 'color-dodge' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.colorBurn'), value: 'color-burn' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.hardLight'), value: 'hard-light' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.softLight'), value: 'soft-light' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.difference'), value: 'difference' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.exclusion'), value: 'exclusion' },
+]);
 
 const strokeTypeOptions = computed(() => [
   { label: t('pdfEditor.tools.stylePanel.strokeTypeOptions.solid'), value: 'solid' as const },

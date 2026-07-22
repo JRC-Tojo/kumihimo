@@ -64,7 +64,9 @@ const swatchStyle = computed(() => {
     return { backgroundColor: 'transparent', borderColor: colorValue.value ?? '#000000' };
   }
   if (props.variant === 'text') {
-    return {};
+    // プリセットプレビュー（AnnotationPresetPreview.vue）と同様、ダークモードでも
+    // 文字色（黒等）が見えなくならないよう、常に明るい背景の上に表示する
+    return { backgroundColor: '#ffffff' };
   }
   return { backgroundColor: colorValue.value ?? '#ffffff' };
 });

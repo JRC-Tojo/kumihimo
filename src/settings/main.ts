@@ -4,6 +4,7 @@
 
 import type { ContainerID, ContainerSkel, RecentContainerEntry } from 'src/models/container';
 import type { AnnotationTool } from 'src/models/docPage';
+import type { ColorCode } from 'src/models/document/pdf';
 import { Success, type Result } from 'src/models/error/result';
 import { AppSettings } from 'src/models/settings';
 import * as db from 'src/repositories/inMemory/IndexedDB';
@@ -133,6 +134,64 @@ export async function getRecentContainers(): Promise<Result<RecentContainerEntry
       (a, b) => b.lastOpenedAt.getTime() - a.lastOpenedAt.getTime(),
     ),
   );
+}
+
+/**
+ * `tools`設定への読み込み→変更→保存を直列化して行う共通ヘルパー
+ *
+ * プリセットの追加・更新・削除・並び替え、直近使用色の記録、直近使用色件数の変更は
+ * いずれも`tools`キーを丸ごと読み書きするため、これを経由せず個別に読み書きすると、
+ * 短時間に複数の操作が重なった際に後勝ちで片方の変更が失われてしまう
+ * （`addLoadedContainer`等と同じ`withSerializedSettingsUpdate`パターン）
+ */
+function updateTools(
+  update: (tools: AppSettings['tools']) => AppSettings['tools'],
+): Promise<Result<AppSettings['tools']>> {
+  return withSerializedSettingsUpdate(async (settings) => {
+    const next = update(settings.tools);
+    const res = await saveSettings('tools', next);
+    return res.ok ? Success(next) : res;
+  });
+}
+
+/**
+ * アノテーションプリセット一覧を保存する（追加・編集・削除・並び替えの共通経路）
+ */
+export async function saveAnnotationPresets(
+  presets: AnnotationTool[],
+): Promise<Result<AppSettings['tools']>> {
+  return updateTools((tools) => ({ ...tools, annotations: presets }));
+}
+
+/**
+ * 色スウォッチで色を選択した際に、直近使用色の先頭へ記録する（既存の同色は前詰めで移動する）
+ */
+export async function recordRecentColorSetting(
+  color: ColorCode,
+): Promise<Result<AppSettings['tools']>> {
+  return updateTools((tools) => {
+    const deduped = [color, ...tools.recentColors.filter((c) => c !== color)].slice(
+      0,
+      tools.recentColorsLimit,
+    );
+    return { ...tools, recentColors: deduped };
+  });
+}
+
+/**
+ * 直近使用色として保持する件数を変更する（設定画面から呼ばれる）。上限を減らした場合は
+ * 既存の直近使用色一覧もその場で切り詰める
+ *
+ * 呼び出し元で正の整数であることを検証済みの`limit`を渡すこと
+ */
+export async function updateRecentColorsLimitSetting(
+  limit: number,
+): Promise<Result<AppSettings['tools']>> {
+  return updateTools((tools) => ({
+    ...tools,
+    recentColorsLimit: limit,
+    recentColors: tools.recentColors.slice(0, limit),
+  }));
 }
 
 /**

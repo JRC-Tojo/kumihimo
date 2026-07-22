@@ -6,7 +6,7 @@
       x: displayAnnotation.x,
       y: displayAnnotation.y,
       id: displayAnnotation.id,
-      draggable: props.isEditing && !!props.isSelected && !ctrlKey,
+      draggable: props.isEditing && props.allowDrag && !ctrlKey,
       dragBoundFunc,
       onDragstart: onGroupDragStart,
       onDragend: onDragEnd,
@@ -45,6 +45,9 @@ interface Props {
   annotation: PolylineAnnotationStyle;
   isEditing: boolean;
   isSelected?: boolean;
+  // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
+  // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
+  allowDrag: boolean;
 }
 
 const props = defineProps<Props>();
@@ -61,6 +64,7 @@ const isHovered = ref(false);
 const {
   relationalOverride,
   strokeDash,
+  globalCompositeOperation,
   resolvedStroke,
   withUpdatedTimestamp,
   displayAnnotation,
@@ -89,6 +93,7 @@ const shapeConfig = computed(() => {
     pointerLength: headSize,
     pointerWidth: headSize,
     dash: strokeDash.value,
+    globalCompositeOperation: globalCompositeOperation.value,
     draggable: false,
     // 見た目の線幅より当たり判定を広げ、細い折れ線でもつかみやすくする
     hitStrokeWidth: Math.max(12, (annotation.strokeWidth || 2) * 4),

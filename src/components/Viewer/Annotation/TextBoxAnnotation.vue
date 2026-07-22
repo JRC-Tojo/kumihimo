@@ -17,6 +17,9 @@ interface Props {
   annotation: TextAnnotationStyle;
   isEditing: boolean;
   isSelected?: boolean;
+  // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
+  // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
+  allowDrag: boolean;
 }
 
 const props = defineProps<Props>();
@@ -33,6 +36,7 @@ const textRef = ref<{ getNode: () => Konva.Text | null } | null>(null);
 const {
   relationalOverride,
   strokeDash,
+  globalCompositeOperation,
   resolvedStroke,
   resolveFill,
   resolveOpacity,
@@ -51,7 +55,7 @@ const groupConfig = computed(() => ({
   x: displayAnnotation.value.x,
   y: displayAnnotation.value.y,
   id: displayAnnotation.value.id,
-  draggable: props.isEditing && !!props.isSelected && !ctrlKey.value,
+  draggable: props.isEditing && props.allowDrag && !ctrlKey.value,
   dragBoundFunc,
   onDragstart: onDragStart,
   onDragend: onDragEnd,
@@ -74,6 +78,7 @@ const rectConfig = computed(() => {
     // strokeWidth未指定/0（デフォルト状態）でも選択・視認しやすいよう、他形状と同様に細い枠線へフォールバックする
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 1),
     dash: strokeDash.value,
+    globalCompositeOperation: globalCompositeOperation.value,
   };
 });
 
@@ -94,6 +99,7 @@ const textConfig = computed(() => {
     padding: 4,
     wrap: 'word' as const,
     verticalAlign: 'top' as const,
+    globalCompositeOperation: globalCompositeOperation.value,
   };
 });
 

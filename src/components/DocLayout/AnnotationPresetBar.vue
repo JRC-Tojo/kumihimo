@@ -12,6 +12,7 @@
       class="preset-item"
       :class="{ active: isActivePreset(preset) }"
       @click="applyPreset(preset)"
+      @dblclick="onPresetDoubleClick(preset)"
     >
       <AnnotationPresetPreview :annotation-style="preset.style" />
       <q-tooltip :delay="400" anchor="top middle" self="bottom middle">{{ preset.name }}</q-tooltip>
@@ -123,6 +124,17 @@ function applyPreset(preset: AnnotationTool) {
   }
   editorStore.currentTools = preset.style.type;
   editorStore.currentAnnotationStyle = preset.style;
+}
+
+/**
+ * プリセットをダブルクリックした場合、描画スタイルモードでは連続描画モード（stickyDrawMode）を
+ * 有効にする。通常は1つ描くたびに選択モードへ自動的に戻るが、これを有効にしている間は
+ * 同じツール・スタイルのまま描き続けられるようにする
+ */
+function onPresetDoubleClick(preset: AnnotationTool) {
+  if (mode.value !== 'draw') return;
+  applyPreset(preset);
+  editorStore.stickyDrawMode = true;
 }
 
 async function onRename(preset: AnnotationTool) {

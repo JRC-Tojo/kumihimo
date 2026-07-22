@@ -22,6 +22,9 @@ interface Props {
   annotation: AnnotationStyle;
   isEditing: boolean;
   isSelected?: boolean;
+  // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
+  // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
+  allowDrag: boolean;
 }
 
 const props = defineProps<Props>();
@@ -36,6 +39,7 @@ const rectRef = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const {
   relationalOverride,
   strokeDash,
+  globalCompositeOperation,
   resolvedStroke,
   resolveFill,
   withUpdatedTimestamp,
@@ -63,7 +67,8 @@ const rectConfig = computed(() => {
     stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,
-    draggable: props.isEditing && !!props.isSelected && !ctrlKey.value,
+    globalCompositeOperation: globalCompositeOperation.value,
+    draggable: props.isEditing && props.allowDrag && !ctrlKey.value,
     dragBoundFunc,
   };
 });

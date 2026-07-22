@@ -1,5 +1,5 @@
 import z from 'zod';
-import { ArrowHeadType } from './document/pdf';
+import { ArrowHeadType, BlendMode } from './document/pdf';
 
 /**
  * 文書ページに表示する各ツール
@@ -33,6 +33,7 @@ export const AnnotationLineStyle = z.object({
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
   strokeOpacity: z.number(),
+  blendMode: BlendMode.optional(),
 });
 export const AnnotationBoxStyle = z.object({
   type: z.literal('box'),
@@ -43,6 +44,7 @@ export const AnnotationBoxStyle = z.object({
   fillColor: z.string(),
   fillPattern: z.enum(['none', 'hatch', 'solid']),
   fillOpacity: z.number(),
+  blendMode: BlendMode.optional(),
 });
 export const AnnotationCircleStyle = z.object({
   type: z.literal('circle'),
@@ -53,6 +55,7 @@ export const AnnotationCircleStyle = z.object({
   fillColor: z.string().optional(),
   fillPattern: z.enum(['none', 'hatch', 'solid']),
   fillOpacity: z.number(),
+  blendMode: BlendMode.optional(),
 });
 export const AnnotationTextStyle = z.object({
   type: z.literal('text'),
@@ -68,6 +71,7 @@ export const AnnotationTextStyle = z.object({
   fillColor: z.string().optional(),
   fillPattern: z.enum(['none', 'hatch', 'solid']),
   fillOpacity: z.number(),
+  blendMode: BlendMode.optional(),
 });
 export const AnnotationArrowStyle = z.object({
   type: z.literal('arrow'),
@@ -78,6 +82,7 @@ export const AnnotationArrowStyle = z.object({
   startHead: ArrowHeadType,
   endHead: ArrowHeadType,
   headSize: z.number(),
+  blendMode: BlendMode.optional(),
 });
 export const AnnotationPolylineStyle = z.object({
   type: z.literal('polyline'),
@@ -88,6 +93,7 @@ export const AnnotationPolylineStyle = z.object({
   startHead: ArrowHeadType,
   endHead: ArrowHeadType,
   headSize: z.number(),
+  blendMode: BlendMode.optional(),
 });
 export const AnnotationPolygonStyle = z.object({
   type: z.literal('polygon'),
@@ -98,6 +104,7 @@ export const AnnotationPolygonStyle = z.object({
   fillColor: z.string(),
   fillPattern: z.enum(['none', 'hatch', 'solid']),
   fillOpacity: z.number(),
+  blendMode: BlendMode.optional(),
 });
 export const DrawingAnnotationStyle = z.discriminatedUnion('type', [
   AnnotationLineStyle,

@@ -17,6 +17,7 @@ import {
   ColorCode,
   type AnnotationStyle,
   type ArrowHeadType,
+  type BlendMode,
   type StrokeType,
 } from 'src/models/document/pdf';
 
@@ -74,8 +75,8 @@ export function useAnnotationStylePanel() {
 
   /** 色以外の全種別共通フィールドを、モードに応じたget/setで統一的に扱うwritable computedを作る */
   function universalField<V>(
-    drawKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity',
-    selectionKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity',
+    drawKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity' | 'blendMode',
+    selectionKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity' | 'blendMode',
   ): WritableComputedRef<V | undefined> {
     return computed<V | undefined>({
       get: () => {
@@ -103,6 +104,8 @@ export function useAnnotationStylePanel() {
   const strokeWidth = universalField<number>('strokeWidth', 'strokeWidth');
   const strokeType = universalField<StrokeType>('strokeType', 'strokeType');
   const opacity = universalField<number>('strokeOpacity', 'strokeOpacity');
+  /** 全種別共通の合成モード（半透明の図形を下地の文書とどう重ねるか） */
+  const blendMode = universalField<BlendMode>('blendMode', 'blendMode');
 
   /**
    * 配置済みアノテーション（AnnotationStyle）の色系フィールドはColorCode（ブランド付き文字列）の
@@ -163,6 +166,40 @@ export function useAnnotationStylePanel() {
         void applyToSelection((annot) =>
           annot.type === 'box' || annot.type === 'circle' || annot.type === 'polygon' || annot.type === 'text'
             ? { fillColor: parsed }
+            : null,
+        );
+      }
+    },
+  });
+
+  /** box/circle/polygon/textのみ有効な塗りの不透明度 */
+  const fillOpacity = computed<number | undefined>({
+    get: () => {
+      if (mode.value === 'draw') {
+        const style = editorStore.currentAnnotationStyle;
+        return style.type === 'box' ||
+          style.type === 'circle' ||
+          style.type === 'polygon' ||
+          style.type === 'text'
+          ? style.fillOpacity
+          : undefined;
+      }
+      if (mode.value === 'selection') {
+        return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
+          a.type === 'box' || a.type === 'circle' || a.type === 'polygon' || a.type === 'text'
+            ? a.fillOpacity
+            : undefined,
+        );
+      }
+      return undefined;
+    },
+    set: (value) => {
+      if (value === undefined) return;
+      if (mode.value === 'draw') patchDrawStyle({ fillOpacity: value });
+      else if (mode.value === 'selection') {
+        void applyToSelection((annot) =>
+          annot.type === 'box' || annot.type === 'circle' || annot.type === 'polygon' || annot.type === 'text'
+            ? { fillOpacity: value }
             : null,
         );
       }
@@ -255,7 +292,9 @@ export function useAnnotationStylePanel() {
     strokeWidth,
     strokeType,
     opacity,
+    blendMode,
     fillColor,
+    fillOpacity,
     endHead,
     fontFamily,
     fontSize,

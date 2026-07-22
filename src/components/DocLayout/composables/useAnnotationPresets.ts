@@ -52,6 +52,7 @@ export function buildPresetApplyPatch(
       strokeWidth: preset.strokeWidth,
       strokeType: preset.strokeType,
       strokeOpacity: preset.strokeOpacity,
+      blendMode: preset.blendMode,
     };
 
     switch (preset.type) {
@@ -101,6 +102,7 @@ export function annotationStyleToPresetStyle(annot: AnnotationStyle): DrawingAnn
     strokeWidth: annot.strokeWidth ?? 2,
     strokeType: annot.strokeType ?? ('solid' as const),
     strokeOpacity: annot.strokeOpacity ?? annot.opacity ?? 1,
+    blendMode: annot.blendMode ?? ('normal' as const),
   };
 
   switch (annot.type) {
