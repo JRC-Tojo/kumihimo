@@ -22,10 +22,118 @@ import { AnnotationID, ColorCode, type AnnotationStyle } from 'src/models/docume
 import type { DrawingAnnotationStyle } from 'src/models/docPage';
 import type { BoundingBox } from 'src/models/common';
 import { hexToRgba } from 'src/utils/color/hexToRgba';
+import { strokeTypeToDash } from 'src/utils/document/strokeDash';
 
 export interface Point {
   x: number;
   y: number;
+}
+
+interface RectLike {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** 点の外積を用いた向き判定（線分交差判定の補助）。0=一直線上、1/2=左右どちらか */
+function orientation(p: Point, q: Point, r: Point): 0 | 1 | 2 {
+  const val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+  if (Math.abs(val) < 1e-9) return 0;
+  return val > 0 ? 1 : 2;
+}
+
+/** p-q-r が一直線上にある前提で、qがp-r線分上（境界含む）にあるかどうか */
+function onSegment(p: Point, q: Point, r: Point): boolean {
+  return (
+    q.x <= Math.max(p.x, r.x) + 1e-9 &&
+    q.x >= Math.min(p.x, r.x) - 1e-9 &&
+    q.y <= Math.max(p.y, r.y) + 1e-9 &&
+    q.y >= Math.min(p.y, r.y) - 1e-9
+  );
+}
+
+/** 2つの線分（p1-q1, p2-q2）が交差する（端点が触れるだけの場合も含む）かどうか */
+function segmentsIntersect(p1: Point, q1: Point, p2: Point, q2: Point): boolean {
+  const o1 = orientation(p1, q1, p2);
+  const o2 = orientation(p1, q1, q2);
+  const o3 = orientation(p2, q2, p1);
+  const o4 = orientation(p2, q2, q1);
+
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && onSegment(p1, p2, q1)) return true;
+  if (o2 === 0 && onSegment(p1, q2, q1)) return true;
+  if (o3 === 0 && onSegment(p2, p1, q2)) return true;
+  if (o4 === 0 && onSegment(p2, q1, q2)) return true;
+  return false;
+}
+
+/** 線分（p1-p2）が矩形（境界含む）と交差するかどうか。線分の端点が矩形内にある場合も交差とみなす */
+function segmentIntersectsRect(p1: Point, p2: Point, rect: RectLike): boolean {
+  const inRect = (p: Point) =>
+    p.x >= rect.x && p.x <= rect.x + rect.width && p.y >= rect.y && p.y <= rect.y + rect.height;
+  if (inRect(p1) || inRect(p2)) return true;
+
+  const corners: Point[] = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ];
+  for (let i = 0; i < 4; i++) {
+    const a = corners[i]!;
+    const b = corners[(i + 1) % 4]!;
+    if (segmentsIntersect(p1, p2, a, b)) return true;
+  }
+  return false;
+}
+
+/** 折れ線・多角形共通: 相対座標の頂点列（原点オフセット）を絶対座標の線分列と比較し、どれか1本でも矩形と交差すればtrue */
+function polylineIntersectsRect(
+  originX: number,
+  originY: number,
+  points: number[],
+  rect: RectLike,
+  closed: boolean,
+): boolean {
+  const abs: Point[] = [];
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    abs.push({ x: originX + points[i]!, y: originY + points[i + 1]! });
+  }
+  if (abs.length < 2) return false;
+
+  for (let i = 0; i + 1 < abs.length; i++) {
+    if (segmentIntersectsRect(abs[i]!, abs[i + 1]!, rect)) return true;
+  }
+  if (closed && abs.length >= 3) {
+    if (segmentIntersectsRect(abs[abs.length - 1]!, abs[0]!, rect)) return true;
+  }
+
+  // 矩形が完全に図形の内側にある（辺には触れない）ケースを拾うため、中心点の内外判定を補助的に行う
+  if (closed) {
+    const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    let inside = false;
+    for (let i = 0, j = abs.length - 1; i < abs.length; j = i++) {
+      const pi = abs[i]!;
+      const pj = abs[j]!;
+      const intersects =
+        pi.y > center.y !== pj.y > center.y &&
+        center.x < ((pj.x - pi.x) * (center.y - pi.y)) / (pj.y - pi.y) + pi.x;
+      if (intersects) inside = !inside;
+    }
+    if (inside) return true;
+  }
+
+  return false;
+}
+
+/** 楕円（中心cx,cy・半径rx,ry）と矩形が交差するかどうかの近似判定（矩形内の最近点と中心の距離で判定） */
+function ellipseIntersectsRect(cx: number, cy: number, rx: number, ry: number, rect: RectLike): boolean {
+  const closestX = Math.max(rect.x, Math.min(cx, rect.x + rect.width));
+  const closestY = Math.max(rect.y, Math.min(cy, rect.y + rect.height));
+  const nx = rx > 0 ? (closestX - cx) / rx : 0;
+  const ny = ry > 0 ? (closestY - cy) / ry : 0;
+  return nx * nx + ny * ny <= 1;
 }
 
 /** 初期設定として投入されるプリセット1件分の元データ（id/表示順はsettings層で採番する） */
@@ -49,6 +157,13 @@ interface AnnotationGeometryModuleCommon<T extends AnnotationStyle> {
    * 多頂点図形（polyline/polygon）は原点を基準に各頂点を比例縮尺する
    */
   resizeTo(style: T, width: number, height: number): Partial<T>;
+  /**
+   * 交差選択（矩形の一部でも重なっていれば選択）向け: 図形の実形状が矩形と交差するかどうかを判定する。
+   * `rect`はstyleと同じドキュメント座標系（scale未適用）で渡すこと。
+   * バウンディングボックスのAABB同士の重なりだけでは、折れ線・円などの空白部分まで
+   * 選択されてしまうため、型ごとの実形状に基づいた判定をここに集約する
+   */
+  intersectsRect(style: T, rect: RectLike): boolean;
   /** 初期設定（初回起動時・既存設定への補完時）に投入するこの種別のデフォルトプリセット。1件以上必須 */
   defaultPresets: AnnotationDefaultPreset[];
 }
@@ -84,6 +199,12 @@ export interface ClickPointsDrawModule<
   ): Record<string, unknown>;
   /** trueの場合、始点付近を再クリックすると新しい頂点を追加せず形状を閉じて確定できる */
   closable: boolean;
+  /**
+   * 指定した場合、頂点数がこの値に達した時点で（始点への再クリックを待たず）自動的に確定する。
+   * line/textのように「2点だけで成立する」種別を、クリックのみ（ドラッグ不要）で
+   * 描けるようにするために使う（polyline/polygonは未指定のまま）
+   */
+  maxPoints?: number;
 }
 
 export type AnnotationGeometryModule<T extends AnnotationStyle = AnnotationStyle> =
@@ -178,6 +299,7 @@ const boxGeometry: AnnotationGeometryModule = {
       fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
       stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
+      dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
   },
   boundingBox(style) {
@@ -197,6 +319,15 @@ const boxGeometry: AnnotationGeometryModule = {
   resizeTo(style, width, height) {
     if (style.type !== 'box') return {};
     return { width, height };
+  },
+  intersectsRect(style, rect) {
+    if (style.type !== 'box') return false;
+    return (
+      style.x + style.width >= rect.x &&
+      style.x <= rect.x + rect.width &&
+      style.y + style.height >= rect.y &&
+      style.y <= rect.y + rect.height
+    );
   },
   defaultPresets: [
     {
@@ -312,9 +443,14 @@ function multiPointBoundingBox(
 }
 
 const lineGeometry: AnnotationGeometryModule = {
-  drawMode: 'drag',
-  createFromDrag(pageNumber, start, end, style) {
+  drawMode: 'clickPoints',
+  closable: false,
+  maxPoints: 2,
+  createFromPoints(pageNumber, points, style) {
     if (style.type !== 'line') return null;
+    if (points.length < 2) return null;
+    const start = points[0]!;
+    const end = points[1]!;
     const built = buildBaseAnnotation(pageNumber, start.x, start.y, style);
     if (!built) return null;
 
@@ -328,14 +464,18 @@ const lineGeometry: AnnotationGeometryModule = {
       points: [0, 0, end.x - start.x, end.y - start.y],
     };
   },
-  previewFromDrag(start, end, style) {
+  previewFromPoints(points, cursor, style) {
     if (style.type !== 'line') return {};
+    const start = points[0];
+    if (!start) return {};
+    const end = points[1] ?? cursor ?? start;
     return {
       x: start.x,
       y: start.y,
       points: [0, 0, end.x - start.x, end.y - start.y],
       stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
+      dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
   },
   boundingBox(style) {
@@ -351,6 +491,16 @@ const lineGeometry: AnnotationGeometryModule = {
     const signX = (style.points[2] ?? 0) < 0 ? -1 : 1;
     const signY = (style.points[3] ?? 0) < 0 ? -1 : 1;
     return { points: [style.points[0] ?? 0, style.points[1] ?? 0, width * signX, height * signY] };
+  },
+  intersectsRect(style, rect) {
+    if (style.type !== 'line') return false;
+    const [x1, y1, x2, y2] = style.points;
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return false;
+    return segmentIntersectsRect(
+      { x: style.x + x1, y: style.y + y1 },
+      { x: style.x + x2, y: style.y + y2 },
+      rect,
+    );
   },
   defaultPresets: [
     {
@@ -415,6 +565,7 @@ const circleGeometry: AnnotationGeometryModule = {
       fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
       stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
+      dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
   },
   boundingBox(style) {
@@ -443,6 +594,12 @@ const circleGeometry: AnnotationGeometryModule = {
     if (style.type !== 'circle') return {};
     // radiusX/radiusYを明示することで楕円化する（正円のradiusは互換性のため残す）
     return { radiusX: width / 2, radiusY: height / 2 };
+  },
+  intersectsRect(style, rect) {
+    if (style.type !== 'circle') return false;
+    const radiusX = style.radiusX ?? style.radius;
+    const radiusY = style.radiusY ?? style.radius;
+    return ellipseIntersectsRect(style.x, style.y, radiusX, radiusY, rect);
   },
   defaultPresets: [
     {
@@ -490,6 +647,7 @@ const arrowGeometry: AnnotationGeometryModule = {
       points: [0, 0, end.x - start.x, end.y - start.y],
       stroke,
       strokeWidth: style.strokeWidth,
+      dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
       fill: stroke,
       fillEnabled: style.endHead !== 'open' && style.startHead !== 'open',
       pointerAtBeginning: style.startHead !== 'none',
@@ -511,6 +669,16 @@ const arrowGeometry: AnnotationGeometryModule = {
     const signX = (style.points[2] ?? 0) < 0 ? -1 : 1;
     const signY = (style.points[3] ?? 0) < 0 ? -1 : 1;
     return { points: [style.points[0] ?? 0, style.points[1] ?? 0, width * signX, height * signY] };
+  },
+  intersectsRect(style, rect) {
+    if (style.type !== 'arrow') return false;
+    const [x1, y1, x2, y2] = style.points;
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return false;
+    return segmentIntersectsRect(
+      { x: style.x + x1, y: style.y + y1 },
+      { x: style.x + x2, y: style.y + y2 },
+      rect,
+    );
   },
   defaultPresets: [
     {
@@ -568,6 +736,7 @@ const polylineGeometry: AnnotationGeometryModule = {
       points: flat,
       stroke,
       strokeWidth: style.strokeWidth,
+      dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
       fill: stroke,
       fillEnabled: style.endHead !== 'open' && style.startHead !== 'open',
       pointerAtBeginning: style.startHead !== 'none',
@@ -588,6 +757,10 @@ const polylineGeometry: AnnotationGeometryModule = {
   resizeTo(style, width, height) {
     if (style.type !== 'polyline') return {};
     return { points: resizePointsTo(style.points, width, height) };
+  },
+  intersectsRect(style, rect) {
+    if (style.type !== 'polyline') return false;
+    return polylineIntersectsRect(style.x, style.y, style.points, rect, false);
   },
   defaultPresets: [
     {
@@ -656,10 +829,13 @@ const polygonGeometry: AnnotationGeometryModule = {
       x: origin.x,
       y: origin.y,
       points: flat,
-      closed: points.length >= 3,
+      // 未確定（始点を再クリックして閉合するまで）の間は、途中の点数に関わらず絶対に
+      // 閉じた図形として見せない。実際に閉じるのは確定時（createFromPoints）のみ
+      closed: false,
       fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
       stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
+      dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
   },
   boundingBox(style) {
@@ -674,6 +850,10 @@ const polygonGeometry: AnnotationGeometryModule = {
   resizeTo(style, width, height) {
     if (style.type !== 'polygon') return {};
     return { points: resizePointsTo(style.points, width, height) };
+  },
+  intersectsRect(style, rect) {
+    if (style.type !== 'polygon') return false;
+    return polylineIntersectsRect(style.x, style.y, style.points, rect, true);
   },
   defaultPresets: [
     {
@@ -693,9 +873,14 @@ const polygonGeometry: AnnotationGeometryModule = {
 };
 
 const textGeometry: AnnotationGeometryModule = {
-  drawMode: 'drag',
-  createFromDrag(pageNumber, start, end, style) {
+  drawMode: 'clickPoints',
+  closable: false,
+  maxPoints: 2,
+  createFromPoints(pageNumber, points, style) {
     if (style.type !== 'text') return null;
+    if (points.length < 2) return null;
+    const start = points[0]!;
+    const end = points[1]!;
     const built = buildBaseAnnotation(
       pageNumber,
       Math.min(start.x, end.x),
@@ -728,8 +913,11 @@ const textGeometry: AnnotationGeometryModule = {
         : undefined,
     };
   },
-  previewFromDrag(start, end, style) {
+  previewFromPoints(points, cursor, style) {
     if (style.type !== 'text') return {};
+    const start = points[0];
+    if (!start) return {};
+    const end = points[1] ?? cursor ?? start;
     return {
       x: Math.min(start.x, end.x),
       y: Math.min(start.y, end.y),
@@ -738,6 +926,7 @@ const textGeometry: AnnotationGeometryModule = {
       fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
       stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
       strokeWidth: style.strokeWidth,
+      dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
   },
   boundingBox(style) {
@@ -757,6 +946,15 @@ const textGeometry: AnnotationGeometryModule = {
   resizeTo(style, width, height) {
     if (style.type !== 'text') return {};
     return { width, height };
+  },
+  intersectsRect(style, rect) {
+    if (style.type !== 'text') return false;
+    return (
+      style.x + style.width >= rect.x &&
+      style.x <= rect.x + rect.width &&
+      style.y + style.height >= rect.y &&
+      style.y <= rect.y + rect.height
+    );
   },
   defaultPresets: [
     {

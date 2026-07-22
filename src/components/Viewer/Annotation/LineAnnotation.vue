@@ -102,7 +102,8 @@ const lineConfig = computed(() => {
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,
     draggable: false,
-    hitStrokeWidth: 8,
+    // 見た目の線幅より当たり判定を広げ、細い線でもつかみやすくする
+    hitStrokeWidth: Math.max(12, (annotation.strokeWidth || 2) * 4),
   };
 });
 

@@ -1,17 +1,24 @@
 <template>
   <div v-if="mode !== 'none'" class="annotation-style-panel">
-    <!-- 線色 -->
-    <StyleSwatchButton v-model="color" :tooltip="t('pdfEditor.tools.stylePanel.color')" />
+    <!-- 線色（中空四角形にして塗り色ボタンと区別する） -->
+    <StyleSwatchButton v-model="color" variant="outline" :tooltip="t('pdfEditor.tools.stylePanel.color')" />
 
-    <!-- 線幅 -->
-    <StyleValueMenuButton
-      v-model="strokeWidth"
-      :min="1"
-      :max="10"
-      :step="0.5"
-      :format="formatWidth"
-      :tooltip="t('pdfEditor.tools.stylePanel.strokeWidth')"
-    />
+    <!-- 線幅（スライダーではなく直接数字を入力する） -->
+    <q-input
+      :model-value="strokeWidth"
+      type="number"
+      dense
+      borderless
+      min="1"
+      max="10"
+      step="0.5"
+      class="style-number-input"
+      @update:model-value="(v) => (strokeWidth = Number(v) || undefined)"
+    >
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.strokeWidth') }}
+      </q-tooltip>
+    </q-input>
 
     <!-- 線種 -->
     <q-btn dense flat :ripple="false" class="style-icon-btn">
@@ -33,18 +40,38 @@
           </q-item>
         </q-list>
       </q-menu>
-      <q-tooltip>{{ t('pdfEditor.tools.stylePanel.strokeType') }}</q-tooltip>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.strokeType') }}
+      </q-tooltip>
     </q-btn>
 
-    <!-- 不透明度 -->
-    <StyleValueMenuButton
-      v-model="opacity"
-      :min="0"
-      :max="1"
-      :step="0.01"
-      :format="formatOpacity"
-      :tooltip="t('pdfEditor.tools.stylePanel.opacity')"
-    />
+    <!-- 不透明度（2cm程度の小さなスライダー＋直接編集可能な数値） -->
+    <div class="opacity-control">
+      <q-slider
+        :model-value="opacityPercent"
+        :min="0"
+        :max="100"
+        :step="2"
+        color="primary"
+        class="opacity-slider"
+        @update:model-value="(v) => (opacityPercent = v ?? 100)"
+      />
+      <q-input
+        :model-value="opacityPercent"
+        type="number"
+        dense
+        borderless
+        min="0"
+        max="100"
+        step="2"
+        class="style-number-input"
+        @update:model-value="(v) => (opacityPercent = Number(v))"
+      />
+      <span class="opacity-unit">%</span>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.opacity') }}
+      </q-tooltip>
+    </div>
 
     <q-separator
       v-if="isFillableType || isHeadedType || isTextType"
@@ -53,7 +80,7 @@
       class="style-separator"
     />
 
-    <!-- box/circle/polygon: 塗り色 -->
+    <!-- box/circle/polygon/text: 塗り色 -->
     <StyleSwatchButton
       v-if="isFillableType"
       v-model="fillColor"
@@ -80,7 +107,9 @@
           </q-item>
         </q-list>
       </q-menu>
-      <q-tooltip>{{ t('pdfEditor.tools.stylePanel.endHead') }}</q-tooltip>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.endHead') }}
+      </q-tooltip>
     </q-btn>
 
     <!-- text: フォント・文字サイズ・文字色 -->
@@ -101,9 +130,19 @@
             </q-item>
           </q-list>
         </q-menu>
-        <q-tooltip>{{ t('pdfEditor.tools.stylePanel.fontFamily') }}</q-tooltip>
+        <q-tooltip anchor="top middle" self="bottom middle">
+          {{ t('pdfEditor.tools.stylePanel.fontFamily') }}
+        </q-tooltip>
       </q-btn>
 
+      <q-btn
+        dense
+        flat
+        :ripple="false"
+        icon="remove"
+        class="style-icon-btn"
+        @click="fontSize = (fontSize ?? 16) - 1"
+      />
       <q-input
         :model-value="fontSize"
         type="number"
@@ -112,10 +151,24 @@
         class="style-number-input"
         @update:model-value="(v) => (fontSize = Number(v) || undefined)"
       >
-        <q-tooltip>{{ t('pdfEditor.tools.stylePanel.fontSize') }}</q-tooltip>
+        <q-tooltip anchor="top middle" self="bottom middle">
+          {{ t('pdfEditor.tools.stylePanel.fontSize') }}
+        </q-tooltip>
       </q-input>
+      <q-btn
+        dense
+        flat
+        :ripple="false"
+        icon="add"
+        class="style-icon-btn"
+        @click="fontSize = (fontSize ?? 16) + 1"
+      />
 
-      <StyleSwatchButton v-model="textColor" :tooltip="t('pdfEditor.tools.stylePanel.textColor')" />
+      <StyleSwatchButton
+        v-model="textColor"
+        variant="text"
+        :tooltip="t('pdfEditor.tools.stylePanel.textColor')"
+      />
     </template>
   </div>
 </template>
@@ -136,7 +189,6 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAnnotationStylePanel } from './composables/useAnnotationStylePanel';
 import StyleSwatchButton from './StyleSwatchButton.vue';
-import StyleValueMenuButton from './StyleValueMenuButton.vue';
 import StrokeTypePreview from './StrokeTypePreview.vue';
 import type { ArrowHeadType } from 'src/models/document/pdf';
 
@@ -160,15 +212,21 @@ const isFillableType = computed(
   () =>
     effectiveType.value === 'box' ||
     effectiveType.value === 'circle' ||
-    effectiveType.value === 'polygon',
+    effectiveType.value === 'polygon' ||
+    effectiveType.value === 'text',
 );
 const isHeadedType = computed(
   () => effectiveType.value === 'arrow' || effectiveType.value === 'polyline',
 );
 const isTextType = computed(() => effectiveType.value === 'text');
 
-const formatWidth = (v: number) => `${v}px`;
-const formatOpacity = (v: number) => `${Math.round(v * 100)}%`;
+/** 不透明度（0〜1）を、スライダー・数値入力で扱いやすいパーセント（0〜100）表示に変換する */
+const opacityPercent = computed<number>({
+  get: () => Math.round((opacity.value ?? 1) * 100),
+  set: (v) => {
+    opacity.value = Math.min(100, Math.max(0, v)) / 100;
+  },
+});
 
 const strokeTypeOptions = computed(() => [
   { label: t('pdfEditor.tools.stylePanel.strokeTypeOptions.solid'), value: 'solid' as const },
@@ -240,6 +298,26 @@ const fontFamilyLabel = computed(
   :deep(.q-field__control) {
     height: 24px;
   }
+}
+
+.opacity-control {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+// 約2cm相当（96dpiベース）の小さなスライダー
+.opacity-slider {
+  width: 76px;
+
+  :deep(.q-slider) {
+    color: $primary;
+  }
+}
+
+.opacity-unit {
+  font-size: 0.7rem;
+  color: $grey-7;
 }
 
 .style-separator {

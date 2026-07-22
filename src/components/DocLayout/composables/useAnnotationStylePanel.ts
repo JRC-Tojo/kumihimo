@@ -11,7 +11,8 @@
 import { computed, type WritableComputedRef } from 'vue';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useAnnotationHistory } from './useAnnotationHistory';
-import type { DrawingAnnotationType } from 'src/models/docPage';
+import { buildPresetApplyPatch } from './useAnnotationPresets';
+import type { DrawingAnnotationStyle, DrawingAnnotationType } from 'src/models/docPage';
 import {
   ColorCode,
   type AnnotationStyle,
@@ -57,6 +58,11 @@ export function useAnnotationStylePanel() {
 
     const items = history.buildRegisterManyItems(selection.annotations, building);
     await history.registerManyWithHistory(selection.file, items);
+  }
+
+  /** 選択中の全アノテーションに、プリセットのスタイルを一括適用する（種別が異なるものはスキップされる） */
+  async function applyPresetStyleToSelection(preset: DrawingAnnotationStyle): Promise<void> {
+    await applyToSelection(buildPresetApplyPatch(preset));
   }
 
   function patchDrawStyle(patch: Record<string, unknown>): void {
@@ -127,18 +133,23 @@ export function useAnnotationStylePanel() {
     },
   });
 
-  /** box/circle/polygonのみ有効な塗り色 */
+  /** box/circle/polygon/textのみ有効な塗り色 */
   const fillColor = computed<string | undefined>({
     get: () => {
       if (mode.value === 'draw') {
         const style = editorStore.currentAnnotationStyle;
-        return style.type === 'box' || style.type === 'circle' || style.type === 'polygon'
+        return style.type === 'box' ||
+          style.type === 'circle' ||
+          style.type === 'polygon' ||
+          style.type === 'text'
           ? style.fillColor
           : undefined;
       }
       if (mode.value === 'selection') {
         return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
-          a.type === 'box' || a.type === 'circle' || a.type === 'polygon' ? a.fillColor : undefined,
+          a.type === 'box' || a.type === 'circle' || a.type === 'polygon' || a.type === 'text'
+            ? a.fillColor
+            : undefined,
         );
       }
       return undefined;
@@ -150,7 +161,7 @@ export function useAnnotationStylePanel() {
         const parsed = toColorCode(value);
         if (parsed === undefined) return;
         void applyToSelection((annot) =>
-          annot.type === 'box' || annot.type === 'circle' || annot.type === 'polygon'
+          annot.type === 'box' || annot.type === 'circle' || annot.type === 'polygon' || annot.type === 'text'
             ? { fillColor: parsed }
             : null,
         );
@@ -239,6 +250,7 @@ export function useAnnotationStylePanel() {
   return {
     mode,
     effectiveType,
+    applyPresetStyleToSelection,
     color,
     strokeWidth,
     strokeType,

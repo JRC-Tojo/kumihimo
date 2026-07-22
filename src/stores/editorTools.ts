@@ -314,6 +314,45 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
 }
 
 /**
+ * 表示モード（単一/連続）切り替えツールを取得
+ *
+ * 表示モード自体はペインごとのローカルstate（DocumentTabView.vueの`viewMode`）のため、
+ * layerOrderActionと同じ「意図をeditorStoreに橋渡しする」パターンで扱う。
+ * サブツールの活性判定は、アクティブなペインからeditorStoreへ橋渡しされた`activeViewMode`を参照する
+ */
+function callViewTools(t: (key: string) => string): IDocTool[] {
+  const editorStore = useEditorStore();
+
+  return [
+    {
+      id: 'view-mode-menu',
+      icon: 'view_agenda',
+      label: t('pdfEditor.footer.viewMode.title'),
+      isActive: () => false,
+      onClicked: () => {
+        const subTools: IDocTool[] = [
+          {
+            id: 'view-mode-single',
+            icon: 'description',
+            label: t('pdfEditor.footer.viewMode.single'),
+            isActive: () => editorStore.activeViewMode === 'single',
+            onClicked: () => editorStore.requestViewMode('single'),
+          },
+          {
+            id: 'view-mode-continuous',
+            icon: 'view_stream',
+            label: t('pdfEditor.footer.viewMode.c_single'),
+            isActive: () => editorStore.activeViewMode === 'continuousSingle',
+            onClicked: () => editorStore.requestViewMode('continuousSingle'),
+          },
+        ];
+        editorStore.subTools = subTools;
+      },
+    },
+  ];
+}
+
+/**
  * ドキュメント操作ツール一覧を取得
  * @param t - i18n 翻訳関数
  * @returns ドキュメント操作ツール配列
@@ -367,7 +406,8 @@ export async function callEditorTools(t: (key: string) => string): Promise<IDocT
   const docs = callDocTools(t);
   const pointer = callPointerTools(t);
   const annotation = await callAnnotationTools(t);
-  return Array.prototype.concat(pointer, annotation, docs);
+  const view = callViewTools(t);
+  return Array.prototype.concat(pointer, annotation, view, docs);
 }
 
 /**

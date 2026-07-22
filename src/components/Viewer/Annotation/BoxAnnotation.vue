@@ -63,7 +63,7 @@ const rectConfig = computed(() => {
     stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,
-    draggable: props.isEditing && !ctrlKey.value,
+    draggable: props.isEditing && !!props.isSelected && !ctrlKey.value,
     dragBoundFunc,
   };
 });

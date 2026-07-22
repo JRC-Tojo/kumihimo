@@ -90,7 +90,8 @@ const shapeConfig = computed(() => {
     pointerWidth: headSize,
     dash: strokeDash.value,
     draggable: false,
-    hitStrokeWidth: 8,
+    // 見た目の線幅より当たり判定を広げ、細い折れ線でもつかみやすくする
+    hitStrokeWidth: Math.max(12, (annotation.strokeWidth || 2) * 4),
   };
 });
 

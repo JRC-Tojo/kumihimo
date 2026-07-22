@@ -86,7 +86,7 @@ const shapeConfig = computed(() => {
     dash: strokeDash.value,
     draggable: false,
     // 塗りがtransparent/薄い場合でも辺をクリックで選択できるよう、当たり判定の太さを広げる（Polylineと同様）
-    hitStrokeWidth: 8,
+    hitStrokeWidth: Math.max(12, (annotation.strokeWidth || 2) * 4),
   };
 });
 

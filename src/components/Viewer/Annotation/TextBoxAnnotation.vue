@@ -51,7 +51,7 @@ const groupConfig = computed(() => ({
   x: displayAnnotation.value.x,
   y: displayAnnotation.value.y,
   id: displayAnnotation.value.id,
-  draggable: props.isEditing && !ctrlKey.value,
+  draggable: props.isEditing && !!props.isSelected && !ctrlKey.value,
   dragBoundFunc,
   onDragstart: onDragStart,
   onDragend: onDragEnd,

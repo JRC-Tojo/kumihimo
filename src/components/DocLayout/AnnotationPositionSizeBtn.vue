@@ -44,7 +44,9 @@
         </div>
       </div>
     </q-menu>
-    <q-tooltip>{{ t('pdfEditor.tools.positionSize.title') }}</q-tooltip>
+    <q-tooltip anchor="top middle" self="bottom middle">
+      {{ t('pdfEditor.tools.positionSize.title') }}
+    </q-tooltip>
   </q-btn>
 </template>
 

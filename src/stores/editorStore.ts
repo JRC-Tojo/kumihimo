@@ -2,7 +2,12 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
 import { nextTick } from 'vue';
 import type { ContainerElement, ContainerElementFile, ContainerID } from 'src/models/container';
-import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
+import type {
+  DrawingAnnotationStyle,
+  DrawingAnnotationType,
+  IDocTool,
+  ViewMode,
+} from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
@@ -106,6 +111,12 @@ export const useEditorStore = defineStore('editor', {
     // ツールバー（MainTools/SubTools）は選択状態を持たないため、意図だけをここにセットし、
     // 実際の処理は選択状態を持つDocumentTabView側でwatchして実行する
     layerOrderAction: undefined as LayerOrderAction | undefined,
+
+    // アクティブなペインの表示モード（単一/連続）。表示モード自体はペインごとのローカルstateのため、
+    // layerOrderAction/activeSelectionと同じ「意図・状態をeditorStoreに橋渡しする」パターンで扱う
+    activeViewMode: undefined as ViewMode | undefined,
+    // メインツールから表示モード変更を要求する意図フラグ。実際の適用はアクティブなペインが行う
+    viewModeAction: undefined as ViewMode | undefined,
   }),
 
   actions: {
@@ -426,6 +437,27 @@ export const useEditorStore = defineStore('editor', {
      */
     clearLayerOrderAction(): void {
       this.layerOrderAction = undefined;
+    },
+
+    /**
+     * アクティブなペインの表示モードをメインツール用に反映する
+     */
+    setActiveViewMode(mode: ViewMode): void {
+      this.activeViewMode = mode;
+    },
+
+    /**
+     * メインツールから表示モード変更を要求する（実際の適用はアクティブなペインが行う）
+     */
+    requestViewMode(mode: ViewMode): void {
+      this.viewModeAction = mode;
+    },
+
+    /**
+     * 表示モード変更の意図フラグを解除する
+     */
+    clearViewModeAction(): void {
+      this.viewModeAction = undefined;
     },
 
     /**

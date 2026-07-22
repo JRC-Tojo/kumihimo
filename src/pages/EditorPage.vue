@@ -1,16 +1,16 @@
 <template>
   <q-page class="editor-page row">
-    <div class="main-toolbar text-white">
+    <div class="main-toolbar">
       <q-btn
         v-for="tool in editorStore.mainTools"
         :key="tool.id"
-        :flat="!tool.isActive()"
-        :outline="tool.isActive()"
+        flat
         :disable="tool.isDisable?.() ?? false"
         dense
         :icon="tool.icon"
         :title="tool.label"
         class="toolbar-btn"
+        :class="{ 'toolbar-btn--active': tool.isActive() }"
         @click="handleMainToolClick(tool)"
       >
         <q-menu v-if="!tool.noMenu" anchor="center right" self="center left" auto-close>
@@ -43,6 +43,10 @@
         この領域内で出し分ける
       -->
       <q-bar class="sub-toolbar">
+        <AnnotationPresetBar
+          v-if="stylePanelMode !== 'none' && stylePanelEffectiveType"
+          class="preset-bar-wrapper"
+        />
         <AnnotationStylePanel class="style-panel-wrapper" />
         <AnnotationPositionSizeBtn />
       </q-bar>
@@ -72,6 +76,7 @@ import AnnotationPresetBar from 'src/components/DocLayout/AnnotationPresetBar.vu
 import AnnotationStylePanel from 'src/components/DocLayout/AnnotationStylePanel.vue';
 import type { IDocTool } from 'src/models/docPage';
 import AnnotationPositionSizeBtn from 'src/components/DocLayout/AnnotationPositionSizeBtn.vue';
+import { useAnnotationStylePanel } from 'src/components/DocLayout/composables/useAnnotationStylePanel';
 
 /**
  * 文書ページコンポーネント
@@ -79,6 +84,9 @@ import AnnotationPositionSizeBtn from 'src/components/DocLayout/AnnotationPositi
  */
 
 const editorStore = useEditorStore();
+// 常駐サブツール行にプリセットバーを表示するかどうかの判定にのみ使う
+// （AnnotationStylePanel自身も内部で同じcomposableを呼ぶが、Piniaストアを参照するだけなので二重利用しても問題ない）
+const { mode: stylePanelMode, effectiveType: stylePanelEffectiveType } = useAnnotationStylePanel();
 
 function handleMainToolClick(tool: IDocTool) {
   editorStore.subTools = [];
@@ -90,8 +98,6 @@ function handleMainToolClick(tool: IDocTool) {
 </script>
 
 <style scoped lang="scss">
-@use 'sass:color';
-
 .editor-page {
   height: 100%;
   padding: 0;
@@ -104,21 +110,28 @@ function handleMainToolClick(tool: IDocTool) {
   gap: 0.5rem;
   flex-wrap: wrap;
   min-height: 44px;
-  background: linear-gradient(135deg, $primary 0%, color.adjust($primary, $lightness: -5%) 100%);
+  // 通常背景と同系色にし、選択中ボタンだけプライマリ色で目立たせる（視認性重視）
+  background: $grey-2;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
 
   .toolbar-btn {
     transition: all 0.2s ease;
     border-radius: 6px;
+    color: $grey-9;
 
     &:hover {
-      background-color: rgba(white, 0.25);
+      background-color: rgba($primary, 0.12);
       transform: translateY(-2px);
     }
 
     &:active {
       transform: translateY(0);
+    }
+
+    &.toolbar-btn--active {
+      background-color: rgba($primary, 0.15);
+      color: $primary;
     }
   }
 }
@@ -128,11 +141,20 @@ function handleMainToolClick(tool: IDocTool) {
 }
 
 .body--dark .main-toolbar {
-  background: linear-gradient(
-    135deg,
-    color.adjust($primary, $lightness: -10%) 0%,
-    color.adjust($primary, $lightness: -15%) 100%
-  );
+  background: $dark;
+
+  .toolbar-btn {
+    color: $grey-3;
+
+    &:hover {
+      background-color: rgba($primary, 0.25);
+    }
+
+    &.toolbar-btn--active {
+      background-color: rgba($primary, 0.3);
+      color: $primary;
+    }
+  }
 }
 
 .sub-toolbar {

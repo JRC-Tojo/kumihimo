@@ -13,7 +13,12 @@
     <!-- メインコンテンツ領域 -->
     <div class="document-main-content col">
       <!-- タブコンテンツ：文書とアノテーション表示 -->
-      <div ref="viewer" class="document-viewer-wrapper">
+      <div
+        ref="viewer"
+        class="document-viewer-wrapper"
+        :class="{ 'is-panning': isPanning }"
+        @mousedown="onViewerMouseDown"
+      >
         <DocumentViewer
           v-if="!loading && onRender"
           :file="file"
@@ -38,7 +43,6 @@
       <!-- フッター：ページネーション、ズーム等 -->
       <DocumentFooter
         v-model:current-page="currentPage"
-        v-model:view-mode="viewMode"
         v-model:zoom-level="zoomLevel"
         :total-page-count="pageCount"
         :scale="zoomLevel"
@@ -111,6 +115,35 @@ interface Prop {
 const prop = defineProps<Prop>();
 const viewer = useTemplateRef('viewer');
 const api = useBackendApi();
+
+// ハンドモード時のドラッグパン。Konva/AnnotationLayer側はhandモードで一切介入しないため、
+// 実際にスクロールする`.document-viewer-wrapper`（このrefが指す要素）へ直接ネイティブの
+// マウスイベントで実装する
+const isPanning = ref(false);
+function onViewerMouseDown(e: MouseEvent) {
+  if (editorStore.currentTools !== 'hand') return;
+  if (!viewer.value) return;
+  // クロージャ内でnull許容を再考させないよう、非null確定済みの別バインディングに移す
+  const target: HTMLElement = viewer.value;
+
+  isPanning.value = true;
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const startScrollLeft = target.scrollLeft;
+  const startScrollTop = target.scrollTop;
+
+  function onWindowMouseMove(moveEvent: MouseEvent) {
+    target.scrollLeft = startScrollLeft - (moveEvent.clientX - startX);
+    target.scrollTop = startScrollTop - (moveEvent.clientY - startY);
+  }
+  function onWindowMouseUp() {
+    isPanning.value = false;
+    window.removeEventListener('mousemove', onWindowMouseMove);
+    window.removeEventListener('mouseup', onWindowMouseUp);
+  }
+  window.addEventListener('mousemove', onWindowMouseMove);
+  window.addEventListener('mouseup', onWindowMouseUp);
+}
 
 const $q = useQuasar();
 const { t } = useI18n();
@@ -676,6 +709,26 @@ watch(
     });
   },
 );
+// アクティブなペインの表示モードを、メインツール（表示モードメニュー）用にeditorStoreへ橋渡しする
+watch(
+  [viewMode, () => editorStore.activeSide],
+  () => {
+    if (editorStore.activeSide === prop.layoutSide) {
+      editorStore.setActiveViewMode(viewMode.value);
+    }
+  },
+  { immediate: true },
+);
+// メインツール（表示モードメニュー）からの意図をここで実行する
+watch(
+  () => editorStore.viewModeAction,
+  (mode) => {
+    if (mode === undefined) return;
+    if (editorStore.activeSide !== prop.layoutSide) return;
+    viewMode.value = mode;
+    editorStore.clearViewModeAction();
+  },
+);
 // 待機状態がストア側から解除された場合（キャンセル操作やモードオフなど）に通知を閉じる
 watch(
   () => editorStore.relationalPendingId,
@@ -746,6 +799,10 @@ onBeforeUnmount(() => {
   overflow: auto;
   background: $grey-1;
   width: 100%;
+
+  &.is-panning {
+    cursor: grabbing;
+  }
 }
 
 .body--dark .document-viewer-wrapper {

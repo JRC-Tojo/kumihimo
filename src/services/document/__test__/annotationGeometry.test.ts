@@ -115,11 +115,13 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(String(created.fillColor)).toBe('#0000ff');
   });
 
-  it('line: createFromDragはstartを起点としたpointsを生成する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.line).createFromDrag(
+  it('line: createFromPointsは始点を起点としたpointsを生成する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.line).createFromPoints(
       1,
-      { x: 5, y: 5 },
-      { x: 15, y: 25 },
+      [
+        { x: 5, y: 5 },
+        { x: 15, y: 25 },
+      ],
       lineStyle,
     );
     expect(created).not.toBeNull();
@@ -287,11 +289,13 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(asClickPointsModule(ANNOTATION_GEOMETRY.polyline).closable).toBeFalse();
   });
 
-  it('text: createFromDragは矩形サイズと初期値を持つテキストボックスを生成する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.text).createFromDrag(
+  it('text: createFromPointsは矩形サイズと初期値を持つテキストボックスを生成する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.text).createFromPoints(
       1,
-      { x: 10, y: 10 },
-      { x: 110, y: 60 },
+      [
+        { x: 10, y: 10 },
+        { x: 110, y: 60 },
+      ],
       textStyle,
     );
     expect(created).not.toBeNull();
@@ -582,8 +586,8 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
   });
 
   it('line: 塗りを持たないためstrokeのみをrgba合成して返す', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.line).previewFromDrag(
-      { x: 5, y: 5 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.line).previewFromPoints(
+      [{ x: 5, y: 5 }],
       { x: 15, y: 25 },
       lineStyle,
     );
@@ -667,7 +671,7 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
     expect(withCursor.points).toEqual([0, 0, 20, 0, 30, 0]);
   });
 
-  it('polygon: previewFromPointsはclosedフラグ付きでfill/strokeをrgba合成する', () => {
+  it('polygon: previewFromPointsは未確定の間は常にclosed=falseでfill/strokeをrgba合成する', () => {
     const points = [
       { x: 0, y: 0 },
       { x: 20, y: 0 },
@@ -682,7 +686,8 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
       x: 0,
       y: 0,
       points: [0, 0, 20, 0, 10, 20],
-      closed: true,
+      // 3点以上あっても、始点への再クリックで確定するまでは絶対に閉じた図形に見せない
+      closed: false,
       fill: hexToRgba('#9900cc', 0.3),
       stroke: hexToRgba('#9900cc', 1),
       strokeWidth: 3,
@@ -690,8 +695,8 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
   });
 
   it('text: fillColor未設定の場合はtransparentを返す', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.text).previewFromDrag(
-      { x: 10, y: 10 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.text).previewFromPoints(
+      [{ x: 10, y: 10 }],
       { x: 110, y: 60 },
       textStyle,
     );

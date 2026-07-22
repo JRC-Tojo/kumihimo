@@ -1,6 +1,9 @@
 <template>
   <q-bar class="document-footer">
-    <!-- 左側：ページネーション -->
+    <!-- 左側は空（ページネーションを見た目上中央に配置するための余白列） -->
+    <div class="footer-spacer" />
+
+    <!-- 中央：ページネーション -->
     <div class="footer-section footer-pagination">
       <q-btn flat dense icon="first_page" @click="onGoToFirstPage()" :disable="currentPage === 1" />
       <q-btn
@@ -34,18 +37,6 @@
       />
     </div>
 
-    <!-- セパレータ -->
-    <q-separator vertical />
-
-    <!-- 中央：表示モード -->
-    <div class="footer-section footer-view-mode">
-      <span class="section-label">{{ $t('pdfEditor.footer.viewMode.title') }}:</span>
-      <q-btn-toggle v-model="viewMode" flat dense unelevated :options="viewModeOptions" />
-    </div>
-
-    <!-- セパレータ -->
-    <q-separator vertical />
-
     <!-- 右側：ズームコントロール -->
     <div class="footer-section footer-zoom">
       <q-btn flat dense icon="zoom_out" @click="onZoomOut()" :disable="zoomLevel === 20" />
@@ -71,9 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import type { ViewMode } from 'src/models/docPage';
 import { ref, watch } from 'vue';
-import { useI18n } from 'vue-i18n';
 
 interface Prop {
   totalPageCount: number;
@@ -88,24 +77,14 @@ interface Prop {
   onZoomOut: () => void;
 }
 const props = defineProps<Prop>();
-const { t } = useI18n();
 
 const currentPage = defineModel<number>('currentPage', { required: true });
-const viewMode = defineModel<ViewMode>('viewMode', { required: true });
 const zoomLevel = defineModel<number>('zoomLevel', { required: true });
 
 // ページ入力用の一時 state
 const pageInputValue = ref<string>(String(currentPage.value));
 // ズーム入力用の一時 state
 const zoomInputValue = ref<string>(String(zoomLevel.value));
-
-// 表示モード
-const viewModeOptions = [
-  { label: t('pdfEditor.footer.viewMode.single'), value: 'single' },
-  // { label: t('pdfEditor.footer.viewMode.spread'), value: 'spread' },
-  { label: t('pdfEditor.footer.viewMode.c_single'), value: 'continuousSingle' },
-  // { label: t('pdfEditor.footer.viewMode.c_spread'), value: 'continuousSpread' },
-];
 
 function onPageInputBlur() {
   pageInputValue.value = String(currentPage.value);
@@ -138,15 +117,21 @@ watch(zoomLevel, (newZoomLevel) => {
 @use 'sass:color';
 
 .document-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 1rem;
   background-color: $grey-1;
   border-top: 1px solid $grey-3;
   padding: 0 1rem;
-  height: 64px;
+  // メインツール・サブツールバーと高さを揃える（以前は64px固定で footer だけ高かった）
+  min-height: 44px;
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.08);
   overflow-x: auto;
+
+  .footer-spacer {
+    min-width: 0;
+  }
 
   .footer-section {
     display: flex;
@@ -165,6 +150,7 @@ watch(zoomLevel, (newZoomLevel) => {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    justify-self: center;
 
     .page-input {
       width: 50px;
@@ -224,30 +210,11 @@ watch(zoomLevel, (newZoomLevel) => {
     }
   }
 
-  .footer-view-mode {
-    :deep(.q-btn-toggle__container) {
-      gap: 0.25rem;
-      background: $grey-2;
-      border-radius: 6px;
-      padding: 2px;
-
-      .q-btn {
-        border-radius: 4px;
-        font-size: 0.75rem;
-        font-weight: 600;
-
-        &.q-btn--active {
-          background: white;
-          color: $primary;
-        }
-      }
-    }
-  }
-
   .footer-zoom {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    justify-self: end;
 
     .zoom-input {
       width: 50px;
@@ -328,21 +295,6 @@ watch(zoomLevel, (newZoomLevel) => {
   }
 
   .footer-tile-mode {
-    :deep(.q-btn-toggle__container) {
-      background: $grey-8;
-
-      .q-btn {
-        color: $grey-4;
-
-        &.q-btn--active {
-          background: color.adjust($dark, $lightness: -3%);
-          color: $primary;
-        }
-      }
-    }
-  }
-
-  .footer-view-mode {
     :deep(.q-btn-toggle__container) {
       background: $grey-8;
 
