@@ -1,6 +1,7 @@
 import type { DrawingAnnotationType, IDocTool } from 'src/models/docPage';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { useEditorStore } from './editorStore';
+import { useHistoryStore } from './historyStore';
 import { useSettingsStore } from './settingsStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import { saveDocument } from 'src/utils/document/saveDocument';
@@ -52,6 +53,49 @@ function callSavingTools(t: (key: string) => string): IDocTool[] {
   ];
 
   return tools;
+}
+
+/**
+ * Undo/Redoツール一覧を取得
+ *
+ * ヘッダーツールはグローバルに一度だけ生成される（ペインごとではない）ため、クリック・活性判定は
+ * その時点でのアクティブなペイン・タブを都度解決する（callSavingToolsのisFileActiveと同じパターン）
+ */
+function callHistoryTools(t: (key: string) => string): IDocTool[] {
+  const editorStore = useEditorStore();
+  const historyStore = useHistoryStore();
+  const activeFile = () => editorStore.getActiveTab(editorStore.activeSide);
+
+  return [
+    {
+      id: 'history-undo',
+      icon: 'undo',
+      label: t('pdfEditor.tools.history.undo'),
+      isActive: () => false,
+      isDisable: () => {
+        const file = activeFile();
+        return !file || !historyStore.canUndo(file) || historyStore.isBusy(file);
+      },
+      onClicked: () => {
+        const file = activeFile();
+        if (file) void historyStore.undo(file);
+      },
+    },
+    {
+      id: 'history-redo',
+      icon: 'redo',
+      label: t('pdfEditor.tools.history.redo'),
+      isActive: () => false,
+      isDisable: () => {
+        const file = activeFile();
+        return !file || !historyStore.canRedo(file) || historyStore.isBusy(file);
+      },
+      onClicked: () => {
+        const file = activeFile();
+        if (file) void historyStore.redo(file);
+      },
+    },
+  ];
 }
 
 function callLayoutTools(t: (key: string) => string): IDocTool[] {
@@ -330,8 +374,9 @@ export async function callEditorTools(t: (key: string) => string): Promise<IDocT
  * ヘッダーのうち左上に表示するツールを取得
  */
 export function callLeftHeaderTools(t: (key: string) => string): IDocTool[] {
+  const history = callHistoryTools(t);
   const saving = callSavingTools(t);
-  return saving;
+  return [...history, ...saving];
 }
 
 /**

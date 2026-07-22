@@ -9,9 +9,8 @@
  */
 
 import { computed, type WritableComputedRef } from 'vue';
-import dayjs from 'dayjs';
 import { useEditorStore } from 'src/stores/editorStore';
-import { useBackendApi } from 'src/apis/backendApi';
+import { useAnnotationHistory } from './useAnnotationHistory';
 import type { DrawingAnnotationType } from 'src/models/docPage';
 import {
   ColorCode,
@@ -31,7 +30,7 @@ function commonValue<T, V>(items: T[], getter: (item: T) => V): V | undefined {
 
 export function useAnnotationStylePanel() {
   const editorStore = useEditorStore();
-  const api = useBackendApi();
+  const history = useAnnotationHistory();
 
   const mode = computed<StylePanelMode>(() => {
     if (editorStore.activeAnnotationType !== undefined) return 'draw';
@@ -55,19 +54,9 @@ export function useAnnotationStylePanel() {
   ): Promise<void> {
     const selection = editorStore.activeSelection;
     if (!selection) return;
-    const now = dayjs().toISOString();
 
-    await Promise.all(
-      selection.annotations.map((annot) => {
-        const patch = building(annot);
-        if (!patch) return Promise.resolve();
-        return api.registerAnnotationStyle(selection.file, {
-          ...annot,
-          ...patch,
-          updatedAt: now,
-        } as AnnotationStyle);
-      }),
-    );
+    const items = history.buildRegisterManyItems(selection.annotations, building);
+    await history.registerManyWithHistory(selection.file, items);
   }
 
   function patchDrawStyle(patch: Record<string, unknown>): void {

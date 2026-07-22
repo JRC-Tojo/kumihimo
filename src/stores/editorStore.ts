@@ -6,6 +6,8 @@ import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'sr
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
+import { Path } from 'src/utils/binary/path';
+import { useHistoryStore } from './historyStore';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
 const sides = ['ul', 'ur', 'll', 'lr'] as const;
@@ -18,10 +20,12 @@ export type RelationalType = RelationalRule['type'] | undefined;
 /**
  * タブの同一性判定に用いるキー
  *
- * pathだけでは別コンテナの同一パスファイルを区別できないため、containerIDと組み合わせる
+ * pathだけでは別コンテナの同一パスファイルを区別できないため、containerIDと組み合わせる。
+ * pathはPathオブジェクトで正規化してから連結する（区切り文字表記の揺れによる
+ * 同一ファイルの不一致判定を防ぐ）
  */
 function tabKey(f: { containerID: ContainerID; path: string }): string {
-  return `${f.containerID}|${f.path}`;
+  return `${f.containerID}|${new Path(f.path).path}`;
 }
 
 /**
@@ -207,6 +211,16 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 指定した要素が、いずれかのペインでまだ開かれているかどうかを判定する
+     *
+     * 同一ファイルが複数ペインに同時に開かれている場合、履歴（historyStore）は
+     * containerID+path単位で共有しているため、全ペインから閉じられるまではクリアしてはならない
+     */
+    isTabOpenAnywhere(elem: { containerID: ContainerID; path: string }): boolean {
+      return sides.some((side) => this.tabs[side].some((tab) => tabKey(tab) === tabKey(elem)));
+    },
+
+    /**
      * タブを閉じる
      */
     closeTab(elem: ContainerElement, layoutSide: LayoutSide): void {
@@ -222,6 +236,11 @@ export const useEditorStore = defineStore('editor', {
         const nextIdx = Math.max(0, targetIdx - 1);
         const nextTab = this.tabs[layoutSide][nextIdx];
         this.activeTabPaths[layoutSide] = nextTab ? tabKey(nextTab) : null;
+      }
+
+      // 他のペインにも開かれていなければ、このタブのUndo/Redo履歴を破棄する
+      if (!this.isTabOpenAnywhere(elem)) {
+        useHistoryStore().clear(elem);
       }
     },
 
@@ -249,6 +268,11 @@ export const useEditorStore = defineStore('editor', {
           this.activeTabPaths[side] = lastTab ? tabKey(lastTab) : null;
         }
       });
+
+      // このループでpathsは全ペインから無条件に取り除かれているため、
+      // ループ後は必ずどのペインにも存在しない状態になっている
+      const historyStore = useHistoryStore();
+      paths.forEach((path) => historyStore.clear({ containerID, path }));
     },
 
     /**
@@ -320,14 +344,20 @@ export const useEditorStore = defineStore('editor', {
      *
      * `tabs`内オブジェクトのpathを直接書き換えることで、これをpropとして参照している
      * DocumentTabView等のコンポーネントキー（containerID+path）が変わり、
-     * 新パスでの再マウント（＝アノテーションの正しい再購読）が自動的に発生する
+     * 新パスでの再マウント（＝アノテーションの正しい再購読）が自動的に発生する。
+     * 履歴（historyStore）はcontainerID+path単位のバケツで管理しているため、
+     * タブのpath書き換えに合わせてバケツ自体も新キーへ移し替える
      */
     remapPaths(containerID: ContainerID, pathMap: Record<string, string>): void {
+      const historyStore = useHistoryStore();
+
       sides.forEach((side) => {
         this.tabs[side].forEach((tab) => {
           if (tab.containerID !== containerID) return;
           const newPath = pathMap[tab.path];
-          if (newPath !== undefined) tab.path = newPath;
+          if (newPath === undefined) return;
+          historyStore.migrate({ containerID, path: tab.path }, { containerID, path: newPath });
+          tab.path = newPath;
         });
 
         const activeKey = this.activeTabPaths[side];

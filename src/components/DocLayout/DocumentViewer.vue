@@ -60,7 +60,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, wa
 import PdfPage from 'src/components/Viewer/PdfPage.vue';
 import type { ViewMode } from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import { useBackendApi } from 'src/apis/backendApi';
+import { useAnnotationHistory } from './composables/useAnnotationHistory';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PageSize } from 'src/components/Viewer/pdfManager';
 
@@ -82,7 +82,7 @@ interface Prop {
 }
 const prop = defineProps<Prop>();
 
-const api = useBackendApi();
+const history = useAnnotationHistory();
 
 const currentPage = defineModel<number>('currentPage', { required: true });
 const zoomLevel = defineModel<number>('zoomLevel', { required: true });
@@ -222,7 +222,8 @@ function handleZoomWheel(event: WheelEvent) {
  * アノテーションを登録
  */
 async function registAnnotation(annot: AnnotationStyle): Promise<void> {
-  const registRes = await api.registerAnnotationStyle(prop.file, annot);
+  const previous = prop.annotations.find((a) => a.id === annot.id);
+  const registRes = await history.registerWithHistory(prop.file, previous, annot);
   if (!registRes.ok) console.log(registRes.error); // TODO: エラーハンドリング
 }
 
@@ -230,7 +231,9 @@ async function registAnnotation(annot: AnnotationStyle): Promise<void> {
  * アノテーションを削除
  */
 async function removeAnnotation(annotID: AnnotationID): Promise<void> {
-  const removeRes = await api.removeAnnotation(annotID);
+  const removed = prop.annotations.find((a) => a.id === annotID);
+  if (!removed) return;
+  const removeRes = await history.removeWithHistory(prop.file, removed);
   if (!removeRes.ok) console.log(removeRes.error); // TODO: エラーハンドリング
 }
 

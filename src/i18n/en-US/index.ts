@@ -158,6 +158,10 @@ export default {
         success: 'Saved',
         failed: 'Failed to save',
       },
+      history: {
+        undo: 'Undo',
+        redo: 'Redo',
+      },
       print: 'Print',
       download: 'Download',
       viewStyle: {

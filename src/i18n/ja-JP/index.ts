@@ -157,6 +157,10 @@ export default {
         success: '保存しました',
         failed: '保存に失敗しました',
       },
+      history: {
+        undo: '元に戻す',
+        redo: 'やり直す',
+      },
       print: '印刷',
       download: 'ダウンロード',
       viewStyle: {

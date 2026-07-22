@@ -174,7 +174,6 @@
 
 <script setup lang="ts">
 import { useBackendApi } from 'src/apis/backendApi';
-import dayjs from 'dayjs';
 import { ColorCode, type AnnotationID, type AnnotationStyle } from 'src/models/document/pdf';
 import type { ArrowHeadType } from 'src/models/document/pdf';
 import type { ContainerElementFile } from 'src/models/container';
@@ -188,6 +187,7 @@ import {
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import StyleSwatchButton from './StyleSwatchButton.vue';
+import { useAnnotationHistory } from './composables/useAnnotationHistory';
 
 interface Prop {
   selectedAnnots: AnnotationStyle[];
@@ -202,6 +202,7 @@ const emit = defineEmits<{
 }>();
 
 const api = useBackendApi();
+const history = useAnnotationHistory();
 const relationalStore = useRelationalStore();
 const { t } = useI18n();
 
@@ -232,18 +233,8 @@ function commonValue<T, V>(items: T[], getter: (item: T) => V): V | undefined {
 async function applyPatch(
   building: (annot: AnnotationStyle) => Partial<AnnotationStyle> | null,
 ): Promise<void> {
-  const now = dayjs().toISOString();
-  await Promise.all(
-    prop.selectedAnnots.map((annot) => {
-      const patch = building(annot);
-      if (!patch) return Promise.resolve();
-      return api.registerAnnotationStyle(prop.file, {
-        ...annot,
-        ...patch,
-        updatedAt: now,
-      } as AnnotationStyle);
-    }),
-  );
+  const items = history.buildRegisterManyItems(prop.selectedAnnots, building);
+  await history.registerManyWithHistory(prop.file, items);
 }
 
 // ================================ 型別の詳細プロパティ ================================
