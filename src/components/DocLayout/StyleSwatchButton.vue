@@ -7,7 +7,11 @@
     :class="{ 'style-swatch-btn--outline': variant === 'outline' }"
     :style="swatchStyle"
   >
-    <span v-if="variant === 'text'" class="style-swatch-text-a" :style="{ color: colorValue ?? '#000000' }">
+    <span
+      v-if="variant === 'text'"
+      class="style-swatch-text-a"
+      :style="{ color: colorValue ?? '#000000' }"
+    >
       A
     </span>
     <q-popup-proxy cover transition-show="scale" transition-hide="scale">

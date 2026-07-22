@@ -547,7 +547,11 @@ function handleMouseDown(e: KonvaMouseEvent) {
     if (!clickedId) return;
     // 曖昧開始: この時点ではクリック（既存注釈の選択編集）かドラッグ（新規描画）か確定しない。
     // 実際の分岐はhandleMouseMove（ドラッグへ発展した場合）・handleMouseUp（発展しなかった場合）で行う
-    pendingOverAnnotStart.value = { id: clickedId, screenPos: { x: pos.x, y: pos.y }, docPos: adjustedPos };
+    pendingOverAnnotStart.value = {
+      id: clickedId,
+      screenPos: { x: pos.x, y: pos.y },
+      docPos: adjustedPos,
+    };
     return;
   }
 

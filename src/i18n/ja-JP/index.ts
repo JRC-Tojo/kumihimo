@@ -114,7 +114,8 @@ export default {
       importAppend: '追加する',
       importConfirmMessage:
         '{count}件のプリセットを読み込みます。既存のプリセットに追加しますか、それとも完全に置き換えますか？',
-      importParseError: 'ファイルの読み込みに失敗しました。プリセットのJSONファイルではない可能性があります。',
+      importParseError:
+        'ファイルの読み込みに失敗しました。プリセットのJSONファイルではない可能性があります。',
       importSaveError: 'プリセットの保存に失敗しました。',
       importSuccess: 'プリセットをインポートしました。',
     },

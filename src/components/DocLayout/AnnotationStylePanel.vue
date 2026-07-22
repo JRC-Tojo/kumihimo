@@ -1,7 +1,11 @@
 <template>
   <div v-if="mode !== 'none'" class="annotation-style-panel">
     <!-- 線色（中空四角形にして塗り色ボタンと区別する） -->
-    <StyleSwatchButton v-model="color" variant="outline" :tooltip="t('pdfEditor.tools.stylePanel.color')" />
+    <StyleSwatchButton
+      v-model="color"
+      variant="outline"
+      :tooltip="t('pdfEditor.tools.stylePanel.color')"
+    />
 
     <!-- 線幅（スライダーではなく直接数字を入力する） -->
     <q-input

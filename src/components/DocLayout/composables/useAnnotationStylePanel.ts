@@ -164,7 +164,10 @@ export function useAnnotationStylePanel() {
         const parsed = toColorCode(value);
         if (parsed === undefined) return;
         void applyToSelection((annot) =>
-          annot.type === 'box' || annot.type === 'circle' || annot.type === 'polygon' || annot.type === 'text'
+          annot.type === 'box' ||
+          annot.type === 'circle' ||
+          annot.type === 'polygon' ||
+          annot.type === 'text'
             ? { fillColor: parsed }
             : null,
         );
@@ -198,7 +201,10 @@ export function useAnnotationStylePanel() {
       if (mode.value === 'draw') patchDrawStyle({ fillOpacity: value });
       else if (mode.value === 'selection') {
         void applyToSelection((annot) =>
-          annot.type === 'box' || annot.type === 'circle' || annot.type === 'polygon' || annot.type === 'text'
+          annot.type === 'box' ||
+          annot.type === 'circle' ||
+          annot.type === 'polygon' ||
+          annot.type === 'text'
             ? { fillOpacity: value }
             : null,
         );

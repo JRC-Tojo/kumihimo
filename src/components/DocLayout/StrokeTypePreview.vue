@@ -8,15 +8,7 @@
       線幅(2)に対して破線・点線の間隔（strokeDashPreview.ts参照）が近すぎるため、
       丸められた線端が隙間を埋めてしまい、実線とほぼ見分けがつかなくなってしまう
     -->
-    <line
-      x1="2"
-      y1="7"
-      x2="26"
-      y2="7"
-      :stroke="color"
-      stroke-width="2"
-      :stroke-dasharray="dash"
-    />
+    <line x1="2" y1="7" x2="26" y2="7" :stroke="color" stroke-width="2" :stroke-dasharray="dash" />
   </svg>
 </template>
 

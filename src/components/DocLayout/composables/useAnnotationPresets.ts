@@ -6,7 +6,11 @@
  * 他種別のプリセットの位置を変えないようにするための変換をここに切り出す
  */
 
-import type { AnnotationTool, DrawingAnnotationStyle, DrawingAnnotationType } from 'src/models/docPage';
+import type {
+  AnnotationTool,
+  DrawingAnnotationStyle,
+  DrawingAnnotationType,
+} from 'src/models/docPage';
 import { ColorCode, type AnnotationStyle } from 'src/models/document/pdf';
 
 /** 未検証の文字列をColorCode（ブランド付き文字列）へ変換する。不正な値はundefinedを返す */

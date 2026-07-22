@@ -591,7 +591,9 @@ class BackendApi {
    * `tools`キーの読み込み→変更→保存を直列化するため、`saveSettings('tools', ...)`を
    * 直接呼ぶのではなくこちらを経由すること（直近使用色の記録・件数変更と競合しないようにする）
    */
-  async saveAnnotationPresets(presets: AnnotationTool[]): Promise<ApiResponse<AppSettings['tools']>> {
+  async saveAnnotationPresets(
+    presets: AnnotationTool[],
+  ): Promise<ApiResponse<AppSettings['tools']>> {
     const res = await saveAnnotationPresets(presets);
     return toApiResponse(res, 'FAILED_SAVE_SETTINGS');
   }

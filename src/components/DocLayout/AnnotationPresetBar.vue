@@ -65,7 +65,10 @@ import { useEditorStore } from 'src/stores/editorStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import type { AnnotationTool, DrawingAnnotationStyle } from 'src/models/docPage';
 import { useAnnotationStylePanel } from './composables/useAnnotationStylePanel';
-import { annotationStyleToPresetStyle, reorderPresetsOfType } from './composables/useAnnotationPresets';
+import {
+  annotationStyleToPresetStyle,
+  reorderPresetsOfType,
+} from './composables/useAnnotationPresets';
 import { confirmDialog, promptDialog } from 'src/components/Dialog/confirmDialog';
 
 const { t } = useI18n();

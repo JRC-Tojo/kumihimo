@@ -128,7 +128,13 @@ function polylineIntersectsRect(
 }
 
 /** 楕円（中心cx,cy・半径rx,ry）と矩形が交差するかどうかの近似判定（矩形内の最近点と中心の距離で判定） */
-function ellipseIntersectsRect(cx: number, cy: number, rx: number, ry: number, rect: RectLike): boolean {
+function ellipseIntersectsRect(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  rect: RectLike,
+): boolean {
   const closestX = Math.max(rect.x, Math.min(cx, rect.x + rect.width));
   const closestY = Math.max(rect.y, Math.min(cy, rect.y + rect.height));
   const nx = rx > 0 ? (closestX - cx) / rx : 0;
