@@ -359,6 +359,7 @@ export default {
       refresh: '更新',
       publish: 'マージして公開',
       unpublish: '公開を取り下げる',
+      withdraw: '申請を取り下げる',
       enable: '有効化',
       disable: '無効化',
     },
@@ -402,7 +403,12 @@ export default {
       iconFileHint: 'plugin.jsonのiconFileで指定したファイル名と同じ画像をアップロードします',
       iconFileMissingInManifest:
         'アイコン画像をアップロードする場合は、plugin.jsonのiconFileにファイル名を指定してください',
+      iconFileTooLarge: 'アイコン画像のサイズが上限（512KB）を超えています',
+      iconFileUnsupportedFormat: 'アイコン画像はPNG/JPEG/GIF形式である必要があります',
+      iconFileExtensionMismatch:
+        'plugin.jsonのiconFileの拡張子が、アップロードした画像の実際の形式と一致していません（例: 実際はJPEGなのに拡張子が.png）。公開後に画像が表示されなくなるため、拡張子を実際の形式に合わせてください',
       validationErrors: '入力内容に誤りがあります',
+      submitSuccess: '申請を送信しました。ストアリポジトリでの自動検証（CI）をお待ちください。',
       mySubmissionsTitle: 'マイ申請',
       noSubmissions: '申請はありません',
       status: {
@@ -410,6 +416,7 @@ export default {
         ciPassed: '検証OK',
         ciFailed: '検証NG',
         published: '公開済み',
+        withdrawn: '取り下げ済み',
       },
       ciLogTitle: '検証ログ',
       helpTitle: '公開の流れ',

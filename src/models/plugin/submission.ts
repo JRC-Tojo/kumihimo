@@ -8,11 +8,18 @@ import { PluginManifest } from './manifest';
  * ci_passed: CIチェックがすべて成功（マージ待ち。マージはリポジトリのメンテナが行う）
  * ci_failed: いずれかのCIチェックが失敗
  * published: PRがマージ済み
+ * withdrawn: マージされずにPRがクローズされた（申請者自身が取り下げた場合など）
  *
  * これらはすべて、ストアリポジトリの実際のPull Request・Checks APIから都度導出する
  * （アプリ側では状態を保持しない。GitHubが唯一の情報源）
  */
-export const PluginSubmissionStatus = z.enum(['pending', 'ci_passed', 'ci_failed', 'published']);
+export const PluginSubmissionStatus = z.enum([
+  'pending',
+  'ci_passed',
+  'ci_failed',
+  'published',
+  'withdrawn',
+]);
 export type PluginSubmissionStatus = z.infer<typeof PluginSubmissionStatus>;
 
 /**

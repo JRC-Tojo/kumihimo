@@ -1,8 +1,27 @@
 // app global css
 @use 'sass:color';
 
+// リンクの共通スタイル（ブラウザ既定の青・訪問済み紫はダークモードでコントラストが低く
+// 視認性が悪いため、テーマカラーベースの配色に統一する）
+a,
+a:visited {
+  color: $primary;
+}
+
+a {
+  &:hover,
+  &:focus-visible {
+    text-decoration: underline;
+  }
+}
+
 // ダークモード共通スタイル
 .body--dark {
+  a,
+  a:visited {
+    color: color.adjust($primary, $lightness: 20%);
+  }
+
   .text-grey {
     color: $grey-5;
   }

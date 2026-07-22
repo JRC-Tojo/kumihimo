@@ -255,6 +255,24 @@ export async function mergePullRequest(
   return Success(undefined);
 }
 
+/**
+ * PRをマージせずにクローズする（申請の取り下げに使う）
+ */
+export async function closePullRequest(
+  owner: string,
+  repo: string,
+  number: number,
+  token: string,
+): Promise<Result<void>> {
+  const res = await githubRequest(`/repos/${owner}/${repo}/pulls/${number}`, token, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state: 'closed' }),
+  });
+  if (!res.ok) return res;
+  return Success(undefined);
+}
+
 export interface GithubCheckRun {
   name: string;
   status: string;

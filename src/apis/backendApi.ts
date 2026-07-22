@@ -751,6 +751,20 @@ class BackendApi {
   }
 
   /**
+   * 未マージの申請（PR）を取り下げる（マージせずにクローズする）
+   */
+  async withdrawPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.withdrawSubmission(prNumber, token);
+    return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
+  }
+
+  /**
    * 公開済みプラグインの取り下げ（unpublish）を申請する
    */
   async unpublishPlugin(id: PluginID): Promise<ApiResponse<PluginSubmission>> {

@@ -105,6 +105,7 @@ function deriveStatus(
   checks: gh.GithubCheckRun[],
 ): PluginSubmissionStatus {
   if (pr.merged) return 'published';
+  if (pr.state === 'closed') return 'withdrawn';
   if (checks.length === 0) return 'pending';
   if (checks.some((c) => c.conclusion === 'failure' || c.conclusion === 'timed_out')) {
     return 'ci_failed';
@@ -280,6 +281,16 @@ export async function republishSubmission(prNumber: number, token: string): Prom
     );
   }
   return res;
+}
+
+/**
+ * 未マージの申請（PR）を取り下げる（マージせずにクローズする）
+ *
+ * CI検証待ち・検証NGの申請を、マージされる前に自分でキャンセルしたい場合に使う。
+ * 公開済みプラグインの取り下げ（deprecatedフラグを立てるPR）とは別物
+ */
+export async function withdrawSubmission(prNumber: number, token: string): Promise<Result<void>> {
+  return gh.closePullRequest(STORE_REPO_OWNER, STORE_REPO_NAME, prNumber, token);
 }
 
 /**

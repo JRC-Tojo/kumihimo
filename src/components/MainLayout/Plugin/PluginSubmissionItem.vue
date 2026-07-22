@@ -37,6 +37,14 @@
           @click="emit('publish')"
         />
         <q-btn
+          v-if="isWithdrawable"
+          dense
+          flat
+          color="negative"
+          :label="$t('plugins.actions.withdraw')"
+          @click="emit('withdraw')"
+        />
+        <q-btn
           v-if="submission.status === 'published'"
           dense
           flat
@@ -62,9 +70,18 @@ const prop = defineProps<Prop>();
 const emit = defineEmits<{
   publish: [];
   unpublish: [];
+  withdraw: [];
 }>();
 
 const { t: $t } = useI18n();
+
+// マージ・取り下げのいずれもされていない申請のみ、取り下げボタンを表示する
+const isWithdrawable = computed(
+  () =>
+    prop.submission.status === 'pending' ||
+    prop.submission.status === 'ci_passed' ||
+    prop.submission.status === 'ci_failed',
+);
 
 const statusLabel = computed(() => {
   switch (prop.submission.status) {
@@ -76,6 +93,8 @@ const statusLabel = computed(() => {
       return $t('plugins.submission.status.ciFailed');
     case 'published':
       return $t('plugins.submission.status.published');
+    case 'withdrawn':
+      return $t('plugins.submission.status.withdrawn');
   }
 });
 
@@ -89,6 +108,8 @@ const statusColor = computed(() => {
       return 'negative';
     case 'published':
       return 'primary';
+    case 'withdrawn':
+      return 'grey';
   }
 });
 </script>

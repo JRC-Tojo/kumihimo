@@ -360,6 +360,7 @@ export default {
       refresh: 'Refresh',
       publish: 'Merge & Publish',
       unpublish: 'Unpublish',
+      withdraw: 'Withdraw Submission',
       enable: 'Enable',
       disable: 'Disable',
     },
@@ -403,7 +404,13 @@ export default {
       iconFileHint: "Upload the same image referenced by plugin.json's iconFile",
       iconFileMissingInManifest:
         "To upload an icon image, set a file name in plugin.json's iconFile field",
+      iconFileTooLarge: 'The icon image exceeds the size limit (512KB)',
+      iconFileUnsupportedFormat: 'The icon image must be in PNG/JPEG/GIF format',
+      iconFileExtensionMismatch:
+        "The file extension in plugin.json's iconFile doesn't match the actual format of the uploaded image (e.g. the file is actually JPEG but the extension is .png). This would break image display after publishing, so make the extension match the real format.",
       validationErrors: 'There are errors in the submitted content',
+      submitSuccess:
+        'Submission sent. Please wait for automated validation (CI) on the store repository.',
       mySubmissionsTitle: 'My Submissions',
       noSubmissions: 'No submissions yet',
       status: {
@@ -411,6 +418,7 @@ export default {
         ciPassed: 'Passed',
         ciFailed: 'Failed',
         published: 'Published',
+        withdrawn: 'Withdrawn',
       },
       ciLogTitle: 'Validation Log',
       helpTitle: 'Publishing Flow',
