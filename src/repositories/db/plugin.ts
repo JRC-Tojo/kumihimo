@@ -1,11 +1,14 @@
 /**
- * プラグインのレジストリ（インストール済み一覧・申請一覧・実行状態）を格納するDexie DB
+ * プラグインのレジストリ（インストール済み一覧・実行状態）を格納するDexie DB
+ *
+ * プラグイン申請（PluginSubmission）はストアリポジトリ（GitHub）のPull Requestそのものが
+ * 実データであり、ローカルには保存しない（`services/plugin/submissionGithub.ts`が都度
+ * GitHub REST APIから取得する）
  */
 import type { Observable } from 'dexie';
 import Dexie, { liveQuery, type Table } from 'dexie';
 import type { PluginID } from 'src/models/plugin/manifest';
 import type { InstalledPlugin } from 'src/models/plugin/installation';
-import type { PluginSubmission, PluginSubmissionID } from 'src/models/plugin/submission';
 import type { PluginRunState } from 'src/models/plugin/panel';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success, toError } from 'src/models/error/result';
@@ -13,14 +16,12 @@ import { Failure, Success, toError } from 'src/models/error/result';
 class PluginDexieDB extends Dexie {
   // すべて out-of-line キー（レコード自体にキーを持たせず、put/get時に明示的に指定する）
   installed!: Table<InstalledPlugin, PluginID>;
-  submissions!: Table<PluginSubmission, PluginSubmissionID>;
   runStates!: Table<PluginRunState, string>;
 
   constructor() {
     super('relational-documents-plugins');
     this.version(1).stores({
       installed: '',
-      submissions: ', status',
       runStates: ', pluginId',
     });
   }
@@ -78,42 +79,6 @@ export async function deleteInstalledPlugin(id: PluginID): Promise<Result<void>>
   if (!ready.ok) return ready;
   try {
     await db.installed.delete(id);
-    return Success();
-  } catch (error) {
-    return Failure(toError(error));
-  }
-}
-
-// ============ プラグイン申請 ============
-
-export async function getSubmissions(): Promise<Result<PluginSubmission[]>> {
-  const ready = await ensureReady();
-  if (!ready.ok) return ready;
-  try {
-    return Success(await db.submissions.toArray());
-  } catch (error) {
-    return Failure(toError(error));
-  }
-}
-
-export async function getSubmission(id: PluginSubmissionID): Promise<Result<PluginSubmission>> {
-  const ready = await ensureReady();
-  if (!ready.ok) return ready;
-  try {
-    const record = await db.submissions.get(id);
-    if (!record) return Failure(new Error(`Not Found Plugin Submission (id: ${id})`));
-    return Success(record);
-  } catch (error) {
-    return Failure(toError(error));
-  }
-}
-
-export async function putSubmission(submission: PluginSubmission): Promise<Result<void>> {
-  const ready = await ensureReady();
-  if (!ready.ok) return ready;
-  try {
-    const raw = JSON.parse(JSON.stringify(submission)) as PluginSubmission;
-    await db.submissions.put(raw, submission.id);
     return Success();
   } catch (error) {
     return Failure(toError(error));

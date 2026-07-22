@@ -11,58 +11,72 @@
       </q-btn>
     </div>
 
-    <q-tabs v-model="subTab" dense class="plugin-sub-tabs">
-      <q-tab name="installed" :label="$t('plugins.tabs.installed')" />
-      <q-tab name="catalog" :label="$t('plugins.tabs.catalog')" />
-      <q-tab name="submissions" :label="$t('plugins.tabs.submissions')" />
-    </q-tabs>
+    <div class="q-px-sm q-pb-sm">
+      <q-input
+        v-model="searchQuery"
+        dense
+        outlined
+        clearable
+        :placeholder="$t('plugins.list.searchPlaceholder')"
+      >
+        <template #prepend>
+          <q-icon name="search" />
+        </template>
+      </q-input>
+    </div>
+
     <q-separator />
 
-    <q-tab-panels v-model="subTab" class="plugin-sub-panels">
-      <q-tab-panel name="installed" class="q-pa-none">
-        <div v-if="pluginStore.installed.length === 0" class="text-grey-6 text-caption q-pa-sm">
+    <div class="plugin-list-sections">
+      <q-expansion-item
+        v-model="installedExpanded"
+        dense-toggle
+        default-opened
+        :label="$t('plugins.list.installedSection')"
+        header-class="plugin-section-header"
+      >
+        <div v-if="filteredInstalled.length === 0" class="text-grey-6 text-caption q-pa-sm">
           {{ $t('plugins.list.noInstalled') }}
         </div>
         <q-list separator>
           <PluginListItem
-            v-for="entry in pluginStore.installed"
+            v-for="entry in filteredInstalled"
             :key="entry.manifest.id"
             :manifest="entry.manifest"
             :installed="true"
+            :icon-src="entry.iconDataUrl"
             @run="onRun(entry.manifest)"
             @uninstall="onUninstall(entry.manifest.id)"
             @details="onDetails(entry.manifest)"
           />
         </q-list>
-      </q-tab-panel>
+      </q-expansion-item>
 
-      <q-tab-panel name="catalog" class="q-pa-none">
-        <div v-if="pluginStore.catalog.length === 0" class="text-grey-6 text-caption q-pa-sm">
+      <q-separator />
+
+      <q-expansion-item
+        v-model="catalogExpanded"
+        dense-toggle
+        default-opened
+        :label="$t('plugins.list.catalogSection')"
+        header-class="plugin-section-header"
+      >
+        <div v-if="filteredCatalog.length === 0" class="text-grey-6 text-caption q-pa-sm">
           {{ $t('plugins.list.noCatalogEntries') }}
         </div>
         <q-list separator>
           <PluginListItem
-            v-for="entry in pluginStore.catalog"
+            v-for="entry in filteredCatalog"
             :key="entry.manifest.id"
             :manifest="entry.manifest"
             :installed="isInstalled(entry.manifest.id)"
+            :icon-src="entry.iconUrl"
             @install="onInstall(entry.manifest.id)"
             @details="onDetails(entry.manifest)"
           />
         </q-list>
-      </q-tab-panel>
-
-      <q-tab-panel name="submissions" class="q-pa-none">
-        <q-list separator>
-          <PluginSubmissionItem
-            v-for="submission in pluginStore.submissions"
-            :key="submission.id"
-            :submission="submission"
-            @publish="onPublish(submission.id)"
-          />
-        </q-list>
-      </q-tab-panel>
-    </q-tab-panels>
+      </q-expansion-item>
+    </div>
 
     <PluginDetailsDialog v-model="showDetailsDialog" :manifest="detailsManifest" />
     <SubmitPluginDialog v-model="showSubmitDialog" @submitted="onSubmitted" />
@@ -70,38 +84,47 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePluginStore } from 'src/stores/pluginStore';
-import { useBackendApi } from 'src/apis/backendApi';
+import { useEditorStore } from 'src/stores/editorStore';
 import type { PluginID, PluginManifest } from 'src/models/plugin/manifest';
-import type { PluginSubmissionID } from 'src/models/plugin/submission';
 import PluginListItem from './Plugin/PluginListItem.vue';
 import PluginDetailsDialog from './Plugin/PluginDetailsDialog.vue';
-import PluginSubmissionItem from './Plugin/PluginSubmissionItem.vue';
 import SubmitPluginDialog from './Plugin/SubmitPluginDialog.vue';
-import { usePluginRun } from './Plugin/usePluginRun';
 
 const { t: $t } = useI18n();
-const api = useBackendApi();
 const pluginStore = usePluginStore();
-const { runPlugin } = usePluginRun();
+const editorStore = useEditorStore();
 
-const subTab = ref<'installed' | 'catalog' | 'submissions'>('installed');
 const showDetailsDialog = ref(false);
 const showSubmitDialog = ref(false);
 const detailsManifest = ref<PluginManifest>();
+const searchQuery = ref('');
+const installedExpanded = ref(true);
+const catalogExpanded = ref(true);
+
+function matchesQuery(manifest: PluginManifest, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return manifest.name.toLowerCase().includes(q) || manifest.description.toLowerCase().includes(q);
+}
+
+const filteredInstalled = computed(() =>
+  pluginStore.installed.filter((entry) => matchesQuery(entry.manifest, searchQuery.value)),
+);
+const filteredCatalog = computed(() =>
+  pluginStore.catalog.filter(
+    (entry) => !entry.manifest.deprecated && matchesQuery(entry.manifest, searchQuery.value),
+  ),
+);
 
 function isInstalled(id: PluginID): boolean {
   return pluginStore.installed.some((entry) => entry.manifest.id === id);
 }
 
 async function refreshAll() {
-  await Promise.all([
-    pluginStore.loadInstalled(),
-    pluginStore.loadCatalog(),
-    pluginStore.loadSubmissions(),
-  ]);
+  await Promise.all([pluginStore.loadInstalled(), pluginStore.loadCatalog()]);
 }
 
 async function onInstall(id: PluginID) {
@@ -117,17 +140,16 @@ function onDetails(manifest: PluginManifest) {
   showDetailsDialog.value = true;
 }
 
-async function onRun(manifest: PluginManifest) {
-  await runPlugin(manifest);
-}
-
-async function onPublish(id: PluginSubmissionID) {
-  await api.republishPluginSubmission(id);
-  await pluginStore.loadSubmissions();
+/**
+ * 実行ボタン押下時：プラグイン専用タブを開くだけでよい（入力フォーム・実行操作は
+ * タブ内（PluginPanelView）に統合されている）
+ */
+function onRun(manifest: PluginManifest) {
+  editorStore.openPluginTab(manifest.id, manifest.name);
 }
 
 async function onSubmitted() {
-  await pluginStore.loadSubmissions();
+  await pluginStore.loadCatalog();
 }
 
 onMounted(refreshAll);
@@ -146,9 +168,13 @@ onMounted(refreshAll);
   align-items: center;
 }
 
-.plugin-sub-panels {
+.plugin-list-sections {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+}
+
+.plugin-section-header {
+  font-weight: 500;
 }
 </style>

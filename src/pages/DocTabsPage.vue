@@ -50,7 +50,8 @@
       <SettingsPage v-if="isSettingsActive" />
       <PluginPanelView
         v-else-if="activePluginTab"
-        :run-id="activePluginTab.runId"
+        :plugin-id="activePluginTab.pluginId"
+        :layout-side="prop.layoutSide"
         :key="`plugin|${activePluginTab.key}`"
       />
       <DocumentTabView

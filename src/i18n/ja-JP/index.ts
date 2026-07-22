@@ -97,9 +97,18 @@ export default {
     userName: 'ユーザー名',
     userNameDesc:
       'アノテーションの作成者として記録される名前です。未設定の場合、作成者は記録されません。',
+    githubToken: 'GitHub個人アクセストークン',
+    githubTokenDesc:
+      'プラグインストアへの申請（プルリクエスト作成）に使用します。トークンはこの端末のローカルにのみ保存され、GitHub以外へは送信されません。',
+    githubTokenPlaceholder: 'ghp_...',
+    githubTokenVerify: '接続を確認',
+    githubTokenVerifyFailed: 'トークンの検証に失敗しました。値をご確認ください。',
+    githubTokenConnected: '{login} として接続済みです',
+    githubTokenDisconnect: '連携を解除',
     save: '設定を保存',
     sections: {
       general: '一般',
+      github: 'GitHub連携',
       display: '表示',
       data: 'データ',
     },
@@ -341,11 +350,6 @@ export default {
 
   plugins: {
     title: 'プラグイン',
-    tabs: {
-      installed: 'インストール済み',
-      catalog: 'カタログ',
-      submissions: 'マイ申請',
-    },
     actions: {
       install: 'インストール',
       uninstall: 'アンインストール',
@@ -353,12 +357,15 @@ export default {
       details: '詳細',
       submitNew: '新規プラグインを申請',
       refresh: '更新',
-      publish: '公開',
-      reupload: '再アップロード',
+      publish: 'マージして公開',
+      unpublish: '公開を取り下げる',
       enable: '有効化',
       disable: '無効化',
     },
     list: {
+      searchPlaceholder: 'プラグインを検索',
+      installedSection: 'インストール済みプラグイン',
+      catalogSection: 'ストアのプラグイン',
       noInstalled: 'インストール済みのプラグインはありません',
       noCatalogEntries: '導入可能なプラグインはありません',
       version: 'バージョン',
@@ -385,10 +392,19 @@ export default {
       kindRelationalRemove: '関係性を削除',
     },
     submission: {
-      dialogTitle: '新規プラグインを申請',
+      dialogTitle: 'プラグインストアへの申請',
+      githubNotConnected:
+        'GitHub連携が設定されていません。申請するには設定画面でGitHub個人アクセストークンを登録してください。',
+      newSubmissionTitle: '新規申請 / バージョン更新',
       manifestFile: 'マニフェストファイル（plugin.json）',
       binaryFile: '本体ファイル',
+      iconFile: 'アイコン画像（任意）',
+      iconFileHint: 'plugin.jsonのiconFileで指定したファイル名と同じ画像をアップロードします',
+      iconFileMissingInManifest:
+        'アイコン画像をアップロードする場合は、plugin.jsonのiconFileにファイル名を指定してください',
       validationErrors: '入力内容に誤りがあります',
+      mySubmissionsTitle: 'マイ申請',
+      noSubmissions: '申請はありません',
       status: {
         pending: '検証待ち',
         ciPassed: '検証OK',
@@ -396,6 +412,14 @@ export default {
         published: '公開済み',
       },
       ciLogTitle: '検証ログ',
+      helpTitle: '公開の流れ',
+      helpStep1:
+        'マニフェスト・本体ファイル（・アイコン画像）を申請すると、ストアリポジトリへPull Requestが作成されます。',
+      helpStep2:
+        '自動検証（CI）に合格すると「検証OK」になります。「マージして公開」ボタンでマージし、公開されます。',
+      helpStep3:
+        '公開後にバージョンを更新する場合も、同じ手順で新しいファイルを申請してください（申請者は公開者と同一のGitHubアカウントである必要があります）。',
+      devGuideLink: '開発者向けドキュメントを見る',
     },
     errors: {
       installFailed: 'インストールに失敗しました',

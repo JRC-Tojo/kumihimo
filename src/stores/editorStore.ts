@@ -8,6 +8,7 @@ import type { RelationalRule } from 'src/models/relational/fileSchema';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { Path } from 'src/utils/binary/path';
 import { useHistoryStore } from './historyStore';
+import type { PluginID } from 'src/models/plugin/manifest';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
 const sides = ['ul', 'ur', 'll', 'lr'] as const;
@@ -38,16 +39,20 @@ export const SETTINGS_TAB_KEY = '__settings__';
  */
 export const PLUGIN_TAB_PREFIX = '__plugin__:';
 
-/** プラグインの実行1回分に対応するタブの参照情報 */
+/**
+ * プラグイン所有タブの参照情報
+ *
+ * タブは`pluginId`単位で1つだけ開く（実行のたびに増えることはない）。同一タブ内で
+ * 何度でも再実行できるようにするため、`runId`はタブの同一性には含めない
+ */
 export interface PluginTabRef {
   key: string;
-  pluginId: string;
-  runId: string;
+  pluginId: PluginID;
   title: string;
 }
 
-function pluginTabKey(pluginId: string, runId: string): string {
-  return `${PLUGIN_TAB_PREFIX}${pluginId}:${runId}`;
+function pluginTabKey(pluginId: string): string {
+  return `${PLUGIN_TAB_PREFIX}${pluginId}`;
 }
 
 /**
@@ -463,14 +468,14 @@ export const useEditorStore = defineStore('editor', {
     /**
      * プラグイン所有タブを開く（現在アクティブなペインに、文書タブと同様の見た目で開かれる）
      *
-     * `runId`はプラグインの実行1回ごとに異なるため、同じプラグインを複数回実行した場合は
-     * それぞれ別タブとして扱われる
+     * 同じプラグインを指定した場合は既存タブをそのままアクティブにする（同一プラグインに
+     * つき常に1タブ。タブ内で入力フォーム経由の再実行に対応する）
      */
-    openPluginTab(pluginId: string, runId: string, title: string): void {
-      const key = pluginTabKey(pluginId, runId);
+    openPluginTab(pluginId: PluginID, title: string): void {
+      const key = pluginTabKey(pluginId);
       const side = this.activeSide;
       if (!this.pluginTabs[side].some((t) => t.key === key)) {
-        this.pluginTabs[side].push({ key, pluginId, runId, title });
+        this.pluginTabs[side].push({ key, pluginId, title });
       }
       this.activeTabPaths[side] = key;
     },

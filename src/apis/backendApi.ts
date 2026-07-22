@@ -39,10 +39,11 @@ import type { InstalledPlugin, CatalogEntry } from 'src/models/plugin/installati
 import type { PluginID } from 'src/models/plugin/manifest';
 import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
 import type { PluginRunState } from 'src/models/plugin/panel';
-import type { PluginSubmission, PluginSubmissionID } from 'src/models/plugin/submission';
+import type { PluginSubmission } from 'src/models/plugin/submission';
 import * as pluginInstallService from 'src/services/plugin/install';
 import * as pluginRunService from 'src/services/plugin/run';
-import * as pluginSubmissionService from 'src/services/plugin/submissionMock';
+import * as pluginSubmissionService from 'src/services/plugin/submissionGithub';
+import * as githubAuthService from 'src/services/plugin/githubAuth';
 import { parseManifest } from 'src/services/plugin/manifest';
 
 /**
@@ -593,6 +594,23 @@ class BackendApi {
   // ============ プラグイン操作 ============
 
   /**
+   * 設定済みのGitHub個人アクセストークンを取得する（内部専用）
+   */
+  private async getGithubToken(): Promise<string | undefined> {
+    const settings = await getSettings();
+    return settings.ok ? settings.value.githubToken : undefined;
+  }
+
+  /**
+   * GitHub個人アクセストークンの有効性を確認し、紐づくユーザー名を返す
+   * （設定画面の「接続を確認」ボタンから呼ばれる。設定への保存はフロントエンド側で行う）
+   */
+  async verifyGithubToken(token: string): Promise<ApiResponse<string>> {
+    const res = await githubAuthService.verifyGithubToken(token);
+    return toApiResponse(res, 'PLUGIN_GITHUB_AUTH_FAILED');
+  }
+
+  /**
    * インストール済みプラグイン一覧を取得する
    */
   async getInstalledPlugins(): Promise<ApiResponse<InstalledPlugin[]>> {
@@ -601,10 +619,11 @@ class BackendApi {
   }
 
   /**
-   * 導入可能なプラグイン一覧（カタログ）を取得する
+   * 導入可能なプラグイン一覧（カタログ。ストアリポジトリから取得）を取得する
    */
   async getCatalogEntries(): Promise<ApiResponse<CatalogEntry[]>> {
-    const res = await pluginInstallService.getCatalogEntries();
+    const token = await this.getGithubToken();
+    const res = await pluginInstallService.getCatalogEntries(token);
     return toApiResponse(res, 'PLUGIN_LIST_FAILED');
   }
 
@@ -612,17 +631,8 @@ class BackendApi {
    * カタログからプラグインをそのままインストールする
    */
   async installPluginFromCatalog(id: PluginID): Promise<ApiResponse<void>> {
-    const res = await pluginInstallService.installFromCatalog(id);
-    return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
-  }
-
-  /**
-   * アップロードされたマニフェスト（未検証JSON）とバイナリからプラグインをインストールする
-   */
-  async installPlugin(manifestJson: unknown, binary: Uint8Array): Promise<ApiResponse<void>> {
-    const parsed = parseManifest(manifestJson);
-    if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
-    const res = await pluginInstallService.installPlugin(parsed.value, binary);
+    const token = await this.getGithubToken();
+    const res = await pluginInstallService.installFromCatalog(id, token);
     return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
   }
 
@@ -692,46 +702,66 @@ class BackendApi {
   }
 
   /**
-   * プラグインを申請する（アプリ内モックのCI検証フローに乗る）
+   * プラグインを申請する（ストアリポジトリへ実際にPull Requestを作成する。新規申請・
+   * バージョン更新のいずれもこの1つの経路で扱う）
    */
   async submitPlugin(
     manifestJson: unknown,
     binary: Uint8Array,
+    icon: Uint8Array | undefined,
   ): Promise<ApiResponse<PluginSubmission>> {
     const parsed = parseManifest(manifestJson);
     if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
-    const res = await pluginSubmissionService.submitPlugin(parsed.value, binary);
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.submitPlugin(parsed.value, binary, icon, token);
     return toApiResponse(res, 'PLUGIN_SUBMIT_FAILED');
   }
 
   /**
-   * プラグイン申請一覧を取得する
+   * 自分が行ったプラグイン申請（PR）一覧を取得する
    */
   async getPluginSubmissions(): Promise<ApiResponse<PluginSubmission[]>> {
-    const res = await pluginSubmissionService.getSubmissions();
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.getSubmissions(token);
     return toApiResponse(res, 'PLUGIN_SUBMISSION_GET_FAILED');
   }
 
   /**
-   * CI検証に合格した申請を公開する
+   * CI検証に合格した申請をマージする（マージ権限がない場合は失敗し、手動マージを促すメッセージを返す）
    */
-  async republishPluginSubmission(id: PluginSubmissionID): Promise<ApiResponse<void>> {
-    const res = await pluginSubmissionService.republishSubmission(id);
+  async republishPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.republishSubmission(prNumber, token);
     return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
   }
 
   /**
-   * 申請を再アップロードする（CI不合格からの再送信）
+   * 公開済みプラグインの取り下げ（unpublish）を申請する
    */
-  async reuploadPluginSubmission(
-    id: PluginSubmissionID,
-    manifestJson: unknown,
-    binary: Uint8Array,
-  ): Promise<ApiResponse<PluginSubmission>> {
-    const parsed = parseManifest(manifestJson);
-    if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
-    const res = await pluginSubmissionService.reuploadSubmission(id, parsed.value, binary);
-    return toApiResponse(res, 'PLUGIN_SUBMIT_FAILED');
+  async unpublishPlugin(id: PluginID): Promise<ApiResponse<PluginSubmission>> {
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.unpublishPlugin(id, token);
+    return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
   }
 }
 

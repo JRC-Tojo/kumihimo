@@ -4,12 +4,18 @@
     persistent
     @update:model-value="(val) => emit('update:modelValue', val)"
   >
-    <q-card style="min-width: 400px">
+    <q-card style="min-width: 480px; max-width: 640px">
       <q-card-section>
         <div class="text-h6">{{ $t('plugins.submission.dialogTitle') }}</div>
       </q-card-section>
 
-      <q-card-section class="q-pt-none">
+      <q-card-section class="q-pt-none scroll-body">
+        <q-banner v-if="!githubConnected" dense class="bg-warning text-white q-mb-md">
+          {{ $t('plugins.submission.githubNotConnected') }}
+        </q-banner>
+
+        <!-- 新規申請 / バージョン更新 -->
+        <div class="text-subtitle2 q-mb-xs">{{ $t('plugins.submission.newSubmissionTitle') }}</div>
         <q-file
           v-model="manifestFile"
           :label="$t('plugins.submission.manifestFile')"
@@ -24,6 +30,16 @@
           dense
           outlined
         />
+        <q-file
+          v-model="iconFile"
+          :label="$t('plugins.submission.iconFile')"
+          :hint="$t('plugins.submission.iconFileHint')"
+          class="q-mt-sm"
+          dense
+          outlined
+          accept="image/*"
+          clearable
+        />
 
         <q-banner v-if="validationErrors.length > 0" dense class="bg-negative text-white q-mt-sm">
           <div>{{ $t('plugins.submission.validationErrors') }}</div>
@@ -31,32 +47,73 @@
             <li v-for="(err, i) in validationErrors" :key="i">{{ err }}</li>
           </ul>
         </q-banner>
+
+        <div class="row justify-end q-mt-sm">
+          <q-btn
+            unelevated
+            color="primary"
+            :label="$t('button.upload')"
+            :disable="!manifestFile || !binaryFile || !githubConnected"
+            :loading="submitting"
+            @click="onSubmit"
+          />
+        </div>
+
+        <q-separator class="q-my-md" />
+
+        <!-- マイ申請一覧 -->
+        <div class="text-subtitle2 q-mb-xs">{{ $t('plugins.submission.mySubmissionsTitle') }}</div>
+        <div v-if="loadingSubmissions" class="text-grey-6 text-caption q-pa-sm">
+          {{ $t('message.loading') }}
+        </div>
+        <div v-else-if="mySubmissions.length === 0" class="text-grey-6 text-caption q-pa-sm">
+          {{ $t('plugins.submission.noSubmissions') }}
+        </div>
+        <q-list v-else separator bordered>
+          <PluginSubmissionItem
+            v-for="submission in mySubmissions"
+            :key="submission.prNumber"
+            :submission="submission"
+            @publish="onPublish(submission.prNumber)"
+            @unpublish="onUnpublish(submission.manifest.id)"
+          />
+        </q-list>
+
+        <q-separator class="q-my-md" />
+
+        <!-- 公開の流れ・開発者向けドキュメント -->
+        <div class="text-subtitle2 q-mb-xs">{{ $t('plugins.submission.helpTitle') }}</div>
+        <ol class="q-my-none q-pl-md text-caption">
+          <li>{{ $t('plugins.submission.helpStep1') }}</li>
+          <li>{{ $t('plugins.submission.helpStep2') }}</li>
+          <li>{{ $t('plugins.submission.helpStep3') }}</li>
+        </ol>
+        <div class="q-mt-sm">
+          <a :href="devGuideUrl" target="_blank" rel="noopener">{{
+            $t('plugins.submission.devGuideLink')
+          }}</a>
+        </div>
       </q-card-section>
 
       <q-card-actions align="right">
-        <q-btn flat :label="$t('button.cancel')" @click="onCancel" />
-        <q-btn
-          unelevated
-          color="primary"
-          :label="$t('button.upload')"
-          :disable="!manifestFile || !binaryFile"
-          :loading="submitting"
-          @click="onSubmit"
-        />
+        <q-btn flat :label="$t('button.close')" @click="onCancel" />
       </q-card-actions>
     </q-card>
   </q-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
+import type { PluginSubmission } from 'src/models/plugin/submission';
+import type { PluginID } from 'src/models/plugin/manifest';
+import PluginSubmissionItem from './PluginSubmissionItem.vue';
 
 interface Prop {
   modelValue: boolean;
 }
-defineProps<Prop>();
+const prop = defineProps<Prop>();
 
 const emit = defineEmits<{
   'update:modelValue': [boolean];
@@ -66,10 +123,36 @@ const emit = defineEmits<{
 const { t: $t } = useI18n();
 const api = useBackendApi();
 
+const devGuideUrl =
+  'https://github.com/JRC-Tojo/RD-PluginStock/blob/main/docs/PLUGIN_DEVELOPMENT_GUIDE.md';
+
 const manifestFile = ref<File | null>(null);
 const binaryFile = ref<File | null>(null);
+const iconFile = ref<File | null>(null);
 const validationErrors = ref<string[]>([]);
 const submitting = ref(false);
+
+const githubConnected = ref(true);
+const mySubmissions = ref<PluginSubmission[]>([]);
+const loadingSubmissions = ref(false);
+
+async function loadSubmissions() {
+  loadingSubmissions.value = true;
+  try {
+    const res = await api.getPluginSubmissions();
+    githubConnected.value = res.ok || res.error.key !== 'PLUGIN_GITHUB_TOKEN_MISSING';
+    mySubmissions.value = res.ok ? res.data : [];
+  } finally {
+    loadingSubmissions.value = false;
+  }
+}
+
+watch(
+  () => prop.modelValue,
+  (isOpen) => {
+    if (isOpen) void loadSubmissions();
+  },
+);
 
 function onCancel() {
   emit('update:modelValue', false);
@@ -113,19 +196,51 @@ async function onSubmit() {
       return;
     }
 
+    if (
+      iconFile.value &&
+      (typeof manifestJson !== 'object' ||
+        manifestJson === null ||
+        !('iconFile' in manifestJson) ||
+        !(manifestJson as { iconFile?: unknown }).iconFile)
+    ) {
+      validationErrors.value = [$t('plugins.submission.iconFileMissingInManifest')];
+      return;
+    }
+
     const binary = await readFileAsUint8Array(binaryFile.value);
-    const res = await api.submitPlugin(manifestJson, binary);
+    const icon = iconFile.value ? await readFileAsUint8Array(iconFile.value) : undefined;
+    const res = await api.submitPlugin(manifestJson, binary, icon);
     if (!res.ok) {
-      validationErrors.value = [$t('plugins.errors.manifestInvalid')];
+      validationErrors.value = [res.error.error.message || $t('plugins.errors.manifestInvalid')];
       return;
     }
 
     manifestFile.value = null;
     binaryFile.value = null;
+    iconFile.value = null;
+    await loadSubmissions();
     emit('submitted');
-    emit('update:modelValue', false);
   } finally {
     submitting.value = false;
   }
 }
+
+async function onPublish(prNumber: number) {
+  await api.republishPluginSubmission(prNumber);
+  await loadSubmissions();
+  emit('submitted');
+}
+
+async function onUnpublish(pluginId: PluginID) {
+  await api.unpublishPlugin(pluginId);
+  await loadSubmissions();
+  emit('submitted');
+}
 </script>
+
+<style scoped lang="scss">
+.scroll-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+</style>

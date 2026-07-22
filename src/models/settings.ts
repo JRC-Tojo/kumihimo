@@ -18,6 +18,11 @@ export const AppSettings = z.object({
   darkMode: z.boolean().default(false),
   // アノテーションのauthorに使うユーザー名（未登録の場合はundefined）
   userName: z.string().optional(),
+  // プラグイン申請（ストアリポジトリへのPR作成）に使うGitHub個人アクセストークン。
+  // ローカル（IndexedDB）にのみ保存し、GitHub API以外への送信は行わない
+  githubToken: z.string().optional(),
+  // githubTokenから解決したGitHubユーザー名（申請時のowner記録・キャッシュ用）
+  githubLogin: z.string().optional(),
   viewMode: z.enum(['rich', 'list1', 'list2']).default('rich'),
   sortBy: z.enum(['name', 'updatedAt', 'genre']).default('updatedAt'),
   initialized: z.boolean().default(false),

@@ -51,6 +51,14 @@ export const PluginManifest = z.object({
   description: z.string().default(''),
   runtime: PluginRuntime,
   mainFile: z.string().min(1),
+  // 一覧表示用のアイコン画像ファイル名（plugin.jsonと同じディレクトリ内）。未指定時はデフォルトアイコンを表示する
+  iconFile: z.string().optional(),
+  // このプラグインを最初に公開したGitHubユーザー名。なりすまし更新を防ぐため、ストアリポジトリの
+  // CI（validateManifest.mjs）がPR作成者と突き合わせて検証する。新規申請時はアプリが自動設定する
+  owner: z.string().min(1).optional(),
+  // trueの場合、カタログ一覧・検索結果から除外する（unpublish）。実ファイルは履歴に残したまま、
+  // 表示のみを止める運用とする
+  deprecated: z.boolean().optional(),
   requiredHostApis: PluginHostApiName.array().default([]),
 });
 export type PluginManifest = z.infer<typeof PluginManifest>;

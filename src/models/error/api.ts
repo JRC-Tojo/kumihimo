@@ -62,6 +62,8 @@ export type ApiErrorKey =
   | 'PLUGIN_SUBMIT_FAILED'
   | 'PLUGIN_SUBMISSION_GET_FAILED'
   | 'PLUGIN_PUBLISH_FAILED'
+  | 'PLUGIN_GITHUB_AUTH_FAILED'
+  | 'PLUGIN_GITHUB_TOKEN_MISSING'
   // =========== ストレージ関係 ===========
   // | 'STORAGE_READ_ERROR'
   // | 'STORAGE_WRITE_ERROR'

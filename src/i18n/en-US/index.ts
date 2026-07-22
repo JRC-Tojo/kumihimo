@@ -98,9 +98,18 @@ export default {
     userName: 'User Name',
     userNameDesc:
       'The name recorded as the author of annotations you create. If left blank, no author is recorded.',
+    githubToken: 'GitHub Personal Access Token',
+    githubTokenDesc:
+      'Used to submit plugins to the plugin store (opens a pull request). The token is stored only on this device and is never sent anywhere except GitHub.',
+    githubTokenPlaceholder: 'ghp_...',
+    githubTokenVerify: 'Verify Connection',
+    githubTokenVerifyFailed: 'Failed to verify the token. Please check the value.',
+    githubTokenConnected: 'Connected as {login}',
+    githubTokenDisconnect: 'Disconnect',
     save: 'Save Settings',
     sections: {
       general: 'General',
+      github: 'GitHub Connection',
       display: 'Display',
       data: 'Data',
     },
@@ -342,11 +351,6 @@ export default {
 
   plugins: {
     title: 'Plugins',
-    tabs: {
-      installed: 'Installed',
-      catalog: 'Catalog',
-      submissions: 'My Submissions',
-    },
     actions: {
       install: 'Install',
       uninstall: 'Uninstall',
@@ -354,12 +358,15 @@ export default {
       details: 'Details',
       submitNew: 'Submit New Plugin',
       refresh: 'Refresh',
-      publish: 'Publish',
-      reupload: 'Re-upload',
+      publish: 'Merge & Publish',
+      unpublish: 'Unpublish',
       enable: 'Enable',
       disable: 'Disable',
     },
     list: {
+      searchPlaceholder: 'Search plugins',
+      installedSection: 'Installed Plugins',
+      catalogSection: 'Store Plugins',
       noInstalled: 'No plugins installed',
       noCatalogEntries: 'No plugins available',
       version: 'Version',
@@ -386,10 +393,19 @@ export default {
       kindRelationalRemove: 'Remove relation',
     },
     submission: {
-      dialogTitle: 'Submit New Plugin',
+      dialogTitle: 'Submit to Plugin Store',
+      githubNotConnected:
+        'GitHub is not connected. Register a GitHub personal access token on the Settings page to submit plugins.',
+      newSubmissionTitle: 'New Submission / Version Update',
       manifestFile: 'Manifest File (plugin.json)',
       binaryFile: 'Binary File',
+      iconFile: 'Icon Image (optional)',
+      iconFileHint: "Upload the same image referenced by plugin.json's iconFile",
+      iconFileMissingInManifest:
+        "To upload an icon image, set a file name in plugin.json's iconFile field",
       validationErrors: 'There are errors in the submitted content',
+      mySubmissionsTitle: 'My Submissions',
+      noSubmissions: 'No submissions yet',
       status: {
         pending: 'Pending',
         ciPassed: 'Passed',
@@ -397,6 +413,14 @@ export default {
         published: 'Published',
       },
       ciLogTitle: 'Validation Log',
+      helpTitle: 'Publishing Flow',
+      helpStep1:
+        'Submitting the manifest, binary (and icon) opens a Pull Request against the store repository.',
+      helpStep2:
+        'Once automated validation (CI) passes, the status becomes "Passed". Click "Merge & Publish" to merge it and make it public.',
+      helpStep3:
+        'To update a published plugin later, submit the new files the same way (the submitter must be the same GitHub account that published it).',
+      devGuideLink: 'View developer documentation',
     },
     errors: {
       installFailed: 'Failed to install plugin',

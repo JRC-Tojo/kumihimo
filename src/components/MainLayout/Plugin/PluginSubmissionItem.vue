@@ -7,26 +7,44 @@
       </q-item-label>
       <q-item-label caption>
         <q-badge :color="statusColor">{{ statusLabel }}</q-badge>
+        <a :href="submission.prUrl" target="_blank" rel="noopener" class="q-ml-sm">
+          #{{ submission.prNumber }}
+        </a>
       </q-item-label>
       <q-expansion-item
-        v-if="submission.ciLog"
+        v-if="submission.checks.length > 0"
         dense
         :label="$t('plugins.submission.ciLogTitle')"
         class="q-mt-xs"
       >
-        <pre class="ci-log">{{ submission.ciLog }}</pre>
+        <q-list dense>
+          <q-item v-for="check in submission.checks" :key="check.name" dense>
+            <q-item-section>{{ check.name }}</q-item-section>
+            <q-item-section side>{{ check.conclusion ?? '…' }}</q-item-section>
+          </q-item>
+        </q-list>
       </q-expansion-item>
     </q-item-section>
 
     <q-item-section side>
-      <q-btn
-        v-if="submission.status === 'ci_passed'"
-        dense
-        flat
-        color="primary"
-        :label="$t('plugins.actions.publish')"
-        @click="emit('publish')"
-      />
+      <div class="column q-gutter-xs items-end">
+        <q-btn
+          v-if="submission.status === 'ci_passed'"
+          dense
+          flat
+          color="primary"
+          :label="$t('plugins.actions.publish')"
+          @click="emit('publish')"
+        />
+        <q-btn
+          v-if="submission.status === 'published'"
+          dense
+          flat
+          color="negative"
+          :label="$t('plugins.actions.unpublish')"
+          @click="emit('unpublish')"
+        />
+      </div>
     </q-item-section>
   </q-item>
 </template>
@@ -43,6 +61,7 @@ const prop = defineProps<Prop>();
 
 const emit = defineEmits<{
   publish: [];
+  unpublish: [];
 }>();
 
 const { t: $t } = useI18n();
@@ -73,17 +92,3 @@ const statusColor = computed(() => {
   }
 });
 </script>
-
-<style scoped lang="scss">
-.ci-log {
-  white-space: pre-wrap;
-  font-size: 0.75rem;
-  background: $grey-2;
-  padding: 8px;
-  border-radius: 4px;
-}
-
-.body--dark .ci-log {
-  background: $grey-9;
-}
-</style>

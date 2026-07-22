@@ -1,68 +1,91 @@
 /**
- * 「導入可能プラグイン一覧」のモックカタログ
+ * 「導入可能プラグイン一覧」（カタログ）
  *
- * 実際のプラグインストア・リポジトリはまだ存在しないため（CLAUDE.mdの規約により、存在しない
- * 外部データはモックとして明示する）、このファイルは`samplePlugins/`配下のサンプルのメタ情報を
- * 固定配列として返すだけの実装とする。将来、別リポジトリの実カタログAPIに差し替える際も
- * `getCatalogEntries`/`getCatalogBinary`のシグネチャ自体は変えずに済むようにしてある
+ * プラグインストア・リポジトリ（https://github.com/JRC-Tojo/RD-PluginStock）の
+ * `plugins/<id>/plugin.json`を実際に読みに行く。認証（token）は未指定でも動作するが
+ * （公開リポジトリのため）、GitHub APIのレート制限緩和のため設定されていれば利用する
  */
 import type { CatalogEntry } from 'src/models/plugin/installation';
-import { PluginID } from 'src/models/plugin/manifest';
+import { PluginManifest } from 'src/models/plugin/manifest';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success } from 'src/models/error/result';
-import { base64ToUint8Array } from 'src/utils/binary/base64';
-import { PAGE_NUMBER_STAMPER_WASM_BASE64 } from 'src/repositories/plugin/generated/pageNumberStamperWasm.generated';
+import {
+  STORE_REPO_OWNER,
+  STORE_REPO_NAME,
+  STORE_REPO_DEFAULT_BRANCH,
+  getTree,
+  buildRawFileUrl,
+  fetchRawText,
+  fetchRawBinary,
+} from 'src/repositories/plugin/githubApi';
 
-const CATALOG_ENTRIES: CatalogEntry[] = [
-  {
-    manifest: {
-      id: PluginID.parse('wasm-page-number-stamper'),
-      name: 'ページ番号スタンパー',
-      version: '1.0.0',
-      description:
-        '各ページにページ番号のテキストボックスを配置します（再実行時は前回分を置き換えます）',
-      runtime: 'wasm',
-      mainFile: 'page_number_stamper.wasm',
-      requiredHostApis: [
-        'ui.reportProgress',
-        'plan.addAnnotation',
-        'plan.removeAnnotation',
-        'plan.setConfirmationMode',
-        'doc.getAnnotationIdsByTag',
-      ],
-    },
-    // モックカタログのため固定の日時を用いる
-    publishedAt: new Date('2026-01-01T00:00:00.000Z'),
-  },
-  {
-    manifest: {
-      id: PluginID.parse('py-entry-point-stub'),
-      name: 'Pyodideプラグイン（スタブ）',
-      version: '0.1.0',
-      description:
-        'Pyodide実行エンジンは未実装のため、このプラグインは実行できません（将来対応予定のサンプル）',
-      runtime: 'pyodide',
-      mainFile: 'plugin.py',
-      requiredHostApis: [],
-    },
-    publishedAt: new Date('2026-01-01T00:00:00.000Z'),
-  },
-];
+const PLUGIN_JSON_PATH_PATTERN = /^plugins\/([^/]+)\/plugin\.json$/;
 
-export function getCatalogEntries(): Promise<Result<CatalogEntry[]>> {
-  return Promise.resolve(Success(CATALOG_ENTRIES));
+export async function getCatalogEntries(token?: string): Promise<Result<CatalogEntry[]>> {
+  const treeRes = await getTree(
+    STORE_REPO_OWNER,
+    STORE_REPO_NAME,
+    STORE_REPO_DEFAULT_BRANCH,
+    token,
+  );
+  if (!treeRes.ok) return treeRes;
+
+  const manifestPaths = treeRes.value.filter((path) => PLUGIN_JSON_PATH_PATTERN.test(path));
+
+  const entries: CatalogEntry[] = [];
+  for (const path of manifestPaths) {
+    const url = buildRawFileUrl(STORE_REPO_OWNER, STORE_REPO_NAME, STORE_REPO_DEFAULT_BRANCH, path);
+    const textRes = await fetchRawText(url);
+    if (!textRes.ok) continue; // 個別ファイルの取得失敗はスキップし、カタログ全体は返す
+
+    let json: unknown;
+    try {
+      json = JSON.parse(textRes.value);
+    } catch {
+      continue;
+    }
+    const parsed = PluginManifest.safeParse(json);
+    if (!parsed.success) continue;
+    if (parsed.data.deprecated) continue; // unpublish済みは一覧から除外する
+
+    const iconUrl = parsed.data.iconFile
+      ? buildRawFileUrl(
+          STORE_REPO_OWNER,
+          STORE_REPO_NAME,
+          STORE_REPO_DEFAULT_BRANCH,
+          `plugins/${parsed.data.id}/${parsed.data.iconFile}`,
+        )
+      : undefined;
+
+    entries.push({ manifest: parsed.data, publishedAt: new Date(), iconUrl });
+  }
+
+  return Success(entries);
 }
 
-/**
- * カタログ上のプラグイン本体バイト列を取得する
- *
- * 実際の別リポジトリ運用時はここがHTTP取得等に置き換わる想定。現状はビルド時に
- * `bun run build:sample-plugins`が生成する`generated/pageNumberStamperWasm.generated.ts`の
- * base64定数から復元する
- */
-export function getCatalogBinary(id: PluginID): Promise<Result<Uint8Array>> {
-  if (id === ('wasm-page-number-stamper' as PluginID)) {
-    return Promise.resolve(base64ToUint8Array(PAGE_NUMBER_STAMPER_WASM_BASE64));
-  }
-  return Promise.resolve(Failure(new Error(`No binary available for plugin (id: ${id})`)));
+export function getCatalogBinary(
+  manifest: PluginManifest,
+  token?: string,
+): Promise<Result<Uint8Array>> {
+  const url = buildRawFileUrl(
+    STORE_REPO_OWNER,
+    STORE_REPO_NAME,
+    STORE_REPO_DEFAULT_BRANCH,
+    `plugins/${manifest.id}/${manifest.mainFile}`,
+  );
+  // raw.githubusercontent.comは認証不要（公開リポジトリのため）だが、将来非公開運用に
+  // 切り替わった場合に備えtokenパラメータ自体は残しておく（現状は未使用）
+  void token;
+  return fetchRawBinary(url);
+}
+
+export async function getCatalogIcon(manifest: PluginManifest): Promise<Result<Uint8Array>> {
+  if (!manifest.iconFile) return Failure(new Error('This plugin has no icon'));
+  const url = buildRawFileUrl(
+    STORE_REPO_OWNER,
+    STORE_REPO_NAME,
+    STORE_REPO_DEFAULT_BRANCH,
+    `plugins/${manifest.id}/${manifest.iconFile}`,
+  );
+  return fetchRawBinary(url);
 }

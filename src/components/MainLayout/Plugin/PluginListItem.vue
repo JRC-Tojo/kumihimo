@@ -1,7 +1,10 @@
 <template>
   <q-item class="plugin-list-item">
     <q-item-section avatar>
-      <q-icon name="extension" color="primary" />
+      <q-avatar v-if="iconSrc" size="32px" square>
+        <img :src="iconSrc" />
+      </q-avatar>
+      <q-icon v-else name="extension" color="primary" />
     </q-item-section>
 
     <q-item-section>
@@ -62,6 +65,7 @@ import type { PluginManifest } from 'src/models/plugin/manifest';
 interface Prop {
   manifest: PluginManifest;
   installed: boolean;
+  iconSrc: string | undefined;
 }
 defineProps<Prop>();
 
