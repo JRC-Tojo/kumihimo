@@ -1,15 +1,23 @@
 /**
- * WASM（AssemblyScriptビルド）プラグインの実行エンジン
+ * WASMプラグインの実行エンジン
  *
- * AssemblyScriptの文字列（UTF-16・GC管理）とJSの文字列を相互変換するため、
- * `@assemblyscript/loader`（`--exportRuntime`が出力するメモリ管理エクスポートを利用する
- * 公式ヘルパー）経由でインスタンス化する。ホスト関数（プラグインから呼ばれる側）が受け取る
- * 引数・返す値は、WASM側では文字列も含めすべて数値（ポインタ）としてやり取りされるため、
- * このファイルが`__getString`/`__newString`を使った変換を一手に引き受け、
- * `hostApiBridge.ts`側は普通のJSの値だけを扱えばよいようにしている
+ * 特定の言語ランタイム（AssemblyScript等）には依存しない、言語非依存の呼び出し規約を採用する。
+ * WASMの数値型（i32/i64/f32/f64）では文字列を直接やり取りできないため、文字列は次の規約で
+ * 相互変換する:
  *
- * 既知の制約: この変換方式はAssemblyScriptのランタイム規約に依拠しており、Rust/wasm-bindgen等
- * 別のABIを使うプラグインでは同じ方法は使えない（次イテレーションで別途対応）
+ * - 文字列はすべて「NUL終端のUTF-8バイト列」として、WASMモジュール自身のリニアメモリ上に
+ *   置かれる。関数の引数・返り値では、その先頭バイトへのポインタ（i32）としてやり取りする
+ * - ホストがWASM側へ文字列を渡す必要がある場合（エントリポイントの文字列引数、および
+ *   ホストAPI呼び出しの文字列返り値）は、モジュールが公開する`alloc(size: i32) -> i32`を
+ *   呼び出して書き込み先を確保する
+ * - モジュールは`memory`（線形メモリ）と`alloc`をエクスポートする必要がある
+ *   （`memory`はほとんどのツールチェインで既定でエクスポートされる）
+ *
+ * この規約はNUL終端UTF-8ポインタというC言語ABI相当の単純な取り決めのみに依拠しており、
+ * Rust（`extern "C"`関数＋`#[link(wasm_import_module = "host_system")]`）はもちろん、
+ * C/Zig等、WASMへコンパイルできる大半の言語で実装できる。`hostApiBridge.ts`側はこれまで通り
+ * 普通のJSの値（文字列・数値・真偽値）だけを扱えばよく、このファイルがWASM境界での
+ * ポインタ⇔JS値の変換を一手に引き受ける
  *
  * また、`describePlugin`と実行対象のエントリポイントが同一のWASMモジュール内にある場合、
  * WASMの仕様上インスタンス化時にモジュールが宣言する全インポートを満たす必要があるため、
@@ -29,11 +37,10 @@ import {
   type ExecutionState,
 } from 'src/services/plugin/hostApiBridge';
 
-import { instantiate as instantiateAsModule, type Imports } from '@assemblyscript/loader';
-
-interface AsExports {
-  __getString(ptr: number): string;
-  __newString(str: string): number;
+/** WASMモジュールが公開しなければならないエクスポート（文字列マーシャリングに使う） */
+interface WasmExports {
+  memory: WebAssembly.Memory;
+  alloc?: (size: number) => number;
   [key: string]: unknown;
 }
 
@@ -97,10 +104,44 @@ const EXECUTION_SIGNATURES: Record<string, ApiSignature> = {
 };
 
 interface ExportsRef {
-  current: AsExports | undefined;
+  current: WasmExports | undefined;
 }
 
-/** ホスト関数の呼び出し規約（AssemblyScript側は文字列もi32ポインタとしてやり取りする）を吸収する */
+/**
+ * WASMのリニアメモリから、ptr位置のNUL終端UTF-8文字列を読み取る
+ *
+ * モジュールのランタイムに関係なく、生のバイト列を直接読むだけなので言語非依存
+ */
+function readCString(exports: WasmExports, ptr: number): string {
+  if (ptr === 0) return '';
+  const bytes = new Uint8Array(exports.memory.buffer, ptr);
+  let len = 0;
+  while (bytes[len] !== 0) len++;
+  return new TextDecoder('utf-8').decode(bytes.subarray(0, len));
+}
+
+/**
+ * JS文字列をWASMのリニアメモリへNUL終端UTF-8として書き込み、先頭ポインタを返す
+ *
+ * モジュールが公開する`alloc`を呼び出して書き込み先を確保する。`alloc`が線形メモリを
+ * 拡張（`memory.grow`）した場合、既存の`ArrayBuffer`参照は無効化される（デタッチされる）
+ * ため、`alloc`呼び出し**後**に必ず`memory.buffer`を取り直してから書き込むこと
+ */
+function writeCString(exports: WasmExports, str: string): number {
+  if (typeof exports.alloc !== 'function') {
+    throw new Error(
+      'このプラグインは文字列を受け渡すための alloc(size: i32) -> i32 エクスポートを持っていません',
+    );
+  }
+  const encoded = new TextEncoder().encode(str);
+  const ptr = exports.alloc(encoded.length + 1);
+  const view = new Uint8Array(exports.memory.buffer, ptr, encoded.length + 1);
+  view.set(encoded);
+  view[encoded.length] = 0;
+  return ptr;
+}
+
+/** ホスト関数の呼び出し規約（文字列はNUL終端UTF-8ポインタとしてやり取りする）を吸収する */
 function wrapHostFn(
   exportsRef: ExportsRef,
   sig: ApiSignature,
@@ -112,7 +153,7 @@ function wrapHostFn(
 
     const args = sig.params.map((kind, i) => {
       const raw = rawArgs[i];
-      if (kind === 'string') return exports.__getString(raw ?? 0);
+      if (kind === 'string') return readCString(exports, raw ?? 0);
       if (kind === 'boolean') return raw !== 0;
       return raw;
     });
@@ -120,7 +161,7 @@ function wrapHostFn(
     const result = fn(...args);
 
     if (sig.returns === 'string') {
-      return exports.__newString(typeof result === 'string' ? result : '');
+      return writeCString(exports, typeof result === 'string' ? result : '');
     }
     if (sig.returns === 'number') return result as number;
     return undefined;
@@ -140,8 +181,8 @@ function buildImportObject(
   bridge: Record<string, (...args: unknown[]) => unknown>,
   allSignatures: Record<string, ApiSignature>,
   exportsRef: ExportsRef,
-): Imports {
-  const hostSystem: Record<string, unknown> = {};
+): WebAssembly.Imports {
+  const hostSystem: Record<string, (...args: number[]) => number | undefined> = {};
   for (const [key, sig] of Object.entries(allSignatures)) {
     const fn = bridge[key];
     hostSystem[key] = fn ? wrapHostFn(exportsRef, sig, fn) : noopHostFn(sig);
@@ -164,10 +205,11 @@ export async function discoverEntryPoints(
   const importObject = buildImportObject(bridge, allSignatures, exportsRef);
 
   try {
-    const instantiated = await instantiateAsModule<AsExports>(binary, importObject);
-    exportsRef.current = instantiated.exports;
+    const { instance } = await WebAssembly.instantiate(binary, importObject);
+    const exports = instance.exports as unknown as WasmExports;
+    exportsRef.current = exports;
 
-    const describeFn = instantiated.exports[DESCRIBE_EXPORT_NAME];
+    const describeFn = exports[DESCRIBE_EXPORT_NAME];
     if (typeof describeFn !== 'function') {
       return Failure(new Error(`${DESCRIBE_EXPORT_NAME} export not found in plugin binary`));
     }
@@ -198,8 +240,8 @@ export async function runEntryPoint(
   const importObject = buildImportObject(bridge, allSignatures, exportsRef);
 
   try {
-    const instantiated = await instantiateAsModule<AsExports>(binary, importObject);
-    const exports = instantiated.exports;
+    const { instance } = await WebAssembly.instantiate(binary, importObject);
+    const exports = instance.exports as unknown as WasmExports;
     exportsRef.current = exports;
 
     const entryFn = exports[entryId];
@@ -208,7 +250,7 @@ export async function runEntryPoint(
     }
 
     const wasmArgs = positionalArgs.map((arg) => {
-      if (typeof arg === 'string') return exports.__newString(arg);
+      if (typeof arg === 'string') return writeCString(exports, arg);
       if (typeof arg === 'boolean') return arg ? 1 : 0;
       return arg;
     });
