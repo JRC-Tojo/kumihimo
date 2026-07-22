@@ -94,6 +94,9 @@ export default {
     sortByDesc: 'コンテナ一覧の並び順を指定します。',
     language: '言語',
     languageDesc: 'アプリの表示言語を切り替えます。',
+    userName: 'ユーザー名',
+    userNameDesc:
+      'アノテーションの作成者として記録される名前です。未設定の場合、作成者は記録されません。',
     save: '設定を保存',
     sections: {
       general: '一般',
@@ -334,5 +337,72 @@ export default {
     invalidFileNameEmpty: 'ファイル名を入力してください',
     duplicateName: '同じ名前のファイルまたはフォルダが既に存在します',
     uploadFailed: '一部のファイル・フォルダのアップロードに失敗しました（{names}）',
+  },
+
+  plugins: {
+    title: 'プラグイン',
+    tabs: {
+      installed: 'インストール済み',
+      catalog: 'カタログ',
+      submissions: 'マイ申請',
+    },
+    actions: {
+      install: 'インストール',
+      uninstall: 'アンインストール',
+      run: '実行',
+      details: '詳細',
+      submitNew: '新規プラグインを申請',
+      refresh: '更新',
+      publish: '公開',
+      reupload: '再アップロード',
+      enable: '有効化',
+      disable: '無効化',
+    },
+    list: {
+      noInstalled: 'インストール済みのプラグインはありません',
+      noCatalogEntries: '導入可能なプラグインはありません',
+      version: 'バージョン',
+    },
+    details: {
+      requiredHostApis: '要求ホストAPI',
+    },
+    run: {
+      runButton: '実行',
+      noOpenDocument: 'プラグインを実行する前に文書を開いてください',
+      batchConfirmTitle: '内容の確認',
+      batchConfirmMessage: '{count}件の変更を適用します。よろしいですか？',
+    },
+    panel: {
+      running: '実行中...',
+      pendingApprovalTitle: '承認待ち',
+      approve: '承認',
+      reject: '却下',
+      logSectionTitle: 'ログ',
+      kindCreate: 'アノテーションを作成',
+      kindUpdate: 'アノテーションを変更',
+      kindRemove: 'アノテーションを削除',
+      kindRelationalCreate: '関係性を作成',
+      kindRelationalRemove: '関係性を削除',
+    },
+    submission: {
+      dialogTitle: '新規プラグインを申請',
+      manifestFile: 'マニフェストファイル（plugin.json）',
+      binaryFile: '本体ファイル',
+      validationErrors: '入力内容に誤りがあります',
+      status: {
+        pending: '検証待ち',
+        ciPassed: '検証OK',
+        ciFailed: '検証NG',
+        published: '公開済み',
+      },
+      ciLogTitle: '検証ログ',
+    },
+    errors: {
+      installFailed: 'インストールに失敗しました',
+      uninstallFailed: 'アンインストールに失敗しました',
+      runFailed: '実行に失敗しました',
+      submitFailed: '申請に失敗しました',
+      manifestInvalid: 'マニフェストの内容が正しくありません',
+    },
   },
 };

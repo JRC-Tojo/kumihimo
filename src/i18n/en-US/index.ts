@@ -95,6 +95,9 @@ export default {
     sortByDesc: 'Choose the sort order for the container list.',
     language: 'Language',
     languageDesc: 'Switch the display language of the app.',
+    userName: 'User Name',
+    userNameDesc:
+      'The name recorded as the author of annotations you create. If left blank, no author is recorded.',
     save: 'Save Settings',
     sections: {
       general: 'General',
@@ -335,5 +338,72 @@ export default {
     invalidFileNameEmpty: 'File name cannot be empty',
     duplicateName: 'A file or folder with this name already exists',
     uploadFailed: 'Failed to upload some files/folders ({names})',
+  },
+
+  plugins: {
+    title: 'Plugins',
+    tabs: {
+      installed: 'Installed',
+      catalog: 'Catalog',
+      submissions: 'My Submissions',
+    },
+    actions: {
+      install: 'Install',
+      uninstall: 'Uninstall',
+      run: 'Run',
+      details: 'Details',
+      submitNew: 'Submit New Plugin',
+      refresh: 'Refresh',
+      publish: 'Publish',
+      reupload: 'Re-upload',
+      enable: 'Enable',
+      disable: 'Disable',
+    },
+    list: {
+      noInstalled: 'No plugins installed',
+      noCatalogEntries: 'No plugins available',
+      version: 'Version',
+    },
+    details: {
+      requiredHostApis: 'Required Host APIs',
+    },
+    run: {
+      runButton: 'Run',
+      noOpenDocument: 'Open a document before running a plugin',
+      batchConfirmTitle: 'Confirm Changes',
+      batchConfirmMessage: 'This will apply {count} change(s). Continue?',
+    },
+    panel: {
+      running: 'Running...',
+      pendingApprovalTitle: 'Pending Approval',
+      approve: 'Approve',
+      reject: 'Reject',
+      logSectionTitle: 'Log',
+      kindCreate: 'Create annotation',
+      kindUpdate: 'Update annotation',
+      kindRemove: 'Remove annotation',
+      kindRelationalCreate: 'Create relation',
+      kindRelationalRemove: 'Remove relation',
+    },
+    submission: {
+      dialogTitle: 'Submit New Plugin',
+      manifestFile: 'Manifest File (plugin.json)',
+      binaryFile: 'Binary File',
+      validationErrors: 'There are errors in the submitted content',
+      status: {
+        pending: 'Pending',
+        ciPassed: 'Passed',
+        ciFailed: 'Failed',
+        published: 'Published',
+      },
+      ciLogTitle: 'Validation Log',
+    },
+    errors: {
+      installFailed: 'Failed to install plugin',
+      uninstallFailed: 'Failed to uninstall plugin',
+      runFailed: 'Failed to run plugin',
+      submitFailed: 'Failed to submit plugin',
+      manifestInvalid: 'The manifest content is invalid',
+    },
   },
 };

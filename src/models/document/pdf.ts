@@ -41,6 +41,11 @@ const AnnotationBase = z.object({
     .default({}),
   // 重ね順。未設定の場合はcreatedAtを実効的な重ね順キーとして扱う（utils/document/annotationOrder.ts参照）
   zIndex: z.number().optional(),
+  // 作成者。人間が作成した場合はAppSettings.userName（未登録ならundefined）、
+  // プラグインが作成した場合はプラグイン名がservices/document/annotation.ts側で設定される
+  author: z.string().optional(),
+  // タグ。人間側からは現状設定不可（今後のUI対応まで見送り）。プラグインが冪等な再実行等に利用する
+  tags: z.string().array().optional(),
 });
 export const BoxAnnotationStyle = AnnotationBase.extend({
   type: z.literal('box'),

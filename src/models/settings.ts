@@ -16,6 +16,8 @@ import { ColorCode } from './document/pdf';
 export const AppSettings = z.object({
   locale: z.enum(localeKeys).default('ja-JP'),
   darkMode: z.boolean().default(false),
+  // アノテーションのauthorに使うユーザー名（未登録の場合はundefined）
+  userName: z.string().optional(),
   viewMode: z.enum(['rich', 'list1', 'list2']).default('rich'),
   sortBy: z.enum(['name', 'updatedAt', 'genre']).default('updatedAt'),
   initialized: z.boolean().default(false),

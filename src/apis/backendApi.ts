@@ -35,6 +35,15 @@ import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import type { Observable } from 'dexie';
 import { initOCR } from 'src/utils/ocr/main';
+import type { InstalledPlugin, CatalogEntry } from 'src/models/plugin/installation';
+import type { PluginID } from 'src/models/plugin/manifest';
+import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
+import type { PluginRunState } from 'src/models/plugin/panel';
+import type { PluginSubmission, PluginSubmissionID } from 'src/models/plugin/submission';
+import * as pluginInstallService from 'src/services/plugin/install';
+import * as pluginRunService from 'src/services/plugin/run';
+import * as pluginSubmissionService from 'src/services/plugin/submissionMock';
+import { parseManifest } from 'src/services/plugin/manifest';
 
 /**
  * バックエンド統合 API層
@@ -579,6 +588,150 @@ class BackendApi {
   ): Promise<ApiResponse<void>> {
     const saveRes = await saveSettings(key, value);
     return toApiResponse(saveRes, 'FAILED_SAVE_SETTINGS');
+  }
+
+  // ============ プラグイン操作 ============
+
+  /**
+   * インストール済みプラグイン一覧を取得する
+   */
+  async getInstalledPlugins(): Promise<ApiResponse<InstalledPlugin[]>> {
+    const res = await pluginInstallService.getInstalledPlugins();
+    return toApiResponse(res, 'PLUGIN_LIST_FAILED');
+  }
+
+  /**
+   * 導入可能なプラグイン一覧（カタログ）を取得する
+   */
+  async getCatalogEntries(): Promise<ApiResponse<CatalogEntry[]>> {
+    const res = await pluginInstallService.getCatalogEntries();
+    return toApiResponse(res, 'PLUGIN_LIST_FAILED');
+  }
+
+  /**
+   * カタログからプラグインをそのままインストールする
+   */
+  async installPluginFromCatalog(id: PluginID): Promise<ApiResponse<void>> {
+    const res = await pluginInstallService.installFromCatalog(id);
+    return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
+  }
+
+  /**
+   * アップロードされたマニフェスト（未検証JSON）とバイナリからプラグインをインストールする
+   */
+  async installPlugin(manifestJson: unknown, binary: Uint8Array): Promise<ApiResponse<void>> {
+    const parsed = parseManifest(manifestJson);
+    if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
+    const res = await pluginInstallService.installPlugin(parsed.value, binary);
+    return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
+  }
+
+  /**
+   * プラグインをアンインストールする
+   */
+  async uninstallPlugin(id: PluginID): Promise<ApiResponse<void>> {
+    const res = await pluginInstallService.uninstallPlugin(id);
+    return toApiResponse(res, 'PLUGIN_UNINSTALL_FAILED');
+  }
+
+  /**
+   * プラグインの有効/無効を切り替える
+   */
+  async setPluginEnabled(id: PluginID, enabled: boolean): Promise<ApiResponse<void>> {
+    const res = await pluginInstallService.setPluginEnabled(id, enabled);
+    return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
+  }
+
+  /**
+   * プラグインが自己申告するエントリポイント・入力項目を取得する（`describePlugin`の発見専用実行）
+   */
+  async discoverPluginEntryPoints(
+    id: PluginID,
+  ): Promise<ApiResponse<PluginEntryPointDescriptor[]>> {
+    const res = await pluginRunService.discoverEntryPoints(id);
+    return toApiResponse(res, 'PLUGIN_DISCOVER_FAILED');
+  }
+
+  /**
+   * プラグインのエントリポイントを実行する
+   *
+   * `fieldValues`は`discoverPluginEntryPoints`が返したfieldIdをキーとする入力値
+   */
+  async runPluginEntryPoint(
+    id: PluginID,
+    entryId: string,
+    fieldValues: Record<string, string | number | boolean>,
+    targetFile: ContainerElementFile,
+  ): Promise<ApiResponse<PluginRunState>> {
+    const res = await pluginRunService.runEntryPoint(id, entryId, fieldValues, targetFile);
+    return toApiResponse(res, 'PLUGIN_RUN_FAILED');
+  }
+
+  /**
+   * プラグインの実行状態をDBの変更に応じて購読する
+   */
+  observePluginRunState(runId: string): ApiResponse<Observable<PluginRunState | undefined>> {
+    const observed = pluginRunService.observeRunState(runId);
+    return toApiResponse(Success(observed));
+  }
+
+  /**
+   * プラグインが積んだ書き込み予定項目を承認し、実データへコミットする
+   */
+  async approvePluginPlanItems(runId: string, itemIds: string[]): Promise<ApiResponse<void>> {
+    const res = await pluginRunService.approvePlanItems(runId, itemIds);
+    return toApiResponse(res, 'PLUGIN_PLAN_COMMIT_FAILED');
+  }
+
+  /**
+   * プラグインが積んだ書き込み予定項目を却下する（実データへは反映しない）
+   */
+  async rejectPluginPlanItems(runId: string, itemIds: string[]): Promise<ApiResponse<void>> {
+    const res = await pluginRunService.rejectPlanItems(runId, itemIds);
+    return toApiResponse(res, 'PLUGIN_PLAN_COMMIT_FAILED');
+  }
+
+  /**
+   * プラグインを申請する（アプリ内モックのCI検証フローに乗る）
+   */
+  async submitPlugin(
+    manifestJson: unknown,
+    binary: Uint8Array,
+  ): Promise<ApiResponse<PluginSubmission>> {
+    const parsed = parseManifest(manifestJson);
+    if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
+    const res = await pluginSubmissionService.submitPlugin(parsed.value, binary);
+    return toApiResponse(res, 'PLUGIN_SUBMIT_FAILED');
+  }
+
+  /**
+   * プラグイン申請一覧を取得する
+   */
+  async getPluginSubmissions(): Promise<ApiResponse<PluginSubmission[]>> {
+    const res = await pluginSubmissionService.getSubmissions();
+    return toApiResponse(res, 'PLUGIN_SUBMISSION_GET_FAILED');
+  }
+
+  /**
+   * CI検証に合格した申請を公開する
+   */
+  async republishPluginSubmission(id: PluginSubmissionID): Promise<ApiResponse<void>> {
+    const res = await pluginSubmissionService.republishSubmission(id);
+    return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
+  }
+
+  /**
+   * 申請を再アップロードする（CI不合格からの再送信）
+   */
+  async reuploadPluginSubmission(
+    id: PluginSubmissionID,
+    manifestJson: unknown,
+    binary: Uint8Array,
+  ): Promise<ApiResponse<PluginSubmission>> {
+    const parsed = parseManifest(manifestJson);
+    if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
+    const res = await pluginSubmissionService.reuploadSubmission(id, parsed.value, binary);
+    return toApiResponse(res, 'PLUGIN_SUBMIT_FAILED');
   }
 }
 

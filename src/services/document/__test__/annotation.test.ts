@@ -25,8 +25,18 @@ void mock.module('src/repositories/db/annotation', () => ({
   addAnnotationInfos: addAnnotationInfosMock,
 }));
 
+// 注意: `bun test`のmock.moduleはプロセス全体で共有される（テストファイルをまたいで永続する）ため、
+// 同じモジュールパスを複数のテストファイルでモックする場合は、他ファイルが必要とする関数も
+// スタブとして含めておくこと（そうしないと、実行順序によって他ファイルのモックがこちらの
+// スタブで上書きされ、未定義関数エラーになる）
 void mock.module('src/services/container/main', () => ({
   loadFileAsDocumentSource: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  getContainer: () => Failure(new Error('not used in this test')),
+}));
+
+const getSettingsMock = mock(() => Promise.resolve(Success({ userName: undefined } as never)));
+void mock.module('src/settings/main', () => ({
+  getSettings: getSettingsMock,
 }));
 
 // pdfjs-distはブラウザAPI（DOMMatrix等）に依存するため、bunのテスト環境ではimportするだけで
@@ -37,9 +47,14 @@ void mock.module('src/repositories/document/pdf', () => ({
   extractAnnotationContextPreview: () =>
     Promise.resolve(Failure(new Error('not used in this test'))),
   extractTextByAnnot: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  getNumPages: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  getPageSize: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  extractTextBlocksByPage: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  renderPageToCanvas: () => Promise.resolve(Failure(new Error('not used in this test'))),
 }));
 
-const { reorderAnnotationStyle, pasteAnnotations } = await import('../annotation');
+const { reorderAnnotationStyle, pasteAnnotations, registerAnnotationStyle } =
+  await import('../annotation');
 
 const containerID = '00000000-0000-4000-8000-000000000000' as ContainerID;
 const file = {
@@ -99,6 +114,45 @@ describe('reorderAnnotationStyle', () => {
     const missingId = '00000000-0000-4000-8000-000000000099' as AnnotationID;
     const res = await reorderAnnotationStyle(file, annotations, missingId, 'front');
     expect(res.ok).toBeFalse();
+  });
+});
+
+describe('registerAnnotationStyle (author自動補完)', () => {
+  it('authorが未指定の場合、AppSettings.userNameで補完される', async () => {
+    getSettingsMock.mockClear();
+    getSettingsMock.mockImplementationOnce(() =>
+      Promise.resolve(Success({ userName: 'テスト太郎' } as never)),
+    );
+
+    const res = await registerAnnotationStyle(file, baseStyle(idA));
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.style.author).toBe('テスト太郎');
+  });
+
+  it('authorが既に設定されている場合は上書きしない（プラグイン実行側が事前設定したものを尊重する。getSettings自体呼ばれない）', async () => {
+    getSettingsMock.mockClear();
+
+    const res = await registerAnnotationStyle(
+      file,
+      baseStyle(idA, { author: 'ページ番号スタンパー' }),
+    );
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.style.author).toBe('ページ番号スタンパー');
+    expect(getSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it('userNameが未登録の場合、authorはundefinedのままになる', async () => {
+    getSettingsMock.mockClear();
+    getSettingsMock.mockImplementationOnce(() =>
+      Promise.resolve(Success({ userName: undefined } as never)),
+    );
+
+    const res = await registerAnnotationStyle(file, baseStyle(idA));
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.style.author).toBeUndefined();
   });
 });
 

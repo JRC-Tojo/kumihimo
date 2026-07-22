@@ -73,6 +73,23 @@
               @update:model-value="(val) => updateSettings('locale')(val)"
             />
           </SettingsItemRow>
+
+          <SettingsItemRow
+            v-show="isVisible('userName')"
+            :title="$t('settings.userName')"
+            :description="$t('settings.userNameDesc')"
+          >
+            <q-input
+              v-model="settings.userName"
+              dense
+              outlined
+              style="min-width: 160px"
+              @update:model-value="
+                (val) =>
+                  updateSettings('userName')(typeof val === 'string' && val ? val : undefined)
+              "
+            />
+          </SettingsItemRow>
         </section>
 
         <!-- 表示 -->
@@ -253,6 +270,12 @@ const itemMetas = computed<SettingsItemMeta[]>(() => [
     sectionId: 'general',
     title: $t('settings.language'),
     description: $t('settings.languageDesc'),
+  },
+  {
+    id: 'userName',
+    sectionId: 'general',
+    title: $t('settings.userName'),
+    description: $t('settings.userNameDesc'),
   },
   {
     id: 'viewMode',

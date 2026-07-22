@@ -15,6 +15,7 @@ import {
 import { Image2Text } from 'src/utils/ocr/main';
 import { ANNOTATION_GEOMETRY, duplicateAnnotation } from 'src/services/document/annotationGeometry';
 import { computeReorderedZIndex, type LayerOrderAction } from 'src/utils/document/annotationOrder';
+import { getSettings } from 'src/settings/main';
 
 /**
  * 読み込み中の文書におけるアノテーション一覧を格納するDBを初期化する
@@ -154,8 +155,18 @@ export async function registerAnnotationStyle(
 ): Promise<Result<AnnotationInfo>> {
   const previous = await annotationRepository.getAnnotationInfo(aStyle.id);
 
+  // authorが未設定の場合のみ、設定済みのユーザー名で補完する（既にセット済み＝プラグイン実行側が
+  // 事前に設定したものは上書きしない。これによりプラグインによるauthorのなりすましを防ぐ）
+  let resolvedStyle = aStyle;
+  if (aStyle.author === undefined) {
+    const settingsRes = await getSettings();
+    if (settingsRes.ok && settingsRes.value.userName !== undefined) {
+      resolvedStyle = { ...aStyle, author: settingsRes.value.userName };
+    }
+  }
+
   const annotationInfo: AnnotationInfo = {
-    style: aStyle,
+    style: resolvedStyle,
     context: {
       // 内容を再読み込みしない場合に備え、既存のOCR結果を引き継ぐ（undefinedで上書きしない）
       text: previous.ok ? previous.value.context.text : undefined,
@@ -166,7 +177,7 @@ export async function registerAnnotationStyle(
   const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
   if (!saveRes.ok) return saveRes;
 
-  if (hasGeometryChanged(previous.ok ? previous.value.style : undefined, aStyle)) {
+  if (hasGeometryChanged(previous.ok ? previous.value.style : undefined, resolvedStyle)) {
     // コンテンツの読み込みは投げっぱなし（失敗しても空文字列がコンテンツとして格納されるだけ）
     void loadAnnotContent(file, annotationInfo);
   }

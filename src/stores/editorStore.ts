@@ -34,6 +34,23 @@ function tabKey(f: { containerID: ContainerID; path: string }): string {
 export const SETTINGS_TAB_KEY = '__settings__';
 
 /**
+ * プラグイン所有タブのキー接頭辞（ContainerElementFileのtabKeyや設定タブとは絶対に衝突しない形式）
+ */
+export const PLUGIN_TAB_PREFIX = '__plugin__:';
+
+/** プラグインの実行1回分に対応するタブの参照情報 */
+export interface PluginTabRef {
+  key: string;
+  pluginId: string;
+  runId: string;
+  title: string;
+}
+
+function pluginTabKey(pluginId: string, runId: string): string {
+  return `${PLUGIN_TAB_PREFIX}${pluginId}:${runId}`;
+}
+
+/**
  * デフォルトのアノテーションスタイル
  */
 const DEFAULT_ANNOTATION_STYLE: DrawingAnnotationStyle = {
@@ -74,6 +91,8 @@ export const useEditorStore = defineStore('editor', {
     activeSide: 'ul' as LayoutSide,
     // 各ペインで設定タブが開かれているか（設定はContainerElementFileではないため別管理する）
     settingsOpenSides: { ul: false, ur: false, ll: false, lr: false } as Layouts<boolean>,
+    // 各ペインで開かれているプラグイン所有タブ（設定タブと同じく、ContainerElementFileではないため別管理する）
+    pluginTabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<PluginTabRef[]>,
 
     // アノテーションの表示状態
     visibleAnnotations: true,
@@ -436,6 +455,44 @@ export const useEditorStore = defineStore('editor', {
 
       // アクティブタブが設定タブだった場合は、そのペインの最後の文書タブをアクティブにする
       if (this.activeTabPaths[layoutSide] === SETTINGS_TAB_KEY) {
+        const lastTab = this.tabs[layoutSide][this.tabs[layoutSide].length - 1];
+        this.activeTabPaths[layoutSide] = lastTab ? tabKey(lastTab) : null;
+      }
+    },
+
+    /**
+     * プラグイン所有タブを開く（現在アクティブなペインに、文書タブと同様の見た目で開かれる）
+     *
+     * `runId`はプラグインの実行1回ごとに異なるため、同じプラグインを複数回実行した場合は
+     * それぞれ別タブとして扱われる
+     */
+    openPluginTab(pluginId: string, runId: string, title: string): void {
+      const key = pluginTabKey(pluginId, runId);
+      const side = this.activeSide;
+      if (!this.pluginTabs[side].some((t) => t.key === key)) {
+        this.pluginTabs[side].push({ key, pluginId, runId, title });
+      }
+      this.activeTabPaths[side] = key;
+    },
+
+    /**
+     * プラグイン所有タブを選択する
+     */
+    selectPluginTab(key: string, layoutSide: LayoutSide, isFocus: boolean): void {
+      this.activeTabPaths[layoutSide] = key;
+      if (isFocus) this.activeSide = layoutSide;
+    },
+
+    /**
+     * プラグイン所有タブを閉じる
+     */
+    closePluginTab(key: string, layoutSide: LayoutSide): void {
+      const targetIdx = this.pluginTabs[layoutSide].findIndex((t) => t.key === key);
+      if (targetIdx === -1) return;
+
+      this.pluginTabs[layoutSide].splice(targetIdx, 1);
+
+      if (this.activeTabPaths[layoutSide] === key) {
         const lastTab = this.tabs[layoutSide][this.tabs[layoutSide].length - 1];
         this.activeTabPaths[layoutSide] = lastTab ? tabKey(lastTab) : null;
       }

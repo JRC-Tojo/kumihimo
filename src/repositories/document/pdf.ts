@@ -41,6 +41,24 @@ export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PD
   }
 }
 
+/** 指定ページのサイズ（PDFポイント単位）を取得する */
+export async function getPageSize(
+  src64: DocumentSource,
+  pageNumber: number,
+): Promise<Result<{ width: number; height: number }>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+  try {
+    const page = await loaded.value.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    return Success({ width: viewport.width, height: viewport.height });
+  } catch (e) {
+    return Failure(toError(e));
+  } finally {
+    void loaded.value.destroy();
+  }
+}
+
 /** ページ数を取得する */
 export async function getNumPages(src64: DocumentSource): Promise<Result<number>> {
   const loaded = await loadPdfFromSrc64(src64);
@@ -77,6 +95,65 @@ export async function extractTextByPage(
 }
 
 /**
+ * pdf.jsのテキストアイテム（`transform`行列由来の左下原点座標）を、左上原点の
+ * バウンディングボックスへ変換する（`extractTextByAnnot`/`extractTextBlocksByPage`で共用）
+ */
+interface TextItemBox {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+function pdfItemToBox(
+  item: { str?: string; transform?: number[]; width?: number; height?: number },
+  pageHeight: number,
+): TextItemBox | null {
+  if (item.str === undefined || item.str === '') return null;
+  if (item.transform === undefined || item.width === undefined || item.height === undefined) {
+    return null;
+  }
+  // item.transform は [scaleX, skewY, skewX, scaleY, translateX, translateY] の6要素配列
+  const tx = item.transform[4]!; // X座標（左下原点）
+  const ty = item.transform[5]!; // Y座標（左下原点）
+  const topY = pageHeight - ty - item.height; // 左上原点でのY座標に変換
+  return { text: item.str, x: tx, y: topY, width: item.width, height: item.height };
+}
+
+/**
+ * 指定ページの全テキストを、位置情報（左上原点のバウンディングボックス）付きで抽出する
+ *
+ * `extractTextByAnnot`と異なりアノテーション範囲でのフィルタは行わず、ページ内の全アイテムを
+ * そのまま返す。プラグインのホストAPI（`doc.getPageTextBlocks`）向けの汎用版
+ */
+export async function extractTextBlocksByPage(
+  src64: DocumentSource,
+  pageNumber: number,
+): Promise<Result<TextItemBox[]>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+  try {
+    const page = await loaded.value.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const pageHeight = page.getViewport({ scale: 1 }).height;
+
+    const blocks: TextItemBox[] = [];
+    for (const item of textContent.items) {
+      const box = pdfItemToBox(
+        item as { str?: string; transform?: number[]; width?: number; height?: number },
+        pageHeight,
+      );
+      if (box) blocks.push(box);
+    }
+    return Success(blocks);
+  } catch (e) {
+    return Failure(toError(e));
+  } finally {
+    void loaded.value.destroy();
+  }
+}
+
+/**
  * 指定ページ内の、アノテーション領域に含まれるテキストを抽出する
  *
  * `file`はキャッシュキー（ファイル単位でのPDFDocumentProxy再利用）に使う。同一ファイルに対する
@@ -103,18 +180,20 @@ export async function extractTextByAnnot(
     const extractedTexts: string[] = [];
 
     for (const item of textContent.items) {
-      if (!('str' in item) || !('transform' in item) || item.str === '') continue;
+      const box = pdfItemToBox(
+        item as { str?: string; transform?: number[]; width?: number; height?: number },
+        pageHeight,
+      );
+      if (!box || !('str' in item)) continue;
 
-      // item.transform は [scaleX, skewY, skewX, scaleY, translateX, translateY] の配列
-      const tx = item.transform[4]; // X座標（左下原点）
-      const ty = item.transform[5]; // Y座標（左下原点）
-      const itemWidth = item.width;
-      const itemHeight = item.height;
-      const itemTopY = pageHeight - ty - itemHeight; // 左上原点でのY座標に変換
+      const tx = box.x;
+      const itemWidth = box.width;
+      const itemHeight = box.height;
+      const itemTopY = box.y;
 
       // item は複数文字を含むブロック情報のため、文字単位の疑似的な位置をもとに
       // アノテーション範囲との重なりを判定する
-      const chars = Array.from(item.str);
+      const chars = Array.from(box.text);
       const fontFamily = textContent.styles[item.fontName]?.fontFamily;
       const charWidths = estimateCharWidths(measureCtx, chars, itemWidth, fontFamily);
 
