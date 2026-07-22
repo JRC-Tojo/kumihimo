@@ -5,17 +5,21 @@ import { PluginManifest } from './manifest';
  * プラグイン申請の状態
  *
  * pending: PRのCIチェックが実行中・未完了
- * ci_passed: CIチェックがすべて成功（マージ待ち。マージはリポジトリのメンテナが行う）
+ * ci_passed: CIチェックがすべて成功（まだ「公開をリクエスト」していない状態）
+ * awaiting_merge: CIチェックに合格し、提出者が「公開をリクエスト」した（マージ待ち）。
+ *   多くの提出者はストアリポジトリへの書き込み権限を持たずマージできないため、
+ *   オーナー・メンテナがひと目でマージすべきPRを見つけられるようにするための状態
  * ci_failed: いずれかのCIチェックが失敗
  * published: PRがマージ済み
  * withdrawn: マージされずにPRがクローズされた（申請者自身が取り下げた場合など）
  *
- * これらはすべて、ストアリポジトリの実際のPull Request・Checks APIから都度導出する
+ * これらはすべて、ストアリポジトリの実際のPull Request・Checks API・ラベルから都度導出する
  * （アプリ側では状態を保持しない。GitHubが唯一の情報源）
  */
 export const PluginSubmissionStatus = z.enum([
   'pending',
   'ci_passed',
+  'awaiting_merge',
   'ci_failed',
   'published',
   'withdrawn',

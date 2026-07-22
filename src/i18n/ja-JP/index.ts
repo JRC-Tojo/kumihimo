@@ -358,6 +358,7 @@ export default {
       submitNew: '新規プラグインを申請',
       refresh: '更新',
       publish: 'マージして公開',
+      requestPublish: '公開をリクエスト',
       unpublish: '公開を取り下げる',
       withdraw: '申請を取り下げる',
       dismissSubmission: '一覧から削除',
@@ -415,6 +416,7 @@ export default {
       status: {
         pending: '検証待ち',
         ciPassed: '検証OK',
+        awaitingMerge: 'マージ待ち',
         ciFailed: '検証NG',
         published: '公開済み',
         withdrawn: '取り下げ済み',

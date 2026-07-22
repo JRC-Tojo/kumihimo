@@ -737,6 +737,21 @@ class BackendApi {
   }
 
   /**
+   * CI検証に合格した申請に対し「公開をリクエスト」する（マージ権限がない提出者向け。
+   * ストアリポジトリ側のワークフローが自動でラベルを付与し、マイ申請では「マージ待ち」と表示される）
+   */
+  async requestPublishPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.requestPublish(prNumber, token);
+    return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
+  }
+
+  /**
    * CI検証に合格した申請をマージする（マージ権限がない場合は失敗し、手動マージを促すメッセージを返す）
    */
   async republishPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {

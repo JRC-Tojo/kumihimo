@@ -33,6 +33,14 @@
           dense
           flat
           color="primary"
+          :label="$t('plugins.actions.requestPublish')"
+          @click="emit('requestPublish')"
+        />
+        <q-btn
+          v-if="submission.status === 'ci_passed' || submission.status === 'awaiting_merge'"
+          dense
+          flat
+          color="primary"
           :label="$t('plugins.actions.publish')"
           @click="emit('publish')"
         />
@@ -84,6 +92,7 @@ const emit = defineEmits<{
   unpublish: [];
   withdraw: [];
   dismiss: [];
+  requestPublish: [];
 }>();
 
 const { t: $t } = useI18n();
@@ -93,13 +102,12 @@ const isWithdrawable = computed(
   () =>
     prop.submission.status === 'pending' ||
     prop.submission.status === 'ci_passed' ||
+    prop.submission.status === 'awaiting_merge' ||
     prop.submission.status === 'ci_failed',
 );
 
 // 取り下げ済み（＝これ以上操作の要らない申請）のみ、一覧からの削除ボタンを表示する
-const isDismissible = computed(
-  () => prop.submission.status === 'withdrawn',
-);
+const isDismissible = computed(() => prop.submission.status === 'withdrawn');
 
 const statusLabel = computed(() => {
   switch (prop.submission.status) {
@@ -107,6 +115,8 @@ const statusLabel = computed(() => {
       return $t('plugins.submission.status.pending');
     case 'ci_passed':
       return $t('plugins.submission.status.ciPassed');
+    case 'awaiting_merge':
+      return $t('plugins.submission.status.awaitingMerge');
     case 'ci_failed':
       return $t('plugins.submission.status.ciFailed');
     case 'published':
@@ -122,6 +132,8 @@ const statusColor = computed(() => {
       return 'grey';
     case 'ci_passed':
       return 'positive';
+    case 'awaiting_merge':
+      return 'orange';
     case 'ci_failed':
       return 'negative';
     case 'published':

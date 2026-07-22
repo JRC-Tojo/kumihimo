@@ -16,6 +16,14 @@ import * as pluginDb from 'src/repositories/db/plugin';
 
 const { STORE_REPO_OWNER, STORE_REPO_NAME, STORE_REPO_DEFAULT_BRANCH } = gh;
 
+// ストアリポジトリ側のワークフロー（request-publish-label.yml）がこのラベルを見て
+// 「マージ待ち」であることを判定する。ラベル名を変更する場合は両方を合わせて変更すること
+const REQUEST_PUBLISH_LABEL = 'request-publish';
+// PRコメントに埋め込む識別用マーカー（HTMLコメントのため本文には表示されない）。
+// ストアリポジトリのワークフローはこのマーカーを含むコメントをPR作成者自身が投稿した場合のみ
+// ラベルを付与する（第三者による偽装コメントでラベルが付いてしまうことを防ぐ）
+const REQUEST_PUBLISH_MARKER = '<!-- relational-documents:request-publish -->';
+
 function branchNameFor(pluginId: string): string {
   return `plugin/${pluginId}`;
 }
@@ -111,7 +119,10 @@ function deriveStatus(
   if (checks.some((c) => c.conclusion === 'failure' || c.conclusion === 'timed_out')) {
     return 'ci_failed';
   }
-  if (checks.every((c) => c.conclusion !== null)) return 'ci_passed';
+  if (checks.every((c) => c.conclusion !== null)) {
+    const requested = pr.labels.some((l) => l.name === REQUEST_PUBLISH_LABEL);
+    return requested ? 'awaiting_merge' : 'ci_passed';
+  }
   return 'pending';
 }
 
@@ -283,6 +294,19 @@ export function dismissSubmission(prNumber: number): Promise<Result<void>> {
 }
 
 /**
+ * CI合格済みのPRに対し「公開をリクエスト」する
+ *
+ * ストアリポジトリへの書き込み権限を持たない提出者はPRを直接マージできないため、
+ * マーカー付きのコメントを投稿するだけに留める。ストアリポジトリ側のワークフロー
+ * （request-publish-label.yml）がこのコメントを検知し、`request-publish`ラベルを
+ * 付与することで、オーナー・メンテナがマージ待ちのPRをひと目で見つけられるようにする
+ */
+export function requestPublish(prNumber: number, token: string): Promise<Result<void>> {
+  const body = `${REQUEST_PUBLISH_MARKER}\n📢 **Request Publish** — CI検証の合格を確認しました。マージをお願いします。\n\n_RelationalDocumentsアプリから自動送信されました。_`;
+  return gh.createIssueComment(STORE_REPO_OWNER, STORE_REPO_NAME, prNumber, body, token);
+}
+
+/**
  * CI合格済みのPRをマージする（マージ権限がない場合は失敗するため、その旨をエラーで案内する）
  */
 export async function republishSubmission(prNumber: number, token: string): Promise<Result<void>> {
@@ -303,7 +327,7 @@ export async function republishSubmission(prNumber: number, token: string): Prom
  * CI検証待ち・検証NGの申請を、マージされる前に自分でキャンセルしたい場合に使う。
  * 公開済みプラグインの取り下げ（deprecatedフラグを立てるPR）とは別物
  */
-export async function withdrawSubmission(prNumber: number, token: string): Promise<Result<void>> {
+export function withdrawSubmission(prNumber: number, token: string): Promise<Result<void>> {
   return gh.closePullRequest(STORE_REPO_OWNER, STORE_REPO_NAME, prNumber, token);
 }
 

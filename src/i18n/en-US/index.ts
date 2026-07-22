@@ -359,6 +359,7 @@ export default {
       submitNew: 'Submit New Plugin',
       refresh: 'Refresh',
       publish: 'Merge & Publish',
+      requestPublish: 'Request Publish',
       unpublish: 'Unpublish',
       withdraw: 'Withdraw Submission',
       dismissSubmission: 'Remove from list',
@@ -417,6 +418,7 @@ export default {
       status: {
         pending: 'Pending',
         ciPassed: 'Passed',
+        awaitingMerge: 'Awaiting Merge',
         ciFailed: 'Failed',
         published: 'Published',
         withdrawn: 'Withdrawn',

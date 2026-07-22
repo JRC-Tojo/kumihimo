@@ -98,6 +98,7 @@
             @unpublish="onUnpublish(submission.manifest.id)"
             @withdraw="onWithdraw(submission.prNumber)"
             @dismiss="onDismiss(submission.prNumber)"
+            @request-publish="onRequestPublish(submission.prNumber)"
           />
         </q-list>
 
@@ -316,6 +317,11 @@ async function onPublish(prNumber: number) {
   await api.republishPluginSubmission(prNumber);
   await loadSubmissions();
   emit('submitted');
+}
+
+async function onRequestPublish(prNumber: number) {
+  await api.requestPublishPluginSubmission(prNumber);
+  await loadSubmissions();
 }
 
 async function onUnpublish(pluginId: PluginID) {

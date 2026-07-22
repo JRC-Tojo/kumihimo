@@ -231,6 +231,7 @@ export interface GithubPullRequestDetail {
   user: { login: string };
   created_at: string;
   updated_at: string;
+  labels: { name: string }[];
 }
 
 export function getPullRequest(
@@ -268,6 +269,29 @@ export async function closePullRequest(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ state: 'closed' }),
+  });
+  if (!res.ok) return res;
+  return Success(undefined);
+}
+
+/**
+ * PR（Issue）にコメントを投稿する
+ *
+ * リポジトリへの書き込み権限（write/triage）がなくても、公開リポジトリであれば
+ * 認証済みユーザーは通常コメント投稿ができる（ラベル付与にはより高い権限が必要なため、
+ * 「マージ権限を持たない提出者が公開をリクエストする」手段としてコメントを使う）
+ */
+export async function createIssueComment(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  body: string,
+  token: string,
+): Promise<Result<void>> {
+  const res = await githubRequest(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
   });
   if (!res.ok) return res;
   return Success(undefined);
