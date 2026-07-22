@@ -777,6 +777,14 @@ class BackendApi {
     const res = await pluginSubmissionService.unpublishPlugin(id, token);
     return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
   }
+
+  /**
+   * 「マイ申請」一覧からPRを非表示にする（GitHub側のPRは変更しないローカル表示のみのフィルタ）
+   */
+  async dismissPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
+    const res = await pluginSubmissionService.dismissSubmission(prNumber);
+    return toApiResponse(res, 'PLUGIN_SUBMISSION_GET_FAILED');
+  }
 }
 
 // グローバルAPIインスタンス

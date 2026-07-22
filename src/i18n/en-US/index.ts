@@ -361,6 +361,7 @@ export default {
       publish: 'Merge & Publish',
       unpublish: 'Unpublish',
       withdraw: 'Withdraw Submission',
+      dismissSubmission: 'Remove from list',
       enable: 'Enable',
       disable: 'Disable',
     },

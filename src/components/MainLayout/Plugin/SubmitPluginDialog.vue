@@ -65,8 +65,25 @@
         <q-separator class="q-my-md" />
 
         <!-- マイ申請一覧 -->
-        <div class="text-subtitle2 q-mb-xs">{{ $t('plugins.submission.mySubmissionsTitle') }}</div>
-        <div v-if="loadingSubmissions" class="text-grey-6 text-caption q-pa-sm">
+        <div class="row items-center q-mb-xs">
+          <div class="text-subtitle2">{{ $t('plugins.submission.mySubmissionsTitle') }}</div>
+          <q-space />
+          <q-btn
+            flat
+            dense
+            round
+            icon="refresh"
+            size="sm"
+            :loading="loadingSubmissions"
+            @click="loadSubmissions"
+          >
+            <q-tooltip>{{ $t('plugins.actions.refresh') }}</q-tooltip>
+          </q-btn>
+        </div>
+        <div
+          v-if="loadingSubmissions && mySubmissions.length === 0"
+          class="text-grey-6 text-caption q-pa-sm"
+        >
           {{ $t('message.loading') }}
         </div>
         <div v-else-if="mySubmissions.length === 0" class="text-grey-6 text-caption q-pa-sm">
@@ -80,6 +97,7 @@
             @publish="onPublish(submission.prNumber)"
             @unpublish="onUnpublish(submission.manifest.id)"
             @withdraw="onWithdraw(submission.prNumber)"
+            @dismiss="onDismiss(submission.prNumber)"
           />
         </q-list>
 
@@ -107,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { PluginSubmission } from 'src/models/plugin/submission';
@@ -156,6 +174,25 @@ async function loadSubmissions() {
   }
 }
 
+// ダイアログを開いている間、CI検証結果やマージ状況を自動的に反映できるよう定期的に再取得する
+// （フロントエンドのみの構成のためWebhook等でのプッシュ通知はできず、ポーリングで代替する）
+const SUBMISSIONS_POLL_INTERVAL_MS = 30_000;
+let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+function stopSubmissionsPolling() {
+  if (pollTimer !== undefined) {
+    clearInterval(pollTimer);
+    pollTimer = undefined;
+  }
+}
+
+function startSubmissionsPolling() {
+  stopSubmissionsPolling();
+  pollTimer = setInterval(() => {
+    if (!loadingSubmissions.value) void loadSubmissions();
+  }, SUBMISSIONS_POLL_INTERVAL_MS);
+}
+
 watch(
   () => prop.modelValue,
   (isOpen) => {
@@ -163,9 +200,14 @@ watch(
       validationErrors.value = [];
       successMessage.value = '';
       void loadSubmissions();
+      startSubmissionsPolling();
+    } else {
+      stopSubmissionsPolling();
     }
   },
 );
+
+onBeforeUnmount(stopSubmissionsPolling);
 
 function onCancel() {
   emit('update:modelValue', false);
@@ -286,6 +328,11 @@ async function onWithdraw(prNumber: number) {
   await api.withdrawPluginSubmission(prNumber);
   await loadSubmissions();
   emit('submitted');
+}
+
+async function onDismiss(prNumber: number) {
+  await api.dismissPluginSubmission(prNumber);
+  await loadSubmissions();
 }
 </script>
 

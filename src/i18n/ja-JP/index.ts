@@ -360,6 +360,7 @@ export default {
       publish: 'マージして公開',
       unpublish: '公開を取り下げる',
       withdraw: '申請を取り下げる',
+      dismissSubmission: '一覧から削除',
       enable: '有効化',
       disable: '無効化',
     },

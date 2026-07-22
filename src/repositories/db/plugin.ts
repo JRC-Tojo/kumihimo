@@ -3,7 +3,9 @@
  *
  * プラグイン申請（PluginSubmission）はストアリポジトリ（GitHub）のPull Requestそのものが
  * 実データであり、ローカルには保存しない（`services/plugin/submissionGithub.ts`が都度
- * GitHub REST APIから取得する）
+ * GitHub REST APIから取得する）。ただし「マイ申請一覧から取り下げ済み・公開済みの
+ * 表示を消したい」という要望に応えるため、非表示にしたPR番号だけをローカルに保持する
+ * （GitHub側のPRそのものは削除できない・しないため、あくまで表示上のフィルタ）
  */
 import type { Observable } from 'dexie';
 import Dexie, { liveQuery, type Table } from 'dexie';
@@ -13,16 +15,23 @@ import type { PluginRunState } from 'src/models/plugin/panel';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success, toError } from 'src/models/error/result';
 
+interface DismissedSubmissionRecord {
+  prNumber: number;
+  dismissedAt: Date;
+}
+
 class PluginDexieDB extends Dexie {
   // すべて out-of-line キー（レコード自体にキーを持たせず、put/get時に明示的に指定する）
   installed!: Table<InstalledPlugin, PluginID>;
   runStates!: Table<PluginRunState, string>;
+  dismissedSubmissions!: Table<DismissedSubmissionRecord, number>;
 
   constructor() {
     super('relational-documents-plugins');
     this.version(1).stores({
       installed: '',
       runStates: ', pluginId',
+      dismissedSubmissions: '',
     });
   }
 }
@@ -116,4 +125,28 @@ export async function putRunState(state: PluginRunState): Promise<Result<void>> 
  */
 export function observeRunState(runId: string): Observable<PluginRunState | undefined> {
   return liveQuery(() => db.runStates.get(runId));
+}
+
+// ============ マイ申請一覧の非表示設定（ローカルのみ） ============
+
+export async function getDismissedSubmissionPrNumbers(): Promise<Result<number[]>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+  try {
+    const records = await db.dismissedSubmissions.toArray();
+    return Success(records.map((r) => r.prNumber));
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+export async function dismissSubmission(prNumber: number): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+  try {
+    await db.dismissedSubmissions.put({ prNumber, dismissedAt: new Date() }, prNumber);
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
 }

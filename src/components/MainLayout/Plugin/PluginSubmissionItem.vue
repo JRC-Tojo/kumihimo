@@ -52,6 +52,18 @@
           :label="$t('plugins.actions.unpublish')"
           @click="emit('unpublish')"
         />
+        <q-btn
+          v-if="isDismissible"
+          dense
+          flat
+          round
+          icon="close"
+          size="sm"
+          color="grey"
+          @click="emit('dismiss')"
+        >
+          <q-tooltip>{{ $t('plugins.actions.dismissSubmission') }}</q-tooltip>
+        </q-btn>
       </div>
     </q-item-section>
   </q-item>
@@ -71,6 +83,7 @@ const emit = defineEmits<{
   publish: [];
   unpublish: [];
   withdraw: [];
+  dismiss: [];
 }>();
 
 const { t: $t } = useI18n();
@@ -81,6 +94,11 @@ const isWithdrawable = computed(
     prop.submission.status === 'pending' ||
     prop.submission.status === 'ci_passed' ||
     prop.submission.status === 'ci_failed',
+);
+
+// 取り下げ済み（＝これ以上操作の要らない申請）のみ、一覧からの削除ボタンを表示する
+const isDismissible = computed(
+  () => prop.submission.status === 'withdrawn',
 );
 
 const statusLabel = computed(() => {

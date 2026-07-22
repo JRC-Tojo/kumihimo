@@ -12,6 +12,7 @@ import { PluginManifest } from 'src/models/plugin/manifest';
 import type { PluginSubmission, PluginSubmissionStatus } from 'src/models/plugin/submission';
 import { uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import * as gh from 'src/repositories/plugin/githubApi';
+import * as pluginDb from 'src/repositories/db/plugin';
 
 const { STORE_REPO_OWNER, STORE_REPO_NAME, STORE_REPO_DEFAULT_BRANCH } = gh;
 
@@ -229,8 +230,12 @@ export async function getSubmissions(token: string): Promise<Result<PluginSubmis
   );
   if (!numbersRes.ok) return numbersRes;
 
+  const dismissedRes = await pluginDb.getDismissedSubmissionPrNumbers();
+  const dismissed = new Set(dismissedRes.ok ? dismissedRes.value : []);
+  const targetNumbers = numbersRes.value.filter((number) => !dismissed.has(number));
+
   const submissions: PluginSubmission[] = [];
-  for (const number of numbersRes.value) {
+  for (const number of targetNumbers) {
     const detailRes = await gh.getPullRequest(STORE_REPO_OWNER, STORE_REPO_NAME, number, token);
     if (!detailRes.ok) continue;
 
@@ -266,6 +271,15 @@ export async function getSubmissions(token: string): Promise<Result<PluginSubmis
   }
 
   return Success(submissions);
+}
+
+/**
+ * 「マイ申請」一覧からPRを非表示にする（GitHub側のPRは変更しない。ローカル表示のみのフィルタ）
+ *
+ * 取り下げ済み・公開済みなど、これ以上操作の要らない申請を一覧から消したい場合に使う
+ */
+export function dismissSubmission(prNumber: number): Promise<Result<void>> {
+  return pluginDb.dismissSubmission(prNumber);
 }
 
 /**
