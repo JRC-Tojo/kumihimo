@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Observable } from 'dexie';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PluginID, PluginRuntime, PluginManifest } from 'src/models/plugin/manifest';
-import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
+import type { PluginEntryPointDescriptor, PluginField } from 'src/models/plugin/discovery';
 import type { PluginRunState } from 'src/models/plugin/panel';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success } from 'src/models/error/result';
@@ -62,17 +62,23 @@ export async function discoverEntryPoints(
   );
 }
 
+/** `file`型以外のフィールドかどうかの型ガード（`defaultValue`を持つ変種に絞り込む） */
+function isNonFileField(field: PluginField): field is Exclude<PluginField, { type: 'file' }> {
+  return field.type !== 'file';
+}
+
 /**
  * プラグインのエントリポイントを実行する
  *
- * `fieldValues`はdiscover結果のfieldIdをキーとする値。未指定のフィールドは
+ * `fieldValues`はdiscover結果のfieldIdをキーとする値（`file`型フィールドの値は含まない。
+ * ファイル選択の解決結果は`targetFiles`として別途渡す）。未指定のフィールドは
  * discover結果のdefaultValueで補う
  */
 export async function runEntryPoint(
   id: PluginID,
   entryId: string,
   fieldValues: Record<string, string | number | boolean>,
-  targetFile: ContainerElementFile,
+  targetFiles: ContainerElementFile[],
 ): Promise<Result<PluginRunState>> {
   const loaded = await loadInstalledPlugin(id);
   if (!loaded.ok) return loaded;
@@ -83,16 +89,20 @@ export async function runEntryPoint(
   const descriptor = descriptorsRes.value.find((d) => d.entryId === entryId);
   if (!descriptor) return Failure(new Error(`Not Found Entry Point (entryId: ${entryId})`));
 
-  const ctxRes = await buildExecutionContext(manifest, targetFile);
+  const ctxRes = await buildExecutionContext(manifest, targetFiles);
   if (!ctxRes.ok) return ctxRes;
   const ctx = ctxRes.value;
 
-  // 引数順: [システムコンテキスト] pageCount, pageWidth, pageHeight → [discover宣言順] ユーザー入力値
+  // 引数順: [システムコンテキスト] pageCount, pageWidth, pageHeight → [discover宣言順の
+  // fileを除くユーザー入力値]。file型フィールドはWASMへ値として渡せないため位置引数には
+  // 含めず、選択結果は`targetFiles`としてのみ扱う（`hostApiBridge.ts`のホストAPI経由で参照する）
   const positionalArgs: Array<string | number | boolean> = [
     ctx.pageCount,
     ctx.representativePageSize.width,
     ctx.representativePageSize.height,
-    ...descriptor.fields.map((field) => fieldValues[field.fieldId] ?? field.defaultValue),
+    ...descriptor.fields
+      .filter(isNonFileField)
+      .map((field) => fieldValues[field.fieldId] ?? field.defaultValue),
   ];
 
   const state: ExecutionState = { blocks: [], plan: [], confirmationMode: 'perItem' };
@@ -111,7 +121,7 @@ export async function runEntryPoint(
     runId: uuidv4(),
     pluginId: id,
     entryId,
-    targetFile,
+    targetFiles,
     blocks: state.blocks,
     plan: state.plan,
     status: execRes.ok ? 'done' : 'error',
@@ -142,14 +152,24 @@ export async function approvePlanItems(runId: string, itemIds: string[]): Promis
   for (const item of runState.plan) {
     if (!itemIds.includes(item.id) || item.status !== 'planned') continue;
 
-    // 安全確認: 変更・削除対象が実行対象ファイルに属することを検証してからコミットする
-    // （プラグインが無関係のファイルの注釈IDを指定してしまった場合の安全策）
+    // 安全確認: 作成・変更・削除対象がこのランのtargetFilesに属することを検証してから
+    // コミットする（プラグインが無関係のファイルの注釈IDを指定してしまった場合の安全策）
+    if (item.kind === 'annotationCreate') {
+      const belongsToRun = runState.targetFiles.some(
+        (f) => f.containerID === item.file.containerID && f.path === item.file.path,
+      );
+      if (!belongsToRun) {
+        item.status = 'rejected';
+        continue;
+      }
+    }
     if (item.kind === 'annotationUpdate' || item.kind === 'annotationRemove') {
       const addressRes = await annotationService.getAnnotationAddress(item.annotId);
       const matchesTarget =
         addressRes.ok &&
-        addressRes.value.cID === item.file.containerID &&
-        addressRes.value.filePath === item.file.path;
+        runState.targetFiles.some(
+          (f) => f.containerID === addressRes.value.cID && f.path === addressRes.value.filePath,
+        );
       if (!matchesTarget) {
         item.status = 'rejected';
         continue;
@@ -159,12 +179,18 @@ export async function approvePlanItems(runId: string, itemIds: string[]): Promis
     let commitRes: Result<unknown>;
     switch (item.kind) {
       case 'annotationCreate':
-      case 'annotationUpdate':
-        commitRes = await annotationService.registerAnnotationStyle(
-          runState.targetFile,
-          item.style,
+      case 'annotationUpdate': {
+        // 直前の安全確認により本来は必ず見つかるが、型上フォールバックを用意する
+        const targetFile = runState.targetFiles.find(
+          (f) => f.containerID === item.file.containerID && f.path === item.file.path,
         );
+        if (!targetFile) {
+          item.status = 'rejected';
+          continue;
+        }
+        commitRes = await annotationService.registerAnnotationStyle(targetFile, item.style);
         break;
+      }
       case 'annotationRemove': {
         const removeRes = await annotationService.removeAnnotationInfo(item.annotId);
         if (removeRes.ok) {

@@ -27,16 +27,18 @@ function buildManifest(requiredHostApis: PluginManifest['requiredHostApis']): Pl
 
 function buildContext(overrides: Partial<PluginExecutionContext> = {}): PluginExecutionContext {
   return {
-    targetFile: {
-      containerID,
-      type: 'File',
-      path: 'a.pdf',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      description: '',
-      genre: '',
-      tags: [],
-    },
+    targetFiles: [
+      {
+        containerID,
+        type: 'File',
+        path: 'a.pdf',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        description: '',
+        genre: '',
+        tags: [],
+      },
+    ],
     pageCount: 1,
     representativePageSize: { width: 600, height: 800 },
     metadataJson: '{}',

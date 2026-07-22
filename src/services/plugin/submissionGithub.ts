@@ -7,14 +7,16 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success } from 'src/models/error/result';
+import { Failure, Success, toError } from 'src/models/error/result';
 import { PluginManifest } from 'src/models/plugin/manifest';
 import type { PluginSubmission, PluginSubmissionStatus } from 'src/models/plugin/submission';
-import { uint8ArrayToBase64 } from 'src/utils/binary/base64';
+import { uint8ArrayToBase64, base64ToUint8Array } from 'src/utils/binary/base64';
+import { Path } from 'src/utils/binary/path';
 import * as gh from 'src/repositories/plugin/githubApi';
 import * as pluginDb from 'src/repositories/db/plugin';
 
 const { STORE_REPO_OWNER, STORE_REPO_NAME, STORE_REPO_DEFAULT_BRANCH } = gh;
+const PLUGINS_ROOT = new Path('plugins');
 
 // ストアリポジトリ側のワークフロー（request-publish-label.yml）がこのラベルを見て
 // 「マージ待ち」であることを判定する。ラベル名を変更する場合は両方を合わせて変更すること
@@ -28,8 +30,13 @@ function branchNameFor(pluginId: string): string {
   return `plugin/${pluginId}`;
 }
 
+/** ストアリポジトリの`plugins/<id>/`配下にあるファイルの相対パスを組み立てる */
+function pluginFilePath(pluginId: string, fileName: string): string {
+  return PLUGINS_ROOT.child(pluginId, fileName).path;
+}
+
 function pluginJsonPath(pluginId: string): string {
-  return `plugins/${pluginId}/plugin.json`;
+  return pluginFilePath(pluginId, 'plugin.json');
 }
 
 /**
@@ -53,9 +60,14 @@ async function fetchPublishedManifest(
   }
   let json: unknown;
   try {
-    json = JSON.parse(atob(res.value.content.replace(/\n/g, '')));
+    // atob直後にJSON.parseすると、UTF-8のマルチバイト文字（日本語の説明文等）が
+    // 文字化けする（atobはbase64→Latin1文字列への変換のため）。バイト列へ戻してから
+    // TextDecoderでUTF-8として解釈する
+    const bytesRes = base64ToUint8Array(res.value.content.replace(/\n/g, ''));
+    if (!bytesRes.ok) return bytesRes;
+    json = JSON.parse(new TextDecoder('utf-8').decode(bytesRes.value));
   } catch (e) {
-    return Failure(e instanceof Error ? e : new Error(String(e)));
+    return Failure(toError(e));
   }
   const parsed = PluginManifest.safeParse(json);
   if (!parsed.success) return Failure(parsed.error);
@@ -80,9 +92,9 @@ async function pushPluginFiles(
       bytes: new TextEncoder().encode(JSON.stringify(manifest, null, 2)),
     },
   ];
-  if (binary) files.push({ path: `plugins/${manifest.id}/${manifest.mainFile}`, bytes: binary });
+  if (binary) files.push({ path: pluginFilePath(manifest.id, manifest.mainFile), bytes: binary });
   if (icon && manifest.iconFile) {
-    files.push({ path: `plugins/${manifest.id}/${manifest.iconFile}`, bytes: icon });
+    files.push({ path: pluginFilePath(manifest.id, manifest.iconFile), bytes: icon });
   }
 
   for (const file of files) {

@@ -23,8 +23,9 @@ export const PluginRunState = z.object({
   runId: z.string(),
   pluginId: PluginID,
   entryId: z.string(),
-  // このランの対象文書。plan項目のcommit時（annotationService呼び出し）に使う
-  targetFile: ContainerElementFile,
+  // このランで選択された対象文書（`ui.addFileField`宣言順）。plan項目のcommit時
+  // （annotationService呼び出し）の安全確認、および実行時ホストAPIの対象特定に使う
+  targetFiles: ContainerElementFile.array(),
   blocks: PluginPanelBlock.array().default([]),
   plan: PluginPlanItem.array().default([]),
   status: z.enum(['running', 'done', 'error']),

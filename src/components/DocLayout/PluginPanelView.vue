@@ -47,6 +47,18 @@
             :label="field.label"
             :options="field.options ?? []"
           />
+          <div v-else-if="field.type === 'file'" class="row items-center q-gutter-xs">
+            <q-btn
+              dense
+              outlined
+              icon="description"
+              :label="field.label"
+              @click="onPickFile(field.fieldId, field.label)"
+            />
+            <span class="text-caption text-grey-7">
+              {{ fileFieldValues[field.fieldId]?.path ?? $t('plugins.run.noFileSelected') }}
+            </span>
+          </div>
         </template>
       </div>
 
@@ -107,27 +119,25 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n';
 import { Notify } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
-import { useEditorStore } from 'src/stores/editorStore';
-import type { LayoutSide } from 'src/stores/editorStore';
 import { usePluginStore } from 'src/stores/pluginStore';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
+import { selectFileDialog } from 'src/components/Dialog/selectFileDialog';
 import type { PluginID } from 'src/models/plugin/manifest';
 import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
 import type { PluginRunState, PluginPanelBlock } from 'src/models/plugin/panel';
 import type { PluginPlanItem } from 'src/models/plugin/plan';
+import type { ContainerElementFile } from 'src/models/container';
 import PanelProgressBlock from './PluginPanel/PanelProgressBlock.vue';
 import PanelLogBlock from './PluginPanel/PanelLogBlock.vue';
 import PanelTextBlock from './PluginPanel/PanelTextBlock.vue';
 
 interface Prop {
   pluginId: PluginID;
-  layoutSide: LayoutSide;
 }
 const prop = defineProps<Prop>();
 
 const { t: $t } = useI18n();
 const api = useBackendApi();
-const editorStore = useEditorStore();
 const pluginStore = usePluginStore();
 
 const manifest = computed(
@@ -137,6 +147,9 @@ const manifest = computed(
 const descriptors = ref<PluginEntryPointDescriptor[]>([]);
 const selectedEntryId = ref<string>();
 const fieldValues = reactive<Record<string, string | number | boolean>>({});
+// 'file'型フィールド（対象文書の選択）はWASMへ値として渡せないため、他の入力値とは
+// 別のreactiveで保持する（`ui.addFileField`宣言順に`targetFiles`として解決する）
+const fileFieldValues = reactive<Record<string, ContainerElementFile | undefined>>({});
 const running = ref(false);
 const runState = ref<PluginRunState>();
 
@@ -149,11 +162,23 @@ const entryOptions = computed(() =>
 
 function resetFieldValues(descriptor: PluginEntryPointDescriptor | undefined) {
   for (const key of Object.keys(fieldValues)) delete fieldValues[key];
+  for (const key of Object.keys(fileFieldValues)) delete fileFieldValues[key];
   if (!descriptor) return;
-  for (const field of descriptor.fields) fieldValues[field.fieldId] = field.defaultValue;
+  for (const field of descriptor.fields) {
+    if (field.type !== 'file') fieldValues[field.fieldId] = field.defaultValue;
+  }
 }
 
 watch(selectedDescriptor, (descriptor) => resetFieldValues(descriptor));
+
+/**
+ * 「対象文書」フィールドのファイル選択ダイアログを開く（Explorerのデータ層を再利用した
+ * 選択専用ダイアログ。既存Explorerパネルの選択状態・DnD等とは独立している）
+ */
+async function onPickFile(fieldId: string, label: string) {
+  const file = await selectFileDialog({ title: label });
+  if (file) fileFieldValues[fieldId] = file;
+}
 
 onMounted(async () => {
   const res = await api.discoverPluginEntryPoints(prop.pluginId);
@@ -213,13 +238,20 @@ function describePlanItem(item: PluginPlanItem): string {
  * 一括確認ダイアログを1回だけ表示する（`perItem`はタブ内の承認待ちリストで都度扱う）
  */
 async function onRun() {
-  const targetFile = editorStore.getActiveTab(prop.layoutSide);
-  if (!targetFile) {
-    Notify.create({ type: 'negative', message: $t('plugins.run.noOpenDocument') });
-    return;
-  }
   const descriptor = selectedDescriptor.value;
   if (!descriptor) return;
+
+  const fileFields = descriptor.fields.filter((field) => field.type === 'file');
+  const missingRequired = fileFields.find(
+    (field) => !field.optional && !fileFieldValues[field.fieldId],
+  );
+  if (missingRequired) {
+    Notify.create({ type: 'negative', message: $t('plugins.run.fileFieldRequired') });
+    return;
+  }
+  const targetFiles = fileFields
+    .map((field) => fileFieldValues[field.fieldId])
+    .filter((file): file is ContainerElementFile => file !== undefined);
 
   running.value = true;
   try {
@@ -227,7 +259,7 @@ async function onRun() {
       prop.pluginId,
       descriptor.entryId,
       { ...fieldValues },
-      targetFile,
+      targetFiles,
     );
     if (!runRes.ok) {
       Notify.create({ type: 'negative', message: $t('plugins.errors.runFailed') });

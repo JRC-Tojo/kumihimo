@@ -75,6 +75,9 @@ export function buildDiscoveryBridge(state: DiscoveryState): Record<string, Host
         optional: true,
       });
     },
+    ui_add_file_field: (fieldId: string, label: string, optional: boolean) => {
+      addField(state, { fieldId, label, type: 'file', optional });
+    },
   };
 }
 
@@ -180,6 +183,11 @@ export function buildExecutionBridge(
   ctx: PluginExecutionContext,
   state: ExecutionState,
 ): Record<string, HostFn> {
+  // 現状のplan.*/doc.*系ホストAPIは「主対象ファイル」（`ui.addFileField`で選択された1件目）
+  // のみを操作対象とする。複数ファイルを跨いだ操作（ファイルを指定した作成・参照）は
+  // 将来のホストAPI拡張（file_index引数の追加）で対応する
+  const primaryFile = ctx.targetFiles[0];
+
   const master: Record<PluginHostApiName, { hostKey: string; fn: HostFn }> = {
     'ui.reportProgress': {
       hostKey: 'ui_report_progress',
@@ -204,6 +212,7 @@ export function buildExecutionBridge(
         fontSize: number,
         tagsCsv: string,
       ) => {
+        if (!primaryFile) return '';
         const planItemId = uuidv4();
         const style = buildTextAnnotationStyle(AnnotationID.parse(uuidv4()), manifest, {
           page,
@@ -221,7 +230,7 @@ export function buildExecutionBridge(
           kind: 'annotationCreate',
           confirmationMode: state.confirmationMode,
           status: 'planned',
-          file: { containerID: ctx.targetFile.containerID, path: ctx.targetFile.path },
+          file: { containerID: primaryFile.containerID, path: primaryFile.path },
           style,
         });
         return planItemId;
@@ -242,7 +251,9 @@ export function buildExecutionBridge(
       ) => {
         const idRes = AnnotationID.safeParse(annotId);
         const existing = ctx.existingAnnotations.find((a) => a.style.id === annotId);
-        if (!idRes.success || !existing || existing.style.type !== 'text') return '';
+        if (!primaryFile || !idRes.success || !existing || existing.style.type !== 'text') {
+          return '';
+        }
 
         const planItemId = uuidv4();
         const style: TextAnnotationStyle = {
@@ -263,7 +274,7 @@ export function buildExecutionBridge(
           kind: 'annotationUpdate',
           confirmationMode: state.confirmationMode,
           status: 'planned',
-          file: { containerID: ctx.targetFile.containerID, path: ctx.targetFile.path },
+          file: { containerID: primaryFile.containerID, path: primaryFile.path },
           annotId: idRes.data,
           style,
         });
@@ -274,7 +285,7 @@ export function buildExecutionBridge(
       hostKey: 'plan_remove_annotation',
       fn: (annotId: string) => {
         const idRes = AnnotationID.safeParse(annotId);
-        if (!idRes.success) return '';
+        if (!primaryFile || !idRes.success) return '';
 
         const planItemId = uuidv4();
         state.plan.push({
@@ -282,7 +293,7 @@ export function buildExecutionBridge(
           kind: 'annotationRemove',
           confirmationMode: state.confirmationMode,
           status: 'planned',
-          file: { containerID: ctx.targetFile.containerID, path: ctx.targetFile.path },
+          file: { containerID: primaryFile.containerID, path: primaryFile.path },
           annotId: idRes.data,
         });
         return planItemId;

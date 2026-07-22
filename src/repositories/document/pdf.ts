@@ -14,7 +14,7 @@ import { PDFDocument, rgb } from 'pdf-lib';
 import { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
 import { Success, Failure, toError } from 'src/models/error/result';
-import type { AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationStyle, TextItemBox } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
@@ -41,6 +41,27 @@ export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PD
   }
 }
 
+/**
+ * 既に取得済みのPDFDocumentProxyから、指定ページのサイズ（PDFポイント単位）を取得する
+ *
+ * 同一ファイルの複数ページを続けて処理する場合（`hostContext.ts`が全ページの
+ * サイズ・テキスト・画像を先読みする箇所等）は、ページ数分`loadPdfFromSrc64`し直す
+ * `getPageSize`ではなく、`acquirePdfDocument`で1回だけ取得したPDFDocumentProxyを
+ * 使い回すこちらを呼ぶこと
+ */
+export async function getPageSizeFromDoc(
+  pdf: PDFDocumentProxy,
+  pageNumber: number,
+): Promise<Result<{ width: number; height: number }>> {
+  try {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    return Success({ width: viewport.width, height: viewport.height });
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
 /** 指定ページのサイズ（PDFポイント単位）を取得する */
 export async function getPageSize(
   src64: DocumentSource,
@@ -49,11 +70,7 @@ export async function getPageSize(
   const loaded = await loadPdfFromSrc64(src64);
   if (!loaded.ok) return Failure(loaded.error);
   try {
-    const page = await loaded.value.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1 });
-    return Success({ width: viewport.width, height: viewport.height });
-  } catch (e) {
-    return Failure(toError(e));
+    return await getPageSizeFromDoc(loaded.value, pageNumber);
   } finally {
     void loaded.value.destroy();
   }
@@ -98,13 +115,6 @@ export async function extractTextByPage(
  * pdf.jsのテキストアイテム（`transform`行列由来の左下原点座標）を、左上原点の
  * バウンディングボックスへ変換する（`extractTextByAnnot`/`extractTextBlocksByPage`で共用）
  */
-interface TextItemBox {
-  text: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
 function pdfItemToBox(
   item: { str?: string; transform?: number[]; width?: number; height?: number },
   pageHeight: number,
@@ -126,14 +136,13 @@ function pdfItemToBox(
  * `extractTextByAnnot`と異なりアノテーション範囲でのフィルタは行わず、ページ内の全アイテムを
  * そのまま返す。プラグインのホストAPI（`doc.getPageTextBlocks`）向けの汎用版
  */
-export async function extractTextBlocksByPage(
-  src64: DocumentSource,
+/** `extractTextBlocksByPage`の、既に取得済みのPDFDocumentProxyを使い回す版（`getPageSizeFromDoc`と同じ理由） */
+export async function extractTextBlocksByPageFromDoc(
+  pdf: PDFDocumentProxy,
   pageNumber: number,
 ): Promise<Result<TextItemBox[]>> {
-  const loaded = await loadPdfFromSrc64(src64);
-  if (!loaded.ok) return Failure(loaded.error);
   try {
-    const page = await loaded.value.getPage(pageNumber);
+    const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
     const pageHeight = page.getViewport({ scale: 1 }).height;
 
@@ -148,6 +157,17 @@ export async function extractTextBlocksByPage(
     return Success(blocks);
   } catch (e) {
     return Failure(toError(e));
+  }
+}
+
+export async function extractTextBlocksByPage(
+  src64: DocumentSource,
+  pageNumber: number,
+): Promise<Result<TextItemBox[]>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+  try {
+    return await extractTextBlocksByPageFromDoc(loaded.value, pageNumber);
   } finally {
     void loaded.value.destroy();
   }
@@ -254,8 +274,8 @@ export async function extractAllText(src64: DocumentSource): Promise<Result<stri
   }
 }
 
-/** 既に取得済みのPDFDocumentProxyから、指定ページをレンダリングしたCanvasを返す（内部用） */
-async function renderPageToCanvasFromDoc(
+/** 既に取得済みのPDFDocumentProxyから、指定ページをレンダリングしたCanvasを返す */
+export async function renderPageToCanvasFromDoc(
   pdf: PDFDocumentProxy,
   pageNumber: number,
   scale: number,

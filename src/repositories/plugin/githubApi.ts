@@ -62,6 +62,7 @@ export interface GithubUser {
   login: string;
 }
 
+/** トークンに紐づくGitHubユーザー情報を取得する（PATの有効性確認にも使う） */
 export function getAuthenticatedUser(token: string): Promise<Result<GithubUser>> {
   return githubRequest<GithubUser>('/user', token);
 }
@@ -70,6 +71,7 @@ interface GithubRepo {
   default_branch: string;
 }
 
+/** リポジトリの基本情報を取得する（存在確認・フォーク有無の判定に使う） */
 export function getRepo(owner: string, repo: string, token?: string): Promise<Result<GithubRepo>> {
   return githubRequest<GithubRepo>(`/repos/${owner}/${repo}`, token);
 }
@@ -104,6 +106,7 @@ interface GithubRef {
   object: { sha: string };
 }
 
+/** 指定ブランチの先頭コミットSHAを取得する（存在しない場合はNotFoundGithubError） */
 export async function getBranchSha(
   owner: string,
   repo: string,
@@ -209,6 +212,7 @@ export async function findOpenPullRequest(
   return Success(found);
 }
 
+/** 新規プルリクエストを作成する */
 export async function createPullRequest(
   owner: string,
   repo: string,
@@ -234,6 +238,7 @@ export interface GithubPullRequestDetail {
   labels: { name: string }[];
 }
 
+/** プルリクエストの詳細（状態・マージ済みか・ラベル等）を取得する */
 export function getPullRequest(
   owner: string,
   repo: string,
@@ -243,6 +248,7 @@ export function getPullRequest(
   return githubRequest<GithubPullRequestDetail>(`/repos/${owner}/${repo}/pulls/${number}`, token);
 }
 
+/** プルリクエストをマージする（マージ権限がない場合はGitHub側がエラーを返す） */
 export async function mergePullRequest(
   owner: string,
   repo: string,
@@ -376,6 +382,35 @@ export async function getTree(
   );
   if (!res.ok) return res;
   return Success(res.value.tree.filter((t) => t.type === 'blob').map((t) => t.path));
+}
+
+interface GithubCommitSummary {
+  commit: {
+    committer: { date: string } | null;
+    author: { date: string } | null;
+  };
+}
+
+/**
+ * 指定パスに対する最新コミットの日時を取得する（カタログの「公開日時」表示に使う。
+ * 取得時刻ではなく、実際にそのファイルが最後に変更された日時を返す）
+ */
+export async function getLastCommitDateForPath(
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string,
+  token?: string,
+): Promise<Result<Date>> {
+  const res = await githubRequest<GithubCommitSummary[]>(
+    `/repos/${owner}/${repo}/commits?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(ref)}&per_page=1`,
+    token,
+  );
+  if (!res.ok) return res;
+  const first = res.value[0];
+  const dateStr = first?.commit.committer?.date ?? first?.commit.author?.date;
+  if (!dateStr) return Failure(new NotFoundGithubError(`commits?path=${path}`));
+  return Success(new Date(dateStr));
 }
 
 /**

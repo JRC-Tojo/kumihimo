@@ -150,3 +150,18 @@ export const AnnotationStyle = z.discriminatedUnion('type', [
   TextAnnotationStyle,
 ]);
 export type AnnotationStyle = z.infer<typeof AnnotationStyle>;
+
+/**
+ * PDFページ内の1テキストアイテムの、左上原点バウンディングボックス付きの内容
+ *
+ * `doc.getPageTextBlocks`ホストAPIでJSON化される共有契約のため、他の共有モデルと同様に
+ * ここでZodスキーマとして定義する（`src/repositories/document/pdf.ts`のローカルinterfaceから移設）
+ */
+export const TextItemBox = z.object({
+  text: z.string(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+export type TextItemBox = z.infer<typeof TextItemBox>;

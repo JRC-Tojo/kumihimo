@@ -21,6 +21,7 @@ export default {
     back: 'Back',
     next: 'Next',
     previous: 'Previous',
+    select: 'Select',
   },
 
   // Document related
@@ -100,7 +101,7 @@ export default {
       'The name recorded as the author of annotations you create. If left blank, no author is recorded.',
     githubToken: 'GitHub Personal Access Token',
     githubTokenDesc:
-      'Used to submit plugins to the plugin store (opens a pull request). The token is stored only on this device and is never sent anywhere except GitHub.',
+      'Used to submit plugins to the plugin store (opens a pull request). The token is stored only on this device and is never sent anywhere except GitHub. We recommend issuing a fine-grained PAT scoped to only the store repository, with just contents and pull-requests write access.',
     githubTokenPlaceholder: 'ghp_...',
     githubTokenVerify: 'Verify Connection',
     githubTokenVerifyFailed: 'Failed to verify the token. Please check the value.',
@@ -379,7 +380,8 @@ export default {
     },
     run: {
       runButton: 'Run',
-      noOpenDocument: 'Open a document before running a plugin',
+      noFileSelected: 'Not selected',
+      fileFieldRequired: 'Please select the target document',
       batchConfirmTitle: 'Confirm Changes',
       batchConfirmMessage: 'This will apply {count} change(s). Continue?',
     },

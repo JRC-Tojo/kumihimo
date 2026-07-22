@@ -31,16 +31,28 @@ void mock.module('src/services/document/annotation', () => ({
   getAnnotationAddress: () => Promise.resolve(Failure(new Error('not used in this test'))),
 }));
 
-const getPageSizeMock = mock(() => Promise.resolve(Success({ width: 600, height: 800 })));
-const extractTextBlocksByPageMock = mock(() => Promise.resolve(Success([])));
-const renderPageToCanvasMock = mock(() =>
+const acquirePdfDocumentMock = mock(() =>
+  Promise.resolve(Success({ document: { numPages: 2 } as never, release: () => {} })),
+);
+void mock.module('src/repositories/document/pdfDocumentCache', () => ({
+  acquirePdfDocument: acquirePdfDocumentMock,
+  invalidatePdfDocument: () => {},
+}));
+
+const getPageSizeFromDocMock = mock(() => Promise.resolve(Success({ width: 600, height: 800 })));
+const extractTextBlocksByPageFromDocMock = mock(() => Promise.resolve(Success([])));
+const renderPageToCanvasFromDocMock = mock(() =>
   Promise.resolve(Success({ toDataURL: () => 'data:image/png;base64,xxx' } as never)),
 );
 void mock.module('src/repositories/document/pdf', () => ({
-  getNumPages: () => Promise.resolve(Success(2)),
-  getPageSize: getPageSizeMock,
-  extractTextBlocksByPage: extractTextBlocksByPageMock,
-  renderPageToCanvas: renderPageToCanvasMock,
+  getPageSizeFromDoc: getPageSizeFromDocMock,
+  extractTextBlocksByPageFromDoc: extractTextBlocksByPageFromDocMock,
+  renderPageToCanvasFromDoc: renderPageToCanvasFromDocMock,
+  // 他テストファイル（annotation.test.ts等）とモック形状を揃えるための残りのスタブ
+  getNumPages: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  getPageSize: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  extractTextBlocksByPage: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  renderPageToCanvas: () => Promise.resolve(Failure(new Error('not used in this test'))),
   extractImageFromRegion: () => Promise.resolve(Failure(new Error('not used in this test'))),
   extractAnnotationContextPreview: () =>
     Promise.resolve(Failure(new Error('not used in this test'))),
@@ -63,7 +75,7 @@ function buildManifest(requiredHostApis: PluginManifest['requiredHostApis']): Pl
 
 describe('buildExecutionContext', () => {
   it('メタ情報・代表ページサイズ・ページ数は常に組み立てられる', async () => {
-    const res = await buildExecutionContext(buildManifest([]), targetFile);
+    const res = await buildExecutionContext(buildManifest([]), [targetFile]);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
@@ -75,48 +87,48 @@ describe('buildExecutionContext', () => {
   });
 
   it('doc.getPageSizeが要求されていない場合、全ページのサイズ先読みは行われない', async () => {
-    getPageSizeMock.mockClear();
-    const res = await buildExecutionContext(buildManifest([]), targetFile);
+    getPageSizeFromDocMock.mockClear();
+    const res = await buildExecutionContext(buildManifest([]), [targetFile]);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
     // 代表ページサイズ（1ページ目）取得の1回のみ呼ばれる
-    expect(getPageSizeMock).toHaveBeenCalledTimes(1);
+    expect(getPageSizeFromDocMock).toHaveBeenCalledTimes(1);
     expect(res.value.pageSizes.size).toBe(0);
   });
 
   it('doc.getPageSizeが要求されている場合、全ページのサイズが先読みされる', async () => {
-    getPageSizeMock.mockClear();
-    const res = await buildExecutionContext(buildManifest(['doc.getPageSize']), targetFile);
+    getPageSizeFromDocMock.mockClear();
+    const res = await buildExecutionContext(buildManifest(['doc.getPageSize']), [targetFile]);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
     // 代表ページサイズ1回 + 全ページ分（pageCount=2）
-    expect(getPageSizeMock).toHaveBeenCalledTimes(3);
+    expect(getPageSizeFromDocMock).toHaveBeenCalledTimes(3);
     expect(res.value.pageSizes.size).toBe(2);
   });
 
   it('doc.getPageTextBlocksが要求されていない場合はテキストブロックを先読みしない', async () => {
-    extractTextBlocksByPageMock.mockClear();
-    const res = await buildExecutionContext(buildManifest([]), targetFile);
+    extractTextBlocksByPageFromDocMock.mockClear();
+    const res = await buildExecutionContext(buildManifest([]), [targetFile]);
     expect(res.ok).toBeTrue();
-    expect(extractTextBlocksByPageMock).not.toHaveBeenCalled();
+    expect(extractTextBlocksByPageFromDocMock).not.toHaveBeenCalled();
   });
 
   it('doc.getPageImageが要求されていない場合はページ画像を先読みしない（重い処理の回避）', async () => {
-    renderPageToCanvasMock.mockClear();
-    const res = await buildExecutionContext(buildManifest([]), targetFile);
+    renderPageToCanvasFromDocMock.mockClear();
+    const res = await buildExecutionContext(buildManifest([]), [targetFile]);
     expect(res.ok).toBeTrue();
-    expect(renderPageToCanvasMock).not.toHaveBeenCalled();
+    expect(renderPageToCanvasFromDocMock).not.toHaveBeenCalled();
   });
 
   it('doc.getAnnotationsByFile/doc.getAnnotationIdsByTagのいずれかが要求されている場合のみ既存アノテーションを取得する', async () => {
     getAnnotationsByFileMock.mockClear();
-    await buildExecutionContext(buildManifest([]), targetFile);
+    await buildExecutionContext(buildManifest([]), [targetFile]);
     expect(getAnnotationsByFileMock).not.toHaveBeenCalled();
 
     getAnnotationsByFileMock.mockClear();
-    await buildExecutionContext(buildManifest(['doc.getAnnotationIdsByTag']), targetFile);
+    await buildExecutionContext(buildManifest(['doc.getAnnotationIdsByTag']), [targetFile]);
     expect(getAnnotationsByFileMock).toHaveBeenCalledTimes(1);
   });
 });

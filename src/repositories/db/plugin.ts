@@ -49,6 +49,7 @@ async function ensureReady(): Promise<Result<void>> {
 
 // ============ インストール済みプラグイン ============
 
+/** インストール済みプラグイン一覧を取得する */
 export async function getInstalledPlugins(): Promise<Result<InstalledPlugin[]>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
@@ -59,6 +60,7 @@ export async function getInstalledPlugins(): Promise<Result<InstalledPlugin[]>> 
   }
 }
 
+/** 指定IDのインストール済みプラグイン情報を取得する */
 export async function getInstalledPlugin(id: PluginID): Promise<Result<InstalledPlugin>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
@@ -71,18 +73,25 @@ export async function getInstalledPlugin(id: PluginID): Promise<Result<Installed
   }
 }
 
+/**
+ * インストール済みプラグイン情報を保存する（新規登録・更新の両方）
+ *
+ * `structuredClone`でディープコピーする（`JSON.parse(JSON.stringify(...))`は
+ * `installedAt`等のDateフィールドをISO文字列へ変換してしまい、以降の読み出し時に
+ * 型（Date）と実データ（string）が食い違う不具合が起きるため使わない）
+ */
 export async function putInstalledPlugin(entry: InstalledPlugin): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
   try {
-    const raw = JSON.parse(JSON.stringify(entry)) as InstalledPlugin;
-    await db.installed.put(raw, entry.manifest.id);
+    await db.installed.put(structuredClone(entry), entry.manifest.id);
     return Success();
   } catch (error) {
     return Failure(toError(error));
   }
 }
 
+/** インストール済みプラグイン情報を削除する */
 export async function deleteInstalledPlugin(id: PluginID): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
@@ -96,6 +105,7 @@ export async function deleteInstalledPlugin(id: PluginID): Promise<Result<void>>
 
 // ============ プラグイン実行状態（一時データ） ============
 
+/** プラグイン実行1回分の状態を取得する */
 export async function getRunState(runId: string): Promise<Result<PluginRunState>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
@@ -108,12 +118,15 @@ export async function getRunState(runId: string): Promise<Result<PluginRunState>
   }
 }
 
+/**
+ * プラグイン実行1回分の状態を保存する（`putInstalledPlugin`と同じ理由で
+ * `structuredClone`を使い、`targetFile`のDateフィールド等を保ったまま保存する）
+ */
 export async function putRunState(state: PluginRunState): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
   try {
-    const raw = JSON.parse(JSON.stringify(state)) as PluginRunState;
-    await db.runStates.put(raw, state.runId);
+    await db.runStates.put(structuredClone(state), state.runId);
     return Success();
   } catch (error) {
     return Failure(toError(error));
@@ -129,6 +142,7 @@ export function observeRunState(runId: string): Observable<PluginRunState | unde
 
 // ============ マイ申請一覧の非表示設定（ローカルのみ） ============
 
+/** ローカルで非表示にした申請（PR番号）の一覧を取得する */
 export async function getDismissedSubmissionPrNumbers(): Promise<Result<number[]>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
@@ -140,6 +154,7 @@ export async function getDismissedSubmissionPrNumbers(): Promise<Result<number[]
   }
 }
 
+/** 指定PR番号を「マイ申請」一覧から非表示にする */
 export async function dismissSubmission(prNumber: number): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;

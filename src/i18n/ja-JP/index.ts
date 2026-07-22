@@ -20,6 +20,7 @@ export default {
     back: '戻る',
     next: '次へ',
     previous: '前へ',
+    select: '選択',
   },
 
   // ドキュメント関連
@@ -99,7 +100,7 @@ export default {
       'アノテーションの作成者として記録される名前です。未設定の場合、作成者は記録されません。',
     githubToken: 'GitHub個人アクセストークン',
     githubTokenDesc:
-      'プラグインストアへの申請（プルリクエスト作成）に使用します。トークンはこの端末のローカルにのみ保存され、GitHub以外へは送信されません。',
+      'プラグインストアへの申請（プルリクエスト作成）に使用します。トークンはこの端末のローカルにのみ保存され、GitHub以外へは送信されません。権限は必要最小限に絞った、ストアリポジトリのみを対象とするfine-grained PAT（contents・pull requestsへの書き込み権限）の発行を推奨します。',
     githubTokenPlaceholder: 'ghp_...',
     githubTokenVerify: '接続を確認',
     githubTokenVerifyFailed: 'トークンの検証に失敗しました。値をご確認ください。',
@@ -378,7 +379,8 @@ export default {
     },
     run: {
       runButton: '実行',
-      noOpenDocument: 'プラグインを実行する前に文書を開いてください',
+      noFileSelected: '未選択',
+      fileFieldRequired: '対象文書を選択してください',
       batchConfirmTitle: '内容の確認',
       batchConfirmMessage: '{count}件の変更を適用します。よろしいですか？',
     },

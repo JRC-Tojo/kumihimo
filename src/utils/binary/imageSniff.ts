@@ -25,24 +25,22 @@ const EXTENSIONS_BY_FORMAT: Record<SniffedImageFormat, string[]> = {
  * 誤った形式をdata URLのMIMEに使うと、画像デコーダが実バイトを解釈できず表示に失敗する）
  */
 export function sniffImageFormat(bytes: Uint8Array): SniffedImageFormat | undefined {
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47
-  ) {
+  const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= PNG_SIGNATURE.length && PNG_SIGNATURE.every((b, i) => bytes[i] === b)) {
     return 'png';
   }
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return 'jpeg';
   }
-  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
-    return 'gif';
+  // "GIF87a" または "GIF89a" のいずれか（不完全なシグネチャの誤判定を防ぐため6バイト全体を照合する）
+  if (bytes.length >= 6) {
+    const header = new TextDecoder('ascii').decode(bytes.subarray(0, 6));
+    if (header === 'GIF87a' || header === 'GIF89a') return 'gif';
   }
   return undefined;
 }
 
+/** 画像形式に対応するMIMEタイプ文字列を返す（data URL生成に使う） */
 export function mimeTypeForImageFormat(format: SniffedImageFormat): string {
   return MIME_TYPE_BY_FORMAT[format];
 }

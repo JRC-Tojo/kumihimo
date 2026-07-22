@@ -123,6 +123,8 @@ const statusLabel = computed(() => {
       return $t('plugins.submission.status.published');
     case 'withdrawn':
       return $t('plugins.submission.status.withdrawn');
+    default:
+      return '';
   }
 });
 
@@ -139,6 +141,8 @@ const statusColor = computed(() => {
     case 'published':
       return 'primary';
     case 'withdrawn':
+      return 'grey';
+    default:
       return 'grey';
   }
 });

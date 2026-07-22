@@ -80,16 +80,18 @@ describe('wasmEngine', () => {
     };
     const now = new Date();
     const ctx: PluginExecutionContext = {
-      targetFile: {
-        containerID: ContainerID.parse('11111111-1111-4111-8111-111111111111'),
-        type: 'File',
-        path: 'a.pdf',
-        createdAt: now,
-        updatedAt: now,
-        description: '',
-        genre: '',
-        tags: [],
-      },
+      targetFiles: [
+        {
+          containerID: ContainerID.parse('11111111-1111-4111-8111-111111111111'),
+          type: 'File',
+          path: 'a.pdf',
+          createdAt: now,
+          updatedAt: now,
+          description: '',
+          genre: '',
+          tags: [],
+        },
+      ],
       pageCount: 1,
       representativePageSize: { width: 1, height: 1 },
       metadataJson: '{}',

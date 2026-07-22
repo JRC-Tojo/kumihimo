@@ -59,6 +59,7 @@ const DISCOVERY_SIGNATURES: Record<string, ApiSignature> = {
     params: ['string', 'string', 'string', 'string'],
     returns: 'void',
   },
+  ui_add_file_field: { params: ['string', 'string', 'boolean'], returns: 'void' },
 };
 
 const EXECUTION_SIGNATURES: Record<string, ApiSignature> = {

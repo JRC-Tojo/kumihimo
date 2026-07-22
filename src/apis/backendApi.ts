@@ -666,14 +666,16 @@ class BackendApi {
    * プラグインのエントリポイントを実行する
    *
    * `fieldValues`は`discoverPluginEntryPoints`が返したfieldIdをキーとする入力値
+   * （`file`型フィールドの値は含まない）。`targetFiles`は`file`型フィールドの宣言順に
+   * ユーザーが選択した対象文書（ファイル選択ダイアログでの解決結果）
    */
   async runPluginEntryPoint(
     id: PluginID,
     entryId: string,
     fieldValues: Record<string, string | number | boolean>,
-    targetFile: ContainerElementFile,
+    targetFiles: ContainerElementFile[],
   ): Promise<ApiResponse<PluginRunState>> {
-    const res = await pluginRunService.runEntryPoint(id, entryId, fieldValues, targetFile);
+    const res = await pluginRunService.runEntryPoint(id, entryId, fieldValues, targetFiles);
     return toApiResponse(res, 'PLUGIN_RUN_FAILED');
   }
 

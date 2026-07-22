@@ -63,7 +63,7 @@ void mock.module('src/services/plugin/hostContext', () => ({
   buildExecutionContext: () =>
     Promise.resolve(
       Success({
-        targetFile,
+        targetFiles: [targetFile],
         pageCount: 2,
         representativePageSize: { width: 600, height: 800 },
         metadataJson: '{}',
@@ -137,7 +137,7 @@ describe('runEntryPoint', () => {
   it('システムコンテキスト＋discover宣言順のユーザー入力値をpositionalArgsとして渡す', async () => {
     pyodideRunEntryPointMock.mockClear();
 
-    const res = await runEntryPoint(pluginId, 'doSomething', { count: 5 }, targetFile);
+    const res = await runEntryPoint(pluginId, 'doSomething', { count: 5 }, [targetFile]);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
@@ -152,7 +152,7 @@ describe('runEntryPoint', () => {
   it('fieldValuesに未指定のフィールドはdefaultValueで補われる', async () => {
     pyodideRunEntryPointMock.mockClear();
 
-    await runEntryPoint(pluginId, 'doSomething', {}, targetFile);
+    await runEntryPoint(pluginId, 'doSomething', {}, [targetFile]);
 
     const call = pyodideRunEntryPointMock.mock.calls[0]!;
     expect(call[2]).toEqual([2, 600, 800, 1]); // count省略時はdefaultValue(1)
@@ -166,7 +166,7 @@ describe('approvePlanItems / rejectPlanItems', () => {
       runId,
       pluginId,
       entryId: 'doSomething',
-      targetFile,
+      targetFiles: [targetFile],
       blocks: [],
       plan,
       status: 'done',

@@ -7,7 +7,7 @@
  */
 import type { PluginID } from 'src/models/plugin/manifest';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success } from 'src/models/error/result';
+import { Failure, Success, toError } from 'src/models/error/result';
 
 const DB_NAME = 'RelationalDocumentsPluginBinaries';
 const STORE_NAME = 'plugin-binaries';
@@ -77,10 +77,16 @@ export async function setBinary(pluginId: PluginID, bytes: Uint8Array): Promise<
   const dbRes = await openDb();
   if (!dbRes.ok) return dbRes;
 
-  const transaction = dbRes.value.transaction(STORE_NAME, 'readwrite');
-  const putRes = await wrapRequest(() => transaction.objectStore(STORE_NAME).put(bytes, pluginId));
-  if (!putRes.ok) return putRes;
-  return wrapTransaction(transaction);
+  try {
+    const transaction = dbRes.value.transaction(STORE_NAME, 'readwrite');
+    const putRes = await wrapRequest(() =>
+      transaction.objectStore(STORE_NAME).put(bytes, pluginId),
+    );
+    if (!putRes.ok) return putRes;
+    return await wrapTransaction(transaction);
+  } catch (e) {
+    return Failure(toError(e));
+  }
 }
 
 /**
@@ -90,12 +96,16 @@ export async function getBinary(pluginId: PluginID): Promise<Result<Uint8Array>>
   const dbRes = await openDb();
   if (!dbRes.ok) return dbRes;
 
-  const store = dbRes.value.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME);
-  const res = await wrapRequest<Uint8Array | undefined>(() => store.get(pluginId));
-  if (!res.ok) return res;
-  if (res.value === undefined)
-    return Failure(new Error(`Not Found Plugin Binary (id: ${pluginId})`));
-  return Success(res.value);
+  try {
+    const store = dbRes.value.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME);
+    const res = await wrapRequest<Uint8Array | undefined>(() => store.get(pluginId));
+    if (!res.ok) return res;
+    if (res.value === undefined)
+      return Failure(new Error(`Not Found Plugin Binary (id: ${pluginId})`));
+    return Success(res.value);
+  } catch (e) {
+    return Failure(toError(e));
+  }
 }
 
 /**
@@ -105,8 +115,12 @@ export async function deleteBinary(pluginId: PluginID): Promise<Result<void>> {
   const dbRes = await openDb();
   if (!dbRes.ok) return dbRes;
 
-  const transaction = dbRes.value.transaction(STORE_NAME, 'readwrite');
-  const delRes = await wrapRequest(() => transaction.objectStore(STORE_NAME).delete(pluginId));
-  if (!delRes.ok) return delRes;
-  return wrapTransaction(transaction);
+  try {
+    const transaction = dbRes.value.transaction(STORE_NAME, 'readwrite');
+    const delRes = await wrapRequest(() => transaction.objectStore(STORE_NAME).delete(pluginId));
+    if (!delRes.ok) return delRes;
+    return await wrapTransaction(transaction);
+  } catch (e) {
+    return Failure(toError(e));
+  }
 }

@@ -51,6 +51,10 @@ void mock.module('src/repositories/document/pdf', () => ({
   getPageSize: () => Promise.resolve(Failure(new Error('not used in this test'))),
   extractTextBlocksByPage: () => Promise.resolve(Failure(new Error('not used in this test'))),
   renderPageToCanvas: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  getPageSizeFromDoc: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  extractTextBlocksByPageFromDoc: () =>
+    Promise.resolve(Failure(new Error('not used in this test'))),
+  renderPageToCanvasFromDoc: () => Promise.resolve(Failure(new Error('not used in this test'))),
 }));
 
 const { reorderAnnotationStyle, pasteAnnotations, registerAnnotationStyle } =

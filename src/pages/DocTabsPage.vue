@@ -51,7 +51,6 @@
       <PluginPanelView
         v-else-if="activePluginTab"
         :plugin-id="activePluginTab.pluginId"
-        :layout-side="prop.layoutSide"
         :key="`plugin|${activePluginTab.key}`"
       />
       <DocumentTabView
