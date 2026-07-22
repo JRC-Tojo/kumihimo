@@ -29,6 +29,8 @@ export const useHistoryStore = defineStore('history', {
   state: () => ({
     // タブ（containerID+path）ごとのUndo/Redoスタック
     buckets: emptyBuckets(),
+    // undo/redoが実行中のタブキー集合（多重実行防止用）
+    busyKeys: new Set<string>(),
   }),
 
   getters: {
@@ -44,6 +46,13 @@ export const useHistoryStore = defineStore('history', {
      */
     canRedo(state): (file: FileIdentity) => boolean {
       return (file: FileIdentity) => (state.buckets[fileKey(file)]?.redoStack.length ?? 0) > 0;
+    },
+
+    /**
+     * 指定タブでundo/redoが実行中かどうか（多重実行によるレース防止・ボタン活性判定に使う）
+     */
+    isBusy(state): (file: FileIdentity) => boolean {
+      return (file: FileIdentity) => state.busyKeys.has(fileKey(file));
     },
   },
 
@@ -75,28 +84,54 @@ export const useHistoryStore = defineStore('history', {
 
     /**
      * 指定タブの直前の操作を取り消す
+     *
+     * 同一タブに対する多重呼び出し（キーリピート・連打）はbusyKeysで無視し、
+     * relationalStoreのキャッシュ更新順序が崩れないようにする。command.undo()が
+     * 失敗した場合は、スタックから失った状態にならないようundoStackへ戻す
      */
     async undo(file: FileIdentity): Promise<void> {
-      const bucket = this.buckets[fileKey(file)];
+      const key = fileKey(file);
+      if (this.busyKeys.has(key)) return;
+
+      const bucket = this.buckets[key];
       if (!bucket) return;
       const command = bucket.undoStack.pop();
       if (!command) return;
 
-      await command.undo();
-      bucket.redoStack.push(command);
+      this.busyKeys.add(key);
+      try {
+        await command.undo();
+        bucket.redoStack.push(command);
+      } catch (e) {
+        bucket.undoStack.push(command);
+        console.error(e);
+      } finally {
+        this.busyKeys.delete(key);
+      }
     },
 
     /**
-     * 指定タブの直前に取り消した操作をやり直す
+     * 指定タブの直前に取り消した操作をやり直す（多重実行防止・失敗時のスタック復元はundoと同様）
      */
     async redo(file: FileIdentity): Promise<void> {
-      const bucket = this.buckets[fileKey(file)];
+      const key = fileKey(file);
+      if (this.busyKeys.has(key)) return;
+
+      const bucket = this.buckets[key];
       if (!bucket) return;
       const command = bucket.redoStack.pop();
       if (!command) return;
 
-      await command.redo();
-      bucket.undoStack.push(command);
+      this.busyKeys.add(key);
+      try {
+        await command.redo();
+        bucket.undoStack.push(command);
+      } catch (e) {
+        bucket.redoStack.push(command);
+        console.error(e);
+      } finally {
+        this.busyKeys.delete(key);
+      }
     },
 
     /**
@@ -105,6 +140,26 @@ export const useHistoryStore = defineStore('history', {
      */
     clear(file: FileIdentity): void {
       delete this.buckets[fileKey(file)];
+    },
+
+    /**
+     * ファイルのリネーム・移動に伴い、旧パスの履歴バケツを新パスのキーへ移し替える
+     *
+     * 移動先に既存のバケツがある場合（同一パスへの統合等、通常起こり得ないケース）は
+     * データ不整合を避けるため移し替えを行わず、旧バケツを破棄するだけに留める
+     */
+    migrate(oldFile: FileIdentity, newFile: FileIdentity): void {
+      const oldKey = fileKey(oldFile);
+      const newKey = fileKey(newFile);
+      if (oldKey === newKey) return;
+
+      const bucket = this.buckets[oldKey];
+      if (!bucket) return;
+
+      delete this.buckets[oldKey];
+      if (!this.buckets[newKey]) {
+        this.buckets[newKey] = bucket;
+      }
     },
   },
 });

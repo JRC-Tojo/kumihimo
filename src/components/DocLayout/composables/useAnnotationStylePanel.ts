@@ -9,7 +9,6 @@
  */
 
 import { computed, type WritableComputedRef } from 'vue';
-import dayjs from 'dayjs';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useAnnotationHistory } from './useAnnotationHistory';
 import type { DrawingAnnotationType } from 'src/models/docPage';
@@ -55,16 +54,8 @@ export function useAnnotationStylePanel() {
   ): Promise<void> {
     const selection = editorStore.activeSelection;
     if (!selection) return;
-    const now = dayjs().toISOString();
 
-    const items = selection.annotations
-      .map((annot) => {
-        const patch = building(annot);
-        return patch
-          ? { previous: annot, next: { ...annot, ...patch, updatedAt: now } as AnnotationStyle }
-          : null;
-      })
-      .filter((i): i is { previous: AnnotationStyle; next: AnnotationStyle } => i !== null);
+    const items = history.buildRegisterManyItems(selection.annotations, building);
     await history.registerManyWithHistory(selection.file, items);
   }
 

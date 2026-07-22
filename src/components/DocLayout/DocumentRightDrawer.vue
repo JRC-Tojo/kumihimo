@@ -174,7 +174,6 @@
 
 <script setup lang="ts">
 import { useBackendApi } from 'src/apis/backendApi';
-import dayjs from 'dayjs';
 import { ColorCode, type AnnotationID, type AnnotationStyle } from 'src/models/document/pdf';
 import type { ArrowHeadType } from 'src/models/document/pdf';
 import type { ContainerElementFile } from 'src/models/container';
@@ -234,15 +233,7 @@ function commonValue<T, V>(items: T[], getter: (item: T) => V): V | undefined {
 async function applyPatch(
   building: (annot: AnnotationStyle) => Partial<AnnotationStyle> | null,
 ): Promise<void> {
-  const now = dayjs().toISOString();
-  const items = prop.selectedAnnots
-    .map((annot) => {
-      const patch = building(annot);
-      return patch
-        ? { previous: annot, next: { ...annot, ...patch, updatedAt: now } as AnnotationStyle }
-        : null;
-    })
-    .filter((i): i is { previous: AnnotationStyle; next: AnnotationStyle } => i !== null);
+  const items = history.buildRegisterManyItems(prop.selectedAnnots, building);
   await history.registerManyWithHistory(prop.file, items);
 }
 

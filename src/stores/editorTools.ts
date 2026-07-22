@@ -74,7 +74,7 @@ function callHistoryTools(t: (key: string) => string): IDocTool[] {
       isActive: () => false,
       isDisable: () => {
         const file = activeFile();
-        return !file || !historyStore.canUndo(file);
+        return !file || !historyStore.canUndo(file) || historyStore.isBusy(file);
       },
       onClicked: () => {
         const file = activeFile();
@@ -88,7 +88,7 @@ function callHistoryTools(t: (key: string) => string): IDocTool[] {
       isActive: () => false,
       isDisable: () => {
         const file = activeFile();
-        return !file || !historyStore.canRedo(file);
+        return !file || !historyStore.canRedo(file) || historyStore.isBusy(file);
       },
       onClicked: () => {
         const file = activeFile();

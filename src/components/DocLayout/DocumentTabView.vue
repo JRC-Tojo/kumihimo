@@ -616,6 +616,7 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 
   if (isModifierPressed && !e.shiftKey && e.key.toLowerCase() === 'z') {
     e.preventDefault();
+    if (historyStore.isBusy(prop.file)) return;
     void historyStore.undo(prop.file);
     return;
   }
@@ -625,6 +626,7 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     (isModifierPressed && e.key.toLowerCase() === 'y')
   ) {
     e.preventDefault();
+    if (historyStore.isBusy(prop.file)) return;
     void historyStore.redo(prop.file);
     return;
   }

@@ -7,6 +7,7 @@
  * propsの受け渡しなしにそのまま呼び出せる
  */
 
+import dayjs from 'dayjs';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
@@ -19,6 +20,19 @@ import type { Relational } from 'src/models/relational/common';
 /** 2つのファイルがcontainerID込みで同一かどうか */
 function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
   return a.containerID === b.containerID && a.path === b.path;
+}
+
+/** 関係性の一意キー（src/targetの組で同一のエッジを識別する） */
+function relationalKey(r: Relational): string {
+  return `${r.srcID}|${r.targetID}`;
+}
+
+/** 複数アノテーションから捕捉した関係性一覧を、同一エッジの重複を除いてまとめる */
+function dedupRelationals(relationalsById: Map<AnnotationID, Relational[]>): Relational[] {
+  const merged = new Map<string, Relational>(
+    [...relationalsById.values()].flat().map((r) => [relationalKey(r), r]),
+  );
+  return [...merged.values()];
 }
 
 export function useAnnotationHistory() {
@@ -86,7 +100,12 @@ export function useAnnotationHistory() {
   ): Promise<void> {
     if (items.length === 0) return;
 
-    await Promise.all(items.map((item) => api.registerAnnotationStyle(file, item.next)));
+    const results = await Promise.all(
+      items.map((item) => api.registerAnnotationStyle(file, item.next)),
+    );
+    // 1件でも失敗していれば、undo/redoの対象が不完全になるため履歴には積まない
+    if (!results.every((res) => res.ok)) return;
+
     historyStore.push(file, {
       undo: async () => {
         await Promise.all(items.map((item) => api.registerAnnotationStyle(file, item.previous)));
@@ -95,6 +114,28 @@ export function useAnnotationHistory() {
         await Promise.all(items.map((item) => api.registerAnnotationStyle(file, item.next)));
       },
     });
+  }
+
+  /**
+   * 選択中アノテーション群に種別依存のpatchを適用し、registerManyWithHistoryへ渡す
+   * previous/nextペアの配列を組み立てる（対象外の種別はbuildingがnullを返すことで除外される）
+   *
+   * useAnnotationStylePanel（パネル編集）・DocumentRightDrawer（右ドロワー編集）双方の
+   * 同一ロジックをここに集約する
+   */
+  function buildRegisterManyItems(
+    annots: AnnotationStyle[],
+    building: (annot: AnnotationStyle) => Partial<AnnotationStyle> | null,
+  ): { previous: AnnotationStyle; next: AnnotationStyle }[] {
+    const now = dayjs().toISOString();
+    return annots
+      .map((annot) => {
+        const patch = building(annot);
+        return patch
+          ? { previous: annot, next: { ...annot, ...patch, updatedAt: now } as AnnotationStyle }
+          : null;
+      })
+      .filter((i): i is { previous: AnnotationStyle; next: AnnotationStyle } => i !== null);
   }
 
   /**
@@ -140,13 +181,17 @@ export function useAnnotationHistory() {
     const relationalsById = new Map(
       removedList.map((a) => [a.id, captureRelationals(a.id)] as const),
     );
-    await Promise.all(removedList.map((a) => api.removeAnnotation(a.id)));
+    const results = await Promise.all(removedList.map((a) => api.removeAnnotation(a.id)));
+    // 1件でも失敗していれば、undo/redoの対象が不完全になるため履歴には積まない
+    if (!results.every((res) => res.ok)) return;
 
     historyStore.push(file, {
       undo: async () => {
         await Promise.all(removedList.map((a) => api.registerAnnotationStyle(file, a)));
-        const allRelationals = [...relationalsById.values()].flat();
-        await Promise.all(allRelationals.map((r) => api.registRelationals(r)));
+        // 削除対象同士が互いにリンクしていた場合、両端のrelationalsByIdエントリに
+        // 同じエッジが重複して含まれるため、登録前に一意化する
+        const dedupedRelationals = dedupRelationals(relationalsById);
+        await Promise.all(dedupedRelationals.map((r) => api.registRelationals(r)));
         await Promise.all(
           removedList.map((a) =>
             refreshRelationalCachesAfter(file, a.id, relationalsById.get(a.id) ?? []),
@@ -210,5 +255,6 @@ export function useAnnotationHistory() {
     removeManyWithHistory,
     recordCreatedBatch,
     recordChangedBatch,
+    buildRegisterManyItems,
   };
 }
