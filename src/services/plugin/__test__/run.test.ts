@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { reactive } from 'vue';
 import { Success, Failure } from 'src/models/error/result';
 import { ContainerID } from 'src/models/container';
 import { AnnotationID } from 'src/models/document/pdf';
@@ -173,6 +174,23 @@ describe('runEntryPoint', () => {
 
     const call = pyodideRunEntryPointMock.mock.calls[0]!;
     expect(call[2]).toEqual([1, 2, 600, 800, 1]); // count省略時はdefaultValue(1)
+  });
+
+  it('targetFilesがVueのreactiveなProxyでも、Zod再パースでプレーンオブジェクト化されて保存に成功する', async () => {
+    // PluginPanelView.vueの`fileFieldValues`（reactive）から読み出した値は、Vueのreactive
+    // Proxyでラップされる。この状態のままDexieへ渡すとstructuredCloneが失敗するため、
+    // runEntryPoint内でプレーンオブジェクト化されることを確認する
+    const reactiveTargetFile = reactive({ ...targetFile });
+
+    const res = await runEntryPoint(pluginId, 'catalog', 'doSomething', { count: 1 }, [
+      reactiveTargetFile,
+    ]);
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    // structuredCloneできる（Proxyでない）プレーンオブジェクトになっていること
+    expect(() => structuredClone(res.value.targetFiles)).not.toThrow();
+    expect(res.value.targetFiles).toEqual([targetFile]);
   });
 });
 

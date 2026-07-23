@@ -3,13 +3,13 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { Observable } from 'dexie';
-import type { ContainerElementFile } from 'src/models/container';
+import { ContainerElementFile } from 'src/models/container';
 import type { PluginID, PluginRuntime, PluginManifest } from 'src/models/plugin/manifest';
 import type { PluginInstallSource } from 'src/models/plugin/installation';
 import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
 import type { PluginRunState } from 'src/models/plugin/panel';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success } from 'src/models/error/result';
+import { Failure, Success, toError } from 'src/models/error/result';
 import * as pluginDb from 'src/repositories/db/plugin';
 import * as annotationService from 'src/services/document/annotation';
 import * as relationalService from 'src/services/document/relational';
@@ -72,14 +72,23 @@ export async function discoverEntryPoints(
  * `fieldValues`はdiscover結果のfieldIdをキーとする値（`file`型フィールドの値は含まない。
  * ファイル選択の解決結果は`targetFiles`として別途渡す）。未指定のフィールドは
  * discover結果のdefaultValueで補う
+ *
+ * `targetFiles`はVueコンポーネント（`reactive`な状態）から渡ってくるため、Vueのreactive
+ * Proxyをそのまま保持している場合がある。Proxyのままだと`pluginDb.putRunState`内の
+ * `structuredClone`がクローンできずDataCloneErrorになるため、Zodで再パースしてプレーンな
+ * オブジェクトへ正規化してから使う（Proxy越しの値読み出しにより自然にコピーされる）
  */
 export async function runEntryPoint(
   id: PluginID,
   source: PluginInstallSource,
   entryId: string,
   fieldValues: Record<string, string | number | boolean>,
-  targetFiles: ContainerElementFile[],
+  rawTargetFiles: ContainerElementFile[],
 ): Promise<Result<PluginRunState>> {
+  const targetFilesRes = ContainerElementFile.array().safeParse(rawTargetFiles);
+  if (!targetFilesRes.success) return Failure(toError(targetFilesRes.error));
+  const targetFiles = targetFilesRes.data;
+
   const loaded = await loadInstalledPlugin(id, source);
   if (!loaded.ok) return loaded;
   const { manifest, binary } = loaded.value;
