@@ -195,7 +195,12 @@ async function waitAndBuildSubmission(
 
   for (const delay of [0, ...SUBMISSION_DETAIL_RETRY_DELAYS_MS]) {
     if (delay > 0) await sleep(delay);
-    const detailRes = await gh.getPullRequest(STORE_REPO_OWNER, STORE_REPO_NAME, prRef.number, token);
+    const detailRes = await gh.getPullRequest(
+      STORE_REPO_OWNER,
+      STORE_REPO_NAME,
+      prRef.number,
+      token,
+    );
     if (detailRes.ok) return buildSubmission(manifest, detailRes.value, token, kind);
     if (!(detailRes.error instanceof gh.NotFoundGithubError)) return detailRes;
   }

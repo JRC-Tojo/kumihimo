@@ -59,7 +59,11 @@ import { useI18n } from 'vue-i18n';
 import type { PluginSubmission } from 'src/models/plugin/submission';
 import type { PluginID } from 'src/models/plugin/manifest';
 import PluginSubmissionItem from './PluginSubmissionItem.vue';
-import { displayStatus, statusLabelKey, statusColor as resolveStatusColor } from './submissionDisplay';
+import {
+  displayStatus,
+  statusLabelKey,
+  statusColor as resolveStatusColor,
+} from './submissionDisplay';
 
 /**
  * 同一プラグイン（manifest.id）の申請履歴をまとめて表示するグループ。

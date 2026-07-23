@@ -11,7 +11,10 @@
  * 純粋関数（ファイルI/Oを行わない）にすることで、生成側・検証側の両方から同一ロジックを
  * 参照できるようにしている
  */
-import type { HostApiFunctionSpec, HostApiParamRustType } from 'src/services/plugin/hostApiRegistry';
+import type {
+  HostApiFunctionSpec,
+  HostApiParamRustType,
+} from 'src/services/plugin/hostApiRegistry';
 
 /** 1行に収めた場合の長さがこの値を超える場合、引数を1行ずつに折り返す */
 const MAX_LINE_LENGTH = 100;
@@ -42,7 +45,9 @@ export function generateRustExternBlock(registry: HostApiFunctionSpec[]): string
   lines.push('    // ---- 発見専用（describePlugin内でのみ呼ぶこと） ----');
   for (const spec of discovery) lines.push(formatFunctionDeclaration(spec));
   lines.push('');
-  lines.push('    // ---- 実行時API（manifest.requiredHostApisで要求したもののみ実データを返す） ----');
+  lines.push(
+    '    // ---- 実行時API（manifest.requiredHostApisで要求したもののみ実データを返す） ----',
+  );
   for (const spec of execution) lines.push(formatFunctionDeclaration(spec));
 
   return lines.join('\n');
@@ -76,7 +81,8 @@ export function replaceMarkedBlock(fileText: string, generated: string): string 
   }
 
   const afterBeginLineEnd = fileText.indexOf('\n', beginIndex);
-  if (afterBeginLineEnd === -1) throw new Error('GENERATED-EXTERN:BEGIN行の末尾が見つかりませんでした');
+  if (afterBeginLineEnd === -1)
+    throw new Error('GENERATED-EXTERN:BEGIN行の末尾が見つかりませんでした');
 
   const before = fileText.slice(0, afterBeginLineEnd + 1);
   const after = fileText.slice(endIndex);

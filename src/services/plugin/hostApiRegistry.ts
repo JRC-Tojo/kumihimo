@@ -43,7 +43,11 @@ export const HOST_API_REGISTRY: HostApiFunctionSpec[] = [
   {
     hostFnName: 'ui_register_entry_point',
     group: 'discovery',
-    params: [p('entry_id', 'string', 'string'), p('label', 'string', 'string'), p('description', 'string', 'string')],
+    params: [
+      p('entry_id', 'string', 'string'),
+      p('label', 'string', 'string'),
+      p('description', 'string', 'string'),
+    ],
     returns: 'void',
   },
   {

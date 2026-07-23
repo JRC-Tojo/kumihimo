@@ -26,9 +26,7 @@ function buildManifest(requiredHostApis: PluginManifest['requiredHostApis']): Pl
   };
 }
 
-function buildFileContext(
-  overrides: Partial<PluginFileContext> = {},
-): PluginFileContext {
+function buildFileContext(overrides: Partial<PluginFileContext> = {}): PluginFileContext {
   return {
     pageCount: 1,
     metadataJson: '{}',
@@ -316,9 +314,7 @@ describe('buildExecutionBridge（最小権限）', () => {
 
     bridge.ui_report_error!('入力が不正です');
 
-    expect(state.blocks).toEqual([
-      { kind: 'text', text: '入力が不正です', severity: 'error' },
-    ]);
+    expect(state.blocks).toEqual([{ kind: 'text', text: '入力が不正です', severity: 'error' }]);
     expect(state.hasPluginReportedError).toBe(true);
   });
 });

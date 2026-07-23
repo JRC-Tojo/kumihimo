@@ -46,9 +46,7 @@ export async function getCatalogEntries(token?: string): Promise<Result<CatalogE
 
   const manifestPaths = treeRes.value.filter((path) => PLUGIN_JSON_PATH_PATTERN.test(path));
 
-  const entries = await Promise.all(
-    manifestPaths.map((path) => loadCatalogEntry(path, token)),
-  );
+  const entries = await Promise.all(manifestPaths.map((path) => loadCatalogEntry(path, token)));
 
   return Success(entries.filter((entry) => entry !== undefined));
 }
@@ -58,7 +56,12 @@ async function loadCatalogEntry(
   manifestPath: string,
   token: string | undefined,
 ): Promise<CatalogEntry | undefined> {
-  const url = buildRawFileUrl(STORE_REPO_OWNER, STORE_REPO_NAME, STORE_REPO_DEFAULT_BRANCH, manifestPath);
+  const url = buildRawFileUrl(
+    STORE_REPO_OWNER,
+    STORE_REPO_NAME,
+    STORE_REPO_DEFAULT_BRANCH,
+    manifestPath,
+  );
   const textRes = await fetchRawText(url);
   if (!textRes.ok) return undefined; // 個別ファイルの取得失敗はスキップし、カタログ全体は返す
 

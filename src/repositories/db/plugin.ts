@@ -76,7 +76,8 @@ export async function getInstalledPlugin(
   if (!ready.ok) return ready;
   try {
     const record = await db.installed.get(installedKey(id, source));
-    if (!record) return Failure(new Error(`Not Found Installed Plugin (id: ${id}, source: ${source})`));
+    if (!record)
+      return Failure(new Error(`Not Found Installed Plugin (id: ${id}, source: ${source})`));
     return Success(record);
   } catch (error) {
     return Failure(toError(error));
