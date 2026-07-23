@@ -358,8 +358,6 @@ export default {
       details: '詳細',
       submitNew: '新規プラグインを申請',
       refresh: '更新',
-      publish: 'マージして公開',
-      requestPublish: '公開をリクエスト',
       unpublish: '公開を取り下げる',
       withdraw: '申請を取り下げる',
       dismissSubmission: '一覧から削除',
@@ -414,23 +412,24 @@ export default {
       iconFileExtensionMismatch:
         'plugin.jsonのiconFileの拡張子が、アップロードした画像の実際の形式と一致していません（例: 実際はJPEGなのに拡張子が.png）。公開後に画像が表示されなくなるため、拡張子を実際の形式に合わせてください',
       validationErrors: '入力内容に誤りがあります',
+      submitting: '送信中です…',
       submitSuccess: '申請を送信しました。ストアリポジトリでの自動検証（CI）をお待ちください。',
       mySubmissionsTitle: 'マイ申請',
       noSubmissions: '申請はありません',
       status: {
         pending: '検証待ち',
         ciPassed: '検証OK',
-        awaitingMerge: 'マージ待ち',
         ciFailed: '検証NG',
         published: '公開済み',
         withdrawn: '取り下げ済み',
       },
+      ciFailedHint: '修正版を同じ内容で再申請できます（同じPRが更新されます）',
       ciLogTitle: '検証ログ',
       helpTitle: '公開の流れ',
       helpStep1:
         'マニフェスト・本体ファイル（・アイコン画像）を申請すると、ストアリポジトリへPull Requestが作成されます。',
       helpStep2:
-        '自動検証（CI）に合格すると「検証OK」になります。「マージして公開」ボタンでマージし、公開されます。',
+        '自動検証（CI）とオーナー確認に自動的に合格すると、そのままマージ・公開されます。検証に失敗した場合は、内容を修正して同じ手順で再度申請してください（同じPRが更新されます）。',
       helpStep3:
         '公開後にバージョンを更新する場合も、同じ手順で新しいファイルを申請してください（申請者は公開者と同一のGitHubアカウントである必要があります）。',
       devGuideLink: '開発者向けドキュメントを見る',
@@ -453,6 +452,8 @@ export default {
       runFailed: '実行に失敗しました',
       submitFailed: '申請に失敗しました',
       manifestInvalid: 'マニフェストの内容が正しくありません',
+      unpublishInProgress: 'このプラグインは取り下げ申請中のため、新規申請できません',
+      submitInProgress: 'このプラグインは申請中のため、取り下げ申請できません',
     },
   },
 };

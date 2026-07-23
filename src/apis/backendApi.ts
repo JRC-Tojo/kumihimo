@@ -35,7 +35,11 @@ import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import type { Observable } from 'dexie';
 import { initOCR } from 'src/utils/ocr/main';
-import type { InstalledPlugin, CatalogEntry } from 'src/models/plugin/installation';
+import type {
+  InstalledPlugin,
+  CatalogEntry,
+  PluginInstallSource,
+} from 'src/models/plugin/installation';
 import type { PluginID } from 'src/models/plugin/manifest';
 import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
 import type { PluginRunState } from 'src/models/plugin/panel';
@@ -647,23 +651,27 @@ class BackendApi {
   ): Promise<ApiResponse<void>> {
     const parsed = parseManifest(manifestJson);
     if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
-    const res = await pluginInstallService.installPlugin(parsed.value, binary, icon, true);
+    const res = await pluginInstallService.installPlugin(parsed.value, binary, icon, 'sideload');
     return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
   }
 
   /**
    * プラグインをアンインストールする
    */
-  async uninstallPlugin(id: PluginID): Promise<ApiResponse<void>> {
-    const res = await pluginInstallService.uninstallPlugin(id);
+  async uninstallPlugin(id: PluginID, source: PluginInstallSource): Promise<ApiResponse<void>> {
+    const res = await pluginInstallService.uninstallPlugin(id, source);
     return toApiResponse(res, 'PLUGIN_UNINSTALL_FAILED');
   }
 
   /**
    * プラグインの有効/無効を切り替える
    */
-  async setPluginEnabled(id: PluginID, enabled: boolean): Promise<ApiResponse<void>> {
-    const res = await pluginInstallService.setPluginEnabled(id, enabled);
+  async setPluginEnabled(
+    id: PluginID,
+    source: PluginInstallSource,
+    enabled: boolean,
+  ): Promise<ApiResponse<void>> {
+    const res = await pluginInstallService.setPluginEnabled(id, source, enabled);
     return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
   }
 
@@ -672,8 +680,9 @@ class BackendApi {
    */
   async discoverPluginEntryPoints(
     id: PluginID,
+    source: PluginInstallSource,
   ): Promise<ApiResponse<PluginEntryPointDescriptor[]>> {
-    const res = await pluginRunService.discoverEntryPoints(id);
+    const res = await pluginRunService.discoverEntryPoints(id, source);
     return toApiResponse(res, 'PLUGIN_DISCOVER_FAILED');
   }
 
@@ -686,11 +695,12 @@ class BackendApi {
    */
   async runPluginEntryPoint(
     id: PluginID,
+    source: PluginInstallSource,
     entryId: string,
     fieldValues: Record<string, string | number | boolean>,
     targetFiles: ContainerElementFile[],
   ): Promise<ApiResponse<PluginRunState>> {
-    const res = await pluginRunService.runEntryPoint(id, entryId, fieldValues, targetFiles);
+    const res = await pluginRunService.runEntryPoint(id, source, entryId, fieldValues, targetFiles);
     return toApiResponse(res, 'PLUGIN_RUN_FAILED');
   }
 
@@ -754,36 +764,10 @@ class BackendApi {
   }
 
   /**
-   * CI検証に合格した申請に対し「公開をリクエスト」する（マージ権限がない提出者向け。
-   * ストアリポジトリ側のワークフローが自動でラベルを付与し、マイ申請では「マージ待ち」と表示される）
-   */
-  async requestPublishPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
-    const token = await this.getGithubToken();
-    if (!token)
-      return toApiResponse(
-        Failure(new Error('GitHub連携が未設定です')),
-        'PLUGIN_GITHUB_TOKEN_MISSING',
-      );
-    const res = await pluginSubmissionService.requestPublish(prNumber, token);
-    return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
-  }
-
-  /**
-   * CI検証に合格した申請をマージする（マージ権限がない場合は失敗し、手動マージを促すメッセージを返す）
-   */
-  async republishPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
-    const token = await this.getGithubToken();
-    if (!token)
-      return toApiResponse(
-        Failure(new Error('GitHub連携が未設定です')),
-        'PLUGIN_GITHUB_TOKEN_MISSING',
-      );
-    const res = await pluginSubmissionService.republishSubmission(prNumber, token);
-    return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
-  }
-
-  /**
    * 未マージの申請（PR）を取り下げる（マージせずにクローズする）
+   *
+   * CI検証（manifest/wasm/icon/ownership）に合格したPRはストアリポジトリ側のActionsが
+   * 自動的にマージするため、アプリ側に手動マージの操作はない
    */
   async withdrawPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
     const token = await this.getGithubToken();

@@ -359,8 +359,6 @@ export default {
       details: 'Details',
       submitNew: 'Submit New Plugin',
       refresh: 'Refresh',
-      publish: 'Merge & Publish',
-      requestPublish: 'Request Publish',
       unpublish: 'Unpublish',
       withdraw: 'Withdraw Submission',
       dismissSubmission: 'Remove from list',
@@ -415,6 +413,7 @@ export default {
       iconFileExtensionMismatch:
         "The file extension in plugin.json's iconFile doesn't match the actual format of the uploaded image (e.g. the file is actually JPEG but the extension is .png). This would break image display after publishing, so make the extension match the real format.",
       validationErrors: 'There are errors in the submitted content',
+      submitting: 'Submitting…',
       submitSuccess:
         'Submission sent. Please wait for automated validation (CI) on the store repository.',
       mySubmissionsTitle: 'My Submissions',
@@ -422,17 +421,17 @@ export default {
       status: {
         pending: 'Pending',
         ciPassed: 'Passed',
-        awaitingMerge: 'Awaiting Merge',
         ciFailed: 'Failed',
         published: 'Published',
         withdrawn: 'Withdrawn',
       },
+      ciFailedHint: 'You can resubmit a fixed version (this updates the same PR)',
       ciLogTitle: 'Validation Log',
       helpTitle: 'Publishing Flow',
       helpStep1:
         'Submitting the manifest, binary (and icon) opens a Pull Request against the store repository.',
       helpStep2:
-        'Once automated validation (CI) passes, the status becomes "Passed". Click "Merge & Publish" to merge it and make it public.',
+        'Once automated validation (CI) and ownership checks pass, the PR is merged and published automatically. If validation fails, fix the issue and submit again the same way (this updates the same PR).',
       helpStep3:
         'To update a published plugin later, submit the new files the same way (the submitter must be the same GitHub account that published it).',
       devGuideLink: 'View developer documentation',
@@ -455,6 +454,8 @@ export default {
       runFailed: 'Failed to run plugin',
       submitFailed: 'Failed to submit plugin',
       manifestInvalid: 'The manifest content is invalid',
+      unpublishInProgress: 'This plugin has an unpublish request in progress; cannot submit a new one',
+      submitInProgress: 'This plugin has a submission in progress; cannot request unpublish',
     },
   },
 };

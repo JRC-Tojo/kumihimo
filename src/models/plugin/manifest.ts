@@ -22,6 +22,8 @@ export type PluginRuntime = z.infer<typeof PluginRuntime>;
  */
 export const PluginHostApiName = z.enum([
   'ui.reportProgress',
+  'ui.log',
+  'ui.reportError',
   'plan.setConfirmationMode',
   'plan.addAnnotation',
   'plan.updateAnnotation',

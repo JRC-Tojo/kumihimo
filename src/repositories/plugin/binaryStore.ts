@@ -6,11 +6,17 @@
  * IndexedDBが標準でサポートするstructured cloneをそのまま利用して保存する
  */
 import type { PluginID } from 'src/models/plugin/manifest';
+import type { PluginInstallSource } from 'src/models/plugin/installation';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success, toError } from 'src/models/error/result';
 
 const DB_NAME = 'RelationalDocumentsPluginBinaries';
 const STORE_NAME = 'plugin-binaries';
+
+/** ストアの実キー。同一idでもcatalog/sideloadを別レコードとして共存させる（db/plugin.tsと同じ方式） */
+function binaryKey(pluginId: PluginID, source: PluginInstallSource): string {
+  return `${source}::${pluginId}`;
+}
 
 let db: IDBDatabase | null = null;
 
@@ -73,14 +79,18 @@ function wrapTransaction(transaction: IDBTransaction): Promise<Result<void>> {
 /**
  * プラグイン本体のバイト列を保存する
  */
-export async function setBinary(pluginId: PluginID, bytes: Uint8Array): Promise<Result<void>> {
+export async function setBinary(
+  pluginId: PluginID,
+  source: PluginInstallSource,
+  bytes: Uint8Array,
+): Promise<Result<void>> {
   const dbRes = await openDb();
   if (!dbRes.ok) return dbRes;
 
   try {
     const transaction = dbRes.value.transaction(STORE_NAME, 'readwrite');
     const putRes = await wrapRequest(() =>
-      transaction.objectStore(STORE_NAME).put(bytes, pluginId),
+      transaction.objectStore(STORE_NAME).put(bytes, binaryKey(pluginId, source)),
     );
     if (!putRes.ok) return putRes;
     return await wrapTransaction(transaction);
@@ -92,16 +102,21 @@ export async function setBinary(pluginId: PluginID, bytes: Uint8Array): Promise<
 /**
  * プラグイン本体のバイト列を取得する
  */
-export async function getBinary(pluginId: PluginID): Promise<Result<Uint8Array>> {
+export async function getBinary(
+  pluginId: PluginID,
+  source: PluginInstallSource,
+): Promise<Result<Uint8Array>> {
   const dbRes = await openDb();
   if (!dbRes.ok) return dbRes;
 
   try {
     const store = dbRes.value.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME);
-    const res = await wrapRequest<Uint8Array | undefined>(() => store.get(pluginId));
+    const res = await wrapRequest<Uint8Array | undefined>(() =>
+      store.get(binaryKey(pluginId, source)),
+    );
     if (!res.ok) return res;
     if (res.value === undefined)
-      return Failure(new Error(`Not Found Plugin Binary (id: ${pluginId})`));
+      return Failure(new Error(`Not Found Plugin Binary (id: ${pluginId}, source: ${source})`));
     return Success(res.value);
   } catch (e) {
     return Failure(toError(e));
@@ -111,13 +126,18 @@ export async function getBinary(pluginId: PluginID): Promise<Result<Uint8Array>>
 /**
  * プラグイン本体のバイト列を削除する
  */
-export async function deleteBinary(pluginId: PluginID): Promise<Result<void>> {
+export async function deleteBinary(
+  pluginId: PluginID,
+  source: PluginInstallSource,
+): Promise<Result<void>> {
   const dbRes = await openDb();
   if (!dbRes.ok) return dbRes;
 
   try {
     const transaction = dbRes.value.transaction(STORE_NAME, 'readwrite');
-    const delRes = await wrapRequest(() => transaction.objectStore(STORE_NAME).delete(pluginId));
+    const delRes = await wrapRequest(() =>
+      transaction.objectStore(STORE_NAME).delete(binaryKey(pluginId, source)),
+    );
     if (!delRes.ok) return delRes;
     return await wrapTransaction(transaction);
   } catch (e) {

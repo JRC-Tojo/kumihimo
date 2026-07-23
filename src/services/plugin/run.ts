@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Observable } from 'dexie';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PluginID, PluginRuntime, PluginManifest } from 'src/models/plugin/manifest';
+import type { PluginInstallSource } from 'src/models/plugin/installation';
 import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
 import type { PluginRunState } from 'src/models/plugin/panel';
 import type { Result } from 'src/models/error/result';
@@ -38,10 +39,11 @@ async function switchEngineProcess<T>(
 
 async function loadInstalledPlugin(
   id: PluginID,
+  source: PluginInstallSource,
 ): Promise<Result<{ manifest: PluginManifest; binary: Uint8Array }>> {
-  const entryRes = await pluginDb.getInstalledPlugin(id);
+  const entryRes = await pluginDb.getInstalledPlugin(id, source);
   if (!entryRes.ok) return entryRes;
-  const binRes = await getPluginBinary(id);
+  const binRes = await getPluginBinary(id, source);
   if (!binRes.ok) return binRes;
   return Success({ manifest: entryRes.value.manifest, binary: binRes.value });
 }
@@ -51,8 +53,9 @@ async function loadInstalledPlugin(
  */
 export async function discoverEntryPoints(
   id: PluginID,
+  source: PluginInstallSource,
 ): Promise<Result<PluginEntryPointDescriptor[]>> {
-  const loaded = await loadInstalledPlugin(id);
+  const loaded = await loadInstalledPlugin(id, source);
   if (!loaded.ok) return loaded;
   const { manifest, binary } = loaded.value;
 
@@ -63,7 +66,6 @@ export async function discoverEntryPoints(
   );
 }
 
-
 /**
  * プラグインのエントリポイントを実行する
  *
@@ -73,15 +75,16 @@ export async function discoverEntryPoints(
  */
 export async function runEntryPoint(
   id: PluginID,
+  source: PluginInstallSource,
   entryId: string,
   fieldValues: Record<string, string | number | boolean>,
   targetFiles: ContainerElementFile[],
 ): Promise<Result<PluginRunState>> {
-  const loaded = await loadInstalledPlugin(id);
+  const loaded = await loadInstalledPlugin(id, source);
   if (!loaded.ok) return loaded;
   const { manifest, binary } = loaded.value;
 
-  const descriptorsRes = await discoverEntryPoints(id);
+  const descriptorsRes = await discoverEntryPoints(id, source);
   if (!descriptorsRes.ok) return descriptorsRes;
   const descriptor = descriptorsRes.value.find((d) => d.entryId === entryId);
   if (!descriptor) return Failure(new Error(`Not Found Entry Point (entryId: ${entryId})`));
@@ -101,7 +104,12 @@ export async function runEntryPoint(
   );
 
   if (!execRes.ok) {
-    state.blocks.push({ kind: 'text', text: `実行エラー: ${execRes.error.message}` });
+    console.error('[plugin] execution failed:', id, entryId, execRes.error);
+    state.blocks.push({
+      kind: 'text',
+      text: `実行エラー: ${execRes.error.message}`,
+      severity: 'error',
+    });
   }
 
   const runState: PluginRunState = {
@@ -111,7 +119,8 @@ export async function runEntryPoint(
     targetFiles,
     blocks: state.blocks,
     plan: state.plan,
-    status: execRes.ok ? 'done' : 'error',
+    // execRes.okでもプラグイン自身がui.reportErrorで失敗を報告した場合はエラー扱いにする
+    status: execRes.ok && !state.hasPluginReportedError ? 'done' : 'error',
   };
 
   const saveRes = await pluginDb.putRunState(runState);

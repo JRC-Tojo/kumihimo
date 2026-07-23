@@ -32,7 +32,12 @@ const manifest: PluginManifest = {
   mainFile: 'test.py',
   requiredHostApis: ['ui.reportProgress', 'plan.addAnnotation'],
 };
-const installed: InstalledPlugin = { manifest, installedAt: new Date(), enabled: true };
+const installed: InstalledPlugin = {
+  manifest,
+  installedAt: new Date(),
+  enabled: true,
+  source: 'catalog',
+};
 
 // ---- リポジトリ層のモック ----
 const runStates = new Map<string, PluginRunState>();
@@ -45,13 +50,21 @@ const getRunStateMock = mock((runId: string) => {
   const found = runStates.get(runId);
   return Promise.resolve(found ? Success(found) : Failure(new Error('not found')));
 });
+// 注意: `bun test`のmock.moduleはプロセス全体で共有されるため、他ファイル
+// （install.test.ts等）が必要とする関数も安全なスタブとして含めておくこと
 void mock.module('src/repositories/db/plugin', () => ({
+  getInstalledPlugins: () => Promise.resolve(Failure(new Error('not used in this test'))),
   getInstalledPlugin: getInstalledPluginMock,
+  putInstalledPlugin: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  deleteInstalledPlugin: () => Promise.resolve(Failure(new Error('not used in this test'))),
   putRunState: putRunStateMock,
   getRunState: getRunStateMock,
   observeRunState: () => {
     throw new Error('not used in this test');
   },
+  getDismissedSubmissionPrNumbers: () =>
+    Promise.resolve(Failure(new Error('not used in this test'))),
+  dismissSubmission: () => Promise.resolve(Failure(new Error('not used in this test'))),
 }));
 
 const getPluginBinaryMock = mock(() => Promise.resolve(Success(new Uint8Array([1, 2, 3]))));
@@ -131,7 +144,7 @@ const pluginId = 'test-plugin' as PluginID;
 
 describe('discoverEntryPoints', () => {
   it('runtimeに応じてpyodideEngineへ振り分ける', async () => {
-    const res = await discoverEntryPoints(pluginId);
+    const res = await discoverEntryPoints(pluginId, 'catalog');
     expect(res.ok).toBeTrue();
     expect(discoverEntryPointsMock).toHaveBeenCalled();
   });
@@ -141,7 +154,7 @@ describe('runEntryPoint', () => {
   it('システムコンテキスト＋discover宣言順のユーザー入力値をpositionalArgsとして渡す', async () => {
     pyodideRunEntryPointMock.mockClear();
 
-    const res = await runEntryPoint(pluginId, 'doSomething', { count: 5 }, [targetFile]);
+    const res = await runEntryPoint(pluginId, 'catalog', 'doSomething', { count: 5 }, [targetFile]);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
@@ -156,7 +169,7 @@ describe('runEntryPoint', () => {
   it('fieldValuesに未指定のフィールドはdefaultValueで補われる', async () => {
     pyodideRunEntryPointMock.mockClear();
 
-    await runEntryPoint(pluginId, 'doSomething', {}, [targetFile]);
+    await runEntryPoint(pluginId, 'catalog', 'doSomething', {}, [targetFile]);
 
     const call = pyodideRunEntryPointMock.mock.calls[0]!;
     expect(call[2]).toEqual([1, 2, 600, 800, 1]); // count省略時はdefaultValue(1)

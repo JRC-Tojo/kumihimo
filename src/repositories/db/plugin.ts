@@ -10,7 +10,7 @@
 import type { Observable } from 'dexie';
 import Dexie, { liveQuery, type Table } from 'dexie';
 import type { PluginID } from 'src/models/plugin/manifest';
-import type { InstalledPlugin } from 'src/models/plugin/installation';
+import type { InstalledPlugin, PluginInstallSource } from 'src/models/plugin/installation';
 import type { PluginRunState } from 'src/models/plugin/panel';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success, toError } from 'src/models/error/result';
@@ -21,8 +21,10 @@ interface DismissedSubmissionRecord {
 }
 
 class PluginDexieDB extends Dexie {
-  // すべて out-of-line キー（レコード自体にキーを持たせず、put/get時に明示的に指定する）
-  installed!: Table<InstalledPlugin, PluginID>;
+  // すべて out-of-line キー（レコード自体にキーを持たせず、put/get時に明示的に指定する）。
+  // installedのキーは`installedKey(id, source)`（`${source}::${id}`）で組み立てる文字列。
+  // 同一idでもcatalog/sideloadは別レコードとして共存できるようにするため
+  installed!: Table<InstalledPlugin, string>;
   runStates!: Table<PluginRunState, string>;
   dismissedSubmissions!: Table<DismissedSubmissionRecord, number>;
 
@@ -34,6 +36,11 @@ class PluginDexieDB extends Dexie {
       dismissedSubmissions: '',
     });
   }
+}
+
+/** `installed`テーブルの実キー。同一`id`でもcatalog/sideloadを別レコードとして共存させる */
+function installedKey(id: PluginID, source: PluginInstallSource): string {
+  return `${source}::${id}`;
 }
 
 const db = new PluginDexieDB();
@@ -60,13 +67,16 @@ export async function getInstalledPlugins(): Promise<Result<InstalledPlugin[]>> 
   }
 }
 
-/** 指定IDのインストール済みプラグイン情報を取得する */
-export async function getInstalledPlugin(id: PluginID): Promise<Result<InstalledPlugin>> {
+/** 指定ID・インストール経路のインストール済みプラグイン情報を取得する */
+export async function getInstalledPlugin(
+  id: PluginID,
+  source: PluginInstallSource,
+): Promise<Result<InstalledPlugin>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
   try {
-    const record = await db.installed.get(id);
-    if (!record) return Failure(new Error(`Not Found Installed Plugin (id: ${id})`));
+    const record = await db.installed.get(installedKey(id, source));
+    if (!record) return Failure(new Error(`Not Found Installed Plugin (id: ${id}, source: ${source})`));
     return Success(record);
   } catch (error) {
     return Failure(toError(error));
@@ -84,7 +94,7 @@ export async function putInstalledPlugin(entry: InstalledPlugin): Promise<Result
   const ready = await ensureReady();
   if (!ready.ok) return ready;
   try {
-    await db.installed.put(structuredClone(entry), entry.manifest.id);
+    await db.installed.put(structuredClone(entry), installedKey(entry.manifest.id, entry.source));
     return Success();
   } catch (error) {
     return Failure(toError(error));
@@ -92,11 +102,14 @@ export async function putInstalledPlugin(entry: InstalledPlugin): Promise<Result
 }
 
 /** インストール済みプラグイン情報を削除する */
-export async function deleteInstalledPlugin(id: PluginID): Promise<Result<void>> {
+export async function deleteInstalledPlugin(
+  id: PluginID,
+  source: PluginInstallSource,
+): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
   try {
-    await db.installed.delete(id);
+    await db.installed.delete(installedKey(id, source));
     return Success();
   } catch (error) {
     return Failure(toError(error));

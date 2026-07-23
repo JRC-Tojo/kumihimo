@@ -1,5 +1,9 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
-import type { InstalledPlugin, CatalogEntry } from 'src/models/plugin/installation';
+import type {
+  InstalledPlugin,
+  CatalogEntry,
+  PluginInstallSource,
+} from 'src/models/plugin/installation';
 import type { PluginID } from 'src/models/plugin/manifest';
 import { useBackendApi } from 'src/apis/backendApi';
 
@@ -56,9 +60,9 @@ export const usePluginStore = defineStore('plugin', {
     /**
      * プラグインをアンインストールし、一覧を最新化する
      */
-    async uninstall(id: PluginID): Promise<boolean> {
+    async uninstall(id: PluginID, source: PluginInstallSource): Promise<boolean> {
       const api = useBackendApi();
-      const res = await api.uninstallPlugin(id);
+      const res = await api.uninstallPlugin(id, source);
       if (res.ok) await this.loadInstalled();
       return res.ok;
     },

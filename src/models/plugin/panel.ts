@@ -12,7 +12,12 @@ import { PluginPlanItem } from './plan';
 export const PluginPanelBlock = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('progress'), label: z.string(), percent: z.number().nullable() }),
   z.object({ kind: z.literal('log'), lines: z.string().array() }),
-  z.object({ kind: z.literal('text'), text: z.string() }),
+  // severity省略時は'info'扱い。'error'は`ui.reportError`経由、またはWASM実行自体の失敗時に付与される
+  z.object({
+    kind: z.literal('text'),
+    text: z.string(),
+    severity: z.enum(['info', 'error']).optional(),
+  }),
 ]);
 export type PluginPanelBlock = z.infer<typeof PluginPanelBlock>;
 

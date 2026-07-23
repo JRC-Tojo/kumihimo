@@ -294,4 +294,31 @@ describe('buildExecutionBridge（最小権限）', () => {
     expect(state.blocks).toHaveLength(1);
     expect(state.blocks[0]).toEqual({ kind: 'progress', label: '', percent: 80 });
   });
+
+  it('ui.logは同一ラン内で1つのlogブロックに行を蓄積する', () => {
+    const manifest = buildManifest(['ui.log']);
+    const ctx = buildContext();
+    const state: ExecutionState = { blocks: [], plan: [], confirmationMode: 'perItem' };
+    const bridge = buildExecutionBridge(manifest, ctx, state);
+
+    bridge.ui_log!('1行目');
+    bridge.ui_log!('2行目');
+
+    expect(state.blocks).toHaveLength(1);
+    expect(state.blocks[0]).toEqual({ kind: 'log', lines: ['1行目', '2行目'] });
+  });
+
+  it('ui.reportErrorはseverity:errorのtextブロックを積み、state.hasPluginReportedErrorを立てる', () => {
+    const manifest = buildManifest(['ui.reportError']);
+    const ctx = buildContext();
+    const state: ExecutionState = { blocks: [], plan: [], confirmationMode: 'perItem' };
+    const bridge = buildExecutionBridge(manifest, ctx, state);
+
+    bridge.ui_report_error!('入力が不正です');
+
+    expect(state.blocks).toEqual([
+      { kind: 'text', text: '入力が不正です', severity: 'error' },
+    ]);
+    expect(state.hasPluginReportedError).toBe(true);
+  });
 });

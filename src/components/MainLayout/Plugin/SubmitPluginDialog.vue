@@ -22,6 +22,7 @@
           accept=".json"
           dense
           outlined
+          :disable="submitting"
         />
         <q-file
           v-model="binaryFile"
@@ -29,6 +30,7 @@
           class="q-mt-sm"
           dense
           outlined
+          :disable="submitting"
         />
         <q-file
           v-model="iconFile"
@@ -39,6 +41,7 @@
           outlined
           accept="image/*"
           clearable
+          :disable="submitting"
         />
 
         <q-banner v-if="validationErrors.length > 0" dense class="bg-negative text-white q-mt-sm">
@@ -55,16 +58,16 @@
           <q-btn
             unelevated
             color="primary"
-            :label="$t('button.upload')"
-            :disable="!manifestFile || !binaryFile || !githubConnected"
+            :label="submitButtonLabel"
+            :disable="!manifestFile || !binaryFile || !githubConnected || submitting"
             :loading="submitting"
             @click="onSubmit"
           />
         </div>
 
-        <q-separator class="q-my-md" />
+        <div class="q-my-md" />
 
-        <!-- マイ申請一覧 -->
+        <!-- マイ申請一覧（プラグイン単位でグルーピング） -->
         <div class="row items-center q-mb-xs">
           <div class="text-subtitle2">{{ $t('plugins.submission.mySubmissionsTitle') }}</div>
           <q-space />
@@ -75,6 +78,7 @@
             icon="refresh"
             size="sm"
             :loading="loadingSubmissions"
+            :disable="refreshCooldown"
             @click="loadSubmissions"
           >
             <q-tooltip>{{ $t('plugins.actions.refresh') }}</q-tooltip>
@@ -86,23 +90,21 @@
         >
           {{ $t('message.loading') }}
         </div>
-        <div v-else-if="mySubmissions.length === 0" class="text-grey-6 text-caption q-pa-sm">
+        <div v-else-if="submissionGroups.length === 0" class="text-grey-6 text-caption q-pa-sm">
           {{ $t('plugins.submission.noSubmissions') }}
         </div>
-        <q-list v-else separator class="q-gutter-y-sm">
-          <PluginSubmissionItem
-            v-for="submission in mySubmissions"
-            :key="submission.prNumber"
-            :submission="submission"
-            @publish="onPublish(submission.prNumber)"
-            @unpublish="onUnpublish(submission.manifest.id)"
-            @withdraw="onWithdraw(submission.prNumber)"
-            @dismiss="onDismiss(submission.prNumber)"
-            @request-publish="onRequestPublish(submission.prNumber)"
+        <q-list v-else separator>
+          <PluginSubmissionGroup
+            v-for="group in submissionGroups"
+            :key="group.pluginId"
+            :plugin-name="group.pluginName"
+            :submissions="group.submissions"
+            @withdraw="onWithdraw"
+            @unpublish="onUnpublish"
           />
         </q-list>
 
-        <q-separator class="q-my-md" />
+        <div class="q-my-md" />
 
         <!-- 公開の流れ・開発者向けドキュメント -->
         <div class="text-subtitle2 q-mb-xs">{{ $t('plugins.submission.helpTitle') }}</div>
@@ -126,16 +128,19 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { Notify } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { PluginSubmission } from 'src/models/plugin/submission';
 import type { PluginID } from 'src/models/plugin/manifest';
 import { sniffImageFormat, hasExtensionForImageFormat } from 'src/utils/binary/imageSniff';
-import PluginSubmissionItem from './PluginSubmissionItem.vue';
+import PluginSubmissionGroup from './PluginSubmissionGroup.vue';
 
 // ストアリポジトリCI（validateIcon.mjs）と同じ上限。事前に検証し、クライアント側で早期に弾く
 const ICON_MAX_SIZE_BYTES = 512 * 1024;
+// 更新ボタンの連打によるリクエスト過多を防ぐためのクールダウン
+const REFRESH_COOLDOWN_MS = 3000;
 
 interface Prop {
   modelValue: boolean;
@@ -163,8 +168,48 @@ const submitting = ref(false);
 const githubConnected = ref(true);
 const mySubmissions = ref<PluginSubmission[]>([]);
 const loadingSubmissions = ref(false);
+const refreshCooldown = ref(false);
+
+const submitButtonLabel = computed(() =>
+  submitting.value ? $t('plugins.submission.submitting') : $t('button.upload'),
+);
+
+interface SubmissionGroup {
+  pluginId: string;
+  pluginName: string;
+  submissions: PluginSubmission[];
+}
+
+// マイ申請をプラグイン単位（manifest.id）でグルーピングし、各グループ内はsubmittedAt降順にする
+const submissionGroups = computed<SubmissionGroup[]>(() => {
+  const groups = new Map<string, PluginSubmission[]>();
+  for (const submission of mySubmissions.value) {
+    const list = groups.get(submission.manifest.id) ?? [];
+    list.push(submission);
+    groups.set(submission.manifest.id, list);
+  }
+  return Array.from(groups.entries()).map(([pluginId, submissions]) => {
+    submissions.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+    return { pluginId, pluginName: submissions[0]?.manifest.name ?? pluginId, submissions };
+  });
+});
+
+/** 指定プラグインについて、終端状態（published/withdrawn）でない指定kindの申請を探す */
+function findActiveSubmission(
+  pluginId: string,
+  kind: PluginSubmission['kind'],
+): PluginSubmission | undefined {
+  return mySubmissions.value.find(
+    (s) =>
+      s.manifest.id === pluginId &&
+      s.kind === kind &&
+      s.status !== 'published' &&
+      s.status !== 'withdrawn',
+  );
+}
 
 async function loadSubmissions() {
+  if (refreshCooldown.value) return;
   loadingSubmissions.value = true;
   try {
     const res = await api.getPluginSubmissions();
@@ -172,7 +217,18 @@ async function loadSubmissions() {
     mySubmissions.value = res.ok ? res.data : [];
   } finally {
     loadingSubmissions.value = false;
+    refreshCooldown.value = true;
+    setTimeout(() => {
+      refreshCooldown.value = false;
+    }, REFRESH_COOLDOWN_MS);
   }
+}
+
+/** 取得済みの申請一覧に、新しい申請結果を反映する（同一PR番号があれば置き換え、なければ追加） */
+function mergeSubmission(submission: PluginSubmission) {
+  const idx = mySubmissions.value.findIndex((s) => s.prNumber === submission.prNumber);
+  if (idx === -1) mySubmissions.value = [submission, ...mySubmissions.value];
+  else mySubmissions.value = mySubmissions.value.map((s, i) => (i === idx ? submission : s));
 }
 
 // ダイアログを開いている間、CI検証結果やマージ状況を自動的に反映できるよう定期的に再取得する
@@ -268,18 +324,27 @@ async function onSubmit() {
   if (!manifestFile.value || !binaryFile.value) return;
   validationErrors.value = [];
   successMessage.value = '';
-  submitting.value = true;
 
+  const manifestText = await readFileAsText(manifestFile.value);
+  let manifestJson: unknown;
   try {
-    const manifestText = await readFileAsText(manifestFile.value);
-    let manifestJson: unknown;
-    try {
-      manifestJson = JSON.parse(manifestText);
-    } catch {
-      validationErrors.value = [$t('plugins.errors.manifestInvalid')];
-      return;
-    }
+    manifestJson = JSON.parse(manifestText);
+  } catch {
+    validationErrors.value = [$t('plugins.errors.manifestInvalid')];
+    return;
+  }
 
+  const declaredId =
+    typeof manifestJson === 'object' && manifestJson !== null && 'id' in manifestJson
+      ? (manifestJson as { id?: unknown }).id
+      : undefined;
+  if (typeof declaredId === 'string' && findActiveSubmission(declaredId, 'unpublish')) {
+    validationErrors.value = [$t('plugins.errors.unpublishInProgress')];
+    return;
+  }
+
+  submitting.value = true;
+  try {
     const declaredIconFile =
       typeof manifestJson === 'object' && manifestJson !== null && 'iconFile' in manifestJson
         ? (manifestJson as { iconFile?: unknown }).iconFile
@@ -296,6 +361,9 @@ async function onSubmit() {
     }
 
     const binary = await readFileAsUint8Array(binaryFile.value);
+    // submitPlugin自体がGitHub側の反映待ち（リトライ）を内包して返すため、ここでは
+    // 返ってきた結果をそのまま一覧へマージするだけでよい（直後にgetSubmissionsを
+    // 呼び直すと検索APIの索引反映待ちで404・空振りしやすいため、あえて呼ばない）
     const res = await api.submitPlugin(manifestJson, binary, icon);
     if (!res.ok) {
       validationErrors.value = [res.error.error.message || $t('plugins.errors.manifestInvalid')];
@@ -306,27 +374,20 @@ async function onSubmit() {
     binaryFile.value = null;
     iconFile.value = null;
     successMessage.value = $t('plugins.submission.submitSuccess');
-    await loadSubmissions();
+    mergeSubmission(res.data);
     emit('submitted');
   } finally {
     submitting.value = false;
   }
 }
 
-async function onPublish(prNumber: number) {
-  await api.republishPluginSubmission(prNumber);
-  await loadSubmissions();
-  emit('submitted');
-}
-
-async function onRequestPublish(prNumber: number) {
-  await api.requestPublishPluginSubmission(prNumber);
-  await loadSubmissions();
-}
-
 async function onUnpublish(pluginId: PluginID) {
-  await api.unpublishPlugin(pluginId);
-  await loadSubmissions();
+  if (findActiveSubmission(pluginId, 'submit')) {
+    Notify.create({ type: 'negative', message: $t('plugins.errors.submitInProgress') });
+    return;
+  }
+  const res = await api.unpublishPlugin(pluginId);
+  if (res.ok) mergeSubmission(res.data);
   emit('submitted');
 }
 
@@ -334,11 +395,6 @@ async function onWithdraw(prNumber: number) {
   await api.withdrawPluginSubmission(prNumber);
   await loadSubmissions();
   emit('submitted');
-}
-
-async function onDismiss(prNumber: number) {
-  await api.dismissPluginSubmission(prNumber);
-  await loadSubmissions();
 }
 </script>
 

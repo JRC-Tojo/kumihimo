@@ -123,6 +123,7 @@ import { usePluginStore } from 'src/stores/pluginStore';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { selectFileDialog } from 'src/components/Dialog/selectFileDialog';
 import type { PluginID } from 'src/models/plugin/manifest';
+import type { PluginInstallSource } from 'src/models/plugin/installation';
 import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
 import type { PluginRunState, PluginPanelBlock } from 'src/models/plugin/panel';
 import type { PluginPlanItem } from 'src/models/plugin/plan';
@@ -133,6 +134,7 @@ import PanelTextBlock from './PluginPanel/PanelTextBlock.vue';
 
 interface Prop {
   pluginId: PluginID;
+  source: PluginInstallSource;
 }
 const prop = defineProps<Prop>();
 
@@ -141,7 +143,10 @@ const api = useBackendApi();
 const pluginStore = usePluginStore();
 
 const manifest = computed(
-  () => pluginStore.installed.find((entry) => entry.manifest.id === prop.pluginId)?.manifest,
+  () =>
+    pluginStore.installed.find(
+      (entry) => entry.manifest.id === prop.pluginId && entry.source === prop.source,
+    )?.manifest,
 );
 
 const descriptors = ref<PluginEntryPointDescriptor[]>([]);
@@ -181,7 +186,7 @@ async function onPickFile(fieldId: string, label: string) {
 }
 
 onMounted(async () => {
-  const res = await api.discoverPluginEntryPoints(prop.pluginId);
+  const res = await api.discoverPluginEntryPoints(prop.pluginId, prop.source);
   if (res.ok) {
     descriptors.value = res.data;
     selectedEntryId.value = res.data[0]?.entryId;
@@ -257,12 +262,16 @@ async function onRun() {
   try {
     const runRes = await api.runPluginEntryPoint(
       prop.pluginId,
+      prop.source,
       descriptor.entryId,
       { ...fieldValues },
       targetFiles,
     );
     if (!runRes.ok) {
-      Notify.create({ type: 'negative', message: $t('plugins.errors.runFailed') });
+      Notify.create({
+        type: 'negative',
+        message: `${$t('plugins.errors.runFailed')}: ${runRes.error.error.message}`,
+      });
       return;
     }
     const newRunState = runRes.data;

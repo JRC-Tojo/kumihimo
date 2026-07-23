@@ -108,6 +108,18 @@ export const HOST_API_REGISTRY: HostApiFunctionSpec[] = [
     returns: 'void',
   },
   {
+    hostFnName: 'ui_log',
+    group: 'execution',
+    params: [p('message', 'string', 'string')],
+    returns: 'void',
+  },
+  {
+    hostFnName: 'ui_report_error',
+    group: 'execution',
+    params: [p('message', 'string', 'string')],
+    returns: 'void',
+  },
+  {
     hostFnName: 'plan_set_confirmation_mode',
     group: 'execution',
     params: [p('mode', 'string', 'string')],

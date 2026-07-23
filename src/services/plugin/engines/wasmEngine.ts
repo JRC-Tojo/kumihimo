@@ -111,9 +111,16 @@ function writeCString(exports: WasmExports, str: string): number {
   return ptr;
 }
 
-/** ホスト関数の呼び出し規約（文字列はNUL終端UTF-8ポインタとしてやり取りする）を吸収する */
+/**
+ * ホスト関数の呼び出し規約（文字列はNUL終端UTF-8ポインタとしてやり取りする）を吸収する
+ *
+ * すべてのホストAPI呼び出しがここを経由するため、開発時のデバッグ用に呼び出しごとの
+ * 引数・戻り値をコンソールへ出力する（プラグイン開発者が実機での不具合を調査する手段が
+ * これまで無かったため）
+ */
 function wrapHostFn(
   exportsRef: ExportsRef,
+  hostKey: string,
   sig: ApiSignature,
   fn: (...args: unknown[]) => unknown,
 ) {
@@ -129,6 +136,7 @@ function wrapHostFn(
     });
 
     const result = fn(...args);
+    console.debug('[plugin-host]', hostKey, args, '->', result);
 
     if (sig.returns === 'string') {
       return writeCString(exports, typeof result === 'string' ? result : '');
@@ -155,7 +163,7 @@ function buildImportObject(
   const hostSystem: Record<string, (...args: number[]) => number | undefined> = {};
   for (const [key, sig] of Object.entries(allSignatures)) {
     const fn = bridge[key];
-    hostSystem[key] = fn ? wrapHostFn(exportsRef, sig, fn) : noopHostFn(sig);
+    hostSystem[key] = fn ? wrapHostFn(exportsRef, key, sig, fn) : noopHostFn(sig);
   }
   return { host_system: hostSystem };
 }

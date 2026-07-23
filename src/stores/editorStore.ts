@@ -9,6 +9,7 @@ import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { Path } from 'src/utils/binary/path';
 import { useHistoryStore } from './historyStore';
 import type { PluginID } from 'src/models/plugin/manifest';
+import type { PluginInstallSource } from 'src/models/plugin/installation';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
 const sides = ['ul', 'ur', 'll', 'lr'] as const;
@@ -48,11 +49,12 @@ export const PLUGIN_TAB_PREFIX = '__plugin__:';
 export interface PluginTabRef {
   key: string;
   pluginId: PluginID;
+  source: PluginInstallSource;
   title: string;
 }
 
-function pluginTabKey(pluginId: string): string {
-  return `${PLUGIN_TAB_PREFIX}${pluginId}`;
+function pluginTabKey(pluginId: string, source: PluginInstallSource): string {
+  return `${PLUGIN_TAB_PREFIX}${source}:${pluginId}`;
 }
 
 /**
@@ -471,11 +473,11 @@ export const useEditorStore = defineStore('editor', {
      * 同じプラグインを指定した場合は既存タブをそのままアクティブにする（同一プラグインに
      * つき常に1タブ。タブ内で入力フォーム経由の再実行に対応する）
      */
-    openPluginTab(pluginId: PluginID, title: string): void {
-      const key = pluginTabKey(pluginId);
+    openPluginTab(pluginId: PluginID, source: PluginInstallSource, title: string): void {
+      const key = pluginTabKey(pluginId, source);
       const side = this.activeSide;
       if (!this.pluginTabs[side].some((t) => t.key === key)) {
-        this.pluginTabs[side].push({ key, pluginId, title });
+        this.pluginTabs[side].push({ key, pluginId, source, title });
       }
       this.activeTabPaths[side] = key;
     },

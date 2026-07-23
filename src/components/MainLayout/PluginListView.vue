@@ -44,13 +44,13 @@
         <q-list separator>
           <PluginListItem
             v-for="entry in filteredInstalled"
-            :key="entry.manifest.id"
+            :key="`${entry.source}:${entry.manifest.id}`"
             :manifest="entry.manifest"
             :installed="true"
             :icon-src="entry.iconDataUrl"
-            :sideloaded="entry.sideloaded"
-            @run="onRun(entry.manifest)"
-            @uninstall="onUninstall(entry.manifest.id)"
+            :sideloaded="entry.source === 'sideload'"
+            @run="onRun(entry.manifest, entry.source)"
+            @uninstall="onUninstall(entry.manifest.id, entry.source)"
             @details="onDetails(entry.manifest)"
           />
         </q-list>
@@ -73,7 +73,7 @@
             v-for="entry in filteredCatalog"
             :key="entry.manifest.id"
             :manifest="entry.manifest"
-            :installed="isInstalled(entry.manifest.id)"
+            :installed="isCatalogInstalled(entry.manifest.id)"
             :icon-src="entry.iconUrl"
             @install="onInstall(entry.manifest.id)"
             @details="onDetails(entry.manifest)"
@@ -94,6 +94,7 @@ import { useI18n } from 'vue-i18n';
 import { usePluginStore } from 'src/stores/pluginStore';
 import { useEditorStore } from 'src/stores/editorStore';
 import type { PluginID, PluginManifest } from 'src/models/plugin/manifest';
+import type { PluginInstallSource } from 'src/models/plugin/installation';
 import PluginListItem from './Plugin/PluginListItem.vue';
 import PluginDetailsDialog from './Plugin/PluginDetailsDialog.vue';
 import SubmitPluginDialog from './Plugin/SubmitPluginDialog.vue';
@@ -126,8 +127,12 @@ const filteredCatalog = computed(() =>
   ),
 );
 
-function isInstalled(id: PluginID): boolean {
-  return pluginStore.installed.some((entry) => entry.manifest.id === id);
+/**
+ * カタログ由来のインストール済みかどうか（サイドロード版が存在するだけでは
+ * 「インストール済み」扱いにしない。カタログとサイドロードは独立して共存できるため）
+ */
+function isCatalogInstalled(id: PluginID): boolean {
+  return pluginStore.installed.some((entry) => entry.manifest.id === id && entry.source === 'catalog');
 }
 
 async function refreshAll() {
@@ -138,8 +143,8 @@ async function onInstall(id: PluginID) {
   await pluginStore.install(id);
 }
 
-async function onUninstall(id: PluginID) {
-  await pluginStore.uninstall(id);
+async function onUninstall(id: PluginID, source: PluginInstallSource) {
+  await pluginStore.uninstall(id, source);
 }
 
 function onDetails(manifest: PluginManifest) {
@@ -151,8 +156,8 @@ function onDetails(manifest: PluginManifest) {
  * 実行ボタン押下時：プラグイン専用タブを開くだけでよい（入力フォーム・実行操作は
  * タブ内（PluginPanelView）に統合されている）
  */
-function onRun(manifest: PluginManifest) {
-  editorStore.openPluginTab(manifest.id, manifest.name);
+function onRun(manifest: PluginManifest, source: PluginInstallSource) {
+  editorStore.openPluginTab(manifest.id, source, manifest.name);
 }
 
 async function onSubmitted() {

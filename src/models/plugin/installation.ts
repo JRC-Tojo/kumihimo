@@ -2,6 +2,15 @@ import z from 'zod';
 import { PluginManifest } from './manifest';
 
 /**
+ * インストールの経路。同一`manifest.id`であっても、カタログ経由とサイドロード（ローカルの
+ * .wasm直接インストール）は別個のインストール済みプラグインとして共存できる
+ * （`(source, manifest.id)`の組がストレージ上の実体キーになる。`src/repositories/db/plugin.ts`
+ * `src/repositories/plugin/binaryStore.ts`参照）
+ */
+export const PluginInstallSource = z.enum(['catalog', 'sideload']);
+export type PluginInstallSource = z.infer<typeof PluginInstallSource>;
+
+/**
  * インストール済みプラグイン
  */
 export const InstalledPlugin = z.object({
@@ -11,9 +20,7 @@ export const InstalledPlugin = z.object({
   // アイコン画像（data URL）。オフラインでも一覧に表示できるよう、インストール時に取得して保持する。
   // manifest.iconFileが未指定、または取得に失敗した場合はundefined（デフォルトアイコンを表示する）
   iconDataUrl: z.string().optional(),
-  // trueの場合、カタログ経由ではなくローカルの.wasmを直接インストール（サイドロード）した
-  // プラグインであることを示す（一覧UIでの識別バッジ表示用）
-  sideloaded: z.boolean().optional(),
+  source: PluginInstallSource,
 });
 export type InstalledPlugin = z.infer<typeof InstalledPlugin>;
 

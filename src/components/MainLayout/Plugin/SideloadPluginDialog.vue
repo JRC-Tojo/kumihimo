@@ -133,7 +133,12 @@ async function onInstall() {
     typeof manifestJson === 'object' && manifestJson !== null && 'id' in manifestJson
       ? (manifestJson as { id?: unknown }).id
       : undefined;
-  if (typeof declaredId === 'string' && pluginStore.installed.some((e) => e.manifest.id === declaredId)) {
+  // カタログ版が存在するだけでは警告しない（共存が正常系のため）。既に同一idを
+  // サイドロード済みの場合のみ、上書きになる旨を警告する
+  if (
+    typeof declaredId === 'string' &&
+    pluginStore.installed.some((e) => e.manifest.id === declaredId && e.source === 'sideload')
+  ) {
     const confirmed = await confirmDialog({
       title: $t('plugins.sideload.overwriteWarningTitle'),
       message: $t('plugins.sideload.overwriteWarningMessage', { id: declaredId }),

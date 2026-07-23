@@ -5,21 +5,18 @@ import { PluginManifest } from './manifest';
  * プラグイン申請の状態
  *
  * pending: PRのCIチェックが実行中・未完了
- * ci_passed: CIチェックがすべて成功（まだ「公開をリクエスト」していない状態）
- * awaiting_merge: CIチェックに合格し、提出者が「公開をリクエスト」した（マージ待ち）。
- *   多くの提出者はストアリポジトリへの書き込み権限を持たずマージできないため、
- *   オーナー・メンテナがひと目でマージすべきPRを見つけられるようにするための状態
- * ci_failed: いずれかのCIチェックが失敗
+ * ci_passed: CIチェック（manifest/wasm/icon/ownership）がすべて成功。ストアリポジトリの
+ *   Actionsが自動的にマージするため、通常はこの状態に長く留まらない
+ * ci_failed: いずれかのCIチェックが失敗。修正した内容を同じPRへ再度申請できる
  * published: PRがマージ済み
  * withdrawn: マージされずにPRがクローズされた（申請者自身が取り下げた場合など）
  *
- * これらはすべて、ストアリポジトリの実際のPull Request・Checks API・ラベルから都度導出する
+ * これらはすべて、ストアリポジトリの実際のPull Request・Checks APIから都度導出する
  * （アプリ側では状態を保持しない。GitHubが唯一の情報源）
  */
 export const PluginSubmissionStatus = z.enum([
   'pending',
   'ci_passed',
-  'awaiting_merge',
   'ci_failed',
   'published',
   'withdrawn',
@@ -27,10 +24,25 @@ export const PluginSubmissionStatus = z.enum([
 export type PluginSubmissionStatus = z.infer<typeof PluginSubmissionStatus>;
 
 /**
+ * 申請の種別
+ *
+ * submit: 新規申請・バージョン更新（`plugin/<id>`ブランチ）
+ * unpublish: 公開済みプラグインの取り下げ（`deprecated: true`にする。`unpublish/<id>`ブランチ）
+ *
+ * 同一プラグインについて、submit/unpublishそれぞれ最大1件のPRしか同時に開かない設計とする
+ * （両ブランチとも固定名で、既存の開いたPRがあれば新規作成せず再利用する）ため、
+ * UI側は「進行中のsubmit申請があるあいだはunpublishできない・その逆も同様」という
+ * 相互排他を利用者に示すためにこの`kind`を使う
+ */
+export const PluginSubmissionKind = z.enum(['submit', 'unpublish']);
+export type PluginSubmissionKind = z.infer<typeof PluginSubmissionKind>;
+
+/**
  * プラグイン申請（＝ストアリポジトリに対する実際のPull Request）
  */
 export const PluginSubmission = z.object({
   manifest: PluginManifest,
+  kind: PluginSubmissionKind,
   status: PluginSubmissionStatus,
   prNumber: z.number().int().positive(),
   prUrl: z.url(),

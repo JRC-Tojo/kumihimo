@@ -88,6 +88,9 @@ export interface ExecutionState {
   plan: PluginPlanItem[];
   // 既定値は最も安全な'perItem'。プラグインがplan.setConfirmationModeを呼ぶまではこれが適用される
   confirmationMode: PluginConfirmationMode;
+  // `ui.reportError`が1回でも呼ばれた場合にtrueになる。WASM呼び出し自体は正常に返っても、
+  // プラグイン自身が「このランは失敗した」と判断した場合はrun全体をエラー扱いにするため
+  hasPluginReportedError?: boolean;
 }
 
 /** 不正な文字色が渡された場合は黒にフォールバックする */
@@ -112,6 +115,28 @@ function updateProgressBlock(state: ExecutionState, percent: number): void {
   } else {
     state.blocks.push({ kind: 'progress', label: '', percent });
   }
+}
+
+/** プラグインが`ui.log`で送った行を、単一の蓄積されるログブロックに追加する */
+function appendLogLine(state: ExecutionState, message: string): void {
+  const existing = state.blocks.find(
+    (b): b is Extract<PluginPanelBlock, { kind: 'log' }> => b.kind === 'log',
+  );
+  if (existing) {
+    existing.lines.push(message);
+  } else {
+    state.blocks.push({ kind: 'log', lines: [message] });
+  }
+}
+
+/**
+ * プラグインが`ui.reportError`で自発的に報告したエラーをテキストブロックとして追加する。
+ * WASM呼び出し自体は正常に返る場合でも、ラン全体を`'error'`扱いにするためのフラグを立てる
+ * （`run.ts`の`status`判定を参照）
+ */
+function appendPluginReportedError(state: ExecutionState, message: string): void {
+  state.blocks.push({ kind: 'text', text: message, severity: 'error' });
+  state.hasPluginReportedError = true;
 }
 
 /**
@@ -199,6 +224,14 @@ export function buildExecutionBridge(
     'ui.reportProgress': {
       hostKey: 'ui_report_progress',
       fn: (percent: number) => updateProgressBlock(state, percent),
+    },
+    'ui.log': {
+      hostKey: 'ui_log',
+      fn: (message: string) => appendLogLine(state, message),
+    },
+    'ui.reportError': {
+      hostKey: 'ui_report_error',
+      fn: (message: string) => appendPluginReportedError(state, message),
     },
     'plan.setConfirmationMode': {
       hostKey: 'plan_set_confirmation_mode',

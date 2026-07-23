@@ -25,55 +25,6 @@
         </q-list>
       </q-expansion-item>
     </q-item-section>
-
-    <q-item-section side>
-      <div class="column q-gutter-xs items-end">
-        <q-btn
-          v-if="submission.status === 'ci_passed'"
-          dense
-          flat
-          color="primary"
-          :label="$t('plugins.actions.requestPublish')"
-          @click="emit('requestPublish')"
-        />
-        <q-btn
-          v-if="submission.status === 'ci_passed' || submission.status === 'awaiting_merge'"
-          dense
-          flat
-          color="primary"
-          :label="$t('plugins.actions.publish')"
-          @click="emit('publish')"
-        />
-        <q-btn
-          v-if="isWithdrawable"
-          dense
-          flat
-          color="negative"
-          :label="$t('plugins.actions.withdraw')"
-          @click="emit('withdraw')"
-        />
-        <q-btn
-          v-if="submission.status === 'published'"
-          dense
-          flat
-          color="negative"
-          :label="$t('plugins.actions.unpublish')"
-          @click="emit('unpublish')"
-        />
-        <q-btn
-          v-if="isDismissible"
-          dense
-          flat
-          round
-          icon="close"
-          size="sm"
-          color="grey"
-          @click="emit('dismiss')"
-        >
-          <q-tooltip>{{ $t('plugins.actions.dismissSubmission') }}</q-tooltip>
-        </q-btn>
-      </div>
-    </q-item-section>
   </q-item>
 </template>
 
@@ -81,69 +32,18 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { PluginSubmission } from 'src/models/plugin/submission';
+import { displayStatus, statusLabelKey, statusColor as resolveStatusColor } from './submissionDisplay';
 
+// このコンポーネントは1件の申請（PR）の履歴行としての表示専用（操作ボタンは
+// PluginSubmissionGroup.vue側に集約されている。dismissのみ個々のPRに対する操作のため
+// ここに残す）
 interface Prop {
   submission: PluginSubmission;
 }
 const prop = defineProps<Prop>();
 
-const emit = defineEmits<{
-  publish: [];
-  unpublish: [];
-  withdraw: [];
-  dismiss: [];
-  requestPublish: [];
-}>();
-
 const { t: $t } = useI18n();
 
-// マージ・取り下げのいずれもされていない申請のみ、取り下げボタンを表示する
-const isWithdrawable = computed(
-  () =>
-    prop.submission.status === 'pending' ||
-    prop.submission.status === 'ci_passed' ||
-    prop.submission.status === 'awaiting_merge' ||
-    prop.submission.status === 'ci_failed',
-);
-
-// 取り下げ済み（＝これ以上操作の要らない申請）のみ、一覧からの削除ボタンを表示する
-const isDismissible = computed(() => prop.submission.status === 'withdrawn');
-
-const statusLabel = computed(() => {
-  switch (prop.submission.status) {
-    case 'pending':
-      return $t('plugins.submission.status.pending');
-    case 'ci_passed':
-      return $t('plugins.submission.status.ciPassed');
-    case 'awaiting_merge':
-      return $t('plugins.submission.status.awaitingMerge');
-    case 'ci_failed':
-      return $t('plugins.submission.status.ciFailed');
-    case 'published':
-      return $t('plugins.submission.status.published');
-    case 'withdrawn':
-      return $t('plugins.submission.status.withdrawn');
-    default:
-      return '';
-  }
-});
-
-const statusColor = computed(() => {
-  switch (prop.submission.status) {
-    case 'pending':
-      return 'grey';
-    case 'ci_passed':
-      return 'positive';
-    case 'awaiting_merge':
-      return 'orange';
-    case 'ci_failed':
-      return 'negative';
-    case 'published':
-      return 'primary';
-    case 'withdrawn':
-      return 'grey';
-    default:
-      return 'grey';
-  }
-});
+const statusLabel = computed(() => $t(statusLabelKey(displayStatus(prop.submission))));
+const statusColor = computed(() => resolveStatusColor(displayStatus(prop.submission)));
 </script>
