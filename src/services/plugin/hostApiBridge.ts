@@ -114,6 +114,18 @@ function updateProgressBlock(state: ExecutionState, percent: number): void {
   }
 }
 
+/**
+ * `annotId`が属する`ctx.targetFiles`内の添字を、各ファイルの先読み済み`existingAnnotations`
+ * を横断検索して自動解決する（`plan.updateAnnotation`/`plan.removeAnnotation`はプラグイン側から
+ * fileIndexを指定させず、ホスト側でこれにより所属ファイルを特定する）
+ */
+function resolveAnnotationFileIndex(ctx: PluginExecutionContext, annotId: string): number | undefined {
+  const index = ctx.fileContexts.findIndex((fc) =>
+    fc.existingAnnotations.some((a) => a.style.id === annotId),
+  );
+  return index === -1 ? undefined : index;
+}
+
 function toAnnotationJson(info: AnnotationInfo) {
   const box = ANNOTATION_GEOMETRY[info.style.type].boundingBox(info.style);
   return {
@@ -183,11 +195,6 @@ export function buildExecutionBridge(
   ctx: PluginExecutionContext,
   state: ExecutionState,
 ): Record<string, HostFn> {
-  // 現状のplan.*/doc.*系ホストAPIは「主対象ファイル」（`ui.addFileField`で選択された1件目）
-  // のみを操作対象とする。複数ファイルを跨いだ操作（ファイルを指定した作成・参照）は
-  // 将来のホストAPI拡張（file_index引数の追加）で対応する
-  const primaryFile = ctx.targetFiles[0];
-
   const master: Record<PluginHostApiName, { hostKey: string; fn: HostFn }> = {
     'ui.reportProgress': {
       hostKey: 'ui_report_progress',
@@ -202,6 +209,7 @@ export function buildExecutionBridge(
     'plan.addAnnotation': {
       hostKey: 'plan_add_annotation',
       fn: (
+        fileIndex: number,
         page: number,
         x: number,
         y: number,
@@ -212,7 +220,8 @@ export function buildExecutionBridge(
         fontSize: number,
         tagsCsv: string,
       ) => {
-        if (!primaryFile) return '';
+        const targetFile = ctx.targetFiles[fileIndex];
+        if (!targetFile) return '';
         const planItemId = uuidv4();
         const style = buildTextAnnotationStyle(AnnotationID.parse(uuidv4()), manifest, {
           page,
@@ -230,7 +239,7 @@ export function buildExecutionBridge(
           kind: 'annotationCreate',
           confirmationMode: state.confirmationMode,
           status: 'planned',
-          file: { containerID: primaryFile.containerID, path: primaryFile.path },
+          file: { containerID: targetFile.containerID, path: targetFile.path },
           style,
         });
         return planItemId;
@@ -250,8 +259,13 @@ export function buildExecutionBridge(
         tagsCsv: string,
       ) => {
         const idRes = AnnotationID.safeParse(annotId);
-        const existing = ctx.existingAnnotations.find((a) => a.style.id === annotId);
-        if (!primaryFile || !idRes.success || !existing || existing.style.type !== 'text') {
+        const fileIndex = idRes.success ? resolveAnnotationFileIndex(ctx, annotId) : undefined;
+        const targetFile = fileIndex !== undefined ? ctx.targetFiles[fileIndex] : undefined;
+        const existing =
+          fileIndex !== undefined
+            ? ctx.fileContexts[fileIndex]?.existingAnnotations.find((a) => a.style.id === annotId)
+            : undefined;
+        if (!idRes.success || !targetFile || !existing || existing.style.type !== 'text') {
           return '';
         }
 
@@ -274,7 +288,7 @@ export function buildExecutionBridge(
           kind: 'annotationUpdate',
           confirmationMode: state.confirmationMode,
           status: 'planned',
-          file: { containerID: primaryFile.containerID, path: primaryFile.path },
+          file: { containerID: targetFile.containerID, path: targetFile.path },
           annotId: idRes.data,
           style,
         });
@@ -285,7 +299,9 @@ export function buildExecutionBridge(
       hostKey: 'plan_remove_annotation',
       fn: (annotId: string) => {
         const idRes = AnnotationID.safeParse(annotId);
-        if (!primaryFile || !idRes.success) return '';
+        const fileIndex = idRes.success ? resolveAnnotationFileIndex(ctx, annotId) : undefined;
+        const targetFile = fileIndex !== undefined ? ctx.targetFiles[fileIndex] : undefined;
+        if (!idRes.success || !targetFile) return '';
 
         const planItemId = uuidv4();
         state.plan.push({
@@ -293,7 +309,7 @@ export function buildExecutionBridge(
           kind: 'annotationRemove',
           confirmationMode: state.confirmationMode,
           status: 'planned',
-          file: { containerID: primaryFile.containerID, path: primaryFile.path },
+          file: { containerID: targetFile.containerID, path: targetFile.path },
           annotId: idRes.data,
         });
         return planItemId;
@@ -342,28 +358,31 @@ export function buildExecutionBridge(
     },
     'doc.getProjectMetadata': {
       hostKey: 'doc_get_project_metadata',
-      fn: () => ctx.metadataJson,
+      fn: (fileIndex: number) => ctx.fileContexts[fileIndex]?.metadataJson ?? '{}',
     },
     'doc.getPageSize': {
       hostKey: 'doc_get_page_size',
-      fn: (page: number) => JSON.stringify(ctx.pageSizes.get(page) ?? { width: 0, height: 0 }),
+      fn: (fileIndex: number, page: number) =>
+        JSON.stringify(ctx.fileContexts[fileIndex]?.pageSizes.get(page) ?? { width: 0, height: 0 }),
     },
     'doc.getPageTextBlocks': {
       hostKey: 'doc_get_page_text_blocks',
-      fn: (page: number) => ctx.pageTextBlocksJson.get(page) ?? '[]',
+      fn: (fileIndex: number, page: number) =>
+        ctx.fileContexts[fileIndex]?.pageTextBlocksJson.get(page) ?? '[]',
     },
     'doc.getPageImage': {
       hostKey: 'doc_get_page_image',
-      fn: (page: number) => ctx.pageImages.get(page) ?? '',
+      fn: (fileIndex: number, page: number) => ctx.fileContexts[fileIndex]?.pageImages.get(page) ?? '',
     },
     'doc.getAnnotationsByFile': {
       hostKey: 'doc_get_annotations_by_file',
-      fn: () => JSON.stringify(ctx.existingAnnotations.map(toAnnotationJson)),
+      fn: (fileIndex: number) =>
+        JSON.stringify((ctx.fileContexts[fileIndex]?.existingAnnotations ?? []).map(toAnnotationJson)),
     },
     'doc.getAnnotationIdsByTag': {
       hostKey: 'doc_get_annotation_ids_by_tag',
-      fn: (tag: string) =>
-        ctx.existingAnnotations
+      fn: (fileIndex: number, tag: string) =>
+        (ctx.fileContexts[fileIndex]?.existingAnnotations ?? [])
           .filter((a) => a.style.tags?.includes(tag))
           .map((a) => a.style.id)
           .join(','),

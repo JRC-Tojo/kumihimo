@@ -14,10 +14,12 @@
         </div>
         <q-tree
           v-else
+          v-model:expanded="expanded"
           v-model:selected="selectedKey"
           :nodes="nodes"
           node-key="key"
-          default-expand-all
+          accordion
+          selected-color="primary"
         />
       </q-card-section>
 
@@ -58,6 +60,7 @@ const api = useBackendApi();
 
 const loading = ref(true);
 const nodes = ref<QTreeNode[]>([]);
+const expanded = ref<string[]>([])
 const selectedKey = ref<string | null>(null);
 const filesByKey = new Map<string, ContainerElementFile>();
 
@@ -99,13 +102,15 @@ onMounted(async () => {
     for (const skel of containersRes.data) {
       const loadedRes = await api.loadContainer(skel.id);
       if (!loadedRes.ok) continue;
+      const nodeKey = `container::${skel.id}`
       containerNodes.push({
-        key: `container::${skel.id}`,
+        key: nodeKey,
         label: skel.name,
         icon: 'folder_open',
         selectable: false,
         children: buildNodes(skel.id, loadedRes.data.elements, null),
       });
+      expanded.value.push(nodeKey)
     }
     nodes.value = containerNodes;
   }

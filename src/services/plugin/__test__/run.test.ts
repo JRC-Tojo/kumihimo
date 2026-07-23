@@ -64,13 +64,17 @@ void mock.module('src/services/plugin/hostContext', () => ({
     Promise.resolve(
       Success({
         targetFiles: [targetFile],
-        pageCount: 2,
+        fileContexts: [
+          {
+            pageCount: 2,
+            metadataJson: '{}',
+            pageSizes: new Map(),
+            pageTextBlocksJson: new Map(),
+            pageImages: new Map(),
+            existingAnnotations: [],
+          },
+        ],
         representativePageSize: { width: 600, height: 800 },
-        metadataJson: '{}',
-        pageSizes: new Map(),
-        pageTextBlocksJson: new Map(),
-        pageImages: new Map(),
-        existingAnnotations: [],
       }),
     ),
 }));
@@ -146,7 +150,7 @@ describe('runEntryPoint', () => {
     const call = pyodideRunEntryPointMock.mock.calls[0]!;
     // call: [binary, entryId, positionalArgs, manifest, ctx, state]
     expect(call[1]).toBe('doSomething');
-    expect(call[2]).toEqual([2, 600, 800, 5]); // pageCount, pageWidth, pageHeight, count
+    expect(call[2]).toEqual([1, 2, 600, 800, 5]); // targetFileCount, pageCount, pageWidth, pageHeight, count
   });
 
   it('fieldValuesに未指定のフィールドはdefaultValueで補われる', async () => {
@@ -155,7 +159,7 @@ describe('runEntryPoint', () => {
     await runEntryPoint(pluginId, 'doSomething', {}, [targetFile]);
 
     const call = pyodideRunEntryPointMock.mock.calls[0]!;
-    expect(call[2]).toEqual([2, 600, 800, 1]); // count省略時はdefaultValue(1)
+    expect(call[2]).toEqual([1, 2, 600, 800, 1]); // count省略時はdefaultValue(1)
   });
 });
 

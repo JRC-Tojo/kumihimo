@@ -366,6 +366,7 @@ export default {
       dismissSubmission: 'Remove from list',
       enable: 'Enable',
       disable: 'Disable',
+      sideload: 'Install WASM Directly',
     },
     list: {
       searchPlaceholder: 'Search plugins',
@@ -374,6 +375,7 @@ export default {
       noInstalled: 'No plugins installed',
       noCatalogEntries: 'No plugins available',
       version: 'Version',
+      localBadge: 'Local',
     },
     details: {
       requiredHostApis: 'Required Host APIs',
@@ -434,6 +436,18 @@ export default {
       helpStep3:
         'To update a published plugin later, submit the new files the same way (the submitter must be the same GitHub account that published it).',
       devGuideLink: 'View developer documentation',
+    },
+    sideload: {
+      dialogTitle: 'Install WASM Directly',
+      helpText:
+        'Install a local .wasm file directly, bypassing the store/catalog, to verify it works against the real host. Intended for plugin development. Use "Submit New Plugin" to publish.',
+      manifestFile: 'Manifest File (plugin.json)',
+      binaryFile: 'Binary File',
+      iconFile: 'Icon Image (optional)',
+      installSuccess: 'Installed',
+      overwriteWarningTitle: 'Already Installed',
+      overwriteWarningMessage:
+        'A plugin with the same ID "{id}" is already installed. Overwrite it?',
     },
     errors: {
       installFailed: 'Failed to install plugin',

@@ -36,6 +36,7 @@ import {
   type DiscoveryState,
   type ExecutionState,
 } from 'src/services/plugin/hostApiBridge';
+import { HOST_API_REGISTRY } from 'src/services/plugin/hostApiRegistry';
 
 /** WASMモジュールが公開しなければならないエクスポート（文字列マーシャリングに使う） */
 interface WasmExports {
@@ -50,59 +51,27 @@ interface ApiSignature {
   returns: 'string' | 'number' | 'void';
 }
 
-const DISCOVERY_SIGNATURES: Record<string, ApiSignature> = {
-  ui_register_entry_point: { params: ['string', 'string', 'string'], returns: 'void' },
-  ui_add_text_field: { params: ['string', 'string', 'string', 'boolean'], returns: 'void' },
-  ui_add_number_field: { params: ['string', 'string', 'number', 'boolean'], returns: 'void' },
-  ui_add_toggle_field: { params: ['string', 'string', 'boolean'], returns: 'void' },
-  ui_add_select_field: {
-    params: ['string', 'string', 'string', 'string'],
-    returns: 'void',
-  },
-  ui_add_file_field: { params: ['string', 'string', 'boolean'], returns: 'void' },
-};
+/**
+ * ホストが実際に注入するインポートオブジェクトの形は、常に`hostApiRegistry.ts`の
+ * `HOST_API_REGISTRY`（唯一の情報源）から導出する。Rust SDK（`pluginSdk/rust/host_sdk.rs`）
+ * の`extern "C"`ブロックも同じレジストリから生成されるため、この2つがズレることはない
+ * （`src/services/plugin/__test__/hostApiCodegen.test.ts`が保証する）
+ */
+function signaturesForGroup(group: 'discovery' | 'execution'): Record<string, ApiSignature> {
+  const result: Record<string, ApiSignature> = {};
+  for (const spec of HOST_API_REGISTRY) {
+    if (spec.group !== group) continue;
+    result[spec.hostFnName] = {
+      params: spec.params.map((param) => param.jsType),
+      returns: spec.returns,
+    };
+  }
+  return result;
+}
 
-const EXECUTION_SIGNATURES: Record<string, ApiSignature> = {
-  ui_report_progress: { params: ['number'], returns: 'void' },
-  plan_set_confirmation_mode: { params: ['string'], returns: 'void' },
-  plan_add_annotation: {
-    params: [
-      'number',
-      'number',
-      'number',
-      'number',
-      'number',
-      'string',
-      'string',
-      'number',
-      'string',
-    ],
-    returns: 'string',
-  },
-  plan_update_annotation: {
-    params: [
-      'string',
-      'number',
-      'number',
-      'number',
-      'number',
-      'string',
-      'string',
-      'number',
-      'string',
-    ],
-    returns: 'string',
-  },
-  plan_remove_annotation: { params: ['string'], returns: 'string' },
-  plan_add_relational: { params: ['string', 'string', 'string'], returns: 'string' },
-  plan_remove_relational: { params: ['string', 'string'], returns: 'string' },
-  doc_get_project_metadata: { params: [], returns: 'string' },
-  doc_get_page_size: { params: ['number'], returns: 'string' },
-  doc_get_page_text_blocks: { params: ['number'], returns: 'string' },
-  doc_get_page_image: { params: ['number'], returns: 'string' },
-  doc_get_annotations_by_file: { params: [], returns: 'string' },
-  doc_get_annotation_ids_by_tag: { params: ['string'], returns: 'string' },
-};
+const DISCOVERY_SIGNATURES: Record<string, ApiSignature> = signaturesForGroup('discovery');
+
+const EXECUTION_SIGNATURES: Record<string, ApiSignature> = signaturesForGroup('execution');
 
 interface ExportsRef {
   current: WasmExports | undefined;

@@ -8,7 +8,12 @@
     </q-item-section>
 
     <q-item-section>
-      <q-item-label>{{ manifest.name }}</q-item-label>
+      <q-item-label>
+        {{ manifest.name }}
+        <q-badge v-if="sideloaded" outline color="orange" class="q-ml-xs">{{
+          $t('plugins.list.localBadge')
+        }}</q-badge>
+      </q-item-label>
       <q-item-label caption lines="2">{{ manifest.description }}</q-item-label>
       <q-item-label caption>{{ $t('plugins.list.version') }}: {{ manifest.version }}</q-item-label>
     </q-item-section>
@@ -66,6 +71,7 @@ interface Prop {
   manifest: PluginManifest;
   installed: boolean;
   iconSrc: string | undefined;
+  sideloaded?: boolean | undefined;
 }
 defineProps<Prop>();
 

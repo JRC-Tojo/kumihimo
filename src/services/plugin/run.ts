@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Observable } from 'dexie';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PluginID, PluginRuntime, PluginManifest } from 'src/models/plugin/manifest';
-import type { PluginEntryPointDescriptor, PluginField } from 'src/models/plugin/discovery';
+import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
 import type { PluginRunState } from 'src/models/plugin/panel';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success } from 'src/models/error/result';
@@ -17,6 +17,7 @@ import * as pyodideEngine from 'src/services/plugin/engines/pyodideEngine';
 import { buildExecutionContext } from 'src/services/plugin/hostContext';
 import type { ExecutionState } from 'src/services/plugin/hostApiBridge';
 import { getPluginBinary } from 'src/services/plugin/install';
+import { buildPositionalArgs } from 'src/services/plugin/positionalArgs';
 
 /**
  * 実行エンジン種別ごとの処理振り分け（`services/container/main.ts`の
@@ -62,10 +63,6 @@ export async function discoverEntryPoints(
   );
 }
 
-/** `file`型以外のフィールドかどうかの型ガード（`defaultValue`を持つ変種に絞り込む） */
-function isNonFileField(field: PluginField): field is Exclude<PluginField, { type: 'file' }> {
-  return field.type !== 'file';
-}
 
 /**
  * プラグインのエントリポイントを実行する
@@ -93,17 +90,7 @@ export async function runEntryPoint(
   if (!ctxRes.ok) return ctxRes;
   const ctx = ctxRes.value;
 
-  // 引数順: [システムコンテキスト] pageCount, pageWidth, pageHeight → [discover宣言順の
-  // fileを除くユーザー入力値]。file型フィールドはWASMへ値として渡せないため位置引数には
-  // 含めず、選択結果は`targetFiles`としてのみ扱う（`hostApiBridge.ts`のホストAPI経由で参照する）
-  const positionalArgs: Array<string | number | boolean> = [
-    ctx.pageCount,
-    ctx.representativePageSize.width,
-    ctx.representativePageSize.height,
-    ...descriptor.fields
-      .filter(isNonFileField)
-      .map((field) => fieldValues[field.fieldId] ?? field.defaultValue),
-  ];
+  const positionalArgs = buildPositionalArgs(descriptor, fieldValues, ctx);
 
   const state: ExecutionState = { blocks: [], plan: [], confirmationMode: 'perItem' };
 

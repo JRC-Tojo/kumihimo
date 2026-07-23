@@ -13,7 +13,9 @@
     "bun:test": "bun test",
     "dev": "quasar dev -m pwa",
     "build": "quasar build -m pwa",
-    "postinstall": "quasar prepare"
+    "postinstall": "quasar prepare",
+    "generate:plugin-sdk": "bun run scripts/generatePluginSdk.ts",
+    "plugin:test": "bun run pluginSdk/devTools/runPlugin.ts"
   },
   "dependencies": {
     "@quasar/extras": "^1.16.4",

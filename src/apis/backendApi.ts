@@ -637,6 +637,21 @@ class BackendApi {
   }
 
   /**
+   * ローカルのマニフェスト・バイナリ・（任意で）アイコンから直接プラグインをインストールする
+   * （ストア/カタログを経由しない。開発中のWASMを実ホストで動作確認する用途）
+   */
+  async installPluginFromFile(
+    manifestJson: unknown,
+    binary: Uint8Array,
+    icon: Uint8Array | undefined,
+  ): Promise<ApiResponse<void>> {
+    const parsed = parseManifest(manifestJson);
+    if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
+    const res = await pluginInstallService.installPlugin(parsed.value, binary, icon, true);
+    return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
+  }
+
+  /**
    * プラグインをアンインストールする
    */
   async uninstallPlugin(id: PluginID): Promise<ApiResponse<void>> {

@@ -9,6 +9,9 @@
       <q-btn flat dense round icon="upload" size="sm" @click="showSubmitDialog = true">
         <q-tooltip>{{ $t('plugins.actions.submitNew') }}</q-tooltip>
       </q-btn>
+      <q-btn flat dense round icon="science" size="sm" @click="showSideloadDialog = true">
+        <q-tooltip>{{ $t('plugins.actions.sideload') }}</q-tooltip>
+      </q-btn>
     </div>
 
     <div class="q-px-sm q-pb-sm">
@@ -45,6 +48,7 @@
             :manifest="entry.manifest"
             :installed="true"
             :icon-src="entry.iconDataUrl"
+            :sideloaded="entry.sideloaded"
             @run="onRun(entry.manifest)"
             @uninstall="onUninstall(entry.manifest.id)"
             @details="onDetails(entry.manifest)"
@@ -80,6 +84,7 @@
 
     <PluginDetailsDialog v-model="showDetailsDialog" :manifest="detailsManifest" />
     <SubmitPluginDialog v-model="showSubmitDialog" @submitted="onSubmitted" />
+    <SideloadPluginDialog v-model="showSideloadDialog" @installed="onSideloaded" />
   </div>
 </template>
 
@@ -92,6 +97,7 @@ import type { PluginID, PluginManifest } from 'src/models/plugin/manifest';
 import PluginListItem from './Plugin/PluginListItem.vue';
 import PluginDetailsDialog from './Plugin/PluginDetailsDialog.vue';
 import SubmitPluginDialog from './Plugin/SubmitPluginDialog.vue';
+import SideloadPluginDialog from './Plugin/SideloadPluginDialog.vue';
 
 const { t: $t } = useI18n();
 const pluginStore = usePluginStore();
@@ -99,6 +105,7 @@ const editorStore = useEditorStore();
 
 const showDetailsDialog = ref(false);
 const showSubmitDialog = ref(false);
+const showSideloadDialog = ref(false);
 const detailsManifest = ref<PluginManifest>();
 const searchQuery = ref('');
 const installedExpanded = ref(true);
@@ -150,6 +157,10 @@ function onRun(manifest: PluginManifest) {
 
 async function onSubmitted() {
   await pluginStore.loadCatalog();
+}
+
+async function onSideloaded() {
+  await pluginStore.loadInstalled();
 }
 
 onMounted(refreshAll);

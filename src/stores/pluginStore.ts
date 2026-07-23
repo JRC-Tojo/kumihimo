@@ -39,6 +39,21 @@ export const usePluginStore = defineStore('plugin', {
     },
 
     /**
+     * ローカルのマニフェスト・バイナリから直接プラグインをインストールし、一覧を最新化する
+     * （ストア/カタログを経由しないサイドロード。開発中のWASMを実ホストで動作確認する用途）
+     */
+    async installFromFile(
+      manifestJson: unknown,
+      binary: Uint8Array,
+      icon: Uint8Array | undefined,
+    ): Promise<boolean> {
+      const api = useBackendApi();
+      const res = await api.installPluginFromFile(manifestJson, binary, icon);
+      if (res.ok) await this.loadInstalled();
+      return res.ok;
+    },
+
+    /**
      * プラグインをアンインストールし、一覧を最新化する
      */
     async uninstall(id: PluginID): Promise<boolean> {

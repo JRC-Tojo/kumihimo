@@ -11,6 +11,9 @@ export const InstalledPlugin = z.object({
   // アイコン画像（data URL）。オフラインでも一覧に表示できるよう、インストール時に取得して保持する。
   // manifest.iconFileが未指定、または取得に失敗した場合はundefined（デフォルトアイコンを表示する）
   iconDataUrl: z.string().optional(),
+  // trueの場合、カタログ経由ではなくローカルの.wasmを直接インストール（サイドロード）した
+  // プラグインであることを示す（一覧UIでの識別バッジ表示用）
+  sideloaded: z.boolean().optional(),
 });
 export type InstalledPlugin = z.infer<typeof InstalledPlugin>;
 

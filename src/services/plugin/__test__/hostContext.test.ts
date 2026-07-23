@@ -73,15 +73,28 @@ function buildManifest(requiredHostApis: PluginManifest['requiredHostApis']): Pl
   };
 }
 
+const secondContainerID = ContainerID.parse('55555555-5555-4555-8555-555555555555');
+const secondTargetFile = {
+  containerID: secondContainerID,
+  type: 'File' as const,
+  path: 'b.pdf',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  description: '',
+  genre: '',
+  tags: [],
+};
+
 describe('buildExecutionContext', () => {
-  it('メタ情報・代表ページサイズ・ページ数は常に組み立てられる', async () => {
+  it('メタ情報・代表ページサイズ・ページ数は常に組み立てられる（fileContexts[0]がtargetFiles[0]に対応）', async () => {
     const res = await buildExecutionContext(buildManifest([]), [targetFile]);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
-    expect(res.value.pageCount).toBe(2);
+    expect(res.value.fileContexts).toHaveLength(1);
+    expect(res.value.fileContexts[0]?.pageCount).toBe(2);
     expect(res.value.representativePageSize).toEqual({ width: 600, height: 800 });
-    const metadata = JSON.parse(res.value.metadataJson);
+    const metadata = JSON.parse(res.value.fileContexts[0]?.metadataJson ?? '{}');
     expect(metadata.pageCount).toBe(2);
     expect(metadata.filePath).toBe('a.pdf');
   });
@@ -94,7 +107,7 @@ describe('buildExecutionContext', () => {
 
     // 代表ページサイズ（1ページ目）取得の1回のみ呼ばれる
     expect(getPageSizeFromDocMock).toHaveBeenCalledTimes(1);
-    expect(res.value.pageSizes.size).toBe(0);
+    expect(res.value.fileContexts[0]?.pageSizes.size).toBe(0);
   });
 
   it('doc.getPageSizeが要求されている場合、全ページのサイズが先読みされる', async () => {
@@ -105,7 +118,7 @@ describe('buildExecutionContext', () => {
 
     // 代表ページサイズ1回 + 全ページ分（pageCount=2）
     expect(getPageSizeFromDocMock).toHaveBeenCalledTimes(3);
-    expect(res.value.pageSizes.size).toBe(2);
+    expect(res.value.fileContexts[0]?.pageSizes.size).toBe(2);
   });
 
   it('doc.getPageTextBlocksが要求されていない場合はテキストブロックを先読みしない', async () => {
@@ -130,5 +143,22 @@ describe('buildExecutionContext', () => {
     getAnnotationsByFileMock.mockClear();
     await buildExecutionContext(buildManifest(['doc.getAnnotationIdsByTag']), [targetFile]);
     expect(getAnnotationsByFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('複数のtargetFilesを指定した場合、ファイルごとにPDFを取得しfileContextsを並び順通りに組み立てる', async () => {
+    acquirePdfDocumentMock.mockClear();
+    getAnnotationsByFileMock.mockClear();
+    const res = await buildExecutionContext(buildManifest(['doc.getAnnotationsByFile']), [
+      targetFile,
+      secondTargetFile,
+    ]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    expect(acquirePdfDocumentMock).toHaveBeenCalledTimes(2);
+    expect(getAnnotationsByFileMock).toHaveBeenCalledTimes(2);
+    expect(res.value.fileContexts).toHaveLength(2);
+    // 代表ページサイズはtargetFiles[0]（主対象ファイル）の値のみを保持する
+    expect(res.value.representativePageSize).toEqual({ width: 600, height: 800 });
   });
 });

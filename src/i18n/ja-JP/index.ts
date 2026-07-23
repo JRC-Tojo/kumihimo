@@ -365,6 +365,7 @@ export default {
       dismissSubmission: '一覧から削除',
       enable: '有効化',
       disable: '無効化',
+      sideload: 'WASMを直接インストール',
     },
     list: {
       searchPlaceholder: 'プラグインを検索',
@@ -373,6 +374,7 @@ export default {
       noInstalled: 'インストール済みのプラグインはありません',
       noCatalogEntries: '導入可能なプラグインはありません',
       version: 'バージョン',
+      localBadge: 'ローカル',
     },
     details: {
       requiredHostApis: '要求ホストAPI',
@@ -432,6 +434,18 @@ export default {
       helpStep3:
         '公開後にバージョンを更新する場合も、同じ手順で新しいファイルを申請してください（申請者は公開者と同一のGitHubアカウントである必要があります）。',
       devGuideLink: '開発者向けドキュメントを見る',
+    },
+    sideload: {
+      dialogTitle: 'WASMを直接インストール',
+      helpText:
+        'ストア（カタログ）を経由せず、ローカルの.wasmファイルを直接インストールして動作確認できます。プラグイン開発時の検証用の機能です。公開する場合は「新規プラグインを申請」を使ってください。',
+      manifestFile: 'マニフェストファイル（plugin.json）',
+      binaryFile: '本体ファイル',
+      iconFile: 'アイコン画像（任意）',
+      installSuccess: 'インストールしました',
+      overwriteWarningTitle: '既にインストール済みです',
+      overwriteWarningMessage:
+        '同じID「{id}」のプラグインが既にインストールされています。上書きしてもよろしいですか？',
     },
     errors: {
       installFailed: 'インストールに失敗しました',

@@ -36,13 +36,20 @@ export async function installPlugin(
   manifest: PluginManifest,
   binary: Uint8Array,
   icon?: Uint8Array,
+  sideloaded?: boolean,
 ): Promise<Result<void>> {
   const binRes = await binaryStore.setBinary(manifest.id, binary);
   if (!binRes.ok) return binRes;
 
   const iconDataUrl = icon ? toIconDataUrl(icon) : undefined;
 
-  const entry: InstalledPlugin = { manifest, installedAt: new Date(), enabled: true, iconDataUrl };
+  const entry: InstalledPlugin = {
+    manifest,
+    installedAt: new Date(),
+    enabled: true,
+    iconDataUrl,
+    sideloaded,
+  };
   return pluginDb.putInstalledPlugin(entry);
 }
 

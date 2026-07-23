@@ -92,13 +92,17 @@ describe('wasmEngine', () => {
           tags: [],
         },
       ],
-      pageCount: 1,
+      fileContexts: [
+        {
+          pageCount: 1,
+          metadataJson: '{}',
+          pageSizes: new Map(),
+          pageTextBlocksJson: new Map(),
+          pageImages: new Map(),
+          existingAnnotations: [],
+        },
+      ],
       representativePageSize: { width: 1, height: 1 },
-      metadataJson: '{}',
-      pageSizes: new Map(),
-      pageTextBlocksJson: new Map(),
-      pageImages: new Map(),
-      existingAnnotations: [],
     };
     const state: ExecutionState = { blocks: [], plan: [], confirmationMode: 'perItem' };
 
