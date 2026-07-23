@@ -1,5 +1,5 @@
 /**
- * `hostApiRegistry.ts`の`HOST_API_REGISTRY`から、Rust SDK（`pluginSdk/rust/host_sdk.rs`）の
+ * `hostApiRegistry.ts`の`HOST_API_REGISTRY`から、Rust SDK（`PLUGIN_SDK/rust/host_sdk.rs`）の
  * `extern "C"`ブロックのテキストを生成する
  *
  * この関数は2箇所から同じ形で呼ばれる:

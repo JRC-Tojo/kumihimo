@@ -1,6 +1,6 @@
 /**
  * `hostApiRegistry.ts`（ホストAPIシグネチャの唯一の情報源）と、コミット済みの
- * `pluginSdk/rust/host_sdk.rs`のGENERATED-EXTERNマーカー区間が一致していることを検証する
+ * `PLUGIN_SDK/rust/host_sdk.rs`のGENERATED-EXTERNマーカー区間が一致していることを検証する
  *
  * どちらか片方だけを手で変更してしまった場合、このテストが赤くなって気づける。
  * 失敗した場合は `bun run generate:plugin-sdk` を実行してから再度テストすること
@@ -11,10 +11,10 @@ import path from 'node:path';
 import { extractMarkedBlock, generateRustExternBlock } from 'src/services/plugin/hostApiCodegen';
 import { HOST_API_REGISTRY } from 'src/services/plugin/hostApiRegistry';
 
-const HOST_SDK_PATH = path.resolve(import.meta.dir, '../../../../pluginSdk/rust/host_sdk.rs');
+const HOST_SDK_PATH = path.resolve(import.meta.dir, '../../../../PLUGIN_SDK/rust/host_sdk.rs');
 
 describe('hostApiCodegen', () => {
-  test('pluginSdk/rust/host_sdk.rsのGENERATED-EXTERN区間はHOST_API_REGISTRYと一致している', () => {
+  test('PLUGIN_SDK/rust/host_sdk.rsのGENERATED-EXTERN区間はHOST_API_REGISTRYと一致している', () => {
     const fileText = readFileSync(HOST_SDK_PATH, 'utf-8');
     const actual = extractMarkedBlock(fileText);
     expect(actual).toBeDefined();

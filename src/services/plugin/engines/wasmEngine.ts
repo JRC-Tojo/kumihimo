@@ -53,7 +53,7 @@ interface ApiSignature {
 
 /**
  * ホストが実際に注入するインポートオブジェクトの形は、常に`hostApiRegistry.ts`の
- * `HOST_API_REGISTRY`（唯一の情報源）から導出する。Rust SDK（`pluginSdk/rust/host_sdk.rs`）
+ * `HOST_API_REGISTRY`（唯一の情報源）から導出する。Rust SDK（`PLUGIN_SDK/rust/host_sdk.rs`）
  * の`extern "C"`ブロックも同じレジストリから生成されるため、この2つがズレることはない
  * （`src/services/plugin/__test__/hostApiCodegen.test.ts`が保証する）
  */

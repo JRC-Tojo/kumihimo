@@ -1,5 +1,5 @@
 /**
- * `src/services/plugin/hostApiRegistry.ts`から、Rust SDK（`pluginSdk/rust/host_sdk.rs`）の
+ * `src/services/plugin/hostApiRegistry.ts`から、Rust SDK（`PLUGIN_SDK/rust/host_sdk.rs`）の
  * `extern "C"`ブロック（GENERATED-EXTERNマーカー区間）を再生成する
  *
  * 実行: `bun run generate:plugin-sdk`
@@ -12,7 +12,7 @@ import path from 'node:path';
 import { generateRustExternBlock, replaceMarkedBlock } from '../src/services/plugin/hostApiCodegen';
 import { HOST_API_REGISTRY } from '../src/services/plugin/hostApiRegistry';
 
-const HOST_SDK_PATH = path.resolve(import.meta.dir, '../pluginSdk/rust/host_sdk.rs');
+const HOST_SDK_PATH = path.resolve(import.meta.dir, '../PLUGIN_SDK/rust/host_sdk.rs');
 
 const current = readFileSync(HOST_SDK_PATH, 'utf-8');
 const generated = generateRustExternBlock(HOST_API_REGISTRY);

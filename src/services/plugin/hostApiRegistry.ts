@@ -5,7 +5,7 @@
  * ここで定義したシグネチャから、以下の2つが導出される:
  * - `engines/wasmEngine.ts`のDISCOVERY_SIGNATURES/EXECUTION_SIGNATURES（ホストが実際に
  *   注入するインポートオブジェクトの形）
- * - `pluginSdk/rust/host_sdk.rs`の`extern "C"`ブロック（`hostApiCodegen.ts`が生成し、
+ * - `PLUGIN_SDK/rust/host_sdk.rs`の`extern "C"`ブロック（`hostApiCodegen.ts`が生成し、
  *   `src/services/plugin/__test__/hostApiCodegen.test.ts`がこのレジストリとの一致を保証する）
  *
  * このレジストリを変更した場合は、`bun run generate:plugin-sdk`でRust SDK側を再生成すること。
