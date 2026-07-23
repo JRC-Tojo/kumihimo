@@ -62,7 +62,9 @@ function emptyContext(): PluginExecutionContext {
 async function buildFileContext(
   manifest: PluginManifest,
   file: ContainerElementFile,
-): Promise<Result<PluginFileContext & { representativePageSize: { width: number; height: number } }>> {
+): Promise<
+  Result<PluginFileContext & { representativePageSize: { width: number; height: number } }>
+> {
   const srcRes = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
   if (!srcRes.ok) return srcRes;
   const src = srcRes.value;

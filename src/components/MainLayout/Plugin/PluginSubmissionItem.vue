@@ -32,7 +32,11 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { PluginSubmission } from 'src/models/plugin/submission';
-import { displayStatus, statusLabelKey, statusColor as resolveStatusColor } from './submissionDisplay';
+import {
+  displayStatus,
+  statusLabelKey,
+  statusColor as resolveStatusColor,
+} from './submissionDisplay';
 
 // このコンポーネントは1件の申請（PR）の履歴行としての表示専用（操作ボタンは
 // PluginSubmissionGroup.vue側に集約されている。dismissのみ個々のPRに対する操作のため

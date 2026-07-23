@@ -132,7 +132,9 @@ const filteredCatalog = computed(() =>
  * 「インストール済み」扱いにしない。カタログとサイドロードは独立して共存できるため）
  */
 function isCatalogInstalled(id: PluginID): boolean {
-  return pluginStore.installed.some((entry) => entry.manifest.id === id && entry.source === 'catalog');
+  return pluginStore.installed.some(
+    (entry) => entry.manifest.id === id && entry.source === 'catalog',
+  );
 }
 
 async function refreshAll() {

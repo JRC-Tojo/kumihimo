@@ -144,7 +144,10 @@ function appendPluginReportedError(state: ExecutionState, message: string): void
  * を横断検索して自動解決する（`plan.updateAnnotation`/`plan.removeAnnotation`はプラグイン側から
  * fileIndexを指定させず、ホスト側でこれにより所属ファイルを特定する）
  */
-function resolveAnnotationFileIndex(ctx: PluginExecutionContext, annotId: string): number | undefined {
+function resolveAnnotationFileIndex(
+  ctx: PluginExecutionContext,
+  annotId: string,
+): number | undefined {
   const index = ctx.fileContexts.findIndex((fc) =>
     fc.existingAnnotations.some((a) => a.style.id === annotId),
   );
@@ -405,12 +408,15 @@ export function buildExecutionBridge(
     },
     'doc.getPageImage': {
       hostKey: 'doc_get_page_image',
-      fn: (fileIndex: number, page: number) => ctx.fileContexts[fileIndex]?.pageImages.get(page) ?? '',
+      fn: (fileIndex: number, page: number) =>
+        ctx.fileContexts[fileIndex]?.pageImages.get(page) ?? '',
     },
     'doc.getAnnotationsByFile': {
       hostKey: 'doc_get_annotations_by_file',
       fn: (fileIndex: number) =>
-        JSON.stringify((ctx.fileContexts[fileIndex]?.existingAnnotations ?? []).map(toAnnotationJson)),
+        JSON.stringify(
+          (ctx.fileContexts[fileIndex]?.existingAnnotations ?? []).map(toAnnotationJson),
+        ),
     },
     'doc.getAnnotationIdsByTag': {
       hostKey: 'doc_get_annotation_ids_by_tag',

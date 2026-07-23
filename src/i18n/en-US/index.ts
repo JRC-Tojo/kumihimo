@@ -454,7 +454,8 @@ export default {
       runFailed: 'Failed to run plugin',
       submitFailed: 'Failed to submit plugin',
       manifestInvalid: 'The manifest content is invalid',
-      unpublishInProgress: 'This plugin has an unpublish request in progress; cannot submit a new one',
+      unpublishInProgress:
+        'This plugin has an unpublish request in progress; cannot submit a new one',
       submitInProgress: 'This plugin has a submission in progress; cannot request unpublish',
     },
   },
