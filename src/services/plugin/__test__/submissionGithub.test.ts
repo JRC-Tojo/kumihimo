@@ -187,6 +187,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 const UUID_A = '44444444-4444-4444-8444-444444444444';
 const UUID_B = '55555555-5555-4555-8555-555555555555';
 
+/** 指定idを持つテスト用のPluginManifestを組み立てる */
 function buildManifest(id: string): PluginManifest {
   return {
     id: id as PluginManifest['id'],
@@ -214,9 +215,13 @@ function buildDraft(overrides: Partial<PluginSubmissionDraft> = {}): PluginSubmi
 
 /** `putFile`で送信されたplugin.jsonの内容（base64→JSON）を取り出す */
 function decodeSubmittedManifest(): PluginManifest {
-  const call = putFileMock.mock.calls.find((c) => String(c[2]).endsWith('plugin.json'));
-  if (!call) throw new Error('plugin.jsonへのputFile呼び出しが見つかりません');
-  return JSON.parse(Buffer.from(String(call[4]), 'base64').toString('utf-8')) as PluginManifest;
+  const call = putFileMock.mock.calls.find(
+    (c) => typeof c[2] === 'string' && c[2].endsWith('plugin.json'),
+  );
+  if (!call || typeof call[4] !== 'string') {
+    throw new Error('plugin.jsonへのputFile呼び出しが見つかりません');
+  }
+  return JSON.parse(Buffer.from(call[4], 'base64').toString('utf-8')) as PluginManifest;
 }
 
 /**

@@ -23,7 +23,6 @@ class FakeFileReader {
     });
   }
 }
-globalThis.FileReader = FakeFileReader as unknown as typeof FileReader;
 
 describe('base64 utils', () => {
   it('roundtrips a UTF-8 string via TextEncoder/TextDecoder', () => {
@@ -98,10 +97,18 @@ describe('base64 utils', () => {
   });
 
   it('arrayBufferToBase64はArrayBufferをbase64文字列（data URLのプレフィックス無し）に変換する', async () => {
-    const bytes = new TextEncoder().encode('hello');
-    const res = await arrayBufferToBase64(bytes.buffer);
-    expect(res.ok).toBeTrue();
-    if (!res.ok) return;
-    expect(res.value).toBe('aGVsbG8=');
+    // このテストでのみFileReaderをスタブに差し替え、後続テストへ影響しないようfinallyで元に戻す
+    const originalFileReader = globalThis.FileReader;
+    try {
+      globalThis.FileReader = FakeFileReader as unknown as typeof FileReader;
+      const bytes = new TextEncoder().encode('hello');
+      const res = await arrayBufferToBase64(bytes.buffer);
+      expect(res.ok).toBeTrue();
+      if (!res.ok) return;
+      expect(res.value).toBe('aGVsbG8=');
+    } finally {
+      if (originalFileReader) globalThis.FileReader = originalFileReader;
+      else Reflect.deleteProperty(globalThis, 'FileReader');
+    }
   });
 });

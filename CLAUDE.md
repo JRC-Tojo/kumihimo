@@ -10,7 +10,7 @@ RelationalDocuments（`rd`）：膨大なPDF文書にマークをつけ、文書
 - ビルド（PWAモード）: `bun run build`
 - Lint: `bun run lint`（`./src*/**/*.{ts,js,cjs,mjs,vue}` に対して ESLint を実行）
 - フォーマット: `bun run format`（Prettier、直接書き込み）
-- テスト（全体）: `bun test`、Bun 標準のテストランナーを使用
+- テスト（全体）: `bun test --isolate`（`bun run test`と同じ）。`mock.module`はプロセス全体で共有され、テストファイルをまたいで残り続けるため、`--isolate`無しで実行すると読み込み順序次第で他ファイルのモックが漏れて失敗する。単に `bun test` を実行しないこと
 - テスト（単一ファイル）: `bun test src/repositories/container/__test__/local.test.ts`
 - 依存関係の追加: `bun add <pkg>` / 開発用依存関係: `bun add -D <pkg>`
 

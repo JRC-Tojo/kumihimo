@@ -138,7 +138,11 @@ const successMessage = ref('');
 const installing = ref(false);
 
 const canInstall = computed(
-  () => name.value.trim().length > 0 && binaryFile.value !== null && !installing.value,
+  () =>
+    name.value.trim().length > 0 &&
+    version.value.trim().length > 0 &&
+    binaryFile.value !== null &&
+    !installing.value,
 );
 
 function onCancel() {

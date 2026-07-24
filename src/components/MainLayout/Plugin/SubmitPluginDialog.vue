@@ -318,7 +318,7 @@ const canSubmit = computed(() => {
   if (!name.value.trim() || !binaryFile.value || !githubConnected.value || submitting.value) {
     return false;
   }
-  if (!isUpdateMode.value) return true;
+  if (!isUpdateMode.value) return initialVersion.value.trim().length > 0;
   return !!nextVersion.value || manualBumpedVersion.value.trim().length > 0;
 });
 
@@ -519,6 +519,7 @@ async function validateAndReadIcon(file: File): Promise<{ icon: Uint8Array } | {
   return { icon };
 }
 
+/** 「申請する」ボタン押下時: アイコン・バイナリを検証したうえでGitHubへ申請を送信する */
 async function onSubmit() {
   const binaryFileValue = binaryFile.value;
   if (!binaryFileValue) return;
