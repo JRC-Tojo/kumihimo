@@ -9,12 +9,12 @@
  */
 
 import { getDocument } from 'pdfjs-dist';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
 import { PDFDocument, rgb } from 'pdf-lib';
 import { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
 import { Success, Failure, toError } from 'src/models/error/result';
-import type { AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationStyle, TextItemBox } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
@@ -38,6 +38,41 @@ export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PD
     return Success(pdf);
   } catch (e) {
     return Failure(toError(e));
+  }
+}
+
+/**
+ * 既に取得済みのPDFDocumentProxyから、指定ページのサイズ（PDFポイント単位）を取得する
+ *
+ * 同一ファイルの複数ページを続けて処理する場合（`hostContext.ts`が全ページの
+ * サイズ・テキスト・画像を先読みする箇所等）は、ページ数分`loadPdfFromSrc64`し直す
+ * `getPageSize`ではなく、`acquirePdfDocument`で1回だけ取得したPDFDocumentProxyを
+ * 使い回すこちらを呼ぶこと
+ */
+export async function getPageSizeFromDoc(
+  pdf: PDFDocumentProxy,
+  pageNumber: number,
+): Promise<Result<{ width: number; height: number }>> {
+  try {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    return Success({ width: viewport.width, height: viewport.height });
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
+/** 指定ページのサイズ（PDFポイント単位）を取得する */
+export async function getPageSize(
+  src64: DocumentSource,
+  pageNumber: number,
+): Promise<Result<{ width: number; height: number }>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+  try {
+    return await getPageSizeFromDoc(loaded.value, pageNumber);
+  } finally {
+    void loaded.value.destroy();
   }
 }
 
@@ -76,6 +111,117 @@ export async function extractTextByPage(
   }
 }
 
+/** 2D affine変換行列 `[a, b, c, d, e, f]`（`x' = a*x + c*y + e`, `y' = b*x + d*y + f`） */
+type Mat2D = [number, number, number, number, number, number];
+
+/**
+ * 2つの2D affine変換行列を合成する（`m1 ∘ m2`。`m2`を先に適用してから`m1`を適用するのと同じ）。
+ * pdf.jsの`Util.transform`と同じ計算だが、pdf.jsは`DOMMatrix`（DOM API）に依存しておりNode/bun
+ * テスト環境で読み込めないため、幾何計算だけをここに切り出して依存を避けている
+ */
+function combineTransforms(m1: Mat2D, m2: Mat2D): Mat2D {
+  return [
+    m1[0] * m2[0] + m1[2] * m2[1],
+    m1[1] * m2[0] + m1[3] * m2[1],
+    m1[0] * m2[2] + m1[2] * m2[3],
+    m1[1] * m2[2] + m1[3] * m2[3],
+    m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+    m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+  ];
+}
+
+/**
+ * pdf.jsのテキストアイテム（`transform`行列由来の左下原点座標）を、左上原点の
+ * バウンディングボックスへ変換する（`extractTextByAnnot`/`extractTextBlocksByPage`で共用）
+ *
+ * `viewport.transform`（ページ回転・スケールを含む）と`item.transform`（文字ブロック自身の
+ * ベースライン変換）を合成し、ベースライン起点＋回転角度をもとに矩形の4隅をビューポート空間
+ * （左上原点）へ回転させたうえで外接矩形を求める。`item.transform[4]/[5]`と`item.height`だけを
+ * 使う単純計算では、90°/270°回転したPDFやskewを含む文字で矩形がずれるため
+ */
+function pdfItemToBox(
+  item: { str?: string; transform?: Mat2D; width?: number; height?: number },
+  viewport: PageViewport,
+): TextItemBox | null {
+  if (item.str === undefined || item.str === '') return null;
+  if (item.transform === undefined || item.width === undefined || item.height === undefined) {
+    return null;
+  }
+
+  // viewport空間（左上原点、Y軸下向き）でのベースライン起点＋回転角度
+  const combined = combineTransforms(viewport.transform as Mat2D, item.transform);
+  const baseX = combined[4];
+  const baseY = combined[5];
+  const angle = Math.atan2(combined[1], combined[0]);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  // ベースラインを起点に、文字は「上方向（ローカルY軸負方向）」へheight分、
+  // 「右方向（ローカルX軸正方向）」へwidth分広がる矩形として4隅を回転させる
+  const localCorners: Array<[number, number]> = [
+    [0, 0],
+    [item.width, 0],
+    [0, -item.height],
+    [item.width, -item.height],
+  ];
+  const worldXs: number[] = [];
+  const worldYs: number[] = [];
+  for (const [lx, ly] of localCorners) {
+    worldXs.push(baseX + lx * cos - ly * sin);
+    worldYs.push(baseY + lx * sin + ly * cos);
+  }
+
+  const x = Math.min(...worldXs);
+  const y = Math.min(...worldYs);
+  const width = Math.max(...worldXs) - x;
+  const height = Math.max(...worldYs) - y;
+
+  return { text: item.str, x, y, width, height };
+}
+
+/**
+ * 指定ページの全テキストを、位置情報（左上原点のバウンディングボックス）付きで抽出する
+ *
+ * `extractTextByAnnot`と異なりアノテーション範囲でのフィルタは行わず、ページ内の全アイテムを
+ * そのまま返す。プラグインのホストAPI（`doc.getPageTextBlocks`）向けの汎用版
+ */
+/** `extractTextBlocksByPage`の、既に取得済みのPDFDocumentProxyを使い回す版（`getPageSizeFromDoc`と同じ理由） */
+export async function extractTextBlocksByPageFromDoc(
+  pdf: PDFDocumentProxy,
+  pageNumber: number,
+): Promise<Result<TextItemBox[]>> {
+  try {
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const viewport = page.getViewport({ scale: 1 });
+
+    const blocks: TextItemBox[] = [];
+    for (const item of textContent.items) {
+      const box = pdfItemToBox(
+        item as { str?: string; transform?: Mat2D; width?: number; height?: number },
+        viewport,
+      );
+      if (box) blocks.push(box);
+    }
+    return Success(blocks);
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
+export async function extractTextBlocksByPage(
+  src64: DocumentSource,
+  pageNumber: number,
+): Promise<Result<TextItemBox[]>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+  try {
+    return await extractTextBlocksByPageFromDoc(loaded.value, pageNumber);
+  } finally {
+    void loaded.value.destroy();
+  }
+}
+
 /**
  * 指定ページ内の、アノテーション領域に含まれるテキストを抽出する
  *
@@ -96,25 +242,27 @@ export async function extractTextByAnnot(
     const textContent = await page.getTextContent();
     const bbox = calculateBoundingBox(style);
     // PDF のテキスト座標系（左下原点・Y軸上向き）を bbox の座標系（左上原点・Y軸下向き）に揃えるために使用
-    const pageHeight = page.getViewport({ scale: 1 }).height;
+    const viewport = page.getViewport({ scale: 1 });
     // 文字ごとの幅の内訳推定に使う（pdf.js の TextLayer 自体が採用している手法に準拠）
     const measureCtx = document.createElement('canvas').getContext('2d');
 
     const extractedTexts: string[] = [];
 
     for (const item of textContent.items) {
-      if (!('str' in item) || !('transform' in item) || item.str === '') continue;
+      const box = pdfItemToBox(
+        item as { str?: string; transform?: Mat2D; width?: number; height?: number },
+        viewport,
+      );
+      if (!box || !('str' in item)) continue;
 
-      // item.transform は [scaleX, skewY, skewX, scaleY, translateX, translateY] の配列
-      const tx = item.transform[4]; // X座標（左下原点）
-      const ty = item.transform[5]; // Y座標（左下原点）
-      const itemWidth = item.width;
-      const itemHeight = item.height;
-      const itemTopY = pageHeight - ty - itemHeight; // 左上原点でのY座標に変換
+      const tx = box.x;
+      const itemWidth = box.width;
+      const itemHeight = box.height;
+      const itemTopY = box.y;
 
       // item は複数文字を含むブロック情報のため、文字単位の疑似的な位置をもとに
       // アノテーション範囲との重なりを判定する
-      const chars = Array.from(item.str);
+      const chars = Array.from(box.text);
       const fontFamily = textContent.styles[item.fontName]?.fontFamily;
       const charWidths = estimateCharWidths(measureCtx, chars, itemWidth, fontFamily);
 
@@ -175,8 +323,8 @@ export async function extractAllText(src64: DocumentSource): Promise<Result<stri
   }
 }
 
-/** 既に取得済みのPDFDocumentProxyから、指定ページをレンダリングしたCanvasを返す（内部用） */
-async function renderPageToCanvasFromDoc(
+/** 既に取得済みのPDFDocumentProxyから、指定ページをレンダリングしたCanvasを返す */
+export async function renderPageToCanvasFromDoc(
   pdf: PDFDocumentProxy,
   pageNumber: number,
   scale: number,

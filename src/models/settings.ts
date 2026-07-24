@@ -16,6 +16,16 @@ import { ColorCode } from './document/pdf';
 export const AppSettings = z.object({
   locale: z.enum(localeKeys).default('ja-JP'),
   darkMode: z.boolean().default(false),
+  // アノテーションのauthorに使うユーザー名（未登録の場合はundefined）
+  userName: z.string().optional(),
+  // プラグイン申請（ストアリポジトリへのPR作成）に使うGitHub個人アクセストークン。
+  // ローカル（IndexedDB）にのみ保存し、GitHub API以外への送信は行わない。
+  // バックエンドを持たない構成上の制約でIndexedDBに平文保存する以上のことはできないが、
+  // XSS等での漏洩時の被害を抑えるため、設定画面ではリポジトリ・権限を絞ったfine-grained PAT
+  // （対象はストアリポジトリのみ、contents/pull-requests程度の権限）の利用を案内している
+  githubToken: z.string().optional(),
+  // githubTokenから解決したGitHubユーザー名（申請時のowner記録・キャッシュ用）
+  githubLogin: z.string().optional(),
   viewMode: z.enum(['rich', 'list1', 'list2']).default('rich'),
   sortBy: z.enum(['name', 'updatedAt', 'genre']).default('updatedAt'),
   initialized: z.boolean().default(false),

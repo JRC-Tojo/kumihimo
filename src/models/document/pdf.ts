@@ -68,6 +68,11 @@ const AnnotationBase = z.object({
     .default({}),
   // 重ね順。未設定の場合はcreatedAtを実効的な重ね順キーとして扱う（utils/document/annotationOrder.ts参照）
   zIndex: z.number().optional(),
+  // 作成者。人間が作成した場合はAppSettings.userName（未登録ならundefined）、
+  // プラグインが作成した場合はプラグイン名がservices/document/annotation.ts側で設定される
+  author: z.string().optional(),
+  // タグ。人間側からは現状設定不可（今後のUI対応まで見送り）。プラグインが冪等な再実行等に利用する
+  tags: z.string().array().optional(),
 });
 export const BoxAnnotationStyle = AnnotationBase.extend({
   type: z.literal('box'),
@@ -172,3 +177,18 @@ export const AnnotationStyle = z.discriminatedUnion('type', [
   TextAnnotationStyle,
 ]);
 export type AnnotationStyle = z.infer<typeof AnnotationStyle>;
+
+/**
+ * PDFページ内の1テキストアイテムの、左上原点バウンディングボックス付きの内容
+ *
+ * `doc.getPageTextBlocks`ホストAPIでJSON化される共有契約のため、他の共有モデルと同様に
+ * ここでZodスキーマとして定義する（`src/repositories/document/pdf.ts`のローカルinterfaceから移設）
+ */
+export const TextItemBox = z.object({
+  text: z.string(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+export type TextItemBox = z.infer<typeof TextItemBox>;

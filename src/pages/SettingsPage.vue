@@ -73,6 +73,73 @@
               @update:model-value="(val) => updateSettings('locale')(val)"
             />
           </SettingsItemRow>
+
+          <SettingsItemRow
+            v-show="isVisible('userName')"
+            :title="$t('settings.userName')"
+            :description="$t('settings.userNameDesc')"
+          >
+            <q-input
+              v-model="settings.userName"
+              dense
+              outlined
+              style="min-width: 160px"
+              @update:model-value="
+                (val) =>
+                  updateSettings('userName')(typeof val === 'string' && val ? val : undefined)
+              "
+            />
+          </SettingsItemRow>
+        </section>
+
+        <!-- GitHub連携 -->
+        <section
+          v-if="visibleSections.some((s) => s.id === 'github')"
+          id="github"
+          class="settings-section"
+        >
+          <h6 class="settings-section-title">{{ $t('settings.sections.github') }}</h6>
+
+          <SettingsItemRow
+            v-show="isVisible('githubToken')"
+            :title="$t('settings.githubToken')"
+            :description="$t('settings.githubTokenDesc')"
+          >
+            <div class="github-connect-row">
+              <q-input
+                v-model="githubTokenInput"
+                dense
+                outlined
+                type="password"
+                autocomplete="off"
+                style="min-width: 220px"
+                :placeholder="$t('settings.githubTokenPlaceholder')"
+              />
+              <q-btn
+                dense
+                unelevated
+                color="primary"
+                :loading="verifyingGithubToken"
+                :label="$t('settings.githubTokenVerify')"
+                :disable="!githubTokenInput"
+                @click="onVerifyGithubToken"
+              />
+              <q-btn
+                v-if="settings.githubToken"
+                dense
+                flat
+                color="negative"
+                :label="$t('settings.githubTokenDisconnect')"
+                @click="onDisconnectGithub"
+              />
+              <div v-if="settings.githubLogin" class="github-connect-status text-positive">
+                {{ $t('settings.githubTokenConnected', { login: settings.githubLogin }) }}
+              </div>
+              <div v-else-if="githubVerifyError" class="github-connect-status text-negative">
+                {{ githubVerifyError }}
+              </div>
+            </div>
+          </SettingsItemRow>
         </section>
 
         <!-- 表示 -->
@@ -266,11 +333,53 @@ onMounted(async () => {
   const apiRes = await api.getSettings();
   if (apiRes.ok) {
     settings.value = apiRes.data;
+    githubTokenInput.value = apiRes.data.githubToken ?? '';
   } else {
     // TODO: エラーハンドリング
     console.error(apiRes.error);
   }
 });
+
+// ================================ GitHub連携 ================================
+
+const githubTokenInput = ref('');
+const verifyingGithubToken = ref(false);
+const githubVerifyError = ref('');
+
+/**
+ * 入力されたGitHub個人アクセストークンの有効性を確認し、成功時のみ設定へ保存する
+ */
+async function onVerifyGithubToken() {
+  if (!settings.value || !githubTokenInput.value) return;
+  verifyingGithubToken.value = true;
+  githubVerifyError.value = '';
+  try {
+    const res = await api.verifyGithubToken(githubTokenInput.value);
+    if (!res.ok) {
+      githubVerifyError.value = $t('settings.githubTokenVerifyFailed');
+      return;
+    }
+    settings.value.githubToken = githubTokenInput.value;
+    settings.value.githubLogin = res.data;
+    await updateSettings('githubToken')(githubTokenInput.value);
+    await updateSettings('githubLogin')(res.data);
+  } finally {
+    verifyingGithubToken.value = false;
+  }
+}
+
+/**
+ * GitHub連携を解除する（トークン・ログイン名の両方を設定から削除する）
+ */
+async function onDisconnectGithub() {
+  if (!settings.value) return;
+  githubTokenInput.value = '';
+  githubVerifyError.value = '';
+  settings.value.githubToken = undefined;
+  settings.value.githubLogin = undefined;
+  await updateSettings('githubToken')(undefined);
+  await updateSettings('githubLogin')(undefined);
+}
 
 // ================================ 検索・目次 ================================
 
@@ -293,6 +402,18 @@ const itemMetas = computed<SettingsItemMeta[]>(() => [
     sectionId: 'general',
     title: $t('settings.language'),
     description: $t('settings.languageDesc'),
+  },
+  {
+    id: 'userName',
+    sectionId: 'general',
+    title: $t('settings.userName'),
+    description: $t('settings.userNameDesc'),
+  },
+  {
+    id: 'githubToken',
+    sectionId: 'github',
+    title: $t('settings.githubToken'),
+    description: $t('settings.githubTokenDesc'),
   },
   {
     id: 'viewMode',
@@ -346,6 +467,7 @@ const itemMetas = computed<SettingsItemMeta[]>(() => [
 
 const sectionDefs = computed(() => [
   { id: 'general', title: $t('settings.sections.general') },
+  { id: 'github', title: $t('settings.sections.github') },
   { id: 'display', title: $t('settings.sections.display') },
   { id: 'annotationTools', title: $t('settings.annotationTools.title') },
   { id: 'relational', title: $t('settings.relationalVerification.title') },
@@ -522,6 +644,11 @@ async function onImportPresetsSelected(e: Event) {
     padding-top: 1rem;
     border-top: 1px solid $grey-3;
   }
+}
+
+.github-connect-status {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
 }
 
 .body--dark .settings-content .save-bar {

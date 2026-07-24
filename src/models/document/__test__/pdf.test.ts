@@ -146,3 +146,33 @@ describe('TextAnnotationStyle', () => {
     expect(result.success).toBeFalse();
   });
 });
+
+describe('AnnotationBase author/tags', () => {
+  it('author/tagsを省略した場合、両方ともundefinedになる', () => {
+    const parsed = TextAnnotationStyle.parse({
+      ...baseFields,
+      type: 'text',
+      width: 100,
+      height: 50,
+      textColor: '#000000',
+    });
+
+    expect(parsed.author).toBeUndefined();
+    expect(parsed.tags).toBeUndefined();
+  });
+
+  it('author/tagsを指定した場合はそのまま保持される（プラグインが自身の名前・タグを付与する経路）', () => {
+    const parsed = TextAnnotationStyle.parse({
+      ...baseFields,
+      type: 'text',
+      width: 100,
+      height: 50,
+      textColor: '#000000',
+      author: 'ページ番号スタンパー',
+      tags: ['page-number-stamper'],
+    });
+
+    expect(parsed.author).toBe('ページ番号スタンパー');
+    expect(parsed.tags).toEqual(['page-number-stamper']);
+  });
+});

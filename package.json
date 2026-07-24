@@ -9,11 +9,12 @@
   "scripts": {
     "lint": "eslint -c ./eslint.config.js \"./src*/**/*.{ts,js,cjs,mjs,vue}\"",
     "format": "prettier --write \"**/*.{js,ts,vue,css,scss,html,md,json}\" --ignore-path .gitignore",
-    "test": "bun test",
-    "bun:test": "bun test",
+    "test": "bun test --isolate",
+    "bun:test": "bun test --isolate",
     "dev": "quasar dev -m pwa",
     "build": "quasar build -m pwa",
-    "postinstall": "quasar prepare"
+    "postinstall": "quasar prepare",
+    "generate:plugin-sdk": "bun run scripts/generatePluginSdk.ts"
   },
   "dependencies": {
     "@quasar/extras": "^1.16.4",

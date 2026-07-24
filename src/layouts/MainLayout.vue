@@ -15,7 +15,7 @@
           dense
           flat
           :icon="tool.icon"
-          :title="$t(tool.label)"
+          :title="tool.label"
           :disable="tool.isDisable?.() ?? false"
           class="header-btn"
           @click="tool.onClicked"
@@ -33,7 +33,7 @@
           dense
           flat
           :icon="tool.icon"
-          :title="$t(tool.label)"
+          :title="tool.label"
           :disable="tool.isDisable?.() ?? false"
           class="header-btn"
           @click="tool.onClicked"
@@ -80,7 +80,9 @@
                 <q-tab-panel name="docs" class="q-pa-none">
                   <explorer-view />
                 </q-tab-panel>
-                <q-tab-panel name="exts"> This is Extensions </q-tab-panel>
+                <q-tab-panel name="exts" class="q-pa-none">
+                  <plugin-list-view />
+                </q-tab-panel>
               </q-tab-panels>
             </div>
           </div>
@@ -99,6 +101,7 @@
 
 <script setup lang="ts">
 import ExplorerView from 'src/components/MainLayout/ExplorerView.vue';
+import PluginListView from 'src/components/MainLayout/PluginListView.vue';
 import EditorPage from 'src/pages/EditorPage.vue';
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';

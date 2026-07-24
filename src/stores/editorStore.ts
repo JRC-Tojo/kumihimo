@@ -13,6 +13,8 @@ import type { RelationalRule } from 'src/models/relational/fileSchema';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { Path } from 'src/utils/binary/path';
 import { useHistoryStore } from './historyStore';
+import type { PluginID } from 'src/models/plugin/manifest';
+import type { PluginInstallSource } from 'src/models/plugin/installation';
 
 export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
 const sides = ['ul', 'ur', 'll', 'lr'] as const;
@@ -37,6 +39,28 @@ function tabKey(f: { containerID: ContainerID; path: string }): string {
  * 設定タブを表す特別なアクティブタブキー（ContainerElementFileのtabKeyとは絶対に衝突しない形式）
  */
 export const SETTINGS_TAB_KEY = '__settings__';
+
+/**
+ * プラグイン所有タブのキー接頭辞（ContainerElementFileのtabKeyや設定タブとは絶対に衝突しない形式）
+ */
+export const PLUGIN_TAB_PREFIX = '__plugin__:';
+
+/**
+ * プラグイン所有タブの参照情報
+ *
+ * タブは`pluginId`単位で1つだけ開く（実行のたびに増えることはない）。同一タブ内で
+ * 何度でも再実行できるようにするため、`runId`はタブの同一性には含めない
+ */
+export interface PluginTabRef {
+  key: string;
+  pluginId: PluginID;
+  source: PluginInstallSource;
+  title: string;
+}
+
+function pluginTabKey(pluginId: string, source: PluginInstallSource): string {
+  return `${PLUGIN_TAB_PREFIX}${source}:${pluginId}`;
+}
 
 /**
  * デフォルトのアノテーションスタイル
@@ -82,6 +106,8 @@ export const useEditorStore = defineStore('editor', {
     activeSide: 'ul' as LayoutSide,
     // 各ペインで設定タブが開かれているか（設定はContainerElementFileではないため別管理する）
     settingsOpenSides: { ul: false, ur: false, ll: false, lr: false } as Layouts<boolean>,
+    // 各ペインで開かれているプラグイン所有タブ（設定タブと同じく、ContainerElementFileではないため別管理する）
+    pluginTabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<PluginTabRef[]>,
 
     // アノテーションの表示状態
     visibleAnnotations: true,
@@ -500,6 +526,44 @@ export const useEditorStore = defineStore('editor', {
 
       // アクティブタブが設定タブだった場合は、そのペインの最後の文書タブをアクティブにする
       if (this.activeTabPaths[layoutSide] === SETTINGS_TAB_KEY) {
+        const lastTab = this.tabs[layoutSide][this.tabs[layoutSide].length - 1];
+        this.activeTabPaths[layoutSide] = lastTab ? tabKey(lastTab) : null;
+      }
+    },
+
+    /**
+     * プラグイン所有タブを開く（現在アクティブなペインに、文書タブと同様の見た目で開かれる）
+     *
+     * 同じプラグインを指定した場合は既存タブをそのままアクティブにする（同一プラグインに
+     * つき常に1タブ。タブ内で入力フォーム経由の再実行に対応する）
+     */
+    openPluginTab(pluginId: PluginID, source: PluginInstallSource, title: string): void {
+      const key = pluginTabKey(pluginId, source);
+      const side = this.activeSide;
+      if (!this.pluginTabs[side].some((t) => t.key === key)) {
+        this.pluginTabs[side].push({ key, pluginId, source, title });
+      }
+      this.activeTabPaths[side] = key;
+    },
+
+    /**
+     * プラグイン所有タブを選択する
+     */
+    selectPluginTab(key: string, layoutSide: LayoutSide, isFocus: boolean): void {
+      this.activeTabPaths[layoutSide] = key;
+      if (isFocus) this.activeSide = layoutSide;
+    },
+
+    /**
+     * プラグイン所有タブを閉じる
+     */
+    closePluginTab(key: string, layoutSide: LayoutSide): void {
+      const targetIdx = this.pluginTabs[layoutSide].findIndex((t) => t.key === key);
+      if (targetIdx === -1) return;
+
+      this.pluginTabs[layoutSide].splice(targetIdx, 1);
+
+      if (this.activeTabPaths[layoutSide] === key) {
         const lastTab = this.tabs[layoutSide][this.tabs[layoutSide].length - 1];
         this.activeTabPaths[layoutSide] = lastTab ? tabKey(lastTab) : null;
       }

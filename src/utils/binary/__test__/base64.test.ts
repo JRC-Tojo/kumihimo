@@ -1,10 +1,28 @@
 import { describe, it, expect } from 'bun:test';
 import {
+  arrayBufferToBase64,
   base64ToUint8Array,
   calcBase64Hash,
   getBase64FileSize,
   uint8ArrayToBase64,
 } from '../base64';
+
+// bunのテスト環境には`FileReader`（ブラウザAPI）が無いため、`arrayBufferToBase64`が
+// 呼び出す最小限のインターフェース（`readAsDataURL`→`onloadend`→`result`）だけを再現したスタブを注入する
+class FakeFileReader {
+  result: string | ArrayBuffer | null = null;
+  onloadend: (() => void) | null = null;
+
+  readAsDataURL(blob: Blob): void {
+    void blob.arrayBuffer().then((buffer) => {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+      this.result = `data:application/octet-stream;base64,${btoa(binary)}`;
+      this.onloadend?.();
+    });
+  }
+}
 
 describe('base64 utils', () => {
   it('roundtrips a UTF-8 string via TextEncoder/TextDecoder', () => {
@@ -76,5 +94,21 @@ describe('base64 utils', () => {
   it('calcBase64Hashは不正な文字列に対してFailureを返す', async () => {
     const hashed = await calcBase64Hash('not valid base64 !!!');
     expect(hashed.ok).toBeFalse();
+  });
+
+  it('arrayBufferToBase64はArrayBufferをbase64文字列（data URLのプレフィックス無し）に変換する', async () => {
+    // このテストでのみFileReaderをスタブに差し替え、後続テストへ影響しないようfinallyで元に戻す
+    const originalFileReader = globalThis.FileReader;
+    try {
+      globalThis.FileReader = FakeFileReader as unknown as typeof FileReader;
+      const bytes = new TextEncoder().encode('hello');
+      const res = await arrayBufferToBase64(bytes.buffer);
+      expect(res.ok).toBeTrue();
+      if (!res.ok) return;
+      expect(res.value).toBe('aGVsbG8=');
+    } finally {
+      if (originalFileReader) globalThis.FileReader = originalFileReader;
+      else Reflect.deleteProperty(globalThis, 'FileReader');
+    }
   });
 });

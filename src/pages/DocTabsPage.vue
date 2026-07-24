@@ -12,6 +12,17 @@
         @close="editorStore.closeSettingsTab(prop.layoutSide)"
       />
 
+      <!-- プラグイン所有タブ（開いている場合のみ、文書タブの前に固定表示） -->
+      <TabItem
+        v-for="pt in editorStore.pluginTabs[prop.layoutSide]"
+        :key="pt.key"
+        icon="extension"
+        :title="pt.title"
+        :active="editorStore.activeTabPaths[prop.layoutSide] === pt.key"
+        @select="selectPluginTab(pt.key)"
+        @close="editorStore.closePluginTab(pt.key, prop.layoutSide)"
+      />
+
       <VueDraggable
         v-model="tabs"
         :animation="0"
@@ -37,6 +48,12 @@
     <!-- コンテンツエリア -->
     <div class="tabs-content">
       <SettingsPage v-if="isSettingsActive" />
+      <PluginPanelView
+        v-else-if="activePluginTab"
+        :plugin-id="activePluginTab.pluginId"
+        :source="activePluginTab.source"
+        :key="`plugin|${activePluginTab.key}`"
+      />
       <DocumentTabView
         v-else-if="activeTabFile && activeDocumentKind === 'pdf'"
         :file="activeTabFile"
@@ -65,6 +82,7 @@
 import DocumentTabView from 'src/components/DocLayout/DocumentTabView.vue';
 import TextFileTabView from 'src/components/DocLayout/TextFileTabView.vue';
 import UnsupportedFileTabView from 'src/components/DocLayout/UnsupportedFileTabView.vue';
+import PluginPanelView from 'src/components/DocLayout/PluginPanelView.vue';
 import DocTabItem from 'src/components/DocLayout/DocTabItem.vue';
 import TabItem from 'src/components/DocLayout/TabItem.vue';
 import SettingsPage from 'src/pages/SettingsPage.vue';
@@ -103,9 +121,18 @@ const activeLayout = computed(() => editorStore.activeSide);
 const isSettingsActive = computed(
   () => editorStore.activeTabPaths[prop.layoutSide] === SETTINGS_TAB_KEY,
 );
+const activePluginTab = computed(() =>
+  editorStore.pluginTabs[prop.layoutSide].find(
+    (pt) => pt.key === editorStore.activeTabPaths[prop.layoutSide],
+  ),
+);
 
 function selectSettingsTab() {
   editorStore.selectSettingsTab(prop.layoutSide, true);
+}
+
+function selectPluginTab(key: string) {
+  editorStore.selectPluginTab(key, prop.layoutSide, true);
 }
 
 /**

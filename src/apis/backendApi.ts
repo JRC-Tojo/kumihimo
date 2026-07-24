@@ -39,6 +39,20 @@ import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import type { Observable } from 'dexie';
 import { initOCR } from 'src/utils/ocr/main';
+import type {
+  InstalledPlugin,
+  CatalogEntry,
+  PluginInstallSource,
+} from 'src/models/plugin/installation';
+import type { PluginID } from 'src/models/plugin/manifest';
+import type { PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
+import type { PluginRunState } from 'src/models/plugin/panel';
+import type { PluginSubmission } from 'src/models/plugin/submission';
+import * as pluginInstallService from 'src/services/plugin/install';
+import * as pluginRunService from 'src/services/plugin/run';
+import * as pluginSubmissionService from 'src/services/plugin/submissionGithub';
+import * as githubAuthService from 'src/services/plugin/githubAuth';
+import { parseSubmissionDraft } from 'src/services/plugin/manifest';
 
 /**
  * バックエンド統合 API層
@@ -612,6 +626,223 @@ class BackendApi {
   async updateRecentColorsLimit(limit: number): Promise<ApiResponse<AppSettings['tools']>> {
     const res = await updateRecentColorsLimitSetting(limit);
     return toApiResponse(res, 'FAILED_SAVE_SETTINGS');
+  }
+
+  // ============ プラグイン操作 ============
+
+  /**
+   * 設定済みのGitHub個人アクセストークンを取得する（内部専用）
+   */
+  private async getGithubToken(): Promise<string | undefined> {
+    const settings = await getSettings();
+    return settings.ok ? settings.value.githubToken : undefined;
+  }
+
+  /**
+   * GitHub個人アクセストークンの有効性を確認し、紐づくユーザー名を返す
+   * （設定画面の「接続を確認」ボタンから呼ばれる。設定への保存はフロントエンド側で行う）
+   */
+  async verifyGithubToken(token: string): Promise<ApiResponse<string>> {
+    const res = await githubAuthService.verifyGithubToken(token);
+    return toApiResponse(res, 'PLUGIN_GITHUB_AUTH_FAILED');
+  }
+
+  /**
+   * インストール済みプラグイン一覧を取得する
+   */
+  async getInstalledPlugins(): Promise<ApiResponse<InstalledPlugin[]>> {
+    const res = await pluginInstallService.getInstalledPlugins();
+    return toApiResponse(res, 'PLUGIN_LIST_FAILED');
+  }
+
+  /**
+   * 導入可能なプラグイン一覧（カタログ。ストアリポジトリから取得）を取得する
+   */
+  async getCatalogEntries(): Promise<ApiResponse<CatalogEntry[]>> {
+    const token = await this.getGithubToken();
+    const res = await pluginInstallService.getCatalogEntries(token);
+    return toApiResponse(res, 'PLUGIN_LIST_FAILED');
+  }
+
+  /**
+   * カタログからプラグインをそのままインストールする
+   */
+  async installPluginFromCatalog(id: PluginID): Promise<ApiResponse<void>> {
+    const token = await this.getGithubToken();
+    const res = await pluginInstallService.installFromCatalog(id, token);
+    return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
+  }
+
+  /**
+   * ローカルの入力内容（フォーム由来）・バイナリ・（任意で）アイコンから直接プラグインを
+   * インストールする（ストア/カタログを経由しない。開発中のWASMを実ホストで動作確認する用途）
+   */
+  async installPluginFromFile(
+    draftJson: unknown,
+    binary: Uint8Array,
+    icon: Uint8Array | undefined,
+  ): Promise<ApiResponse<void>> {
+    const parsed = parseSubmissionDraft(draftJson);
+    if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
+    const res = await pluginInstallService.installFromDraft(parsed.value, binary, icon);
+    return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
+  }
+
+  /**
+   * プラグインをアンインストールする
+   */
+  async uninstallPlugin(id: PluginID, source: PluginInstallSource): Promise<ApiResponse<void>> {
+    const res = await pluginInstallService.uninstallPlugin(id, source);
+    return toApiResponse(res, 'PLUGIN_UNINSTALL_FAILED');
+  }
+
+  /**
+   * プラグインの有効/無効を切り替える
+   */
+  async setPluginEnabled(
+    id: PluginID,
+    source: PluginInstallSource,
+    enabled: boolean,
+  ): Promise<ApiResponse<void>> {
+    const res = await pluginInstallService.setPluginEnabled(id, source, enabled);
+    return toApiResponse(res, 'PLUGIN_TOGGLE_ENABLED_FAILED');
+  }
+
+  /**
+   * プラグインが自己申告するエントリポイント・入力項目を取得する（`describePlugin`の発見専用実行）
+   */
+  async discoverPluginEntryPoints(
+    id: PluginID,
+    source: PluginInstallSource,
+  ): Promise<ApiResponse<PluginEntryPointDescriptor[]>> {
+    const res = await pluginRunService.discoverEntryPoints(id, source);
+    return toApiResponse(res, 'PLUGIN_DISCOVER_FAILED');
+  }
+
+  /**
+   * プラグインのエントリポイントを実行する
+   *
+   * `fieldValues`は`discoverPluginEntryPoints`が返したfieldIdをキーとする入力値
+   * （`file`型フィールドの値は含まない）。`targetFiles`は`file`型フィールドの宣言順に
+   * ユーザーが選択した対象文書（ファイル選択ダイアログでの解決結果）
+   */
+  async runPluginEntryPoint(
+    id: PluginID,
+    source: PluginInstallSource,
+    entryId: string,
+    fieldValues: Record<string, string | number | boolean>,
+    targetFiles: ContainerElementFile[],
+  ): Promise<ApiResponse<PluginRunState>> {
+    const res = await pluginRunService.runEntryPoint(id, source, entryId, fieldValues, targetFiles);
+    return toApiResponse(res, 'PLUGIN_RUN_FAILED');
+  }
+
+  /**
+   * プラグインの実行状態をDBの変更に応じて購読する
+   */
+  observePluginRunState(runId: string): ApiResponse<Observable<PluginRunState | undefined>> {
+    const observed = pluginRunService.observeRunState(runId);
+    return toApiResponse(Success(observed));
+  }
+
+  /**
+   * プラグインが積んだ書き込み予定項目を承認し、実データへコミットする
+   */
+  async approvePluginPlanItems(runId: string, itemIds: string[]): Promise<ApiResponse<void>> {
+    const res = await pluginRunService.approvePlanItems(runId, itemIds);
+    return toApiResponse(res, 'PLUGIN_PLAN_COMMIT_FAILED');
+  }
+
+  /**
+   * プラグインが積んだ書き込み予定項目を却下する（実データへは反映しない）
+   */
+  async rejectPluginPlanItems(runId: string, itemIds: string[]): Promise<ApiResponse<void>> {
+    const res = await pluginRunService.rejectPlanItems(runId, itemIds);
+    return toApiResponse(res, 'PLUGIN_PLAN_COMMIT_FAILED');
+  }
+
+  /**
+   * プラグインを申請する（ストアリポジトリへ実際にPull Requestを作成する。新規申請・
+   * バージョン更新のいずれもこの1つの経路で扱う）
+   *
+   * @param updateId バージョン更新の場合のみ、更新対象の公開済みプラグインidを指定する。
+   *   未指定（新規申請）の場合はサービス層が新規にUUIDを採番する
+   */
+  async submitPlugin(
+    draftJson: unknown,
+    binary: Uint8Array,
+    icon: Uint8Array | undefined,
+    updateId: PluginID | undefined,
+  ): Promise<ApiResponse<PluginSubmission>> {
+    const parsed = parseSubmissionDraft(draftJson);
+    if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.submitPlugin(
+      parsed.value,
+      binary,
+      icon,
+      token,
+      updateId,
+    );
+    return toApiResponse(res, 'PLUGIN_SUBMIT_FAILED');
+  }
+
+  /**
+   * 自分が行ったプラグイン申請（PR）一覧を取得する
+   */
+  async getPluginSubmissions(): Promise<ApiResponse<PluginSubmission[]>> {
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.getSubmissions(token);
+    return toApiResponse(res, 'PLUGIN_SUBMISSION_GET_FAILED');
+  }
+
+  /**
+   * 未マージの申請（PR）を取り下げる（マージせずにクローズする）
+   *
+   * CI検証（manifest/wasm/icon/ownership）に合格したPRはストアリポジトリ側のActionsが
+   * 自動的にマージするため、アプリ側に手動マージの操作はない
+   */
+  async withdrawPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.withdrawSubmission(prNumber, token);
+    return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
+  }
+
+  /**
+   * 公開済みプラグインの取り下げ（unpublish）を申請する
+   */
+  async unpublishPlugin(id: PluginID): Promise<ApiResponse<PluginSubmission>> {
+    const token = await this.getGithubToken();
+    if (!token)
+      return toApiResponse(
+        Failure(new Error('GitHub連携が未設定です')),
+        'PLUGIN_GITHUB_TOKEN_MISSING',
+      );
+    const res = await pluginSubmissionService.unpublishPlugin(id, token);
+    return toApiResponse(res, 'PLUGIN_PUBLISH_FAILED');
+  }
+
+  /**
+   * 「マイ申請」一覧からPRを非表示にする（GitHub側のPRは変更しないローカル表示のみのフィルタ）
+   */
+  async dismissPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
+    const res = await pluginSubmissionService.dismissSubmission(prNumber);
+    return toApiResponse(res, 'PLUGIN_DISMISS_SUBMISSION_FAILED');
   }
 }
 
