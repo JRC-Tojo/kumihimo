@@ -14,8 +14,7 @@ import { useSettingsStore } from 'src/stores/settingsStore';
 export type ImportPresetsMode = 'replace' | 'append';
 
 export type ParseImportedPresetsResult =
-  | { success: true; presets: AnnotationTool[] }
-  | { success: false; reason: 'parse' | 'validation' };
+  { success: true; presets: AnnotationTool[] } | { success: false; reason: 'parse' | 'validation' };
 
 /**
  * インポートしたJSONテキストをプリセット一覧として検証・パースする

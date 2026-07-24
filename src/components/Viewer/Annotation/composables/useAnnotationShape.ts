@@ -70,7 +70,9 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
 
   // 見た目の線幅より当たり判定を広げ、細い線・形状でもつかみやすくする。
   // line/arrow/polyline/polygonの各描画コンポーネントで共通利用する
-  const hitStrokeWidth = computed(() => Math.max(12, (displayAnnotation.value.strokeWidth || 2) * 4));
+  const hitStrokeWidth = computed(() =>
+    Math.max(12, (displayAnnotation.value.strokeWidth || 2) * 4),
+  );
 
   /**
    * 明示的な不透明度（strokeOpacity/fillOpacity）が未設定の場合、後方互換のため
