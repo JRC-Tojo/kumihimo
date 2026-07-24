@@ -15,7 +15,7 @@
           dense
           flat
           :icon="tool.icon"
-          :title="$t(tool.label)"
+          :title="tool.label"
           :disable="tool.isDisable?.() ?? false"
           class="header-btn"
           @click="tool.onClicked"
@@ -33,7 +33,7 @@
           dense
           flat
           :icon="tool.icon"
-          :title="$t(tool.label)"
+          :title="tool.label"
           :disable="tool.isDisable?.() ?? false"
           class="header-btn"
           @click="tool.onClicked"
