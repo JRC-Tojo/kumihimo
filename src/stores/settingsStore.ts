@@ -47,54 +47,40 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     /**
-     * アノテーションプリセット一覧を保存する（追加・編集・削除・並び替えの共通経路）
+     * アノテーションプリセット一覧を保存する（追加・編集・削除・並び替え・インポートの共通経路）
      *
-     * 保存成功時はローカルのappSettingsも即座に更新し、プリセットバー等の再描画を待たせない
-     * `tools`はキー単位で丸ごと保存されるため、他フィールド（直近使用色等）を巻き戻さないよう
-     * 必ず現在値を引き継いだうえで保存する
+     * 保存成功時はローカルのappSettingsも即座に更新し、プリセットバー等の再描画を待たせない。
+     * `tools`キーの読み込み→変更→保存自体はBackendApi側（設定サービス層）で直列化されるため、
+     * ここでは他フィールド（直近使用色等）を引き継ぐ必要はない
      * @returns 保存に成功したかどうか
      */
     async updateAnnotationPresets(newList: AnnotationTool[]): Promise<boolean> {
       const api = useBackendApi();
-      const res = await api.saveSettings('tools', {
-        annotations: newList,
-        recentColors: this.appSettings?.tools.recentColors ?? [],
-        recentColorsLimit: this.appSettings?.tools.recentColorsLimit ?? 5,
-      });
+      const res = await api.saveAnnotationPresets(newList);
       if (!res.ok) {
         console.error(res.error);
         return false;
       }
 
-      if (this.appSettings) this.appSettings.tools.annotations = newList;
+      if (this.appSettings) this.appSettings.tools = res.data;
       return true;
     },
 
     /**
      * 色スウォッチで色を選択した際に、直近使用色の先頭へ記録する（既存の同色は前詰めで移動する）
-     *
-     * `tools`はキー単位で丸ごと保存されるため、プリセット一覧を巻き戻さないよう現在値を引き継ぐ
      */
     async recordRecentColor(color: string): Promise<void> {
       const parsed = ColorCode.safeParse(color);
       if (!parsed.success) return;
 
-      const limit = this.appSettings?.tools.recentColorsLimit ?? 5;
-      const current = this.appSettings?.tools.recentColors ?? [];
-      const deduped = [parsed.data, ...current.filter((c) => c !== parsed.data)].slice(0, limit);
-
       const api = useBackendApi();
-      const res = await api.saveSettings('tools', {
-        annotations: this.appSettings?.tools.annotations ?? [],
-        recentColors: deduped,
-        recentColorsLimit: limit,
-      });
+      const res = await api.recordRecentColor(parsed.data);
       if (!res.ok) {
         console.error(res.error);
         return;
       }
 
-      if (this.appSettings) this.appSettings.tools.recentColors = deduped;
+      if (this.appSettings) this.appSettings.tools = res.data;
     },
 
     /**
@@ -109,23 +95,14 @@ export const useSettingsStore = defineStore('settings', {
     async updateRecentColorsLimit(limit: number): Promise<boolean> {
       if (!Number.isInteger(limit) || limit < 1) return false;
 
-      const trimmed = (this.appSettings?.tools.recentColors ?? []).slice(0, limit);
-
       const api = useBackendApi();
-      const res = await api.saveSettings('tools', {
-        annotations: this.appSettings?.tools.annotations ?? [],
-        recentColors: trimmed,
-        recentColorsLimit: limit,
-      });
+      const res = await api.updateRecentColorsLimit(limit);
       if (!res.ok) {
         console.error(res.error);
         return false;
       }
 
-      if (this.appSettings) {
-        this.appSettings.tools.recentColorsLimit = limit;
-        this.appSettings.tools.recentColors = trimmed;
-      }
+      if (this.appSettings) this.appSettings.tools = res.data;
       return true;
     },
   },

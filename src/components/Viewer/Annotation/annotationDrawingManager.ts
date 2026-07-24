@@ -5,7 +5,10 @@
 
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import type { DrawingAnnotationStyle } from 'src/models/docPage';
-import { ANNOTATION_GEOMETRY, type Point } from 'src/services/document/annotationGeometry';
+import {
+  ANNOTATION_GEOMETRY,
+  type Point,
+} from 'src/components/Viewer/Annotation/annotationGeometry';
 
 /**
  * アノテーションの描画開始時に呼び出す（ドラッグ方式の種別用）

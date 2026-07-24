@@ -30,6 +30,21 @@
             @click="onSaveAndClose"
           />
         </template>
+        <template v-else-if="variant === 'importPresets'">
+          <q-btn flat :label="$t('button.cancel')" @click="onCancelClick" />
+          <q-btn
+            flat
+            color="negative"
+            :label="$t('settings.annotationTools.importReplace')"
+            @click="onReplace"
+          />
+          <q-btn
+            unelevated
+            color="primary"
+            :label="$t('settings.annotationTools.importAppend')"
+            @click="onAppend"
+          />
+        </template>
         <template v-else>
           <q-btn flat :label="$t('button.cancel')" @click="onCancelClick" />
           <q-btn
@@ -52,7 +67,7 @@ import { useI18n } from 'vue-i18n';
 interface Prop {
   title: string;
   message?: string;
-  variant?: 'confirm' | 'prompt' | 'unsavedChanges';
+  variant?: 'confirm' | 'prompt' | 'unsavedChanges' | 'importPresets';
   severity?: 'normal' | 'negative';
   promptInitialValue?: string;
   promptLabel?: string;
@@ -84,6 +99,14 @@ function onDiscard() {
 
 function onSaveAndClose() {
   onDialogOK('save');
+}
+
+function onReplace() {
+  onDialogOK('replace');
+}
+
+function onAppend() {
+  onDialogOK('append');
 }
 
 function onCancelClick() {

@@ -19,6 +19,29 @@ export type ColorCode = z.infer<typeof ColorCode>;
 export const StrokeType = z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']);
 export type StrokeType = z.infer<typeof StrokeType>;
 
+/**
+ * アノテーションを下地の文書・他のアノテーションへ合成する際のブレンドモード
+ *
+ * CSSの`mix-blend-mode`・CanvasContext2Dの`globalCompositeOperation`双方で共通して使える
+ * 標準的なブレンドモード名をそのまま値として使う（'normal'のみCanvas側では'source-over'に読み替える。
+ * `utils/document/blendMode.ts`参照）
+ */
+export const BlendMode = z.enum([
+  'normal',
+  'multiply',
+  'screen',
+  'overlay',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'difference',
+  'exclusion',
+]);
+export type BlendMode = z.infer<typeof BlendMode>;
+
 const AnnotationBase = z.object({
   id: AnnotationID,
   pageNumber: z.number().int().positive(),
@@ -31,6 +54,10 @@ const AnnotationBase = z.object({
   // フォールバック用にのみ残す。新規保存時はstrokeOpacity/fillOpacityを使うこと
   opacity: z.number().min(0).max(1).optional(),
   strokeOpacity: z.number().min(0).max(1).optional(),
+  // 半透明の図形を下地の文書とどう合成するか（未設定時は通常の重ね描きとして扱う。
+  // defaultを付けると、直接オブジェクトリテラルを組み立てている既存の全箇所へ
+  // このフィールドの明示が必須になってしまうため、あえて付けていない）
+  blendMode: BlendMode.optional(),
   content: z.string().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),

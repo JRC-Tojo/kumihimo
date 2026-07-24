@@ -3,16 +3,12 @@
     <!-- ダークモードでも線色（黒等）が見えなくならないよう、常に明るい背景チップの上に描画する -->
     <rect x="0" y="0" width="28" height="14" rx="3" class="preview-backdrop" />
 
-    <line
-      x1="2"
-      y1="7"
-      x2="26"
-      y2="7"
-      :stroke="color"
-      stroke-width="2"
-      :stroke-dasharray="dash"
-      stroke-linecap="round"
-    />
+    <!--
+      stroke-linecapは意図的にbutt（既定値）のままにしている。'round'にすると、
+      線幅(2)に対して破線・点線の間隔（strokeDashPreview.ts参照）が近すぎるため、
+      丸められた線端が隙間を埋めてしまい、実線とほぼ見分けがつかなくなってしまう
+    -->
+    <line x1="2" y1="7" x2="26" y2="7" :stroke="color" stroke-width="2" :stroke-dasharray="dash" />
   </svg>
 </template>
 

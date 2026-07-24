@@ -22,6 +22,7 @@ import {
   type Box,
 } from 'src/utils/document/annotationDrag';
 import { strokeTypeToDash } from 'src/utils/document/strokeDash';
+import { blendModeToComposite } from 'src/utils/document/blendMode';
 import { hexToRgba } from 'src/utils/color/hexToRgba';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
@@ -60,6 +61,17 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
   // 線種（破線・点線等）に対応するKonvaのdash設定。全種別の描画コンポーネントで共通利用する
   const strokeDash = computed(() =>
     strokeTypeToDash(displayAnnotation.value.strokeType, displayAnnotation.value.strokeWidth || 2),
+  );
+
+  // 半透明の図形を下地の文書とどう合成するか（既定は通常の重ね描き）。全種別の描画コンポーネントで共通利用する
+  const globalCompositeOperation = computed(() =>
+    blendModeToComposite(displayAnnotation.value.blendMode),
+  );
+
+  // 見た目の線幅より当たり判定を広げ、細い線・形状でもつかみやすくする。
+  // line/arrow/polyline/polygonの各描画コンポーネントで共通利用する
+  const hitStrokeWidth = computed(() =>
+    Math.max(12, (displayAnnotation.value.strokeWidth || 2) * 4),
   );
 
   /**
@@ -182,6 +194,8 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
   return {
     relationalOverride,
     strokeDash,
+    globalCompositeOperation,
+    hitStrokeWidth,
     resolveOpacity,
     resolvedStroke,
     resolveFill,

@@ -4,12 +4,6 @@ import type { DrawingAnnotationStyle } from 'src/models/docPage';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { hexToRgba } from 'src/utils/color/hexToRgba';
 
-/** drawMode: 'drag' であることを型で確定させるためのテスト用ヘルパー */
-function asDragModule<T extends AnnotationStyle>(module: AnnotationGeometryModule<T>) {
-  if (module.drawMode !== 'drag') throw new Error('expected a drag-mode geometry module');
-  return module;
-}
-
 /** drawMode: 'clickPoints' であることを型で確定させるためのテスト用ヘルパー */
 function asClickPointsModule<T extends AnnotationStyle>(module: AnnotationGeometryModule<T>) {
   if (module.drawMode !== 'clickPoints')
@@ -26,6 +20,7 @@ const boxStyle: DrawingAnnotationStyle = {
   fillColor: '#0000ff',
   fillPattern: 'solid',
   fillOpacity: 0.5,
+  blendMode: 'normal',
 };
 
 const lineStyle: DrawingAnnotationStyle = {
@@ -34,6 +29,7 @@ const lineStyle: DrawingAnnotationStyle = {
   strokeWidth: 2,
   strokeType: 'solid',
   strokeOpacity: 1,
+  blendMode: 'normal',
 };
 
 const circleStyle: DrawingAnnotationStyle = {
@@ -45,6 +41,7 @@ const circleStyle: DrawingAnnotationStyle = {
   fillColor: '#009900',
   fillPattern: 'solid',
   fillOpacity: 0.3,
+  blendMode: 'normal',
 };
 
 const arrowStyle: DrawingAnnotationStyle = {
@@ -56,6 +53,7 @@ const arrowStyle: DrawingAnnotationStyle = {
   startHead: 'none',
   endHead: 'triangle',
   headSize: 12,
+  blendMode: 'normal',
 };
 
 const polylineStyle: DrawingAnnotationStyle = {
@@ -67,6 +65,7 @@ const polylineStyle: DrawingAnnotationStyle = {
   startHead: 'none',
   endHead: 'triangle',
   headSize: 12,
+  blendMode: 'normal',
 };
 
 const polygonStyle: DrawingAnnotationStyle = {
@@ -78,6 +77,7 @@ const polygonStyle: DrawingAnnotationStyle = {
   fillColor: '#9900cc',
   fillPattern: 'solid',
   fillOpacity: 0.3,
+  blendMode: 'normal',
 };
 
 const textStyle: DrawingAnnotationStyle = {
@@ -93,14 +93,17 @@ const textStyle: DrawingAnnotationStyle = {
   fontFamily: 'sans-serif',
   fontSize: 16,
   textAlign: 'left',
+  blendMode: 'normal',
 };
 
 describe('ANNOTATION_GEOMETRY', () => {
-  it('box: createFromDragはドラッグ矩形からwidth/heightを計算する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.box).createFromDrag(
+  it('box: createFromPointsは2頂点からwidth/heightを計算する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.box).createFromPoints(
       1,
-      { x: 10, y: 20 },
-      { x: 30, y: 50 },
+      [
+        { x: 10, y: 20 },
+        { x: 30, y: 50 },
+      ],
       boxStyle,
     );
     expect(created).not.toBeNull();
@@ -115,11 +118,13 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(String(created.fillColor)).toBe('#0000ff');
   });
 
-  it('line: createFromDragはstartを起点としたpointsを生成する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.line).createFromDrag(
+  it('line: createFromPointsは始点を起点としたpointsを生成する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.line).createFromPoints(
       1,
-      { x: 5, y: 5 },
-      { x: 15, y: 25 },
+      [
+        { x: 5, y: 5 },
+        { x: 15, y: 25 },
+      ],
       lineStyle,
     );
     expect(created).not.toBeNull();
@@ -131,11 +136,13 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.strokeOpacity).toBe(1);
   });
 
-  it('circle: createFromDragはドラッグの中点と半径を計算する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.circle).createFromDrag(
+  it('circle: createFromPointsは2頂点の中点と半径を計算する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.circle).createFromPoints(
       1,
-      { x: 0, y: 0 },
-      { x: 6, y: 8 },
+      [
+        { x: 0, y: 0 },
+        { x: 6, y: 8 },
+      ],
       circleStyle,
     );
     expect(created).not.toBeNull();
@@ -149,11 +156,13 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(String(created.fillColor)).toBe('#009900');
   });
 
-  it('arrow: createFromDragはlineと同じpoints規約に矢じり設定を加えて生成する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.arrow).createFromDrag(
+  it('arrow: createFromPointsはlineと同じpoints規約に矢じり設定を加えて生成する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.arrow).createFromPoints(
       1,
-      { x: 0, y: 0 },
-      { x: 10, y: 0 },
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
       arrowStyle,
     );
     expect(created).not.toBeNull();
@@ -166,12 +175,14 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.strokeOpacity).toBe(1);
   });
 
-  it('createFromDragは不正なstrokeColorに対してnullを返す', () => {
+  it('createFromPointsは不正なstrokeColorに対してnullを返す', () => {
     const invalidStyle = { ...arrowStyle, strokeColor: 'not-a-color' };
-    const created = asDragModule(ANNOTATION_GEOMETRY.arrow).createFromDrag(
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.arrow).createFromPoints(
       1,
-      { x: 0, y: 0 },
-      { x: 10, y: 0 },
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
       invalidStyle,
     );
     expect(created).toBeNull();
@@ -186,6 +197,7 @@ describe('ANNOTATION_GEOMETRY', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid',
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -205,6 +217,7 @@ describe('ANNOTATION_GEOMETRY', () => {
       color: '#000000' as never,
       strokeWidth: 4,
       strokeType: 'solid',
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -287,11 +300,13 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(asClickPointsModule(ANNOTATION_GEOMETRY.polyline).closable).toBeFalse();
   });
 
-  it('text: createFromDragは矩形サイズと初期値を持つテキストボックスを生成する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.text).createFromDrag(
+  it('text: createFromPointsは矩形サイズと初期値を持つテキストボックスを生成する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.text).createFromPoints(
       1,
-      { x: 10, y: 10 },
-      { x: 110, y: 60 },
+      [
+        { x: 10, y: 10 },
+        { x: 110, y: 60 },
+      ],
       textStyle,
     );
     expect(created).not.toBeNull();
@@ -315,6 +330,7 @@ describe('ANNOTATION_GEOMETRY', () => {
       color: '#000000' as never,
       strokeWidth: 0,
       strokeType: 'solid',
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -349,6 +365,7 @@ describe('getSize / resizeTo（位置・サイズ操作盤向け）', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -372,6 +389,7 @@ describe('getSize / resizeTo（位置・サイズ操作盤向け）', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -394,6 +412,7 @@ describe('getSize / resizeTo（位置・サイズ操作盤向け）', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -415,6 +434,7 @@ describe('getSize / resizeTo（位置・サイズ操作盤向け）', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -436,6 +456,7 @@ describe('getSize / resizeTo（位置・サイズ操作盤向け）', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -460,6 +481,7 @@ describe('getSize / resizeTo（位置・サイズ操作盤向け）', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -484,6 +506,7 @@ describe('getSize / resizeTo（位置・サイズ操作盤向け）', () => {
       color: '#000000' as never,
       strokeWidth: 1,
       strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -514,6 +537,7 @@ describe('boundingBox（残りの種別）', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid',
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -532,6 +556,7 @@ describe('boundingBox（残りの種別）', () => {
       color: '#000000' as never,
       strokeWidth: 4,
       strokeType: 'solid',
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -553,6 +578,7 @@ describe('boundingBox（残りの種別）', () => {
       color: '#000000' as never,
       strokeWidth: 2,
       strokeType: 'solid',
+      blendMode: 'normal' as never,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       comment: {},
@@ -565,8 +591,8 @@ describe('boundingBox（残りの種別）', () => {
 
 describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中のプレビュー形状）', () => {
   it('box: fill/strokeにstrokeOpacity/fillOpacityをrgba合成して返す', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.box).previewFromDrag(
-      { x: 10, y: 20 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.box).previewFromPoints(
+      [{ x: 10, y: 20 }],
       { x: 30, y: 50 },
       boxStyle,
     );
@@ -582,8 +608,8 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
   });
 
   it('line: 塗りを持たないためstrokeのみをrgba合成して返す', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.line).previewFromDrag(
-      { x: 5, y: 5 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.line).previewFromPoints(
+      [{ x: 5, y: 5 }],
       { x: 15, y: 25 },
       lineStyle,
     );
@@ -597,8 +623,8 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
   });
 
   it('circle: fill/strokeにstrokeOpacity/fillOpacityをrgba合成して返す', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.circle).previewFromDrag(
-      { x: 0, y: 0 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.circle).previewFromPoints(
+      [{ x: 0, y: 0 }],
       { x: 6, y: 8 },
       circleStyle,
     );
@@ -613,8 +639,8 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
   });
 
   it('arrow: 矢じりのfillも枠線と同じrgba合成色を使う', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.arrow).previewFromDrag(
-      { x: 0, y: 0 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.arrow).previewFromPoints(
+      [{ x: 0, y: 0 }],
       { x: 10, y: 0 },
       arrowStyle,
     );
@@ -667,7 +693,7 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
     expect(withCursor.points).toEqual([0, 0, 20, 0, 30, 0]);
   });
 
-  it('polygon: previewFromPointsはclosedフラグ付きでfill/strokeをrgba合成する', () => {
+  it('polygon: previewFromPointsは未確定の間は常にclosed=falseでfill/strokeをrgba合成する', () => {
     const points = [
       { x: 0, y: 0 },
       { x: 20, y: 0 },
@@ -682,6 +708,31 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
       x: 0,
       y: 0,
       points: [0, 0, 20, 0, 10, 20],
+      // 3点以上あっても、始点への再クリックで確定するまでは絶対に閉じた図形に見せない
+      closed: false,
+      fill: hexToRgba('#9900cc', 0.3),
+      stroke: hexToRgba('#9900cc', 1),
+      strokeWidth: 3,
+    });
+  });
+
+  it('polygon: 始点付近にカーソルがあり閉合可能な状態（closing）のときは閉じた図形として塗りを適用する', () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 10, y: 20 },
+    ];
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.polygon).previewFromPoints(
+      points,
+      { x: 1, y: 1 },
+      polygonStyle,
+      { closing: true },
+    );
+    expect(preview).toEqual({
+      x: 0,
+      y: 0,
+      // closing中はカーソル位置（ほぼ始点）を余分な頂点として追加しない
+      points: [0, 0, 20, 0, 10, 20],
       closed: true,
       fill: hexToRgba('#9900cc', 0.3),
       stroke: hexToRgba('#9900cc', 1),
@@ -690,8 +741,8 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
   });
 
   it('text: fillColor未設定の場合はtransparentを返す', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.text).previewFromDrag(
-      { x: 10, y: 10 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.text).previewFromPoints(
+      [{ x: 10, y: 10 }],
       { x: 110, y: 60 },
       textStyle,
     );

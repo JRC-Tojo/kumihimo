@@ -208,6 +208,36 @@
               @update:model-value="(val) => onUpdateRecentColorsLimit(Number(val))"
             />
           </SettingsItemRow>
+
+          <SettingsItemRow
+            v-show="isVisible('presetImportExport')"
+            :title="$t('settings.annotationTools.presetImportExport')"
+            :description="$t('settings.annotationTools.presetImportExportDesc')"
+          >
+            <div class="row q-gutter-sm">
+              <q-btn
+                dense
+                outline
+                icon="file_download"
+                :label="$t('settings.annotationTools.exportPresets')"
+                @click="onExportPresets"
+              />
+              <q-btn
+                dense
+                outline
+                icon="file_upload"
+                :label="$t('settings.annotationTools.importPresets')"
+                @click="onImportPresetsClick"
+              />
+              <input
+                ref="importFileInput"
+                type="file"
+                accept="application/json"
+                class="hidden-file-input"
+                @change="onImportPresetsSelected"
+              />
+            </div>
+          </SettingsItemRow>
         </section>
 
         <!-- 関係性検証スタイル -->
@@ -260,17 +290,27 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useQuasar } from 'quasar';
+import dayjs from 'dayjs';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
+import { importPresetsDialog } from 'src/components/Dialog/confirmDialog';
+import {
+  parseImportedPresets,
+  regenerateImportedPresetIds,
+  applyImportedPresets,
+} from 'src/components/DocLayout/composables/useAnnotationPresetsImport';
 
 const { t: $t } = useI18n();
+const $q = useQuasar();
 const api = useBackendApi();
 const settingsStore = useSettingsStore();
 
 const settings = ref<AppSettings>();
+const importFileInput = ref<HTMLInputElement>();
 
 const viewModes = computed(() => [
   { label: $t('viewMode.rich'), value: 'rich' },
@@ -394,6 +434,12 @@ const itemMetas = computed<SettingsItemMeta[]>(() => [
     description: $t('settings.annotationTools.recentColorsLimitDesc'),
   },
   {
+    id: 'presetImportExport',
+    sectionId: 'annotationTools',
+    title: $t('settings.annotationTools.presetImportExport'),
+    description: $t('settings.annotationTools.presetImportExportDesc'),
+  },
+  {
     id: 'relationalOk',
     sectionId: 'relational',
     title: $t('settings.relationalVerification.ok'),
@@ -480,9 +526,75 @@ async function onUpdateRecentColorsLimit(value: number) {
   if (!Number.isFinite(value) || value <= 0) return;
   await settingsStore.updateRecentColorsLimit(Math.floor(value));
 }
+
+/**
+ * 現在のアノテーションプリセット一覧をJSONファイルとしてダウンロードする
+ */
+function onExportPresets() {
+  const presets = settings.value?.tools.annotations ?? [];
+  const json = JSON.stringify(presets, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `annotation-presets-${dayjs().format('YYYYMMDD-HHmmss')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function onImportPresetsClick() {
+  importFileInput.value?.click();
+}
+
+/**
+ * インポートしたJSONファイルを検証したうえで、既存プリセットへの追加／完全な置き換えを
+ * ユーザーに選択させて反映する。実際のパース・ID再採番・保存処理はuseAnnotationPresets
+ * コンポーザブルに委ね、ここではUIイベントの処理・ダイアログ・通知表示のみを行う
+ */
+async function onImportPresetsSelected(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  // 同じファイルを続けて選択してもchangeイベントが発火するようリセットしておく
+  input.value = '';
+  if (!file) return;
+
+  const parsed = parseImportedPresets(await file.text());
+  if (!parsed.success) {
+    const messageKey =
+      parsed.reason === 'parse'
+        ? 'settings.annotationTools.importParseError'
+        : 'settings.annotationTools.importValidationError';
+    $q.notify({ type: 'negative', message: $t(messageKey) });
+    return;
+  }
+
+  const mode = await importPresetsDialog({
+    title: $t('settings.annotationTools.importPresets'),
+    message: $t('settings.annotationTools.importConfirmMessage', { count: parsed.presets.length }),
+  });
+  if (mode === 'cancel') return;
+
+  const imported = regenerateImportedPresetIds(parsed.presets);
+  const ok = await applyImportedPresets(imported, mode);
+  if (!ok) {
+    $q.notify({ type: 'negative', message: $t('settings.annotationTools.importSaveError') });
+    return;
+  }
+
+  // このページが保持するローカルコピーにも反映する（他項目の保存と同じくstoreへの反映は
+  // applyImportedPresets内のsettingsStore.updateAnnotationPresetsが行うため、ここでは
+  // このページ自身のフォーム表示用ローカルstateのみ更新すればよい）
+  const latest = await api.getSettings();
+  if (latest.ok) settings.value = latest.data;
+  $q.notify({ type: 'positive', message: $t('settings.annotationTools.importSuccess') });
+}
 </script>
 
 <style scoped lang="scss">
+.hidden-file-input {
+  display: none;
+}
+
 .settings-page {
   display: flex;
   height: 100%;

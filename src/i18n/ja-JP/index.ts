@@ -118,6 +118,21 @@ export default {
       recentColorsLimit: '直近使用色の保持数',
       recentColorsLimitDesc:
         'スタイルパネルの色スウォッチに表示する、直近で使用した色の保持件数です。',
+      presetImportExport: 'プリセットのエクスポート・インポート',
+      presetImportExportDesc:
+        '保存したアノテーションプリセットをJSONファイルとして書き出したり、書き出したファイルを読み込んで復元できます。',
+      exportPresets: 'エクスポート',
+      importPresets: 'インポート',
+      importReplace: '置き換える',
+      importAppend: '追加する',
+      importConfirmMessage:
+        '{count}件のプリセットを読み込みます。既存のプリセットに追加しますか、それとも完全に置き換えますか？',
+      importParseError:
+        'ファイルの読み込みに失敗しました。プリセットのJSONファイルではない可能性があります。',
+      importValidationError:
+        'ファイルの形式がプリセットのデータと一致しません。想定していない形式のJSONファイルです。',
+      importSaveError: 'プリセットの保存に失敗しました。',
+      importSuccess: 'プリセットをインポートしました。',
     },
     relationalVerification: {
       title: '関係性検証スタイル',
@@ -213,7 +228,9 @@ export default {
         strokeWidth: '線の幅',
         strokeType: '線種',
         opacity: '不透明度',
+        blendMode: '合成モード',
         fillColor: '塗り色',
+        fillOpacity: '塗りの不透明度',
         endHead: '矢じり形状',
         fontFamily: 'フォント',
         fontSize: '文字サイズ',
@@ -229,6 +246,20 @@ export default {
           none: 'なし',
           triangle: '塗り三角',
           open: '輪郭のみ',
+        },
+        blendModeOptions: {
+          normal: '通常',
+          multiply: '乗算',
+          screen: 'スクリーン',
+          overlay: 'オーバーレイ',
+          darken: '比較（暗）',
+          lighten: '比較（明）',
+          colorDodge: '覆い焼き',
+          colorBurn: '焼き込み',
+          hardLight: 'ハードライト',
+          softLight: 'ソフトライト',
+          difference: '差の絶対値',
+          exclusion: '除外',
         },
       },
       positionSize: {

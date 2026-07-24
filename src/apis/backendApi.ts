@@ -3,6 +3,9 @@ import {
   getRecentContainers,
   initializeSettings,
   saveSettings,
+  saveAnnotationPresets,
+  recordRecentColorSetting,
+  updateRecentColorsLimitSetting,
   ensureDefaultAnnotationPresets,
 } from 'src/settings/main';
 import { toApiResponse, type ApiResponse } from 'src/models/error/api';
@@ -25,7 +28,8 @@ import type {
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
-import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle, ColorCode } from 'src/models/document/pdf';
+import type { AnnotationTool } from 'src/models/docPage';
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
@@ -593,6 +597,35 @@ class BackendApi {
   ): Promise<ApiResponse<void>> {
     const saveRes = await saveSettings(key, value);
     return toApiResponse(saveRes, 'FAILED_SAVE_SETTINGS');
+  }
+
+  /**
+   * アノテーションプリセット一覧を保存する（追加・編集・削除・並び替え・インポートの共通経路）
+   *
+   * `tools`キーの読み込み→変更→保存を直列化するため、`saveSettings('tools', ...)`を
+   * 直接呼ぶのではなくこちらを経由すること（直近使用色の記録・件数変更と競合しないようにする）
+   */
+  async saveAnnotationPresets(
+    presets: AnnotationTool[],
+  ): Promise<ApiResponse<AppSettings['tools']>> {
+    const res = await saveAnnotationPresets(presets);
+    return toApiResponse(res, 'FAILED_SAVE_SETTINGS');
+  }
+
+  /**
+   * 直近使用色の先頭へ色を記録する
+   */
+  async recordRecentColor(color: ColorCode): Promise<ApiResponse<AppSettings['tools']>> {
+    const res = await recordRecentColorSetting(color);
+    return toApiResponse(res, 'FAILED_SAVE_SETTINGS');
+  }
+
+  /**
+   * 直近使用色として保持する件数を変更する
+   */
+  async updateRecentColorsLimit(limit: number): Promise<ApiResponse<AppSettings['tools']>> {
+    const res = await updateRecentColorsLimitSetting(limit);
+    return toApiResponse(res, 'FAILED_SAVE_SETTINGS');
   }
 
   // ============ プラグイン操作 ============

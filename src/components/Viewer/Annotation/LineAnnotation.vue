@@ -6,7 +6,7 @@
       x: displayAnnotation.x,
       y: displayAnnotation.y,
       id: displayAnnotation.id,
-      draggable: props.isEditing && !!props.isSelected && !ctrlKey,
+      draggable: props.isEditing && props.allowDrag && !ctrlKey,
       dragBoundFunc,
       onDragstart: onGroupDragStart,
       onDragend: onDragEnd,
@@ -50,6 +50,9 @@ interface Props {
   annotation: LineAnnotationStyle;
   isEditing: boolean;
   isSelected?: boolean;
+  // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
+  // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
+  allowDrag: boolean;
 }
 
 const props = defineProps<Props>();
@@ -69,6 +72,8 @@ const isHovered = ref(false);
 const {
   relationalOverride,
   strokeDash,
+  globalCompositeOperation,
+  hitStrokeWidth,
   resolvedStroke,
   withUpdatedTimestamp,
   displayAnnotation,
@@ -101,8 +106,9 @@ const lineConfig = computed(() => {
     stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,
+    globalCompositeOperation: globalCompositeOperation.value,
     draggable: false,
-    hitStrokeWidth: 8,
+    hitStrokeWidth: hitStrokeWidth.value,
   };
 });
 

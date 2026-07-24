@@ -6,7 +6,13 @@
  * 他種別のプリセットの位置を変えないようにするための変換をここに切り出す
  */
 
-import type { AnnotationTool, DrawingAnnotationType } from 'src/models/docPage';
+import type {
+  AnnotationTool,
+  DrawingAnnotationStyle,
+  DrawingAnnotationType,
+} from 'src/models/docPage';
+import type { AnnotationStyle } from 'src/models/document/pdf';
+import { toColorCode } from 'src/utils/color/toColorCode';
 
 /**
  * 指定種別のプリセットだけを並び替えた結果を、全体配列に書き戻す
@@ -21,4 +27,116 @@ export function reorderPresetsOfType(
 ): AnnotationTool[] {
   let i = 0;
   return all.map((item) => (item.style.type === type ? (reordered[i++] ?? item) : item));
+}
+
+/**
+ * プリセットのスタイル（`DrawingAnnotationStyle`）を、選択中アノテーション群への適用patchへ変換する
+ *
+ * 対象アノテーションの種別がpresetの種別と一致しない場合はnullを返し、そのアノテーションは
+ * スキップする（`useAnnotationHistory.buildRegisterManyItems`のbuilding引数と同じ規約）。
+ * フィールド名の差異（preset側は`strokeColor`、配置済み側は`color`）はここで吸収する
+ */
+export function buildPresetApplyPatch(
+  preset: DrawingAnnotationStyle,
+): (annot: AnnotationStyle) => Partial<AnnotationStyle> | null {
+  return (annot) => {
+    if (annot.type !== preset.type) return null;
+
+    const color = toColorCode(preset.strokeColor);
+    if (color === undefined) return null;
+
+    const common = {
+      color,
+      strokeWidth: preset.strokeWidth,
+      strokeType: preset.strokeType,
+      strokeOpacity: preset.strokeOpacity,
+      blendMode: preset.blendMode,
+    };
+
+    switch (preset.type) {
+      case 'box':
+      case 'circle':
+      case 'polygon':
+        return {
+          ...common,
+          fillColor: toColorCode(preset.fillColor),
+          fillOpacity: preset.fillOpacity,
+        };
+      case 'arrow':
+      case 'polyline':
+        return {
+          ...common,
+          startHead: preset.startHead,
+          endHead: preset.endHead,
+          headSize: preset.headSize,
+        };
+      case 'text': {
+        const textColor = toColorCode(preset.textColor);
+        if (textColor === undefined) return null;
+        return {
+          ...common,
+          textColor,
+          fontFamily: preset.fontFamily,
+          fontSize: preset.fontSize,
+          fontWeight: preset.fontWeight,
+          fillColor: toColorCode(preset.fillColor),
+          fillOpacity: preset.fillOpacity,
+        };
+      }
+      case 'line':
+        return common;
+    }
+  };
+}
+
+/**
+ * 配置済みアノテーションのスタイルを、新規プリセット・プリセット上書き用の`DrawingAnnotationStyle`へ変換する
+ *
+ * 位置・サイズ・頂点座標などの幾何情報は含まず、スタイルに関するフィールドのみを抽出する
+ */
+export function annotationStyleToPresetStyle(annot: AnnotationStyle): DrawingAnnotationStyle {
+  const common = {
+    strokeColor: annot.color,
+    strokeWidth: annot.strokeWidth ?? 2,
+    strokeType: annot.strokeType ?? ('solid' as const),
+    strokeOpacity: annot.strokeOpacity ?? annot.opacity ?? 1,
+    blendMode: annot.blendMode ?? ('normal' as const),
+  };
+
+  switch (annot.type) {
+    case 'box':
+    case 'circle':
+    case 'polygon':
+      return {
+        ...common,
+        type: annot.type,
+        fillColor: annot.fillColor ?? annot.color,
+        fillPattern: annot.fillColor ? 'solid' : 'none',
+        fillOpacity: annot.fillOpacity ?? 1,
+      };
+    case 'arrow':
+    case 'polyline':
+      return {
+        ...common,
+        type: annot.type,
+        startHead: annot.startHead,
+        endHead: annot.endHead,
+        headSize: annot.headSize ?? 10,
+      };
+    case 'text':
+      return {
+        ...common,
+        type: 'text',
+        textColor: annot.textColor,
+        fontWeight: annot.fontWeight,
+        fontFamily: annot.fontFamily,
+        fontSize: annot.fontSize,
+        textAlign: annot.textAlign,
+        fillColor: annot.fillColor ?? annot.color,
+        fillPattern: annot.fillColor ? 'solid' : 'none',
+        fillOpacity: annot.fillOpacity ?? 1,
+      };
+    case 'line':
+      return { ...common, type: 'line' };
+  }
 }
