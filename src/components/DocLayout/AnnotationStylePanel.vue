@@ -88,7 +88,7 @@
             :key="opt.value"
             v-close-popup
             clickable
-            :active="blendMode === opt.value"
+            :active="(blendMode ?? 'normal') === opt.value"
             @click="blendMode = opt.value"
           >
             <q-item-section avatar>

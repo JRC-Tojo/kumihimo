@@ -61,7 +61,11 @@ export async function applyImportedPresets(
   if (mode === 'append') {
     const api = useBackendApi();
     const latest = await api.getSettings();
-    current = latest.ok ? latest.data.tools.annotations : [];
+    if (!latest.ok) {
+      console.error(latest.error);
+      return false;
+    }
+    current = latest.data.tools.annotations;
   }
 
   const newList = mode === 'replace' ? imported : [...current, ...imported];

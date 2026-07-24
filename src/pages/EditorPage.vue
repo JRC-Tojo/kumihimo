@@ -105,10 +105,15 @@ const activeTabKind = computed<'settings' | 'pdf' | 'text' | 'unsupported' | 'no
 
 // アクティブタブの種別に応じてメインツールを注入・撤去する。
 // PDF文書タブ以外（設定・テキスト・非対応ファイル・未選択）ではメインツールバーを空にする
+let mainToolsRequestId = 0;
 watch(
   activeTabKind,
   async (kind) => {
-    editorStore.setMainTools(kind === 'pdf' ? await callEditorTools(t) : []);
+    const requestId = ++mainToolsRequestId;
+    const tools = kind === 'pdf' ? await callEditorTools(t) : [];
+    // 待機中により新しいタブ切り替えが発生していた場合、古い結果で上書きしない
+    if (requestId !== mainToolsRequestId) return;
+    editorStore.setMainTools(tools);
   },
   { immediate: true },
 );

@@ -1,9 +1,5 @@
 <template>
-  <div
-    v-show="editorStore.visibleAnnotations"
-    class="annotation-layer-wrapper"
-    :style="{ mixBlendMode: layerBlendMode }"
-  >
+  <div v-show="editorStore.visibleAnnotations" class="annotation-layer-wrapper">
     <v-stage
       ref="stageRef"
       :config="canvasSize"
@@ -13,10 +9,14 @@
       @dblclick="handleDblClick"
       :style="{ cursor: cursor }"
     >
-      <v-layer>
+      <!-- 注釈ごとに専用レイヤー（＝専用canvas）を割り当て、合成モードが他の注釈やスタイル
+           パネルの現在値に引きずられず、注釈自身の値で文書と合成されるようにする -->
+      <AnnotationBlendLayer
+        v-for="annotation in visibleAnnotations"
+        :key="annotation.id"
+        :blend-mode="annotation.blendMode"
+      >
         <component
-          v-for="annotation in visibleAnnotations"
-          :key="annotation.id"
           :is="ANNOTATION_REGISTRY[annotation.type].component"
           :ref="(el: unknown) => setAnnotationRef(annotation.id, el)"
           :annotation="annotation"
@@ -26,7 +26,11 @@
           @update="onRegisterAnnot"
           @delete="onRemoveAnnot"
         />
+      </AnnotationBlendLayer>
 
+      <!-- 描画プレビュー・選択矩形・複製プレビュー・Transformerは、いずれも確定済みの
+           注釈本体ではない一時的なUI表示のため、合成モードを気にせず通常合成の1レイヤーにまとめる -->
+      <v-layer>
         <component
           v-if="(isDrawing || !!clickPointsBuffer) && drawingPreviewConfig"
           :is="drawingPreviewComponent"
@@ -85,7 +89,7 @@ import { ANNOTATION_REGISTRY } from './registry';
 import { getAnnotationSortKey } from 'src/utils/document/annotationOrder';
 import { useModifierKeys } from './composables/useModifierKeys';
 import { lockToDominantAxis } from 'src/utils/document/annotationDrag';
-import { useAnnotationStylePanel } from 'src/components/DocLayout/composables/useAnnotationStylePanel';
+import AnnotationBlendLayer from './AnnotationBlendLayer.vue';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -102,13 +106,6 @@ interface Props {
 const props = defineProps<Props>();
 const editorStore = useEditorStore();
 const { shiftKey } = useModifierKeys();
-
-// 合成モードはKonvaの`globalCompositeOperation`だけではKonvaキャンバス内の重なりにしか反映されず、
-// 別canvas要素であるPDF描画側（文書の文字）には影響しない。CSSの`mix-blend-mode`はDOM要素同士の
-// 合成に使えるため、ステージ全体を包むこの`.annotation-layer-wrapper`へ適用することで、
-// 現在の描画スタイル・選択中アノテーションの合成モードを文書の文字にも反映させる
-const { blendMode: stylePanelBlendMode } = useAnnotationStylePanel();
-const layerBlendMode = computed(() => stylePanelBlendMode.value ?? 'normal');
 
 /**
  * Shiftキー押下中のみ、基準点からの水平・垂直方向に移動を制限する
@@ -141,6 +138,17 @@ const pendingPointerTarget = ref<{ id: string; wasSelected: boolean } | null>(nu
 // 実際にしきい値を超えて動いた時点で初めて複製プレビューへ昇格させる（昇格しなければ
 // 単なるCtrl+クリックとして選択解除を適用する）
 const DUPLICATE_DRAG_THRESHOLD_PX = 3;
+// box/circle/line/arrow/textのような2点構成の種別で、1点目クリック直後のmouseupが
+// 「押したままドラッグして離した」ものか「素早く離しただけの単なるクリック」かを判定するしきい値。
+// DUPLICATE_DRAG_THRESHOLD_PXと同じ値を流用すると、素早くクリックしただけでも手ブレで
+// 数px動いてしまうことがあり、それを「ドラッグして離した」と誤判定して極小サイズの
+// アノテーションが確定してしまう問題があったため、意図的にこちらだけ大きめの値にしている
+const TWO_POINT_DRAG_FINISH_THRESHOLD_PX = 15;
+// 上記の距離しきい値だけでは、素早く手を動かしてクリックした際の移動量がこれを超えてしまう
+// ケースをまだ拾いきれない。実際にドラッグして図形のサイズを決めた場合は多少なりとも時間が
+// かかるはずという前提のもと、経過時間もあわせて要求することで「速い・短い移動」は
+// クリックとして扱い、「意図的に少し時間をかけて動かした」場合のみドラッグ完了とみなす
+const TWO_POINT_DRAG_MIN_DURATION_MS = 150;
 const ctrlDragCandidate = ref<{ id: AnnotationID; stagePos: { x: number; y: number } } | null>(
   null,
 );
@@ -170,6 +178,10 @@ const clickPointsBuffer = ref<Point[] | null>(null);
 // clickPoints方式で最初の頂点を置いた時点のステージ座標（画面px）。
 // maxPoints=2の種別（box/circle/line/arrow/text）で「押したままドラッグ→離す」操作を検出するために使う
 const clickPointsStartScreenPos = ref<{ x: number; y: number } | null>(null);
+// 上記と同時に記録する、1点目を置いた時刻（ミリ秒）。距離だけで「ドラッグして離した」と判定すると、
+// 素早いクリックの手ブレ移動量でも誤って即確定してしまうため、経過時間も合わせて見ることで
+// 「実際に少し時間をかけてドラッグした」場合のみドラッグ完了とみなすようにする
+const clickPointsStartTimestamp = ref<number | null>(null);
 // 描画ツール使用中、既存アノテーションのシェイプ上でmousedownした際の曖昧開始状態。
 // 実際にドラッグへ発展すればその場から新規描画を開始し、発展せず単なるクリックで終われば
 // 既存アノテーションの選択編集として扱う（どちらの意図かはmouseup/mousemoveで確定する）
@@ -177,6 +189,7 @@ const pendingOverAnnotStart = ref<{
   id: AnnotationID;
   screenPos: { x: number; y: number };
   docPos: Point;
+  timestamp: number;
 } | null>(null);
 // テキストボックスのインライン編集状態
 const editingTextId = ref<AnnotationID | null>(null);
@@ -474,6 +487,7 @@ function finishClickPointsDrawing() {
   const points = clickPointsBuffer.value;
   clickPointsBuffer.value = null;
   clickPointsStartScreenPos.value = null;
+  clickPointsStartTimestamp.value = null;
   drawingPreviewConfig.value = null;
 
   const annotation = createAnnotationFromPoints(page.value, points, style);
@@ -498,6 +512,7 @@ function finishClickPointsDrawing() {
 function cancelClickPointsDrawing() {
   clickPointsBuffer.value = null;
   clickPointsStartScreenPos.value = null;
+  clickPointsStartTimestamp.value = null;
   drawingPreviewConfig.value = null;
 }
 
@@ -515,6 +530,7 @@ watch(drawingType, () => {
  */
 function handleKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;
+  pendingOverAnnotStart.value = null;
   if (clickPointsBuffer.value) {
     cancelClickPointsDrawing();
   }
@@ -617,6 +633,7 @@ function handleMouseDown(e: KonvaMouseEvent) {
       id: clickedId,
       screenPos: { x: pos.x, y: pos.y },
       docPos: adjustedPos,
+      timestamp: performance.now(),
     };
     return;
   }
@@ -624,8 +641,9 @@ function handleMouseDown(e: KonvaMouseEvent) {
   // 空白領域からの通常開始
   if (module.geometry.drawMode === 'clickPoints') {
     // 2点構成の種別（box/circle/line/arrow/text）を「押したままドラッグ→離す」でも描けるよう、
-    // 最初の頂点を置いた時点のステージ座標（画面px）を記録しておく（handleMouseUp参照）
+    // 最初の頂点を置いた時点のステージ座標（画面px）・時刻を記録しておく（handleMouseUp参照）
     clickPointsStartScreenPos.value = { x: pos.x, y: pos.y };
+    clickPointsStartTimestamp.value = performance.now();
     handleClickPointsMouseDown(adjustedPos, module.geometry);
     return;
   }
@@ -689,6 +707,7 @@ function handleMouseMove(e: KonvaMouseEvent) {
           const module = ANNOTATION_REGISTRY[drawingType.value as AnnotationStyle['type']];
           if (module.geometry.drawMode === 'clickPoints') {
             clickPointsStartScreenPos.value = pending.screenPos;
+            clickPointsStartTimestamp.value = pending.timestamp;
             handleClickPointsMouseDown(pending.docPos, module.geometry);
           } else {
             isDrawing.value = true;
@@ -829,7 +848,14 @@ function handleMouseUp(e: KonvaMouseEvent) {
           pos.x - clickPointsStartScreenPos.value.x,
           pos.y - clickPointsStartScreenPos.value.y,
         );
-        if (dragDistance > DUPLICATE_DRAG_THRESHOLD_PX) {
+        const elapsedMs = clickPointsStartTimestamp.value
+          ? performance.now() - clickPointsStartTimestamp.value
+          : 0;
+        // 距離・経過時間のどちらもドラッグらしい値を満たした場合のみ、ドラッグして離したとみなす
+        if (
+          dragDistance > TWO_POINT_DRAG_FINISH_THRESHOLD_PX &&
+          elapsedMs > TWO_POINT_DRAG_MIN_DURATION_MS
+        ) {
           handleClickPointsMouseDown({ x: pos.x / props.scale, y: pos.y / props.scale }, geometry);
         }
       }
@@ -1002,7 +1028,12 @@ watch(
   position: absolute;
   left: 0;
   top: 0;
-  z-index: 10;
+  // z-indexを指定しない: position:absolute + z-index単体はスタッキングコンテキストを生成しないため、
+  // 配下のKonvaレイヤー（canvas）に付けたmix-blend-modeがこの要素の外（.pdf-canvas）まで正しく届く。
+  // z-indexを指定するとこの要素自体が独立したスタッキングコンテキストとなり、
+  // 配下canvasの合成が「.pdf-canvasを含まないこの要素の中だけ」に閉じ込められてしまう
+  // （position:absoluteの要素は同じ文脈内の非positioned要素より必ず手前に描画されるため、
+  // z-index無しでも.pdf-canvasより手前に表示される点は変わらない）
   width: 100%;
   height: 100%;
 }
