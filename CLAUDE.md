@@ -41,7 +41,7 @@ src/repositories/**     ← ストレージアダプタ
 - **Vueコンポーネントからサービスやリポジトリを直接呼び出さないこと。** 必ず `const api = useBackendApi()`（`src/apis/backendApi.ts`）を経由する。ここが将来的に実際のHTTPバックエンドへ差し替える際の境界となる。
 - **コンテナ（Container）**：ストレージの最上位単位（`local` フォルダ、`box` クラウドフォルダ、インメモリの `cache`）。`src/services/container/main.ts` がコンテナ種別ごとの処理を `src/repositories/container/` 内の対応するリポジトリへ振り分ける。新しいストレージ種別を追加する場合は、`ContainerType`（`src/models/container.ts`）にケースを追加し、`src/repositories/container/<type>.ts` に対応関数を実装したうえで、コンテナサービス内のすべての `switchContainerProcess` 呼び出し箇所に組み込む必要がある。
 - **文書（Document）**：コンテナ内の `ContainerElementFile`。文書本体へのアクセスは `src/repositories/document/pdf.ts` / `text.ts` を経由する。文書ごとのメタ情報（アノテーション、関係性設定、ハッシュ値）はサイドカーの「文書設定ファイル」として `src/services/document/config.ts` が扱う。
-- **アノテーション（Annotation）**：文書上に描画されるアノテーション図形（`src/services/document/annotation.ts`。キャッシュを除く実データではファイルと同じ名前の`.kcfg`ファイルに記録される。
+- **アノテーション（Annotation）**：文書上に描画されるアノテーション図形（`src/services/document/annotation.ts`）。キャッシュを除く実データではファイルと同じ名前の`.kcfg`ファイルに記録される。
 - **関係性（Relational）**：2つのアノテーション間（文書・コンテナをまたぐ場合もある）のリンクで、整合性チェックに使う。キャッシュを除く実データではコンテナルートに保存される`.kumihimo`フォルダ内の`relational.json`に記録される。
 - **設定（Settings）**：`src/settings/main.ts` と `src/models/settings.ts`。IndexedDBに永続化され、読み込み済みコンテナ一覧、DB接続情報、初期化フラグなどを管理する。
 
