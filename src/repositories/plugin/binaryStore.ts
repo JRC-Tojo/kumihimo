@@ -10,7 +10,7 @@ import type { PluginInstallSource } from 'src/models/plugin/installation';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success, toError } from 'src/models/error/result';
 
-const DB_NAME = 'RelationalDocumentsPluginBinaries';
+const DB_NAME = 'KumihimoPluginBinaries';
 const STORE_NAME = 'plugin-binaries';
 
 /** ストアの実キー。同一idでもcatalog/sideloadを別レコードとして共存させる（db/plugin.tsと同じ方式） */

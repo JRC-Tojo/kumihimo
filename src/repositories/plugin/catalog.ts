@@ -1,7 +1,7 @@
 /**
  * 「導入可能プラグイン一覧」（カタログ）
  *
- * プラグインストア・リポジトリ（https://github.com/JRC-Tojo/RD-PluginStock）の
+ * プラグインストア・リポジトリ（https://github.com/JRC-Tojo/K-PluginStock）の
  * `plugins/<id>/plugin.json`を実際に読みに行く。認証（token）は未指定でも動作するが
  * （公開リポジトリのため）、GitHub APIのレート制限緩和のため設定されていれば利用する
  */

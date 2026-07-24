@@ -16,7 +16,7 @@ class NotFoundGithubError extends Error {
 }
 
 const STORE_REPO_OWNER = 'JRC-Tojo';
-const STORE_REPO_NAME = 'RD-PluginStock';
+const STORE_REPO_NAME = 'K-PluginStock';
 const STORE_REPO_DEFAULT_BRANCH = 'main';
 
 /** PRのCheckRun（`gh.listCheckRuns`が返す形）を模した最小限の型 */

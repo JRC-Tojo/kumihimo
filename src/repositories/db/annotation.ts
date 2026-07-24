@@ -100,7 +100,7 @@ export async function getAnnotationAddress(
 /**
  * アノテーション情報を追加する
  *
- * @param isTemporary 未保存の仮登録として追加するか。`.rdcfg`から読み込んだ確定済みデータを
+ * @param isTemporary 未保存の仮登録として追加するか。`.kcfg`から読み込んだ確定済みデータを
  * 反映する場合は`false`を指定する（`true`のまま追加すると、編集していないファイルを開いただけで
  * 「未保存の変更あり」判定になってしまう）
  */
@@ -175,7 +175,7 @@ export async function updateAnnotationStyle(style: AnnotationStyle): Promise<Res
  * 特定ファイルのアノテーションDBレコードをすべて削除する
  *
  * 「保存せず閉じる」際、仮登録・確定済み問わずこのファイルの記録を一旦すべて消し去り、
- * `.rdcfg`から読み直して確定済み状態を再構築するために使う（生き残らせたい行を判定する
+ * `.kcfg`から読み直して確定済み状態を再構築するために使う（生き残らせたい行を判定する
  * 必要がなく、常に正しい状態へ戻せる）
  */
 export async function deleteAnnotationsForFile(file: ContainerElementFile): Promise<Result<void>> {

@@ -11,7 +11,7 @@ import { Path } from 'src/utils/binary/path';
 import { fromEntries } from 'src/utils/obj/obj';
 
 /** コンテナルートに配置する本システムの管理フォルダ名（一覧には含めない） */
-const CONTAINER_CONFIG_FOLDER = '.rd';
+const CONTAINER_CONFIG_FOLDER = '.kumihimo';
 
 /**
  * `pickDirectory()`で選択された直後のハンドルを一時的に保持する

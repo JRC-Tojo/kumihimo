@@ -68,10 +68,10 @@ async function resolveFileByAddress(
 /**
  * アノテーション内容をDBから取得する
  *
- * DBにまだ無い場合（対象文書が今回のセッションで一度も開かれていない場合）は、対応する`.rdcfg`を
+ * DBにまだ無い場合（対象文書が今回のセッションで一度も開かれていない場合）は、対応する`.kcfg`を
  * 直接読み込んでDBへ反映してから返す。関係性の検証はリンク先文書を開かなくても実行できる必要が
  * あるが、アノテーションDBは開いた文書のセッション中のキャッシュに過ぎないため、フォールバック先
- * として保存済みの確定データである`.rdcfg`を読みにいく
+ * として保存済みの確定データである`.kcfg`を読みにいく
  */
 async function ensureAnnotationInfo(
   annotID: AnnotationID,
@@ -183,7 +183,7 @@ export function countTemporaryRelationalsInvolvingFile(
 }
 
 /**
- * コンテナ内の関係性キャッシュ（`.rd/relational.json`）が参照しているファイルパス一覧を取得する
+ * コンテナ内の関係性キャッシュ（`.kumihimo/relational.json`）が参照しているファイルパス一覧を取得する
  *
  * 「関係性で関連づけられているファイル」を、実際に開いているかどうかに関わらず特定するために使う
  * （変更検知バナーの表示要否を判定する際、関連ファイルの範囲として利用する）
@@ -252,7 +252,7 @@ export function saveRelationals(
  * 指定ファイルが関わる未保存（仮登録）の関係性を破棄し、最後に保存された状態へ戻す
  *
  * 仮登録・確定済み問わずこのファイルが関わる関係性DBレコードをすべて削除したうえで、
- * コンテナルートのキャッシュ（`.rd/relational.json`）からこのファイルが関わる分だけを
+ * コンテナルートのキャッシュ（`.kumihimo/relational.json`）からこのファイルが関わる分だけを
  * 読み直して確定済み状態として再登録する（新規追加・仮削除いずれのケースも区別なく正しく戻せる）
  */
 export async function discardUnsavedRelationalsInvolvingFile(

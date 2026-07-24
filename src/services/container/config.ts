@@ -19,7 +19,7 @@ import { CONFIG_FILE_EXTS } from 'src/models/document/common';
 import { fromEntries } from 'src/utils/obj/obj';
 import type { AnnotationID } from 'src/models/document/pdf';
 
-const CONTAINER_CONFIG_FOLDER = '.rd';
+const CONTAINER_CONFIG_FOLDER = '.kumihimo';
 
 /**
  * 文書設定ファイルのパスを取得する

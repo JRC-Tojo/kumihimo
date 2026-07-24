@@ -5,7 +5,7 @@ import { defineConfig } from '#q-app/wrappers';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig((ctx) => {
-  const ghPagesBase = '/RelationalDocuments/';
+  const ghPagesBase = '/kumihimo/';
   return {
     // https://v2.quasar.dev/quasar-cli-vite/prefetch-feature
     // preFetch: true,
@@ -212,7 +212,7 @@ export default defineConfig((ctx) => {
       builder: {
         // https://www.electron.build/configuration
 
-        appId: 'rd',
+        appId: 'kumihimo',
       },
     },
 

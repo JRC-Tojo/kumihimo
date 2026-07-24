@@ -1,8 +1,8 @@
 {
-  "name": "rd",
+  "name": "kumihimo",
   "version": "0.0.1",
   "description": "Documents base on the relational model of annotation text blocks",
-  "productName": "RelationalDocuments",
+  "productName": "Kumihimo",
   "author": "JRC-Tojo <jrc.tojo@gmail.com>",
   "type": "module",
   "private": true,

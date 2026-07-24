@@ -1,6 +1,6 @@
 [submodule "PLUGIN_SDK"]
 	path = PLUGIN_SDK
-	url = https://github.com/JRC-Tojo/RD-PluginSDK.git
+	url = https://github.com/JRC-Tojo/K-PluginSDK.git
 [submodule "PLUGIN_STORE"]
 	path = PLUGIN_STORE
-	url = https://github.com/JRC-Tojo/RD-PluginStock.git
+	url = https://github.com/JRC-Tojo/K-PluginStock.git

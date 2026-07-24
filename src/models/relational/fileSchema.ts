@@ -57,7 +57,7 @@ export const AnnotationInfo = z.object({
 export type AnnotationInfo = z.infer<typeof AnnotationInfo>;
 
 /**
- * `<<filePath>>/<<fileName>>.rdcfg`として保存するアノテーションファイルスキーマ
+ * `<<filePath>>/<<fileName>>.kcfg`として保存するアノテーションファイルスキーマ
  *
  * 関係性情報追跡のためにアノテーション情報は外部化して保存する
  */
@@ -89,7 +89,7 @@ export const AnnotationBaseAddress = z.object({
 export type AnnotationBaseAddress = z.infer<typeof AnnotationBaseAddress>;
 
 /**
- * `.rd/relational.json`に保存するスキーマ
+ * `.kumihimo/relational.json`に保存するスキーマ
  *
  * 本システムで定義する関係性情報を保存する
  */
