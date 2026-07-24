@@ -1,17 +1,18 @@
 <template>
   <q-page class="editor-page row">
-    <div class="main-toolbar text-white">
+    <div class="main-toolbar">
       <q-btn
         v-for="tool in editorStore.mainTools"
         :key="tool.id"
-        :flat="!tool.isActive()"
-        :outline="tool.isActive()"
+        flat
         :disable="tool.isDisable?.() ?? false"
         dense
         :icon="tool.icon"
         :title="tool.label"
         class="toolbar-btn"
+        :class="{ 'toolbar-btn--active': tool.isActive() }"
         @click="handleMainToolClick(tool)"
+        @dblclick="handleMainToolDoubleClick(tool)"
       >
         <q-menu v-if="!tool.noMenu" anchor="center right" self="center left" auto-close>
           <div class="annotation-type-menu q-pa-sm">
@@ -43,6 +44,10 @@
         この領域内で出し分ける
       -->
       <q-bar class="sub-toolbar">
+        <AnnotationPresetBar
+          v-if="stylePanelMode !== 'none' && stylePanelEffectiveType"
+          class="preset-bar-wrapper"
+        />
         <AnnotationStylePanel class="style-panel-wrapper" />
         <AnnotationPositionSizeBtn />
       </q-bar>
@@ -66,32 +71,88 @@
 </template>
 
 <script setup lang="ts">
-import { useEditorStore } from 'src/stores/editorStore';
+import { computed, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import DocTabsPage from './DocTabsPage.vue';
 import AnnotationPresetBar from 'src/components/DocLayout/AnnotationPresetBar.vue';
 import AnnotationStylePanel from 'src/components/DocLayout/AnnotationStylePanel.vue';
 import type { IDocTool } from 'src/models/docPage';
 import AnnotationPositionSizeBtn from 'src/components/DocLayout/AnnotationPositionSizeBtn.vue';
+import { useAnnotationStylePanel } from 'src/components/DocLayout/composables/useAnnotationStylePanel';
+import { callEditorTools, firstPresetStyleForType } from 'src/stores/editorTools';
+import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
+import type { DrawingAnnotationType } from 'src/models/docPage';
 
 /**
  * 文書ページコンポーネント
  * ツールバーとドキュメントレイアウトを統合
  */
 
+const { t } = useI18n();
 const editorStore = useEditorStore();
+// 常駐サブツール行にプリセットバーを表示するかどうかの判定にのみ使う
+// （AnnotationStylePanel自身も内部で同じcomposableを呼ぶが、Piniaストアを参照するだけなので二重利用しても問題ない）
+const { mode: stylePanelMode, effectiveType: stylePanelEffectiveType } = useAnnotationStylePanel();
 
+// アクティブなペイン・タブの種別（PDF文書のみメインツールを持つ）
+const activeTabKind = computed<'settings' | 'pdf' | 'text' | 'unsupported' | 'none'>(() => {
+  if (editorStore.activeTabPaths[editorStore.activeSide] === SETTINGS_TAB_KEY) return 'settings';
+  const file = editorStore.getActiveTab(editorStore.activeSide);
+  if (!file) return 'none';
+  return getSupportedDocumentKind(file.path);
+});
+
+// アクティブタブの種別に応じてメインツールを注入・撤去する。
+// PDF文書タブ以外（設定・テキスト・非対応ファイル・未選択）ではメインツールバーを空にする
+let mainToolsRequestId = 0;
+watch(
+  activeTabKind,
+  async (kind) => {
+    const requestId = ++mainToolsRequestId;
+    const tools = kind === 'pdf' ? await callEditorTools(t) : [];
+    // 待機中により新しいタブ切り替えが発生していた場合、古い結果で上書きしない
+    if (requestId !== mainToolsRequestId) return;
+    editorStore.setMainTools(tools);
+  },
+  { immediate: true },
+);
+
+/** メインツールのクリックを処理する。選択中のスタイルパネル・連続描画モードを一旦リセットしたうえで、ツール本来の処理を実行する */
 function handleMainToolClick(tool: IDocTool) {
   editorStore.subTools = [];
   // アノテーション種別以外のツールをクリックした場合、プリセットバー・スタイルパネルの
   // 描画スタイルモードを終了する（tool.onClicked内で改めてtypeがセットされる場合は再度上書きされる）
   editorStore.activeAnnotationType = undefined;
+  // メインツールを明示的に選び直した場合は、プリセットのダブルクリックによる
+  // 連続描画モード（stickyDrawMode）も一旦解除する
+  editorStore.stickyDrawMode = false;
   void tool.onClicked();
+}
+
+/** メインツールのIDから、対応するアノテーション種別ボタンであればその種別を返す（`annotation-${type}`形式のみ対象） */
+function mainToolAnnotationType(tool: IDocTool): DrawingAnnotationType | undefined {
+  const prefix = 'annotation-';
+  if (!tool.id.startsWith(prefix)) return undefined;
+  return tool.id.slice(prefix.length) as DrawingAnnotationType;
+}
+
+/**
+ * メインツール（アノテーション種別ボタン）のダブルクリックを処理する。
+ * プリセットバー先頭のプリセットをダブルクリックした場合と挙動を揃え、
+ * 現在のプリセット適用状況に関わらず先頭プリセットを強制適用したうえで連続描画モードにする
+ */
+function handleMainToolDoubleClick(tool: IDocTool) {
+  const type = mainToolAnnotationType(tool);
+  if (type === undefined) return;
+  handleMainToolClick(tool);
+  const style = firstPresetStyleForType(type);
+  if (style !== undefined) editorStore.currentAnnotationStyle = style;
+  editorStore.stickyDrawMode = true;
 }
 </script>
 
 <style scoped lang="scss">
-@use 'sass:color';
-
 .editor-page {
   height: 100%;
   padding: 0;
@@ -104,21 +165,28 @@ function handleMainToolClick(tool: IDocTool) {
   gap: 0.5rem;
   flex-wrap: wrap;
   min-height: 44px;
-  background: linear-gradient(135deg, $primary 0%, color.adjust($primary, $lightness: -5%) 100%);
+  // 通常背景と同系色にし、選択中ボタンだけプライマリ色で目立たせる（視認性重視）
+  background: $grey-2;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
 
   .toolbar-btn {
     transition: all 0.2s ease;
     border-radius: 6px;
+    color: $grey-9;
 
     &:hover {
-      background-color: rgba(white, 0.25);
+      background-color: rgba($primary, 0.12);
       transform: translateY(-2px);
     }
 
     &:active {
       transform: translateY(0);
+    }
+
+    &.toolbar-btn--active {
+      background-color: rgba($primary, 0.15);
+      color: $primary;
     }
   }
 }
@@ -128,11 +196,20 @@ function handleMainToolClick(tool: IDocTool) {
 }
 
 .body--dark .main-toolbar {
-  background: linear-gradient(
-    135deg,
-    color.adjust($primary, $lightness: -10%) 0%,
-    color.adjust($primary, $lightness: -15%) 100%
-  );
+  background: $dark;
+
+  .toolbar-btn {
+    color: $grey-3;
+
+    &:hover {
+      background-color: rgba($primary, 0.25);
+    }
+
+    &.toolbar-btn--active {
+      background-color: rgba($primary, 0.3);
+      color: $primary;
+    }
+  }
 }
 
 .sub-toolbar {

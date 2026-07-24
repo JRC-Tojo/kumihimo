@@ -6,7 +6,7 @@
       x: displayAnnotation.x,
       y: displayAnnotation.y,
       id: displayAnnotation.id,
-      draggable: props.isEditing && !!props.isSelected && !ctrlKey,
+      draggable: props.isEditing && props.allowDrag && !ctrlKey,
       dragBoundFunc,
       onDragstart: onGroupDragStart,
       onDragend: onDragEnd,
@@ -45,6 +45,9 @@ interface Props {
   annotation: PolygonAnnotationStyle;
   isEditing: boolean;
   isSelected?: boolean;
+  // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
+  // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
+  allowDrag: boolean;
 }
 
 const props = defineProps<Props>();
@@ -61,6 +64,8 @@ const isHovered = ref(false);
 const {
   relationalOverride,
   strokeDash,
+  globalCompositeOperation,
+  hitStrokeWidth,
   resolvedStroke,
   resolveFill,
   withUpdatedTimestamp,
@@ -84,9 +89,9 @@ const shapeConfig = computed(() => {
     stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,
+    globalCompositeOperation: globalCompositeOperation.value,
     draggable: false,
-    // 塗りがtransparent/薄い場合でも辺をクリックで選択できるよう、当たり判定の太さを広げる（Polylineと同様）
-    hitStrokeWidth: 8,
+    hitStrokeWidth: hitStrokeWidth.value,
   };
 });
 

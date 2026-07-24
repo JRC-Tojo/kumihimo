@@ -44,7 +44,9 @@
         </div>
       </div>
     </q-menu>
-    <q-tooltip>{{ t('pdfEditor.tools.positionSize.title') }}</q-tooltip>
+    <q-tooltip anchor="top middle" self="bottom middle">
+      {{ t('pdfEditor.tools.positionSize.title') }}
+    </q-tooltip>
   </q-btn>
 </template>
 
@@ -62,7 +64,7 @@ import { useI18n } from 'vue-i18n';
 import dayjs from 'dayjs';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useAnnotationHistory } from './composables/useAnnotationHistory';
-import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 
 const { t } = useI18n();

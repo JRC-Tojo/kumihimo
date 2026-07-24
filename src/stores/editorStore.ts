@@ -2,7 +2,12 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
 import { nextTick } from 'vue';
 import type { ContainerElement, ContainerElementFile, ContainerID } from 'src/models/container';
-import type { DrawingAnnotationStyle, DrawingAnnotationType, IDocTool } from 'src/models/docPage';
+import type {
+  DrawingAnnotationStyle,
+  DrawingAnnotationType,
+  IDocTool,
+  ViewMode,
+} from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
@@ -56,6 +61,9 @@ export const useEditorStore = defineStore('editor', {
 
     // アノテーション種別のMainToolが選択中かどうか（プリセットバー・スタイルパネルの表示条件に使う）
     activeAnnotationType: undefined as DrawingAnnotationType | undefined,
+    // プリセットをダブルクリックして選んだ場合、描き終えても選択モードへ自動的に戻さず
+    // 同じツール・スタイルで連続して描き続けられるようにするフラグ
+    stickyDrawMode: false,
     // アクティブなペインで現在選択中のアノテーション（スタイルパネルの選択編集モードで使う）。
     // 選択状態自体は各DocumentTabView（ペインごと）が持つため、layerOrderAction等と同じ
     // 「意図・状態をeditorStoreに橋渡しする」パターンでここに反映させる
@@ -106,9 +114,44 @@ export const useEditorStore = defineStore('editor', {
     // ツールバー（MainTools/SubTools）は選択状態を持たないため、意図だけをここにセットし、
     // 実際の処理は選択状態を持つDocumentTabView側でwatchして実行する
     layerOrderAction: undefined as LayerOrderAction | undefined,
+
+    // アクティブなペインの表示モード（単一/連続）。表示モード自体はペインごとのローカルstateのため、
+    // layerOrderAction/activeSelectionと同じ「意図・状態をeditorStoreに橋渡しする」パターンで扱う
+    activeViewMode: undefined as ViewMode | undefined,
+    // メインツールから表示モード変更を要求する意図フラグ。実際の適用はアクティブなペインが行う
+    viewModeAction: undefined as ViewMode | undefined,
+
+    // フッター左側に表示するステータスメッセージ。投稿元ごとにキーで管理し、
+    // 複数の操作（関係性モードの待機、今後追加されうる他の操作等）が互いのメッセージを
+    // 上書きしないようにする
+    statusMessages: new Map<string, string>(),
   }),
 
+  getters: {
+    /**
+     * フッターに表示する最新のステータスメッセージ（複数投稿されている場合は最後に投稿されたもの）
+     */
+    currentStatusMessage(state): string | undefined {
+      return Array.from(state.statusMessages.values()).at(-1);
+    },
+  },
+
   actions: {
+    /**
+     * フッター左側のステータスメッセージ領域にメッセージを投稿する。
+     * keyは投稿元を識別する任意の文字列で、同じkeyで再度呼び出すと内容を更新できる
+     */
+    postStatusMessage(key: string, message: string): void {
+      this.statusMessages.set(key, message);
+    },
+
+    /**
+     * 指定したkeyのステータスメッセージを取り下げる
+     */
+    clearStatusMessage(key: string): void {
+      this.statusMessages.delete(key);
+    },
+
     /**
      * 関係性登録モードを終了する（待機中の状態も解除する）
      */
@@ -426,6 +469,27 @@ export const useEditorStore = defineStore('editor', {
      */
     clearLayerOrderAction(): void {
       this.layerOrderAction = undefined;
+    },
+
+    /**
+     * アクティブなペインの表示モードをメインツール用に反映する
+     */
+    setActiveViewMode(mode: ViewMode): void {
+      this.activeViewMode = mode;
+    },
+
+    /**
+     * メインツールから表示モード変更を要求する（実際の適用はアクティブなペインが行う）
+     */
+    requestViewMode(mode: ViewMode): void {
+      this.viewModeAction = mode;
+    },
+
+    /**
+     * 表示モード変更の意図フラグを解除する
+     */
+    clearViewModeAction(): void {
+      this.viewModeAction = undefined;
     },
 
     /**

@@ -13,7 +13,10 @@ import {
   extractTextByAnnot,
 } from 'src/repositories/document/pdf';
 import { Image2Text } from 'src/utils/ocr/main';
-import { ANNOTATION_GEOMETRY, duplicateAnnotation } from 'src/services/document/annotationGeometry';
+import {
+  ANNOTATION_GEOMETRY,
+  duplicateAnnotation,
+} from 'src/components/Viewer/Annotation/annotationGeometry';
 import { computeReorderedZIndex, type LayerOrderAction } from 'src/utils/document/annotationOrder';
 
 /**

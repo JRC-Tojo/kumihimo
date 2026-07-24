@@ -13,7 +13,12 @@
     <!-- メインコンテンツ領域 -->
     <div class="document-main-content col">
       <!-- タブコンテンツ：文書とアノテーション表示 -->
-      <div ref="viewer" class="document-viewer-wrapper">
+      <div
+        ref="viewer"
+        class="document-viewer-wrapper"
+        :class="{ 'is-panning': isPanning }"
+        @mousedown="onViewerMouseDown"
+      >
         <DocumentViewer
           v-if="!loading && onRender"
           :file="file"
@@ -38,7 +43,6 @@
       <!-- フッター：ページネーション、ズーム等 -->
       <DocumentFooter
         v-model:current-page="currentPage"
-        v-model:view-mode="viewMode"
         v-model:zoom-level="zoomLevel"
         :total-page-count="pageCount"
         :scale="zoomLevel"
@@ -94,7 +98,6 @@ import { useEditorStore } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
 import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
-import { callEditorTools } from 'src/stores/editorTools';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
@@ -111,6 +114,42 @@ interface Prop {
 const prop = defineProps<Prop>();
 const viewer = useTemplateRef('viewer');
 const api = useBackendApi();
+
+// ハンドモード時のドラッグパン。Konva/AnnotationLayer側はhandモードで一切介入しないため、
+// 実際にスクロールする`.document-viewer-wrapper`（このrefが指す要素）へ直接ネイティブの
+// マウスイベントで実装する
+const isPanning = ref(false);
+// ドラッグパン中の`window`リスナー解除関数。ドラッグ完了時だけでなく、
+// ドラッグ中にタブごとアンマウントされた場合にも解除できるよう、コンポーネントスコープで保持する
+let stopViewerPanning: (() => void) | undefined;
+
+/** ハンドモード時、ビューワーのドラッグパン操作を開始する */
+function onViewerMouseDown(e: MouseEvent) {
+  if (editorStore.currentTools !== 'hand') return;
+  if (!viewer.value) return;
+  // クロージャ内でnull許容を再考させないよう、非null確定済みの別バインディングに移す
+  const target: HTMLElement = viewer.value;
+
+  isPanning.value = true;
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const startScrollLeft = target.scrollLeft;
+  const startScrollTop = target.scrollTop;
+
+  function onWindowMouseMove(moveEvent: MouseEvent) {
+    target.scrollLeft = startScrollLeft - (moveEvent.clientX - startX);
+    target.scrollTop = startScrollTop - (moveEvent.clientY - startY);
+  }
+  function onWindowMouseUp() {
+    isPanning.value = false;
+    stopViewerPanning = undefined;
+    window.removeEventListener('mousemove', onWindowMouseMove);
+    window.removeEventListener('mouseup', onWindowMouseUp);
+  }
+  window.addEventListener('mousemove', onWindowMouseMove);
+  window.addEventListener('mouseup', onWindowMouseUp);
+  stopViewerPanning = onWindowMouseUp;
+}
 
 const $q = useQuasar();
 const { t } = useI18n();
@@ -345,12 +384,9 @@ async function scrollToCurrentPage(viewerContainerHeight: number) {
 // ================================
 
 /**
- * 関係性登録の待機中に表示する通知（q.Notify）のハンドル
- *
- * 呼び出すと通知内容を更新でき、引数なしで呼び出すと通知を閉じられる
- * cf) https://quasar.dev/quasar-plugins/notify#updating-a-notification
+ * フッターのステータスメッセージ領域へ関係性モードの待機メッセージを投稿する際に使うキー
  */
-let relationalNotifyHandle: ((props?: Record<string, unknown>) => void) | undefined;
+const RELATIONAL_STATUS_MESSAGE_KEY = 'relational-waiting';
 
 /**
  * 待機中の関係性モードに応じた通知メッセージを組み立てる
@@ -364,46 +400,11 @@ function relationalWaitingMessage(): string {
 }
 
 /**
- * 対になるアノテーションの待機通知を表示・更新する
- * モード変更ボタンから再度呼び出すことで通知内容を最新化する
+ * 対になるアノテーションの待機メッセージを、フッターのステータスメッセージ領域へ表示・更新する
+ * モード変更時にも再度呼び出すことでメッセージ内容を最新化する
  */
 function showRelationalWaitingNotify() {
-  const notifyProps = {
-    message: relationalWaitingMessage(),
-    color: 'primary',
-    position: 'bottom-right' as const,
-    timeout: 0,
-    actions: [
-      {
-        label: t('pdfEditor.tools.relational.equal'),
-        noDismiss: true,
-        handler: () => {
-          editorStore.relationalMode = 'equal';
-          showRelationalWaitingNotify();
-        },
-      },
-      {
-        label: t('pdfEditor.tools.relational.link'),
-        noDismiss: true,
-        handler: () => {
-          editorStore.relationalMode = 'link';
-          showRelationalWaitingNotify();
-        },
-      },
-      {
-        label: t('pdfEditor.tools.relational.cancel'),
-        handler: () => {
-          editorStore.cancelRelationalPending();
-        },
-      },
-    ],
-  };
-
-  if (relationalNotifyHandle) {
-    relationalNotifyHandle(notifyProps);
-  } else {
-    relationalNotifyHandle = $q.notify(notifyProps);
-  }
+  editorStore.postStatusMessage(RELATIONAL_STATUS_MESSAGE_KEY, relationalWaitingMessage());
 }
 
 /**
@@ -630,12 +631,17 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     void historyStore.redo(prop.file);
     return;
   }
+
+  if (isModifierPressed && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    void saveDocument(prop.file);
+  }
 }
 
 // ================================
 
 onMounted(async () => {
-  editorStore.setMainTools(await callEditorTools(t));
+  // メインツールの注入・撤去はアクティブタブの種別に応じてEditorPage.vueが一元管理する
   await loadDocument();
   void relationalStore.refreshFile(prop.file);
   window.addEventListener('keydown', handleGlobalKeydown);
@@ -676,13 +682,32 @@ watch(
     });
   },
 );
-// 待機状態がストア側から解除された場合（キャンセル操作やモードオフなど）に通知を閉じる
+// アクティブなペインの表示モードを、メインツール（表示モードメニュー）用にeditorStoreへ橋渡しする
+watch(
+  [viewMode, () => editorStore.activeSide],
+  () => {
+    if (editorStore.activeSide === prop.layoutSide) {
+      editorStore.setActiveViewMode(viewMode.value);
+    }
+  },
+  { immediate: true },
+);
+// メインツール（表示モードメニュー）からの意図をここで実行する
+watch(
+  () => editorStore.viewModeAction,
+  (mode) => {
+    if (mode === undefined) return;
+    if (editorStore.activeSide !== prop.layoutSide) return;
+    viewMode.value = mode;
+    editorStore.clearViewModeAction();
+  },
+);
+// 待機状態がストア側から解除された場合（キャンセル操作やモードオフなど）にステータスメッセージを取り下げる
 watch(
   () => editorStore.relationalPendingId,
   (pendingId) => {
     if (pendingId === undefined) {
-      relationalNotifyHandle?.();
-      relationalNotifyHandle = undefined;
+      editorStore.clearStatusMessage(RELATIONAL_STATUS_MESSAGE_KEY);
     }
   },
 );
@@ -700,6 +725,7 @@ onBeforeUnmount(() => {
 
   stopAnnotationObservation?.();
   window.removeEventListener('keydown', handleGlobalKeydown);
+  stopViewerPanning?.();
 
   // 読み込んだPDFDocumentProxyの参照を返却する（他のタブ・OCR処理から参照されていなければ
   // 猶予期間後に破棄される。acquireに至らなかった場合は何もしない）
@@ -746,6 +772,10 @@ onBeforeUnmount(() => {
   overflow: auto;
   background: $grey-1;
   width: 100%;
+
+  &.is-panning {
+    cursor: grabbing;
+  }
 }
 
 .body--dark .document-viewer-wrapper {

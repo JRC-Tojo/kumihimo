@@ -17,7 +17,7 @@ import { Success, Failure, toError } from 'src/models/error/result';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
-import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 import type { FileIdentity } from 'src/utils/document/fileKey';
 import { acquirePdfDocument } from 'src/repositories/document/pdfDocumentCache';
 

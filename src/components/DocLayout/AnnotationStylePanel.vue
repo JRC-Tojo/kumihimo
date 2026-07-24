@@ -1,17 +1,29 @@
 <template>
   <div v-if="mode !== 'none'" class="annotation-style-panel">
-    <!-- 線色 -->
-    <StyleSwatchButton v-model="color" :tooltip="t('pdfEditor.tools.stylePanel.color')" />
-
-    <!-- 線幅 -->
-    <StyleValueMenuButton
-      v-model="strokeWidth"
-      :min="1"
-      :max="10"
-      :step="0.5"
-      :format="formatWidth"
-      :tooltip="t('pdfEditor.tools.stylePanel.strokeWidth')"
+    <!-- 線色（中空四角形にして塗り色ボタンと区別する） -->
+    <StyleSwatchButton
+      v-model="color"
+      variant="outline"
+      :tooltip="t('pdfEditor.tools.stylePanel.color')"
     />
+
+    <!-- 線幅（スライダーではなく直接数字を入力する） -->
+    <q-input
+      :model-value="strokeWidth"
+      dense
+      borderless
+      suffix="px"
+      min="1"
+      max="10"
+      step="0.5"
+      class="style-number-input"
+      :input-style="{ textAlign: 'right' }"
+      @update:model-value="(v) => (strokeWidth = Number(v) || undefined)"
+    >
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.strokeWidth') }}
+      </q-tooltip>
+    </q-input>
 
     <!-- 線種 -->
     <q-btn dense flat :ripple="false" class="style-icon-btn">
@@ -33,18 +45,63 @@
           </q-item>
         </q-list>
       </q-menu>
-      <q-tooltip>{{ t('pdfEditor.tools.stylePanel.strokeType') }}</q-tooltip>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.strokeType') }}
+      </q-tooltip>
     </q-btn>
 
-    <!-- 不透明度 -->
-    <StyleValueMenuButton
-      v-model="opacity"
-      :min="0"
-      :max="1"
-      :step="0.01"
-      :format="formatOpacity"
-      :tooltip="t('pdfEditor.tools.stylePanel.opacity')"
-    />
+    <!-- 不透明度（2cm程度の小さなスライダー＋直接編集可能な数値） -->
+    <div class="opacity-control">
+      <q-slider
+        :model-value="opacityPercent"
+        :min="0"
+        :max="100"
+        :step="2"
+        color="primary"
+        class="opacity-slider"
+        @update:model-value="(v) => (opacityPercent = v ?? 100)"
+      />
+      <q-input
+        :model-value="opacityPercent"
+        dense
+        borderless
+        suffix="%"
+        min="0"
+        max="100"
+        step="2"
+        class="style-number-input"
+        :input-style="{ textAlign: 'right' }"
+        @update:model-value="(v) => (opacityPercent = Number(v))"
+      />
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.opacity') }}
+      </q-tooltip>
+    </div>
+
+    <!-- 合成モード（半透明の図形を下地の文書とどう重ねるか） -->
+    <q-btn dense flat :ripple="false" class="style-icon-btn">
+      <BlendModePreview :blend-mode="blendMode ?? 'normal'" />
+      <q-menu anchor="bottom left" self="top left">
+        <q-list dense class="style-menu-list">
+          <q-item
+            v-for="opt in blendModeOptions"
+            :key="opt.value"
+            v-close-popup
+            clickable
+            :active="(blendMode ?? 'normal') === opt.value"
+            @click="blendMode = opt.value"
+          >
+            <q-item-section avatar>
+              <BlendModePreview :blend-mode="opt.value" />
+            </q-item-section>
+            <q-item-section>{{ opt.label }}</q-item-section>
+          </q-item>
+        </q-list>
+      </q-menu>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.blendMode') }}
+      </q-tooltip>
+    </q-btn>
 
     <q-separator
       v-if="isFillableType || isHeadedType || isTextType"
@@ -53,12 +110,40 @@
       class="style-separator"
     />
 
-    <!-- box/circle/polygon: 塗り色 -->
+    <!-- box/circle/polygon/text: 塗り色 -->
     <StyleSwatchButton
       v-if="isFillableType"
       v-model="fillColor"
       :tooltip="t('pdfEditor.tools.stylePanel.fillColor')"
     />
+
+    <!-- box/circle/polygon/text: 塗りの不透明度 -->
+    <div v-if="isFillableType" class="opacity-control">
+      <q-slider
+        :model-value="fillOpacityPercent"
+        :min="0"
+        :max="100"
+        :step="2"
+        color="primary"
+        class="opacity-slider"
+        @update:model-value="(v) => (fillOpacityPercent = v ?? 100)"
+      />
+      <q-input
+        :model-value="fillOpacityPercent"
+        dense
+        borderless
+        suffix="%"
+        min="0"
+        max="100"
+        step="2"
+        class="style-number-input"
+        :input-style="{ textAlign: 'right' }"
+        @update:model-value="(v) => (fillOpacityPercent = Number(v))"
+      />
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.fillOpacity') }}
+      </q-tooltip>
+    </div>
 
     <!-- arrow/polyline: 終端の矢じり形状 -->
     <q-btn v-if="isHeadedType" dense flat :ripple="false" class="style-icon-btn">
@@ -80,7 +165,9 @@
           </q-item>
         </q-list>
       </q-menu>
-      <q-tooltip>{{ t('pdfEditor.tools.stylePanel.endHead') }}</q-tooltip>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.endHead') }}
+      </q-tooltip>
     </q-btn>
 
     <!-- text: フォント・文字サイズ・文字色 -->
@@ -101,21 +188,46 @@
             </q-item>
           </q-list>
         </q-menu>
-        <q-tooltip>{{ t('pdfEditor.tools.stylePanel.fontFamily') }}</q-tooltip>
+        <q-tooltip anchor="top middle" self="bottom middle">
+          {{ t('pdfEditor.tools.stylePanel.fontFamily') }}
+        </q-tooltip>
       </q-btn>
 
+      <q-btn
+        dense
+        flat
+        :ripple="false"
+        icon="remove"
+        class="style-icon-btn"
+        @click="fontSize = (fontSize ?? 16) - 1"
+      />
       <q-input
         :model-value="fontSize"
-        type="number"
         dense
         borderless
+        suffix="px"
         class="style-number-input"
+        :input-style="{ textAlign: 'right' }"
         @update:model-value="(v) => (fontSize = Number(v) || undefined)"
       >
-        <q-tooltip>{{ t('pdfEditor.tools.stylePanel.fontSize') }}</q-tooltip>
+        <q-tooltip anchor="top middle" self="bottom middle">
+          {{ t('pdfEditor.tools.stylePanel.fontSize') }}
+        </q-tooltip>
       </q-input>
+      <q-btn
+        dense
+        flat
+        :ripple="false"
+        icon="add"
+        class="style-icon-btn"
+        @click="fontSize = (fontSize ?? 16) + 1"
+      />
 
-      <StyleSwatchButton v-model="textColor" :tooltip="t('pdfEditor.tools.stylePanel.textColor')" />
+      <StyleSwatchButton
+        v-model="textColor"
+        variant="text"
+        :tooltip="t('pdfEditor.tools.stylePanel.textColor')"
+      />
     </template>
   </div>
 </template>
@@ -136,9 +248,9 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAnnotationStylePanel } from './composables/useAnnotationStylePanel';
 import StyleSwatchButton from './StyleSwatchButton.vue';
-import StyleValueMenuButton from './StyleValueMenuButton.vue';
 import StrokeTypePreview from './StrokeTypePreview.vue';
-import type { ArrowHeadType } from 'src/models/document/pdf';
+import BlendModePreview from './BlendModePreview.vue';
+import type { ArrowHeadType, BlendMode } from 'src/models/document/pdf';
 
 const { t } = useI18n();
 
@@ -149,7 +261,9 @@ const {
   strokeWidth,
   strokeType,
   opacity,
+  blendMode,
   fillColor,
+  fillOpacity,
   endHead,
   fontFamily,
   fontSize,
@@ -160,15 +274,46 @@ const isFillableType = computed(
   () =>
     effectiveType.value === 'box' ||
     effectiveType.value === 'circle' ||
-    effectiveType.value === 'polygon',
+    effectiveType.value === 'polygon' ||
+    effectiveType.value === 'text',
 );
 const isHeadedType = computed(
   () => effectiveType.value === 'arrow' || effectiveType.value === 'polyline',
 );
 const isTextType = computed(() => effectiveType.value === 'text');
 
-const formatWidth = (v: number) => `${v}px`;
-const formatOpacity = (v: number) => `${Math.round(v * 100)}%`;
+/** 不透明度（0〜1）を、スライダー・数値入力で扱いやすいパーセント（0〜100）表示に変換する */
+const opacityPercent = computed<number>({
+  get: () => Math.round((opacity.value ?? 1) * 100),
+  set: (v) => {
+    if (Number.isNaN(v)) return;
+    opacity.value = Math.min(100, Math.max(0, v)) / 100;
+  },
+});
+
+/** 塗りの不透明度（0〜1）を、スライダー・数値入力で扱いやすいパーセント（0〜100）表示に変換する */
+const fillOpacityPercent = computed<number>({
+  get: () => Math.round((fillOpacity.value ?? 1) * 100),
+  set: (v) => {
+    if (Number.isNaN(v)) return;
+    fillOpacity.value = Math.min(100, Math.max(0, v)) / 100;
+  },
+});
+
+const blendModeOptions = computed<{ label: string; value: BlendMode }[]>(() => [
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.normal'), value: 'normal' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.multiply'), value: 'multiply' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.screen'), value: 'screen' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.overlay'), value: 'overlay' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.darken'), value: 'darken' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.lighten'), value: 'lighten' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.colorDodge'), value: 'color-dodge' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.colorBurn'), value: 'color-burn' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.hardLight'), value: 'hard-light' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.softLight'), value: 'soft-light' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.difference'), value: 'difference' },
+  { label: t('pdfEditor.tools.stylePanel.blendModeOptions.exclusion'), value: 'exclusion' },
+]);
 
 const strokeTypeOptions = computed(() => [
   { label: t('pdfEditor.tools.stylePanel.strokeTypeOptions.solid'), value: 'solid' as const },
@@ -236,10 +381,25 @@ const fontFamilyLabel = computed(
 .style-number-input {
   width: 44px;
   font-size: 0.75rem;
+}
 
-  :deep(.q-field__control) {
-    height: 24px;
+.opacity-control {
+  display: flex;
+  align-items: center;
+}
+
+// 約2cm相当（96dpiベース）の小さなスライダー
+.opacity-slider {
+  width: 76px;
+
+  :deep(.q-slider) {
+    color: $primary;
   }
+}
+
+.opacity-unit {
+  font-size: 0.7rem;
+  color: $grey-7;
 }
 
 .style-separator {

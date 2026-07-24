@@ -11,12 +11,14 @@
 import { computed, type WritableComputedRef } from 'vue';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useAnnotationHistory } from './useAnnotationHistory';
-import type { DrawingAnnotationType } from 'src/models/docPage';
-import {
-  ColorCode,
-  type AnnotationStyle,
-  type ArrowHeadType,
-  type StrokeType,
+import { buildPresetApplyPatch } from './useAnnotationPresets';
+import { toColorCode } from 'src/utils/color/toColorCode';
+import type { DrawingAnnotationStyle, DrawingAnnotationType } from 'src/models/docPage';
+import type {
+  AnnotationStyle,
+  ArrowHeadType,
+  BlendMode,
+  StrokeType,
 } from 'src/models/document/pdf';
 
 export type StylePanelMode = 'draw' | 'selection' | 'none';
@@ -59,6 +61,11 @@ export function useAnnotationStylePanel() {
     await history.registerManyWithHistory(selection.file, items);
   }
 
+  /** 選択中の全アノテーションに、プリセットのスタイルを一括適用する（種別が異なるものはスキップされる） */
+  async function applyPresetStyleToSelection(preset: DrawingAnnotationStyle): Promise<void> {
+    await applyToSelection(buildPresetApplyPatch(preset));
+  }
+
   function patchDrawStyle(patch: Record<string, unknown>): void {
     editorStore.currentAnnotationStyle = {
       ...editorStore.currentAnnotationStyle,
@@ -68,8 +75,8 @@ export function useAnnotationStylePanel() {
 
   /** 色以外の全種別共通フィールドを、モードに応じたget/setで統一的に扱うwritable computedを作る */
   function universalField<V>(
-    drawKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity',
-    selectionKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity',
+    drawKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity' | 'blendMode',
+    selectionKey: 'strokeWidth' | 'strokeType' | 'strokeOpacity' | 'blendMode',
   ): WritableComputedRef<V | undefined> {
     return computed<V | undefined>({
       get: () => {
@@ -96,16 +103,33 @@ export function useAnnotationStylePanel() {
 
   const strokeWidth = universalField<number>('strokeWidth', 'strokeWidth');
   const strokeType = universalField<StrokeType>('strokeType', 'strokeType');
-  const opacity = universalField<number>('strokeOpacity', 'strokeOpacity');
-
-  /**
-   * 配置済みアノテーション（AnnotationStyle）の色系フィールドはColorCode（ブランド付き文字列）の
-   * ため、カラーピッカーから来る生の文字列を検証してから適用する（不正な値は無視する）
-   */
-  function toColorCode(value: string): ColorCode | undefined {
-    const parsed = ColorCode.safeParse(value);
-    return parsed.success ? parsed.data : undefined;
-  }
+  /** 全種別共通の線の不透明度。strokeOpacity未設定時は、描画側（resolveOpacity）と同じく
+   * 後方互換用の旧opacityフィールドにフォールバックする（そうしないと、strokeOpacity導入以前に
+   * 保存された既存アノテーションを選択した際、実際の描画とは異なる値がパネルに表示されてしまう） */
+  const opacity = computed<number | undefined>({
+    get: () => {
+      if (mode.value === 'draw') {
+        // 描画スタイル（次に描く注釈のスタイル）は常に新規構築されるため旧opacityフィールドを持たない
+        return editorStore.currentAnnotationStyle.strokeOpacity;
+      }
+      if (mode.value === 'selection') {
+        return commonValue(
+          editorStore.activeSelection?.annotations ?? [],
+          (a) => a.strokeOpacity ?? a.opacity,
+        );
+      }
+      return undefined;
+    },
+    set: (value) => {
+      if (value === undefined) return;
+      if (mode.value === 'draw') patchDrawStyle({ strokeOpacity: value });
+      else if (mode.value === 'selection') {
+        void applyToSelection(() => ({ strokeOpacity: value }));
+      }
+    },
+  });
+  /** 全種別共通の合成モード（半透明の図形を下地の文書とどう重ねるか） */
+  const blendMode = universalField<BlendMode>('blendMode', 'blendMode');
 
   /** 全種別共通の線色 */
   const color = computed<string | undefined>({
@@ -127,18 +151,23 @@ export function useAnnotationStylePanel() {
     },
   });
 
-  /** box/circle/polygonのみ有効な塗り色 */
+  /** box/circle/polygon/textのみ有効な塗り色 */
   const fillColor = computed<string | undefined>({
     get: () => {
       if (mode.value === 'draw') {
         const style = editorStore.currentAnnotationStyle;
-        return style.type === 'box' || style.type === 'circle' || style.type === 'polygon'
+        return style.type === 'box' ||
+          style.type === 'circle' ||
+          style.type === 'polygon' ||
+          style.type === 'text'
           ? style.fillColor
           : undefined;
       }
       if (mode.value === 'selection') {
         return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
-          a.type === 'box' || a.type === 'circle' || a.type === 'polygon' ? a.fillColor : undefined,
+          a.type === 'box' || a.type === 'circle' || a.type === 'polygon' || a.type === 'text'
+            ? a.fillColor
+            : undefined,
         );
       }
       return undefined;
@@ -150,8 +179,52 @@ export function useAnnotationStylePanel() {
         const parsed = toColorCode(value);
         if (parsed === undefined) return;
         void applyToSelection((annot) =>
-          annot.type === 'box' || annot.type === 'circle' || annot.type === 'polygon'
+          annot.type === 'box' ||
+          annot.type === 'circle' ||
+          annot.type === 'polygon' ||
+          annot.type === 'text'
             ? { fillColor: parsed }
+            : null,
+        );
+      }
+    },
+  });
+
+  /** box/circle/polygon/textのみ有効な塗りの不透明度。fillOpacity未設定時は、描画側
+   * （resolveOpacity）と同じく後方互換用の旧opacityフィールドにフォールバックする（そうしないと、
+   * fillOpacity導入以前に保存された既存アノテーションを選択した際、実際の描画とは異なる値が
+   * パネルに表示されてしまう） */
+  const fillOpacity = computed<number | undefined>({
+    get: () => {
+      if (mode.value === 'draw') {
+        // 描画スタイル（次に描く注釈のスタイル）は常に新規構築されるため旧opacityフィールドを持たない
+        const style = editorStore.currentAnnotationStyle;
+        return style.type === 'box' ||
+          style.type === 'circle' ||
+          style.type === 'polygon' ||
+          style.type === 'text'
+          ? style.fillOpacity
+          : undefined;
+      }
+      if (mode.value === 'selection') {
+        return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
+          a.type === 'box' || a.type === 'circle' || a.type === 'polygon' || a.type === 'text'
+            ? (a.fillOpacity ?? a.opacity)
+            : undefined,
+        );
+      }
+      return undefined;
+    },
+    set: (value) => {
+      if (value === undefined) return;
+      if (mode.value === 'draw') patchDrawStyle({ fillOpacity: value });
+      else if (mode.value === 'selection') {
+        void applyToSelection((annot) =>
+          annot.type === 'box' ||
+          annot.type === 'circle' ||
+          annot.type === 'polygon' ||
+          annot.type === 'text'
+            ? { fillOpacity: value }
             : null,
         );
       }
@@ -239,11 +312,14 @@ export function useAnnotationStylePanel() {
   return {
     mode,
     effectiveType,
+    applyPresetStyleToSelection,
     color,
     strokeWidth,
     strokeType,
     opacity,
+    blendMode,
     fillColor,
+    fillOpacity,
     endHead,
     fontFamily,
     fontSize,

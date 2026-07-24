@@ -53,11 +53,15 @@
       :stroke="annotationStyle.strokeColor"
       :stroke-width="previewStrokeWidth"
       :stroke-dasharray="previewDash"
-      stroke-linecap="round"
     />
 
     <!-- arrow / polyline: 共通で矢じり形状を描画する -->
     <g v-else-if="annotationStyle.type === 'arrow' || annotationStyle.type === 'polyline'">
+      <!--
+        stroke-linecapは意図的に既定値（butt）のままにしている。'round'にすると、
+        線幅に対して破線・点線の間隔が近い場合に丸められた線端が隙間を埋めてしまい、
+        実線とほぼ見分けがつかなくなってしまう（StrokeTypePreview.vueと同じ理由）
+      -->
       <line
         x1="4"
         y1="18"
@@ -66,7 +70,6 @@
         :stroke="annotationStyle.strokeColor"
         :stroke-width="previewStrokeWidth"
         :stroke-dasharray="previewDash"
-        stroke-linecap="round"
       />
       <path
         v-if="annotationStyle.endHead === 'triangle'"

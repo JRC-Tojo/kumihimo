@@ -4,8 +4,16 @@
     flat
     :ripple="false"
     class="style-swatch-btn"
-    :style="{ backgroundColor: colorValue ?? '#ffffff' }"
+    :class="{ 'style-swatch-btn--outline': variant === 'outline' }"
+    :style="swatchStyle"
   >
+    <span
+      v-if="variant === 'text'"
+      class="style-swatch-text-a"
+      :style="{ color: colorValue ?? '#000000' }"
+    >
+      A
+    </span>
     <q-popup-proxy cover transition-show="scale" transition-hide="scale">
       <div class="style-swatch-popup q-pa-sm">
         <!-- 直近で使用した色（設定の件数分。未登録分は白で埋める） -->
@@ -27,7 +35,7 @@
         <q-color :model-value="colorValue ?? '#000000'" @update:model-value="onPick" />
       </div>
     </q-popup-proxy>
-    <q-tooltip>{{ tooltip }}</q-tooltip>
+    <q-tooltip anchor="top middle" self="bottom middle">{{ tooltip }}</q-tooltip>
   </q-btn>
 </template>
 
@@ -45,12 +53,27 @@ import { computed } from 'vue';
  */
 interface Props {
   tooltip: string;
+  // 'fill': 塗りつぶし四角形（既定・塗り色用）, 'outline': 中空四角形（線色用、塗り色ボタンと区別するため）,
+  // 'text': 色付きの「A」文字（文字色用、Word/PowerPoint等の「フォントの色」ボタンに近い見た目）
+  variant?: 'fill' | 'outline' | 'text';
 }
-defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), { variant: 'fill' });
 
 const colorValue = defineModel<string | undefined>({ required: true });
 
 const settingsStore = useSettingsStore();
+
+const swatchStyle = computed(() => {
+  if (props.variant === 'outline') {
+    return { backgroundColor: 'transparent', borderColor: colorValue.value ?? '#000000' };
+  }
+  if (props.variant === 'text') {
+    // プリセットプレビュー（AnnotationPresetPreview.vue）と同様、ダークモードでも
+    // 文字色（黒等）が見えなくならないよう、常に明るい背景の上に表示する
+    return { backgroundColor: '#ffffff' };
+  }
+  return { backgroundColor: colorValue.value ?? '#ffffff' };
+});
 
 const recentColorsPadded = computed<(string | undefined)[]>(() => {
   const limit = settingsStore.appSettings?.tools.recentColorsLimit ?? 5;
@@ -74,6 +97,16 @@ function onPick(value: string | null | undefined) {
   padding: 0;
   border: 1px solid rgba(black, 0.2);
   border-radius: 4px;
+
+  &--outline {
+    border-width: 2px;
+  }
+}
+
+.style-swatch-text-a {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .body--dark .style-swatch-btn {

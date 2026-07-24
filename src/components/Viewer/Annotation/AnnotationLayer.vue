@@ -9,24 +9,35 @@
       @dblclick="handleDblClick"
       :style="{ cursor: cursor }"
     >
-      <v-layer>
+      <!-- 注釈ごとに専用レイヤー（＝専用canvas）を割り当て、合成モードが他の注釈やスタイル
+           パネルの現在値に引きずられず、注釈自身の値で文書と合成されるようにする -->
+      <AnnotationBlendLayer
+        v-for="annotation in visibleAnnotations"
+        :key="annotation.id"
+        :blend-mode="annotation.blendMode"
+      >
         <component
-          v-for="annotation in visibleAnnotations"
-          :key="annotation.id"
           :is="ANNOTATION_REGISTRY[annotation.type].component"
           :ref="(el: unknown) => setAnnotationRef(annotation.id, el)"
           :annotation="annotation"
           :is-editing="isEditing"
           :is-selected="selectedAnnotIds.includes(annotation.id)"
+          :allow-drag="canDragUnselected"
           @update="onRegisterAnnot"
           @delete="onRemoveAnnot"
         />
+      </AnnotationBlendLayer>
 
+      <!-- 描画プレビュー・選択矩形・複製プレビュー・Transformerは、いずれも確定済みの
+           注釈本体ではない一時的なUI表示のため、合成モードを気にせず通常合成の1レイヤーにまとめる -->
+      <v-layer>
         <component
           v-if="(isDrawing || !!clickPointsBuffer) && drawingPreviewConfig"
           :is="drawingPreviewComponent"
           :config="drawingPreviewConfig"
         />
+        <!-- 多角形描画中、始点位置を示す小さな円（始点をクリックすると閉合できることが分かるように） -->
+        <v-circle v-if="startVertexIndicatorConfig" :config="startVertexIndicatorConfig" />
         <v-rect v-if="selectionBox.visible" :config="selectionBoxConfig" />
 
         <!-- Ctrl+drag複製のプレビュー: 複製元は一切変更せず、ドラッグ解除位置に複製されるまでの
@@ -37,6 +48,7 @@
             :annotation="duplicatePreviewAnnotation"
             :is-editing="false"
             :is-selected="false"
+            :allow-drag="false"
           />
         </v-group>
 
@@ -72,9 +84,12 @@ import {
   duplicateAnnotation,
   type ClickPointsDrawModule,
   type Point,
-} from 'src/services/document/annotationGeometry';
+} from 'src/components/Viewer/Annotation/annotationGeometry';
 import { ANNOTATION_REGISTRY } from './registry';
 import { getAnnotationSortKey } from 'src/utils/document/annotationOrder';
+import { useModifierKeys } from './composables/useModifierKeys';
+import { lockToDominantAxis } from 'src/utils/document/annotationDrag';
+import AnnotationBlendLayer from './AnnotationBlendLayer.vue';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -90,6 +105,16 @@ interface Props {
 
 const props = defineProps<Props>();
 const editorStore = useEditorStore();
+const { shiftKey } = useModifierKeys();
+
+/**
+ * Shiftキー押下中のみ、基準点からの水平・垂直方向に移動を制限する
+ * （新規描画時の軸ロック。既存アノテーションのドラッグ移動と同じ制限方式を用いる）
+ */
+function applyShiftAxisLock(basePoint: Point | undefined | null, pos: Point): Point {
+  if (!shiftKey.value || !basePoint) return pos;
+  return lockToDominantAxis(basePoint, pos);
+}
 
 const page = defineModel<number>('page', { required: true });
 const canvasSize = defineModel<{ width: number; height: number }>('canvasSize', { required: true });
@@ -113,6 +138,17 @@ const pendingPointerTarget = ref<{ id: string; wasSelected: boolean } | null>(nu
 // 実際にしきい値を超えて動いた時点で初めて複製プレビューへ昇格させる（昇格しなければ
 // 単なるCtrl+クリックとして選択解除を適用する）
 const DUPLICATE_DRAG_THRESHOLD_PX = 3;
+// box/circle/line/arrow/textのような2点構成の種別で、1点目クリック直後のmouseupが
+// 「押したままドラッグして離した」ものか「素早く離しただけの単なるクリック」かを判定するしきい値。
+// DUPLICATE_DRAG_THRESHOLD_PXと同じ値を流用すると、素早くクリックしただけでも手ブレで
+// 数px動いてしまうことがあり、それを「ドラッグして離した」と誤判定して極小サイズの
+// アノテーションが確定してしまう問題があったため、意図的にこちらだけ大きめの値にしている
+const TWO_POINT_DRAG_FINISH_THRESHOLD_PX = 15;
+// 上記の距離しきい値だけでは、素早く手を動かしてクリックした際の移動量がこれを超えてしまう
+// ケースをまだ拾いきれない。実際にドラッグして図形のサイズを決めた場合は多少なりとも時間が
+// かかるはずという前提のもと、経過時間もあわせて要求することで「速い・短い移動」は
+// クリックとして扱い、「意図的に少し時間をかけて動かした」場合のみドラッグ完了とみなす
+const TWO_POINT_DRAG_MIN_DURATION_MS = 150;
 const ctrlDragCandidate = ref<{ id: AnnotationID; stagePos: { x: number; y: number } } | null>(
   null,
 );
@@ -137,13 +173,33 @@ const selectionStartPos = ref<{ x: number; y: number } | null>(null);
 const selectionBox = ref({ visible: false, x: 0, y: 0, width: 0, height: 0 });
 const selectionModeRef = ref<'window' | 'cross' | null>(null);
 const drawingPreviewConfig = ref<Record<string, unknown> | null>(null);
-// クリックで頂点を置いていく方式（折れ線・ポリゴン）の描画中バッファ
+// クリックで頂点を置いていく方式（折れ線・ポリゴン・line・text）の描画中バッファ
 const clickPointsBuffer = ref<Point[] | null>(null);
+// clickPoints方式で最初の頂点を置いた時点のステージ座標（画面px）。
+// maxPoints=2の種別（box/circle/line/arrow/text）で「押したままドラッグ→離す」操作を検出するために使う
+const clickPointsStartScreenPos = ref<{ x: number; y: number } | null>(null);
+// 上記と同時に記録する、1点目を置いた時刻（ミリ秒）。距離だけで「ドラッグして離した」と判定すると、
+// 素早いクリックの手ブレ移動量でも誤って即確定してしまうため、経過時間も合わせて見ることで
+// 「実際に少し時間をかけてドラッグした」場合のみドラッグ完了とみなすようにする
+const clickPointsStartTimestamp = ref<number | null>(null);
+// 描画ツール使用中、既存アノテーションのシェイプ上でmousedownした際の曖昧開始状態。
+// 実際にドラッグへ発展すればその場から新規描画を開始し、発展せず単なるクリックで終われば
+// 既存アノテーションの選択編集として扱う（どちらの意図かはmouseup/mousemoveで確定する）
+const pendingOverAnnotStart = ref<{
+  id: AnnotationID;
+  screenPos: { x: number; y: number };
+  docPos: Point;
+  timestamp: number;
+} | null>(null);
 // テキストボックスのインライン編集状態
 const editingTextId = ref<AnnotationID | null>(null);
 const editingTextValue = ref('');
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const drawingType = computed(() => editorStore.currentTools);
+// ポインタ（選択）モードでのみ、未選択のアノテーションでも即座にドラッグ移動できるようにする。
+// 描画モード中は常にfalseにし、既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画。
+// pendingOverAnnotStart参照）と競合しないようにする
+const canDragUnselected = computed(() => drawingType.value === 'pointer');
 const drawingPreviewComponent = computed(() => {
   if (!(drawingType.value in ANNOTATION_REGISTRY)) return null;
   return ANNOTATION_REGISTRY[drawingType.value as AnnotationStyle['type']].previewComponent;
@@ -154,9 +210,15 @@ const isEditingMode = computed(() => drawingType.value !== 'hand');
 const isEditing = computed(() => isEditingMode.value);
 // カーソル状態はモードに基づき動的に変化します。編集可能な注釈上にホバーした場合は切り替わります。
 const cursor = ref('default');
-watch(isDrawingTool, (v) => {
-  cursor.value = v ? 'crosshair' : 'default';
-});
+watch(
+  drawingType,
+  (type) => {
+    if (type === 'hand') cursor.value = 'grab';
+    else if (type in ANNOTATION_REGISTRY) cursor.value = 'crosshair';
+    else cursor.value = 'default';
+  },
+  { immediate: true },
+);
 const transformerConfig = computed(() => ({
   ignoreStroke: true,
   rotationSnaps: [
@@ -177,11 +239,16 @@ const selectionBoxConfig = computed(() => {
   const isWindow = selectionModeRef.value === 'window';
   const fill = isWindow ? 'rgba(33, 150, 243, 0.15)' : 'rgba(76, 175, 80, 0.15)';
   const stroke = isWindow ? '#2196f3' : '#4caf50';
+  // selectionBox自体はステージのピクセル座標（scale未適用）で保持しているが、
+  // 描画先のv-stageにはscaleX/scaleY（canvasSize参照）が設定されており、
+  // その中に配置するシェイプの座標は他の描画と同様にドキュメント座標系（scale適用前）で
+  // 指定する必要がある。ここで割らずにそのまま渡すと、ズーム時にscaleが二重適用され、
+  // マウス位置から選択矩形がずれて表示されてしまう
   return {
-    x: selectionBox.value.x,
-    y: selectionBox.value.y,
-    width: selectionBox.value.width,
-    height: selectionBox.value.height,
+    x: selectionBox.value.x / props.scale,
+    y: selectionBox.value.y / props.scale,
+    width: selectionBox.value.width / props.scale,
+    height: selectionBox.value.height / props.scale,
     fill,
     stroke,
     strokeWidth: 1,
@@ -253,8 +320,18 @@ function startTextEdit(annotation: TextAnnotationStyle) {
   editingTextId.value = annotation.id;
   editingTextValue.value = annotation.text;
   selectedAnnotIds.value = [annotation.id];
-  void nextTick(() => textareaRef.value?.focus());
+  // フォーカスは下のwatch(editingTextAnnotation)に一任する。
+  // 描き終えた直後は`props.annotations`（DB購読経由）へ新規注釈がまだ反映されておらず、
+  // ここで直接focusしても<textarea v-if>が実際にマウントされる前で失敗することがあるため
 }
+
+// <textarea>が実際にマウントされたタイミング（editingTextAnnotationがnull→非nullに変わった時）で
+// 確実にフォーカスする。startTextEdit呼び出し直後は`props.annotations`（DB購読経由）へ新規注釈が
+// まだ反映されておらず要素が存在しないことがあるため、単発のnextTickでは取りこぼすことがあった
+watch(editingTextAnnotation, (annotation) => {
+  if (!annotation) return;
+  void nextTick(() => textareaRef.value?.focus());
+});
 
 function commitTextEdit() {
   const annotation = editingTextAnnotation.value;
@@ -294,6 +371,35 @@ function handleDblClick(e: KonvaMouseEvent) {
   startTextEdit(annotation);
 }
 
+// 多角形（closable=trueの種別）描画中のみ、始点位置を示す小さな円を出す。
+// 頂点追加中は既存シェイプの上でもクリックを継続として扱う都合上、視覚的に「ここが始点」と
+// 分かるようにしておくことで、始点への再クリックによる閉合操作が発見しやすくなる
+const startVertexIndicatorConfig = computed(() => {
+  if (!clickPointsBuffer.value || clickPointsBuffer.value.length === 0) return null;
+  const style = editorStore.currentAnnotationStyle;
+  if (!(style.type in ANNOTATION_GEOMETRY)) return null;
+
+  const module = ANNOTATION_GEOMETRY[style.type];
+  if (module.drawMode !== 'clickPoints' || !module.closable) return null;
+
+  const origin = clickPointsBuffer.value[0];
+  if (!origin) return null;
+
+  return {
+    x: origin.x,
+    y: origin.y,
+    radius: 5,
+    fill: '#ffffff',
+    stroke: style.strokeColor,
+    strokeWidth: 2,
+    listening: false,
+  };
+});
+
+/**
+ * クリック点描画中のプレビュー形状を、現在のカーソル位置に応じて更新する
+ * Shift押下中は直前の頂点からの水平・垂直方向へ、次の頂点位置の候補を制限する
+ */
 function updateClickPointsPreview(cursorPos: Point | null) {
   if (!clickPointsBuffer.value) return;
   const style = editorStore.currentAnnotationStyle;
@@ -302,9 +408,29 @@ function updateClickPointsPreview(cursorPos: Point | null) {
   const module = ANNOTATION_GEOMETRY[style.type];
   if (module.drawMode !== 'clickPoints') return;
 
-  drawingPreviewConfig.value = module.previewFromPoints(clickPointsBuffer.value, cursorPos, style);
+  // 始点付近にカーソルがあり、今クリックすれば閉合確定できる状態かどうか
+  // （handleClickPointsMouseDownの閉合判定と同じ距離・条件で判定する。軸ロック適用前の
+  // 実際のカーソル位置で判定する必要があるため、lockedPosではなくcursorPosを使う）
+  const origin = clickPointsBuffer.value[0];
+  const closing =
+    module.closable && clickPointsBuffer.value.length >= 3 && !!cursorPos && !!origin
+      ? Math.hypot(cursorPos.x - origin.x, cursorPos.y - origin.y) * props.scale <=
+        CLOSE_THRESHOLD_PX
+      : false;
+
+  const lastPoint = clickPointsBuffer.value.at(-1);
+  const lockedPos = cursorPos ? applyShiftAxisLock(lastPoint, cursorPos) : cursorPos;
+
+  drawingPreviewConfig.value = module.previewFromPoints(clickPointsBuffer.value, lockedPos, style, {
+    closing,
+  });
 }
 
+/**
+ * クリック点描画中のmousedownを処理する。頂点の追加・始点再クリックによる閉合確定・
+ * 最大頂点数到達による即時確定を行う。Shift押下中は直前の頂点からの水平・垂直方向に
+ * 新しい頂点の位置を制限する
+ */
 function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<AnnotationStyle>) {
   selectedAnnotIds.value = [];
 
@@ -314,6 +440,7 @@ function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<
     return;
   }
 
+  // 始点への再クリックによる閉合判定は、軸ロック適用前の実際のクリック位置で行う
   const origin = clickPointsBuffer.value[0];
   if (origin) {
     const screenDistance = Math.hypot(pos.x - origin.x, pos.y - origin.y) * props.scale;
@@ -327,39 +454,96 @@ function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<
     }
   }
 
-  clickPointsBuffer.value = [...clickPointsBuffer.value, pos];
-  updateClickPointsPreview(pos);
+  const lockedPos = applyShiftAxisLock(clickPointsBuffer.value.at(-1), pos);
+  clickPointsBuffer.value = [...clickPointsBuffer.value, lockedPos];
+
+  // box/circle/line/arrow/textのような2点で完成する種別は、始点への再クリックを待たず頂点数到達で即確定する
+  if (geometry.maxPoints !== undefined && clickPointsBuffer.value.length >= geometry.maxPoints) {
+    finishClickPointsDrawing();
+    return;
+  }
+
+  updateClickPointsPreview(lockedPos);
 }
 
+/**
+ * 描画完了後、選択モードへ自動的に戻す（プリセットのダブルクリックでstickyDrawModeが
+ * 有効な場合は戻さず、同じツール・スタイルのまま連続して描き続けられるようにする）
+ * @returns 実際にポインタモードへ切り替えたかどうか
+ */
+function returnToPointerModeUnlessSticky(): boolean {
+  if (editorStore.stickyDrawMode) return false;
+  editorStore.activeAnnotationType = undefined;
+  editorStore.currentTools = 'pointer';
+  return true;
+}
+
+/**
+ * クリック点描画バッファを確定し、新規アノテーションとして登録する
+ */
 function finishClickPointsDrawing() {
   if (!clickPointsBuffer.value) return;
   const style = editorStore.currentAnnotationStyle;
   const points = clickPointsBuffer.value;
   clickPointsBuffer.value = null;
+  clickPointsStartScreenPos.value = null;
+  clickPointsStartTimestamp.value = null;
   drawingPreviewConfig.value = null;
 
   const annotation = createAnnotationFromPoints(page.value, points, style);
   if (annotation) {
-    void props.onRegisterAnnot(annotation);
+    const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
+    void props.onRegisterAnnot(annotation).then(() => {
+      // 描き終えたら選択モードへ自動的に戻る（テキストは直後にインライン編集へ入るため対象外。
+      // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）
+      const switchedToPointer = returnToPointerModeUnlessSticky();
+      if (shouldStartTextEdit && annotation.type === 'text') {
+        startTextEdit(annotation);
+      } else if (switchedToPointer) {
+        selectedAnnotIds.value = [annotation.id];
+      }
+    });
   }
 }
 
+/**
+ * クリック点描画バッファ・プレビューを破棄し、頂点配置を最初からやり直せる状態に戻す
+ */
 function cancelClickPointsDrawing() {
   clickPointsBuffer.value = null;
+  clickPointsStartScreenPos.value = null;
+  clickPointsStartTimestamp.value = null;
   drawingPreviewConfig.value = null;
 }
 
-// ツール切替時に未完了のクリック頂点バッファを破棄する。
+// ツール切替時に未完了のクリック頂点バッファ・曖昧開始状態を破棄する。
 // 放置すると幽霊プレビューが残ったり、その後ポインタツールでのダブルクリックが
 // 切替前のスタイルで意図しないアノテーションを確定させてしまう
 watch(drawingType, () => {
   if (clickPointsBuffer.value) cancelClickPointsDrawing();
+  pendingOverAnnotStart.value = null;
 });
 
+/**
+ * Escapeキー押下時、描画中の状態（クリック点バッファ・ドラッグ中の描画）を破棄したうえで、
+ * 描画モード中であれば選択（ポインタ）モードへ戻す
+ */
 function handleKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;
+  pendingOverAnnotStart.value = null;
   if (clickPointsBuffer.value) {
     cancelClickPointsDrawing();
+  }
+  if (isDrawing.value) {
+    isDrawing.value = false;
+    startPos.value = null;
+    drawingPreviewConfig.value = null;
+    endDrawingAnnotation = undefined;
+  }
+  if (isDrawingTool.value) {
+    editorStore.stickyDrawMode = false;
+    editorStore.activeAnnotationType = undefined;
+    editorStore.currentTools = 'pointer';
   }
 }
 
@@ -388,10 +572,16 @@ function handleMouseDown(e: KonvaMouseEvent) {
     }
 
     // アンカーをクリックした場合は元の注釈 ID を参照します。
-    const clickedId =
-      e.target.attrs?.name === 'annotation-anchor'
-        ? e.target.attrs?.annotationId
-        : e.target.attrs?.id;
+    const isAnchorTarget = e.target.attrs?.name === 'annotation-anchor';
+    const clickedId = isAnchorTarget ? e.target.attrs?.annotationId : e.target.attrs?.id;
+    if (isAnchorTarget && clickedId) {
+      // 頂点（アンカー）自体への操作は、選択状態の変更やCtrl+drag複製候補化を一切行わず
+      // 各アンカー自身のドラッグハンドラ（useTwoPointAnchors/useMultiPointAnchors）に完全に委ねる。
+      // ここで複製候補にしてしまうと、頂点のCtrl+drag（中点対称移動等の制限）が
+      // ステージ側のCtrl+drag複製に横取りされ、意図せず注釈が複製されてしまう
+      pendingPointerTarget.value = { id: clickedId, wasSelected: true };
+      return;
+    }
     if (clickedId) {
       const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
       const isSelected = selectedAnnotIds.value.includes(clickedId);
@@ -420,28 +610,43 @@ function handleMouseDown(e: KonvaMouseEvent) {
   if (!(drawingType.value in ANNOTATION_REGISTRY)) return;
 
   const module = ANNOTATION_REGISTRY[drawingType.value];
+  const pos = stage.getPointerPosition();
+  if (!pos) return;
+  const adjustedPos = { x: pos.x / props.scale, y: pos.y / props.scale };
 
-  if (module.geometry.drawMode === 'clickPoints') {
-    // 頂点追加中は既存シェイプの上でもクリックを継続として扱う。新規開始は空白領域のみ
-    if (!clickPointsBuffer.value && e.target !== stage) return;
-
-    const pos = stage.getPointerPosition();
-    if (!pos) return;
-    const adjustedPos = { x: pos.x / props.scale, y: pos.y / props.scale };
+  // clickPoints方式で頂点追加中（バッファ開始済み）は、既存シェイプの上でもそのまま頂点追加として扱う
+  if (module.geometry.drawMode === 'clickPoints' && clickPointsBuffer.value) {
     handleClickPointsMouseDown(adjustedPos, module.geometry);
     return;
   }
 
-  if (e.target !== stage) return;
+  const isOverExistingShape = e.target !== stage && e.target.attrs?.name === 'annotation-shape';
+  // アンカー等（ステージでも既存シェイプでもない対象）の上からは新規描画を開始しない
+  if (!isOverExistingShape && e.target !== stage) return;
 
-  const pos = stage.getPointerPosition();
-  if (!pos) return;
+  if (isOverExistingShape) {
+    const clickedId = e.target.attrs?.id as AnnotationID | undefined;
+    if (!clickedId) return;
+    // 曖昧開始: この時点ではクリック（既存注釈の選択編集）かドラッグ（新規描画）か確定しない。
+    // 実際の分岐はhandleMouseMove（ドラッグへ発展した場合）・handleMouseUp（発展しなかった場合）で行う
+    pendingOverAnnotStart.value = {
+      id: clickedId,
+      screenPos: { x: pos.x, y: pos.y },
+      docPos: adjustedPos,
+      timestamp: performance.now(),
+    };
+    return;
+  }
 
-  // 描画時はドキュメント座標に変換するため scale で割ります
-  const adjustedPos = {
-    x: pos.x / props.scale,
-    y: pos.y / props.scale,
-  };
+  // 空白領域からの通常開始
+  if (module.geometry.drawMode === 'clickPoints') {
+    // 2点構成の種別（box/circle/line/arrow/text）を「押したままドラッグ→離す」でも描けるよう、
+    // 最初の頂点を置いた時点のステージ座標（画面px）・時刻を記録しておく（handleMouseUp参照）
+    clickPointsStartScreenPos.value = { x: pos.x, y: pos.y };
+    clickPointsStartTimestamp.value = performance.now();
+    handleClickPointsMouseDown(adjustedPos, module.geometry);
+    return;
+  }
 
   isDrawing.value = true;
   startPos.value = adjustedPos;
@@ -487,6 +692,41 @@ function handleMouseMove(e: KonvaMouseEvent) {
     return;
   }
 
+  // 既存アノテーション上での曖昧開始が、実際のドラッグへ発展したかどうかを判定する。
+  // 発展すれば（まだ選択編集へは切り替えず）その場から新規描画を開始する
+  if (pendingOverAnnotStart.value) {
+    const stage = e.target?.getStage();
+    const pos = stage?.getPointerPosition();
+    if (pos) {
+      const pending = pendingOverAnnotStart.value;
+      const dx = pos.x - pending.screenPos.x;
+      const dy = pos.y - pending.screenPos.y;
+      if (Math.hypot(dx, dy) > DUPLICATE_DRAG_THRESHOLD_PX) {
+        pendingOverAnnotStart.value = null;
+        if (drawingType.value in ANNOTATION_REGISTRY) {
+          const module = ANNOTATION_REGISTRY[drawingType.value as AnnotationStyle['type']];
+          if (module.geometry.drawMode === 'clickPoints') {
+            clickPointsStartScreenPos.value = pending.screenPos;
+            clickPointsStartTimestamp.value = pending.timestamp;
+            handleClickPointsMouseDown(pending.docPos, module.geometry);
+          } else {
+            isDrawing.value = true;
+            startPos.value = pending.docPos;
+            selectedAnnotIds.value = [];
+            endDrawingAnnotation = startDrawingAnnotation(
+              page.value,
+              pending.docPos.x,
+              pending.docPos.y,
+              editorStore.currentAnnotationStyle,
+            );
+            updateDrawingPreview(pos.x / props.scale, pos.y / props.scale);
+          }
+        }
+      }
+    }
+    return;
+  }
+
   if (clickPointsBuffer.value) {
     const stage = e.target?.getStage();
     if (!stage) return;
@@ -513,16 +753,22 @@ function handleMouseMove(e: KonvaMouseEvent) {
     updateDrawingPreview(adjustedPos.x, adjustedPos.y);
     return;
   }
-  // カーソル制御: 描画モード中でも編集可能な注釈上にホバーしていれば選択用カーソルに切り替えます
+  // カーソル制御
   const overAnnot = e.target !== e.target.getStage() && Boolean(e.target.attrs?.id);
   // アンカ（端点）上なら掴む系カーソルを表示
   const isAnchor = e.target !== e.target.getStage() && e.target.attrs?.name === 'annotation-anchor';
-  if (isAnchor) {
+  if (drawingType.value === 'hand') {
+    // ハンドモードは常に手のひらカーソル（パン操作可能であることを示す）
+    cursor.value = 'grab';
+  } else if (isAnchor) {
     cursor.value = 'grab';
   } else if (isDrawingTool.value) {
-    cursor.value = overAnnot && isEditing.value ? 'default' : 'crosshair';
+    // 描画モード中は既存アノテーション上にホバーしても選択モードのカーソルに変化させない
+    // （クリックなら選択、ドラッグなら新規描画になることを示すため、常にcrosshairのまま）
+    cursor.value = 'crosshair';
   } else {
-    cursor.value = overAnnot ? 'default' : 'default';
+    // ポインタ（選択）モード: 移動可能な注釈上にホバーしていれば移動用カーソルにする
+    cursor.value = overAnnot ? 'move' : 'default';
   }
 
   if (!isSelecting.value || !selectionStartPos.value) return;
@@ -568,6 +814,17 @@ function handleMouseUp(e: KonvaMouseEvent) {
     return;
   }
 
+  if (pendingOverAnnotStart.value) {
+    // ドラッグへ発展しなかった単なるクリックだったため、既存アノテーションの選択編集として扱う
+    // （描画モードのままだと選択・編集ができないため、ポインタモードへ切り替える）
+    const { id } = pendingOverAnnotStart.value;
+    pendingOverAnnotStart.value = null;
+    editorStore.activeAnnotationType = undefined;
+    editorStore.currentTools = 'pointer';
+    selectedAnnotIds.value = [id];
+    return;
+  }
+
   if (ctrlDragCandidate.value) {
     // ドラッグへ発展しなかった単なるCtrl+クリックだったため、元々の意図通り選択解除する
     const { id } = ctrlDragCandidate.value;
@@ -577,6 +834,34 @@ function handleMouseUp(e: KonvaMouseEvent) {
     return;
   }
 
+  // box/circle/line/arrow/textのような2点で完成する種別を「押したままドラッグ→離す」で描いた場合、
+  // 1点目を置いた直後のmouseupで2点目を確定する（クリックのみでの描画と共存させるための分岐）
+  if (clickPointsBuffer.value?.length === 1 && clickPointsStartScreenPos.value) {
+    const style = editorStore.currentAnnotationStyle;
+    const geometry =
+      style.type in ANNOTATION_GEOMETRY ? ANNOTATION_GEOMETRY[style.type] : undefined;
+    if (geometry?.drawMode === 'clickPoints' && geometry.maxPoints === 2) {
+      const stage = e.target?.getStage();
+      const pos = stage?.getPointerPosition();
+      if (pos) {
+        const dragDistance = Math.hypot(
+          pos.x - clickPointsStartScreenPos.value.x,
+          pos.y - clickPointsStartScreenPos.value.y,
+        );
+        const elapsedMs = clickPointsStartTimestamp.value
+          ? performance.now() - clickPointsStartTimestamp.value
+          : 0;
+        // 距離・経過時間のどちらもドラッグらしい値を満たした場合のみ、ドラッグして離したとみなす
+        if (
+          dragDistance > TWO_POINT_DRAG_FINISH_THRESHOLD_PX &&
+          elapsedMs > TWO_POINT_DRAG_MIN_DURATION_MS
+        ) {
+          handleClickPointsMouseDown({ x: pos.x / props.scale, y: pos.y / props.scale }, geometry);
+        }
+      }
+    }
+  }
+
   if (isDrawing.value && startPos.value) {
     const stage = e.target?.getStage();
     if (!stage) return;
@@ -584,10 +869,10 @@ function handleMouseUp(e: KonvaMouseEvent) {
     const pos = stage.getPointerPosition();
     if (!pos) return;
 
-    const adjustedPos = {
+    const adjustedPos = applyShiftAxisLock(startPos.value, {
       x: pos.x / props.scale,
       y: pos.y / props.scale,
-    };
+    });
 
     isDrawing.value = false;
     drawingPreviewConfig.value = null;
@@ -597,7 +882,14 @@ function handleMouseUp(e: KonvaMouseEvent) {
       if (annotation) {
         const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
         void props.onRegisterAnnot(annotation).then(() => {
-          if (shouldStartTextEdit && annotation.type === 'text') startTextEdit(annotation);
+          // 描き終えたら選択モードへ自動的に戻る（テキストは直後にインライン編集へ入るため対象外。
+          // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）
+          const switchedToPointer = returnToPointerModeUnlessSticky();
+          if (shouldStartTextEdit && annotation.type === 'text') {
+            startTextEdit(annotation);
+          } else if (switchedToPointer) {
+            selectedAnnotIds.value = [annotation.id];
+          }
         });
       }
     }
@@ -628,6 +920,14 @@ function handleMouseUp(e: KonvaMouseEvent) {
   };
 
   if (selectionRect.width > 0 && selectionRect.height > 0) {
+    // 交差選択の実形状判定用に、選択矩形をドキュメント座標系（scale未適用）へ変換しておく
+    const docSelectionRect = {
+      x: selectionRect.x / props.scale,
+      y: selectionRect.y / props.scale,
+      width: selectionRect.width / props.scale,
+      height: selectionRect.height / props.scale,
+    };
+
     const selectedIds = Array.from(annotationRefs.values())
       .map((ref) => ref.getNode())
       .filter((node): node is Konva.Node => Boolean(node))
@@ -646,12 +946,21 @@ function handleMouseUp(e: KonvaMouseEvent) {
           return contained ? (node.attrs.id as string) : null;
         }
 
-        // 交差選択（cross）は少しでも重なっていれば選択
-        const intersects = !(
+        // 交差選択（cross）: まずAABB同士の重なりで足切りし、次に実形状での交差判定を行う。
+        // AABBだけでは折れ線・円のバウンディングボックス内の空白部分まで選択されてしまうため
+        const aabbOverlaps = !(
           rect.x + rect.width < selectionRect.x ||
           rect.x > selectionRect.x + selectionRect.width ||
           rect.y + rect.height < selectionRect.y ||
           rect.y > selectionRect.y + selectionRect.height
+        );
+        if (!aabbOverlaps) return null;
+
+        const annotation = props.annotations.find((a) => a.id === node.attrs.id);
+        if (!annotation) return null;
+        const intersects = ANNOTATION_GEOMETRY[annotation.type].intersectsRect(
+          annotation,
+          docSelectionRect,
         );
         return intersects ? (node.attrs.id as string) : null;
       })
@@ -676,6 +985,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
   pendingPointerTarget.value = null;
 }
 
+/** Shiftキー押下中は開始点からの水平・垂直方向へ描画終点を制限する */
 function updateDrawingPreview(endX: number, endY: number) {
   if (!startPos.value) return;
 
@@ -685,7 +995,8 @@ function updateDrawingPreview(endX: number, endY: number) {
   const module = ANNOTATION_GEOMETRY[style.type];
   if (module.drawMode !== 'drag') return;
 
-  drawingPreviewConfig.value = module.previewFromDrag(startPos.value, { x: endX, y: endY }, style);
+  const endPos = applyShiftAxisLock(startPos.value, { x: endX, y: endY });
+  drawingPreviewConfig.value = module.previewFromDrag(startPos.value, endPos, style);
 }
 
 function syncTransformerSelection() {
@@ -717,7 +1028,12 @@ watch(
   position: absolute;
   left: 0;
   top: 0;
-  z-index: 10;
+  // z-indexを指定しない: position:absolute + z-index単体はスタッキングコンテキストを生成しないため、
+  // 配下のKonvaレイヤー（canvas）に付けたmix-blend-modeがこの要素の外（.pdf-canvas）まで正しく届く。
+  // z-indexを指定するとこの要素自体が独立したスタッキングコンテキストとなり、
+  // 配下canvasの合成が「.pdf-canvasを含まないこの要素の中だけ」に閉じ込められてしまう
+  // （position:absoluteの要素は同じ文脈内の非positioned要素より必ず手前に描画されるため、
+  // z-index無しでも.pdf-canvasより手前に表示される点は変わらない）
   width: 100%;
   height: 100%;
 }
