@@ -6,7 +6,7 @@ import { useSettingsStore } from './settingsStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import { saveDocument } from 'src/utils/document/saveDocument';
 import { ANNOTATION_REGISTRY } from 'src/components/Viewer/Annotation/registry';
-import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 
 /**
  * 指定した種別の先頭プリセット（ユーザー設定になければレジストリのデフォルト）のスタイルを取得する

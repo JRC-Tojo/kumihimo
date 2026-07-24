@@ -8,7 +8,7 @@ import type { ColorCode } from 'src/models/document/pdf';
 import { Success, type Result } from 'src/models/error/result';
 import { AppSettings } from 'src/models/settings';
 import * as db from 'src/repositories/inMemory/IndexedDB';
-import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 
 const SETTINGS_STORE_NAME = 'settings';
 

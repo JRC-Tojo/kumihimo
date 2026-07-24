@@ -84,7 +84,7 @@ import {
   duplicateAnnotation,
   type ClickPointsDrawModule,
   type Point,
-} from 'src/services/document/annotationGeometry';
+} from 'src/components/Viewer/Annotation/annotationGeometry';
 import { ANNOTATION_REGISTRY } from './registry';
 import { getAnnotationSortKey } from 'src/utils/document/annotationOrder';
 import { useModifierKeys } from './composables/useModifierKeys';
