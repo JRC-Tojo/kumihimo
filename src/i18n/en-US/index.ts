@@ -395,6 +395,7 @@ export default {
       enable: 'Enable',
       disable: 'Disable',
       sideload: 'Install WASM Directly',
+      update: 'Update',
     },
     list: {
       searchPlaceholder: 'Search plugins',
@@ -431,17 +432,30 @@ export default {
       dialogTitle: 'Submit to Plugin Store',
       githubNotConnected:
         'GitHub is not connected. Register a GitHub personal access token on the Settings page to submit plugins.',
-      newSubmissionTitle: 'New Submission / Version Update',
-      manifestFile: 'Manifest File (plugin.json)',
+      newSubmissionTitle: 'New Submission',
+      nameLabel: 'Plugin Name',
+      descriptionLabel: 'Description',
+      runtimeLabel: 'Runtime',
+      requiredHostApisLabel: 'Required Host APIs',
+      initialVersionLabel: 'Initial Version',
+      updateModeTitle: 'Update "{name}"',
+      currentVersionLabel: 'Current Version',
+      bumpMajor: 'Major',
+      bumpMinor: 'Minor',
+      bumpPatch: 'Patch',
+      versionPreview: '{from} → {to}',
+      manualVersionLabel: 'New Version',
+      cancelUpdate: 'Back to New Submission',
+      submitUpdate: 'Submit Update',
+      storePreviewTitle: 'Store Listing Preview',
       binaryFile: 'Binary File',
       iconFile: 'Icon Image (optional)',
-      iconFileHint: "Upload the same image referenced by plugin.json's iconFile",
-      iconFileMissingInManifest:
-        "To upload an icon image, set a file name in plugin.json's iconFile field",
+      iconFileHint:
+        'Only select a new image if you want to change it (the current image is kept otherwise)',
       iconFileTooLarge: 'The icon image exceeds the size limit (512KB)',
       iconFileUnsupportedFormat: 'The icon image must be in PNG/JPEG/GIF format',
       iconFileExtensionMismatch:
-        "The file extension in plugin.json's iconFile doesn't match the actual format of the uploaded image (e.g. the file is actually JPEG but the extension is .png). This would break image display after publishing, so make the extension match the real format.",
+        "The uploaded image's file extension doesn't match its actual format (e.g. the file is actually JPEG but the extension is .png). This would break image display after publishing, so make the extension match the real format.",
       validationErrors: 'There are errors in the submitted content',
       submitting: 'Submitting…',
       submitSuccess:
@@ -459,7 +473,7 @@ export default {
       ciLogTitle: 'Validation Log',
       helpTitle: 'Publishing Flow',
       helpStep1:
-        'Submitting the manifest, binary (and icon) opens a Pull Request against the store repository.',
+        'Submitting the form input, binary (and icon) opens a Pull Request against the store repository.',
       helpStep2:
         'Once automated validation (CI) and ownership checks pass, the PR is merged and published automatically. If validation fails, fix the issue and submit again the same way (this updates the same PR).',
       helpStep3:
@@ -470,20 +484,23 @@ export default {
       dialogTitle: 'Install WASM Directly',
       helpText:
         'Install a local .wasm file directly, bypassing the store/catalog, to verify it works against the real host. Intended for plugin development. Use "Submit New Plugin" to publish.',
-      manifestFile: 'Manifest File (plugin.json)',
+      nameLabel: 'Plugin Name',
+      descriptionLabel: 'Description',
+      runtimeLabel: 'Runtime',
+      requiredHostApisLabel: 'Required Host APIs',
+      versionLabel: 'Version',
       binaryFile: 'Binary File',
       iconFile: 'Icon Image (optional)',
       installSuccess: 'Installed',
       overwriteWarningTitle: 'Already Installed',
       overwriteWarningMessage:
-        'A plugin with the same ID "{id}" is already installed. Overwrite it?',
+        'A plugin named "{name}" is already installed via sideload. Overwrite it?',
     },
     errors: {
       installFailed: 'Failed to install plugin',
       uninstallFailed: 'Failed to uninstall plugin',
       runFailed: 'Failed to run plugin',
       submitFailed: 'Failed to submit plugin',
-      loadFileFailed: 'An error occurred while reading the file. Please try re-selecting a same file or closing the currently open file.',
       manifestInvalid: 'The manifest content is invalid',
       unpublishInProgress:
         'This plugin has an unpublish request in progress; cannot submit a new one',

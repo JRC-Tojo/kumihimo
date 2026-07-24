@@ -3,12 +3,13 @@
  */
 import type { Result } from 'src/models/error/result';
 import { Failure } from 'src/models/error/result';
-import type { PluginManifest, PluginID } from 'src/models/plugin/manifest';
+import { PluginID, PluginManifest } from 'src/models/plugin/manifest';
 import type {
   InstalledPlugin,
   CatalogEntry,
   PluginInstallSource,
 } from 'src/models/plugin/installation';
+import type { PluginSubmissionDraft } from 'src/models/plugin/submission';
 import * as pluginDb from 'src/repositories/db/plugin';
 import * as binaryStore from 'src/repositories/plugin/binaryStore';
 import * as catalog from 'src/repositories/plugin/catalog';
@@ -59,6 +60,30 @@ export async function installPlugin(
     source,
   };
   return pluginDb.putInstalledPlugin(entry);
+}
+
+/**
+ * サイドロード用: `id`/`owner`を持たない開発者入力（フォーム由来）から直接インストールする
+ *
+ * 同名（`source: 'sideload'`のもの限定）の既存インストールがあれば、そのidを再利用して
+ * 上書きする（プラグイン開発中に「ビルドし直して再インストール」を繰り返しても、毎回
+ * 別レコードとして積み上がらないようにするため）。同名の既存インストールが無ければ
+ * 新規にUUIDを採番する
+ */
+export async function installFromDraft(
+  draft: PluginSubmissionDraft,
+  binary: Uint8Array,
+  icon: Uint8Array | undefined,
+): Promise<Result<void>> {
+  const installedRes = await pluginDb.getInstalledPlugins();
+  if (!installedRes.ok) return installedRes;
+  const existing = installedRes.value.find(
+    (e) => e.source === 'sideload' && e.manifest.name === draft.name,
+  );
+
+  const id = existing ? existing.manifest.id : PluginID.parse(crypto.randomUUID());
+  const manifest: PluginManifest = PluginManifest.parse({ ...draft, id });
+  return installPlugin(manifest, binary, icon, 'sideload');
 }
 
 /**

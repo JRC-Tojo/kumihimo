@@ -4,14 +4,14 @@ import z from 'zod';
  * プラグインの識別子
  *
  * 他のドメインID（`ContainerID`等）と同様にブランド付きUUIDとする。開発者が自由に選べる値では
- * なく、新規プラグインの申請時に`submissionGithub.ts`の`submitPlugin`がアプリ側で自動採番する
- * （`crypto.randomUUID()`）。ストアリポジトリ内のディレクトリ名・パス組み立て（`pluginFilePath`）や
- * 申請フローのGitHubブランチ名（`plugin/<id>`等）へそのまま埋め込まれるため、開発者が任意の
- * 文字列を指定できてしまうと、パスの正規化でプラグイン領域外を指したり、Gitのref命名規則に
- * 反してブランチ作成が失敗したりする恐れがあった。UUIDに固定することでこれを構造的に防ぐ
- *
- * ローカルでのサイドロード開発時など、まだ申請していないプラグインの`plugin.json`にも
- * 有効なUUID形式の値を仮置きしておく必要がある（開発者ガイド参照）
+ * なく、常にアプリ側が自動採番する（`crypto.randomUUID()`）。ストア申請時は
+ * `submissionGithub.ts`の`submitPlugin`が、サイドロード時は`install.ts`の`installFromDraft`が
+ * それぞれ採番を担う。開発者からの入力は`id`を持たない`PluginSubmissionDraft`
+ * （`src/models/plugin/submission.ts`）に限定され、`plugin.json`を手書きさせる経路は無い。
+ * ストアリポジトリ内のディレクトリ名・パス組み立て（`pluginFilePath`）や申請フローのGitHub
+ * ブランチ名（`plugin/<id>`等）へそのまま埋め込まれるため、開発者が任意の文字列を指定できて
+ * しまうと、パスの正規化でプラグイン領域外を指したり、Gitのref命名規則に反してブランチ作成が
+ * 失敗したりする恐れがあった。UUIDに固定し、常にアプリ側で生成することでこれを構造的に防ぐ
  */
 export const PluginID = z.uuidv4().brand('PluginID');
 export type PluginID = z.infer<typeof PluginID>;

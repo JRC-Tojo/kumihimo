@@ -23,22 +23,31 @@
             :label="$t('plugins.actions.withdraw')"
             @click="emit('withdraw', activeUnpublish.prNumber)"
           />
-          <q-btn
-            v-else-if="activeSubmit"
-            dense
-            flat
-            color="negative"
-            :label="$t('plugins.actions.withdraw')"
-            @click="emit('withdraw', activeSubmit.prNumber)"
-          />
-          <q-btn
-            v-else-if="isCurrentlyPublished"
-            dense
-            flat
-            color="negative"
-            :label="$t('plugins.actions.unpublish')"
-            @click="emit('unpublish', pluginId)"
-          />
+          <template v-else-if="activeSubmit">
+            <q-btn
+              dense
+              flat
+              color="negative"
+              :label="$t('plugins.actions.withdraw')"
+              @click="emit('withdraw', activeSubmit.prNumber)"
+            />
+          </template>
+          <template v-else-if="isCurrentlyPublished">
+            <q-btn
+              dense
+              flat
+              color="primary"
+              :label="$t('plugins.actions.update')"
+              @click="emit('update', lastMergedSubmit!.manifest)"
+            />
+            <q-btn
+              dense
+              flat
+              color="negative"
+              :label="$t('plugins.actions.unpublish')"
+              @click="emit('unpublish', pluginId)"
+            />
+          </template>
         </div>
       </q-item-section>
     </template>
@@ -57,7 +66,7 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { PluginSubmission } from 'src/models/plugin/submission';
-import type { PluginID } from 'src/models/plugin/manifest';
+import type { PluginID, PluginManifest } from 'src/models/plugin/manifest';
 import PluginSubmissionItem from './PluginSubmissionItem.vue';
 import {
   displayStatus,
@@ -80,6 +89,7 @@ const prop = defineProps<Prop>();
 const emit = defineEmits<{
   withdraw: [prNumber: number];
   unpublish: [pluginId: PluginID];
+  update: [manifest: PluginManifest];
 }>();
 
 const { t: $t } = useI18n();

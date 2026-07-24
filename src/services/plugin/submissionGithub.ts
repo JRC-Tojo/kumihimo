@@ -14,6 +14,7 @@ import { Failure, Success, toError } from 'src/models/error/result';
 import { PluginID, PluginManifest } from 'src/models/plugin/manifest';
 import type {
   PluginSubmission,
+  PluginSubmissionDraft,
   PluginSubmissionKind,
   PluginSubmissionStatus,
 } from 'src/models/plugin/submission';
@@ -222,36 +223,46 @@ async function waitAndBuildSubmission(
 /**
  * プラグインを申請する（新規申請・バージョン更新のいずれも同じ経路で扱う）
  *
- * - 新規プラグイン: マニフェストのownerを申請者のGitHubユーザー名に設定する。`id`は
- *   `PluginID`がブランド付きUUIDであり開発者が選べる値ではないため、ここで新規に採番する
- *   （ローカルのサイドロード開発時に使っていた仮のidは、初回申請時に破棄・上書きされる）
- * - 既存プラグインの更新: default branchに公開済みのownerと申請者が一致しない場合は拒否する
- *   （最終的な、なりすまし防止の実効的な検証はストアリポジトリのCI側で行われる。
- *   ここでのチェックはユーザーへの早期フィードバックのため）。`id`は公開済みの値をそのまま使う
+ * 開発者からは`id`/`owner`を持たない最小限の入力（`PluginSubmissionDraft`。フォームで
+ * 入力した内容）だけを受け取り、完全な`PluginManifest`（`plugin.json`相当）はここで
+ * 初めて組み立てる。
+ *
+ * - 新規申請（`updateId`省略）: `owner`を申請者のGitHubユーザー名に設定し、`id`は
+ *   `PluginID`がブランド付きUUIDであり開発者が選べる値ではないため、ここで新規に採番する。
+ * - バージョン更新（`updateId`指定）: default branchに公開済みのownerと申請者が一致しない
+ *   場合は拒否する（最終的な、なりすまし防止の実効的な検証はストアリポジトリのCI側で行われる。
+ *   ここでのチェックはユーザーへの早期フィードバックのため）。`id`は`updateId`をそのまま使う
  */
 export async function submitPlugin(
-  manifest: PluginManifest,
+  draft: PluginSubmissionDraft,
   binary: Uint8Array,
   icon: Uint8Array | undefined,
   token: string,
+  updateId?: PluginID,
 ): Promise<Result<PluginSubmission>> {
   const userRes = await gh.getAuthenticatedUser(token);
   if (!userRes.ok) return userRes;
   const login = userRes.value.login;
 
-  const publishedRes = await fetchPublishedManifest(manifest.id, token);
-  if (!publishedRes.ok) return publishedRes;
-  const published = publishedRes.value;
-  if (published && published.owner !== login) {
-    return Failure(
-      new Error(
-        `このプラグインは既に別のユーザー（${published.owner ?? '不明'}）によって公開されています。バージョン更新はそのユーザーのみ行えます。`,
-      ),
-    );
+  let id: PluginID;
+  if (updateId) {
+    const publishedRes = await fetchPublishedManifest(updateId, token);
+    if (!publishedRes.ok) return publishedRes;
+    const published = publishedRes.value;
+    if (!published) return Failure(new Error('更新対象のプラグインが見つかりません'));
+    if (published.owner !== login) {
+      return Failure(
+        new Error(
+          `このプラグインは既に別のユーザー（${published.owner ?? '不明'}）によって公開されています。バージョン更新はそのユーザーのみ行えます。`,
+        ),
+      );
+    }
+    id = updateId;
+  } else {
+    id = PluginID.parse(crypto.randomUUID());
   }
 
-  const id = published ? manifest.id : PluginID.parse(crypto.randomUUID());
-  const manifestToSubmit: PluginManifest = { ...manifest, id, owner: login };
+  const manifestToSubmit: PluginManifest = PluginManifest.parse({ ...draft, id, owner: login });
 
   const forkRes = await gh.ensureFork(token, login);
   if (!forkRes.ok) return forkRes;
@@ -279,7 +290,7 @@ export async function submitPlugin(
       STORE_REPO_NAME,
       {
         title: `[Plugin] ${manifestToSubmit.name} (${manifestToSubmit.id}) v${manifestToSubmit.version}`,
-        body: `プラグイン「${manifestToSubmit.name}」（\`${manifestToSubmit.id}\`）v${manifestToSubmit.version} の${published ? '更新' : '新規'}申請です。\n\n_RelationalDocumentsアプリから自動送信されました。_`,
+        body: `プラグイン「${manifestToSubmit.name}」（\`${manifestToSubmit.id}\`）v${manifestToSubmit.version} の${updateId ? '更新' : '新規'}申請です。\n\n_RelationalDocumentsアプリから自動送信されました。_`,
         head: `${login}:${branch}`,
         base: STORE_REPO_DEFAULT_BRANCH,
       },

@@ -38,6 +38,20 @@ export const PluginSubmissionKind = z.enum(['submit', 'unpublish']);
 export type PluginSubmissionKind = z.infer<typeof PluginSubmissionKind>;
 
 /**
+ * ストア申請時に開発者が入力する最小限の情報（`id`/`owner`/`deprecated`を持たない）
+ *
+ * 完全な`PluginManifest`（`plugin.json`相当）は、`id`（新規採番 or 既存id）と`owner`
+ * （申請者のGitHubログイン名）が判明するsubmitPlugin内で初めて組み立てる。開発者に
+ * `plugin.json`を手書きさせない設計にしたため、この2フィールドは常にアプリ側が決定する
+ */
+export const PluginSubmissionDraft = PluginManifest.omit({
+  id: true,
+  owner: true,
+  deprecated: true,
+});
+export type PluginSubmissionDraft = z.infer<typeof PluginSubmissionDraft>;
+
+/**
  * プラグイン申請（＝ストアリポジトリに対する実際のPull Request）
  */
 export const PluginSubmission = z.object({

@@ -18,7 +18,7 @@
       <q-item-label caption>{{ $t('plugins.list.version') }}: {{ manifest.version }}</q-item-label>
     </q-item-section>
 
-    <q-item-section side>
+    <q-item-section v-if="!preview" side>
       <div class="row items-center q-gutter-xs">
         <q-btn
           v-if="installed"
@@ -72,6 +72,9 @@ interface Prop {
   installed: boolean;
   iconSrc: string | undefined;
   sideloaded?: boolean | undefined;
+  // trueの場合、実行/インストール/アンインストール/詳細ボタンを描画しない
+  // （申請フォームでの「ストアでの表示プレビュー」用途。操作できても意味がなく紛らわしいため）
+  preview?: boolean | undefined;
 }
 defineProps<Prop>();
 

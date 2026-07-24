@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import { Failure, Success } from 'src/models/error/result';
 import type { InstalledPlugin } from 'src/models/plugin/installation';
 import type { PluginManifest } from 'src/models/plugin/manifest';
+import type { PluginSubmissionDraft } from 'src/models/plugin/submission';
 
 /**
  * `src/repositories/db/plugin.ts`・`src/repositories/plugin/binaryStore.ts`が実際に使う
@@ -63,8 +64,10 @@ void mock.module('src/repositories/plugin/catalog', () => ({
   getCatalogIcon: () => Promise.resolve(Failure(new Error('not used in this test'))),
 }));
 
-const { installPlugin, getInstalledPlugins, uninstallPlugin, getPluginBinary } =
+const { installPlugin, installFromDraft, getInstalledPlugins, uninstallPlugin, getPluginBinary } =
   await import('../install');
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function buildManifest(id: string): PluginManifest {
   return {
@@ -75,6 +78,18 @@ function buildManifest(id: string): PluginManifest {
     runtime: 'wasm',
     mainFile: 'test.wasm',
     requiredHostApis: [],
+  };
+}
+
+function buildDraft(overrides: Partial<PluginSubmissionDraft> = {}): PluginSubmissionDraft {
+  return {
+    name: 'サイドロードプラグイン',
+    version: '1.0.0',
+    description: '',
+    runtime: 'wasm',
+    mainFile: 'sideload.wasm',
+    requiredHostApis: [],
+    ...overrides,
   };
 }
 
@@ -115,5 +130,72 @@ describe('install（catalog/sideloadの共存）', () => {
     const remaining = listRes.value.filter((e) => e.manifest.id === manifest.id);
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.source).toBe('catalog');
+  });
+});
+
+describe('installFromDraft（サイドロード: id/ownerを持たないフォーム入力から採番・上書きする）', () => {
+  it('同名の既存サイドロード済みプラグインが無ければ、新規にUUIDを採番する', async () => {
+    const draft = buildDraft({ name: '新規サイドロードA', mainFile: 'a.wasm' });
+
+    const res = await installFromDraft(draft, new Uint8Array([1]), undefined);
+    expect(res.ok).toBeTrue();
+
+    const listRes = await getInstalledPlugins();
+    expect(listRes.ok).toBeTrue();
+    if (!listRes.ok) return;
+    const found = listRes.value.find(
+      (e) => e.manifest.name === draft.name && e.source === 'sideload',
+    );
+    expect(found).toBeDefined();
+    expect(String(found?.manifest.id)).toMatch(UUID_PATTERN);
+  });
+
+  it('同名の既存サイドロード済みプラグインがあれば、そのidを再利用して上書きする（レコードが増えない）', async () => {
+    const draft = buildDraft({ name: '再インストール対象', mainFile: 'b.wasm' });
+
+    await installFromDraft(draft, new Uint8Array([1]), undefined);
+    const firstListRes = await getInstalledPlugins();
+    expect(firstListRes.ok).toBeTrue();
+    if (!firstListRes.ok) return;
+    const firstEntry = firstListRes.value.find(
+      (e) => e.manifest.name === draft.name && e.source === 'sideload',
+    );
+    expect(firstEntry).toBeDefined();
+    const firstId = firstEntry?.manifest.id;
+
+    // 開発中のビルドを更新して再インストールしたケースを模す
+    await installFromDraft({ ...draft, version: '1.0.1' }, new Uint8Array([2]), undefined);
+
+    const secondListRes = await getInstalledPlugins();
+    expect(secondListRes.ok).toBeTrue();
+    if (!secondListRes.ok) return;
+    const matching = secondListRes.value.filter(
+      (e) => e.manifest.name === draft.name && e.source === 'sideload',
+    );
+    expect(matching).toHaveLength(1);
+    expect(matching[0]?.manifest.id).toBe(firstId);
+    expect(matching[0]?.manifest.version).toBe('1.0.1');
+  });
+
+  it('カタログ版が同名で存在するだけでは既存として扱わない（sideload限定でマッチする）', async () => {
+    const catalogManifest = { ...buildManifest('catalog-only-id'), name: '共存プラグイン' };
+    await installPlugin(catalogManifest, new Uint8Array([9]), undefined, 'catalog');
+
+    const draft = buildDraft({ name: '共存プラグイン', mainFile: 'c.wasm' });
+    const res = await installFromDraft(draft, new Uint8Array([1]), undefined);
+    expect(res.ok).toBeTrue();
+
+    const listRes = await getInstalledPlugins();
+    expect(listRes.ok).toBeTrue();
+    if (!listRes.ok) return;
+    const sideloadEntry = listRes.value.find(
+      (e) => e.manifest.name === '共存プラグイン' && e.source === 'sideload',
+    );
+    const catalogEntry = listRes.value.find(
+      (e) => e.manifest.name === '共存プラグイン' && e.source === 'catalog',
+    );
+    expect(sideloadEntry).toBeDefined();
+    expect(catalogEntry).toBeDefined();
+    expect(sideloadEntry?.manifest.id).not.toBe(catalogEntry?.manifest.id);
   });
 });

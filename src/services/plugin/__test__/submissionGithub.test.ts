@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { Failure, Success } from 'src/models/error/result';
-import type { PluginManifest } from 'src/models/plugin/manifest';
+import type { PluginID, PluginManifest } from 'src/models/plugin/manifest';
+import type { PluginSubmissionDraft } from 'src/models/plugin/submission';
 
 /**
  * `src/repositories/plugin/githubApi.ts`のNotFoundGithubErrorは`instanceof`判定に
@@ -79,6 +80,19 @@ function buildManifest(id: string): PluginManifest {
   };
 }
 
+/** フォーム入力相当（id/ownerを持たない）のドラフトを組み立てる */
+function buildDraft(overrides: Partial<PluginSubmissionDraft> = {}): PluginSubmissionDraft {
+  return {
+    name: 'テストプラグイン',
+    version: '1.0.0',
+    description: '',
+    runtime: 'wasm',
+    mainFile: 'test.wasm',
+    requiredHostApis: [],
+    ...overrides,
+  };
+}
+
 /** `putFile`で送信されたplugin.jsonの内容（base64→JSON）を取り出す */
 function decodeSubmittedManifest(): PluginManifest {
   const call = putFileMock.mock.calls.find((c) => String(c[2]).endsWith('plugin.json'));
@@ -87,23 +101,19 @@ function decodeSubmittedManifest(): PluginManifest {
 }
 
 describe('submitPlugin（id自動採番）', () => {
-  it('新規プラグイン申請時は、開発者のローカルidを使わずUUIDを新規採番する', async () => {
+  it('新規申請（updateId省略）時は、UUIDを新規採番する', async () => {
     publishedManifestJson = undefined;
     putFileMock.mockClear();
     ensureBranchMock.mockClear();
     createPullRequestMock.mockClear();
 
-    // 開発者がローカルのサイドロード開発で使っていた「仮のid」（本来はUUID形式だが、
-    // 申請時には破棄・上書きされることを確認するため意図的にダミー値を使う）
-    const devPlaceholderId = '00000000-0000-4000-8000-000000000000';
-    const manifest = buildManifest(devPlaceholderId);
+    const draft = buildDraft();
 
-    const res = await submitPlugin(manifest, new Uint8Array([1, 2, 3]), undefined, 'token');
+    const res = await submitPlugin(draft, new Uint8Array([1, 2, 3]), undefined, 'token');
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
     const submitted = decodeSubmittedManifest();
-    expect(String(submitted.id)).not.toBe(devPlaceholderId);
     expect(String(submitted.id)).toMatch(UUID_PATTERN);
     expect(res.value.manifest.id).toBe(submitted.id);
 
@@ -112,14 +122,20 @@ describe('submitPlugin（id自動採番）', () => {
     expect(branchArg).toBe(`plugin/${submitted.id}`);
   });
 
-  it('既存プラグインの更新申請時は、公開済みのidをそのまま使う（新規採番しない）', async () => {
+  it('updateIdを指定した更新申請時は、そのidをそのまま使う（新規採番しない）', async () => {
     const publishedId = '11111111-1111-4111-8111-111111111111';
     publishedManifestJson = { ...buildManifest(publishedId), owner: 'alice' };
     putFileMock.mockClear();
     ensureBranchMock.mockClear();
 
-    const manifest = { ...buildManifest(publishedId), version: '1.1.0' };
-    const res = await submitPlugin(manifest, new Uint8Array([1, 2, 3]), undefined, 'token');
+    const draft = buildDraft({ version: '1.1.0' });
+    const res = await submitPlugin(
+      draft,
+      new Uint8Array([1, 2, 3]),
+      undefined,
+      'token',
+      publishedId as PluginID,
+    );
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
@@ -128,13 +144,35 @@ describe('submitPlugin（id自動採番）', () => {
     expect(String(res.value.manifest.id)).toBe(publishedId);
   });
 
-  it('公開済みのownerと申請者が異なる場合は拒否し、idの採番も行わない', async () => {
+  it('公開済みのownerと申請者が異なる場合は拒否し、pushも行わない', async () => {
     const publishedId = '22222222-2222-4222-8222-222222222222';
     publishedManifestJson = { ...buildManifest(publishedId), owner: 'bob' };
     putFileMock.mockClear();
 
-    const manifest = buildManifest(publishedId);
-    const res = await submitPlugin(manifest, new Uint8Array([1, 2, 3]), undefined, 'token');
+    const draft = buildDraft();
+    const res = await submitPlugin(
+      draft,
+      new Uint8Array([1, 2, 3]),
+      undefined,
+      'token',
+      publishedId as PluginID,
+    );
+    expect(res.ok).toBeFalse();
+    expect(putFileMock).not.toHaveBeenCalled();
+  });
+
+  it('updateIdに対応する公開済みプラグインが見つからない場合は拒否する', async () => {
+    publishedManifestJson = undefined;
+    putFileMock.mockClear();
+
+    const draft = buildDraft();
+    const res = await submitPlugin(
+      draft,
+      new Uint8Array([1, 2, 3]),
+      undefined,
+      'token',
+      '33333333-3333-4333-8333-333333333333' as PluginID,
+    );
     expect(res.ok).toBeFalse();
     expect(putFileMock).not.toHaveBeenCalled();
   });

@@ -52,7 +52,7 @@ import * as pluginInstallService from 'src/services/plugin/install';
 import * as pluginRunService from 'src/services/plugin/run';
 import * as pluginSubmissionService from 'src/services/plugin/submissionGithub';
 import * as githubAuthService from 'src/services/plugin/githubAuth';
-import { parseManifest } from 'src/services/plugin/manifest';
+import { parseSubmissionDraft } from 'src/services/plugin/manifest';
 
 /**
  * バックエンド統合 API層
@@ -674,17 +674,17 @@ class BackendApi {
   }
 
   /**
-   * ローカルのマニフェスト・バイナリ・（任意で）アイコンから直接プラグインをインストールする
-   * （ストア/カタログを経由しない。開発中のWASMを実ホストで動作確認する用途）
+   * ローカルの入力内容（フォーム由来）・バイナリ・（任意で）アイコンから直接プラグインを
+   * インストールする（ストア/カタログを経由しない。開発中のWASMを実ホストで動作確認する用途）
    */
   async installPluginFromFile(
-    manifestJson: unknown,
+    draftJson: unknown,
     binary: Uint8Array,
     icon: Uint8Array | undefined,
   ): Promise<ApiResponse<void>> {
-    const parsed = parseManifest(manifestJson);
+    const parsed = parseSubmissionDraft(draftJson);
     if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
-    const res = await pluginInstallService.installPlugin(parsed.value, binary, icon, 'sideload');
+    const res = await pluginInstallService.installFromDraft(parsed.value, binary, icon);
     return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
   }
 
@@ -764,13 +764,17 @@ class BackendApi {
   /**
    * プラグインを申請する（ストアリポジトリへ実際にPull Requestを作成する。新規申請・
    * バージョン更新のいずれもこの1つの経路で扱う）
+   *
+   * @param updateId バージョン更新の場合のみ、更新対象の公開済みプラグインidを指定する。
+   *   未指定（新規申請）の場合はサービス層が新規にUUIDを採番する
    */
   async submitPlugin(
-    manifestJson: unknown,
+    draftJson: unknown,
     binary: Uint8Array,
     icon: Uint8Array | undefined,
+    updateId: PluginID | undefined,
   ): Promise<ApiResponse<PluginSubmission>> {
-    const parsed = parseManifest(manifestJson);
+    const parsed = parseSubmissionDraft(draftJson);
     if (!parsed.ok) return toApiResponse(parsed, 'PLUGIN_MANIFEST_INVALID');
     const token = await this.getGithubToken();
     if (!token)
@@ -778,7 +782,13 @@ class BackendApi {
         Failure(new Error('GitHub連携が未設定です')),
         'PLUGIN_GITHUB_TOKEN_MISSING',
       );
-    const res = await pluginSubmissionService.submitPlugin(parsed.value, binary, icon, token);
+    const res = await pluginSubmissionService.submitPlugin(
+      parsed.value,
+      binary,
+      icon,
+      token,
+      updateId,
+    );
     return toApiResponse(res, 'PLUGIN_SUBMIT_FAILED');
   }
 

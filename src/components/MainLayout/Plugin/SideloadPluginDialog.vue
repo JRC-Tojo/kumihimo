@@ -12,19 +12,59 @@
       <q-card-section class="q-pt-none">
         <div class="text-caption text-grey-8 q-mb-md">{{ $t('plugins.sideload.helpText') }}</div>
 
-        <q-file
-          v-model="manifestFile"
-          :label="$t('plugins.sideload.manifestFile')"
-          accept=".json"
+        <q-input
+          v-model="name"
           dense
           outlined
+          :label="$t('plugins.sideload.nameLabel')"
+          :disable="installing"
+          class="q-mb-sm"
         />
+        <q-input
+          v-model="description"
+          type="textarea"
+          autogrow
+          dense
+          outlined
+          :label="$t('plugins.sideload.descriptionLabel')"
+          :disable="installing"
+          class="q-mb-sm"
+        />
+        <q-select
+          v-model="runtime"
+          dense
+          outlined
+          :options="runtimeOptions"
+          :label="$t('plugins.sideload.runtimeLabel')"
+          :disable="installing"
+          class="q-mb-sm"
+        />
+        <q-select
+          v-model="requiredHostApis"
+          multiple
+          use-chips
+          dense
+          outlined
+          :options="hostApiOptions"
+          :label="$t('plugins.sideload.requiredHostApisLabel')"
+          :disable="installing"
+          class="q-mb-sm"
+        />
+        <q-input
+          v-model="version"
+          dense
+          outlined
+          :label="$t('plugins.sideload.versionLabel')"
+          :disable="installing"
+          class="q-mb-sm"
+        />
+
         <q-file
           v-model="binaryFile"
           :label="$t('plugins.sideload.binaryFile')"
-          class="q-mt-sm"
           dense
           outlined
+          :disable="installing"
         />
         <q-file
           v-model="iconFile"
@@ -34,6 +74,7 @@
           outlined
           accept="image/*"
           clearable
+          :disable="installing"
         />
 
         <q-banner v-if="errorMessage" dense class="bg-negative text-white q-mt-sm">
@@ -48,7 +89,7 @@
             unelevated
             color="primary"
             :label="$t('plugins.actions.sideload')"
-            :disable="!manifestFile || !binaryFile"
+            :disable="!canInstall"
             :loading="installing"
             @click="onInstall"
           />
@@ -63,10 +104,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePluginStore } from 'src/stores/pluginStore';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
+import { PluginHostApiName, PluginRuntime } from 'src/models/plugin/manifest';
 
 interface Prop {
   modelValue: boolean;
@@ -81,26 +123,36 @@ const emit = defineEmits<{
 const { t: $t } = useI18n();
 const pluginStore = usePluginStore();
 
-const manifestFile = ref<File | null>(null);
+const runtimeOptions = [...PluginRuntime.options];
+const hostApiOptions = [...PluginHostApiName.options];
+
+const name = ref('');
+const description = ref('');
+const runtime = ref<PluginRuntime>('wasm');
+const requiredHostApis = ref<PluginHostApiName[]>([]);
+const version = ref('1.0.0');
 const binaryFile = ref<File | null>(null);
 const iconFile = ref<File | null>(null);
 const errorMessage = ref('');
 const successMessage = ref('');
 const installing = ref(false);
 
+const canInstall = computed(
+  () => name.value.trim().length > 0 && binaryFile.value !== null && !installing.value,
+);
+
 function onCancel() {
   emit('update:modelValue', false);
 }
 
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      resolve(typeof reader.result === 'string' ? reader.result : '');
-    };
-    reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'));
-    reader.readAsText(file);
-  });
+function resetForm() {
+  name.value = '';
+  description.value = '';
+  runtime.value = 'wasm';
+  requiredHostApis.value = [];
+  version.value = '1.0.0';
+  binaryFile.value = null;
+  iconFile.value = null;
 }
 
 function readFileAsUint8Array(file: File): Promise<Uint8Array> {
@@ -116,32 +168,20 @@ function readFileAsUint8Array(file: File): Promise<Uint8Array> {
 }
 
 async function onInstall() {
-  if (!manifestFile.value || !binaryFile.value) return;
+  const binaryFileValue = binaryFile.value;
+  if (!binaryFileValue) return;
   errorMessage.value = '';
   successMessage.value = '';
 
-  const manifestText = await readFileAsText(manifestFile.value);
-  let manifestJson: unknown;
-  try {
-    manifestJson = JSON.parse(manifestText);
-  } catch {
-    errorMessage.value = $t('plugins.errors.manifestInvalid');
-    return;
-  }
-
-  const declaredId =
-    typeof manifestJson === 'object' && manifestJson !== null && 'id' in manifestJson
-      ? (manifestJson as { id?: unknown }).id
-      : undefined;
-  // カタログ版が存在するだけでは警告しない（共存が正常系のため）。既に同一idを
-  // サイドロード済みの場合のみ、上書きになる旨を警告する
-  if (
-    typeof declaredId === 'string' &&
-    pluginStore.installed.some((e) => e.manifest.id === declaredId && e.source === 'sideload')
-  ) {
+  // 同名のサイドロード済みプラグインが既にあれば、上書きになる旨を警告する
+  // （カタログ版が存在するだけでは警告しない。カタログとサイドロードは共存が正常系のため）
+  const existing = pluginStore.installed.find(
+    (e) => e.source === 'sideload' && e.manifest.name === name.value,
+  );
+  if (existing) {
     const confirmed = await confirmDialog({
       title: $t('plugins.sideload.overwriteWarningTitle'),
-      message: $t('plugins.sideload.overwriteWarningMessage', { id: declaredId }),
+      message: $t('plugins.sideload.overwriteWarningMessage', { name: name.value }),
       severity: 'negative',
     });
     if (!confirmed) return;
@@ -149,17 +189,26 @@ async function onInstall() {
 
   installing.value = true;
   try {
-    const binary = await readFileAsUint8Array(binaryFile.value);
+    const binary = await readFileAsUint8Array(binaryFileValue);
     const icon = iconFile.value ? await readFileAsUint8Array(iconFile.value) : undefined;
-    const ok = await pluginStore.installFromFile(manifestJson, binary, icon);
+
+    const draft = {
+      name: name.value,
+      description: description.value,
+      runtime: runtime.value,
+      mainFile: binaryFileValue.name,
+      ...(iconFile.value ? { iconFile: iconFile.value.name } : {}),
+      requiredHostApis: requiredHostApis.value,
+      version: version.value,
+    };
+
+    const ok = await pluginStore.installFromFile(draft, binary, icon);
     if (!ok) {
       errorMessage.value = $t('plugins.errors.installFailed');
       return;
     }
 
-    manifestFile.value = null;
-    binaryFile.value = null;
-    iconFile.value = null;
+    resetForm();
     successMessage.value = $t('plugins.sideload.installSuccess');
     emit('installed');
   } finally {

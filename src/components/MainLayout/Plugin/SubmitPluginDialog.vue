@@ -15,19 +15,105 @@
         </q-banner>
 
         <!-- 新規申請 / バージョン更新 -->
-        <div class="text-subtitle2 q-mb-xs">{{ $t('plugins.submission.newSubmissionTitle') }}</div>
-        <q-file
-          v-model="manifestFile"
-          :label="$t('plugins.submission.manifestFile')"
-          accept=".json"
+        <div class="text-subtitle2 q-mb-xs">
+          {{
+            isUpdateMode
+              ? $t('plugins.submission.updateModeTitle', { name: updateTarget?.name })
+              : $t('plugins.submission.newSubmissionTitle')
+          }}
+        </div>
+
+        <q-input
+          v-model="name"
           dense
           outlined
+          :label="$t('plugins.submission.nameLabel')"
           :disable="submitting"
+          class="q-mb-sm"
         />
+        <q-input
+          v-model="description"
+          type="textarea"
+          autogrow
+          dense
+          outlined
+          :label="$t('plugins.submission.descriptionLabel')"
+          :disable="submitting"
+          class="q-mb-sm"
+        />
+        <q-select
+          v-model="runtime"
+          dense
+          outlined
+          :options="runtimeOptions"
+          :label="$t('plugins.submission.runtimeLabel')"
+          :disable="submitting"
+          class="q-mb-sm"
+        />
+        <q-select
+          v-model="requiredHostApis"
+          multiple
+          use-chips
+          dense
+          outlined
+          :options="hostApiOptions"
+          :label="$t('plugins.submission.requiredHostApisLabel')"
+          :disable="submitting"
+          class="q-mb-sm"
+        />
+
+        <!-- バージョン: 新規申請は自由入力、アップデートはメジャー/マイナー/パッチのボタン選択式 -->
+        <q-input
+          v-if="!isUpdateMode"
+          v-model="initialVersion"
+          dense
+          outlined
+          :label="$t('plugins.submission.initialVersionLabel')"
+          :disable="submitting"
+          class="q-mb-sm"
+        />
+        <template v-else>
+          <div class="text-caption text-grey-8 q-mb-xs">
+            {{ $t('plugins.submission.currentVersionLabel') }}: v{{ currentVersion }}
+          </div>
+          <div class="row items-center q-gutter-sm q-mb-sm">
+            <q-btn-toggle
+              v-if="parsedCurrentVersion"
+              v-model="bumpKind"
+              dense
+              no-caps
+              toggle-color="primary"
+              :options="bumpOptions"
+              :disable="submitting"
+            />
+            <q-input
+              v-else
+              v-model="manualBumpedVersion"
+              dense
+              outlined
+              :label="$t('plugins.submission.manualVersionLabel')"
+              :disable="submitting"
+            />
+            <span v-if="nextVersion" class="text-caption">
+              {{
+                $t('plugins.submission.versionPreview', { from: currentVersion, to: nextVersion })
+              }}
+            </span>
+          </div>
+          <div class="row justify-end q-mb-sm">
+            <q-btn
+              flat
+              dense
+              :label="$t('plugins.submission.cancelUpdate')"
+              :disable="submitting"
+              @click="cancelUpdate"
+            />
+          </div>
+        </template>
+
         <q-file
           v-model="binaryFile"
           :label="$t('plugins.submission.binaryFile')"
-          class="q-mt-sm"
           dense
           outlined
           :disable="submitting"
@@ -35,7 +121,7 @@
         <q-file
           v-model="iconFile"
           :label="$t('plugins.submission.iconFile')"
-          :hint="$t('plugins.submission.iconFileHint')"
+          :hint="isUpdateMode ? $t('plugins.submission.iconFileHint') : undefined"
           class="q-mt-sm"
           dense
           outlined
@@ -59,11 +145,24 @@
             unelevated
             color="primary"
             :label="submitButtonLabel"
-            :disable="!manifestFile || !binaryFile || !githubConnected || submitting"
+            :disable="!canSubmit"
             :loading="submitting"
             @click="onSubmit"
           />
         </div>
+
+        <!-- 入力内容がストア一覧でどう見えるかのライブプレビュー -->
+        <div class="text-subtitle2 q-mt-md q-mb-xs">
+          {{ $t('plugins.submission.storePreviewTitle') }}
+        </div>
+        <q-list bordered separator>
+          <PluginListItem
+            :manifest="previewManifest"
+            :installed="false"
+            :icon-src="previewIconSrc"
+            preview
+          />
+        </q-list>
 
         <div class="q-my-md" />
 
@@ -101,6 +200,7 @@
             :submissions="group.submissions"
             @withdraw="onWithdraw"
             @unpublish="onUnpublish"
+            @update="startUpdate"
           />
         </q-list>
 
@@ -132,15 +232,26 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Notify } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
+import { usePluginStore } from 'src/stores/pluginStore';
 import type { PluginSubmission } from 'src/models/plugin/submission';
-import type { PluginID } from 'src/models/plugin/manifest';
+import type { PluginID, PluginManifest } from 'src/models/plugin/manifest';
+import { PluginHostApiName, PluginRuntime } from 'src/models/plugin/manifest';
 import { sniffImageFormat, hasExtensionForImageFormat } from 'src/utils/binary/imageSniff';
+import { bumpVersion, parseSemver } from 'src/utils/version/semver';
+import type { VersionBumpKind } from 'src/utils/version/semver';
 import PluginSubmissionGroup from './PluginSubmissionGroup.vue';
+import PluginListItem from './PluginListItem.vue';
 
 // ストアリポジトリCI（validateIcon.mjs）と同じ上限。事前に検証し、クライアント側で早期に弾く
 const ICON_MAX_SIZE_BYTES = 512 * 1024;
 // 更新ボタンの連打によるリクエスト過多を防ぐためのクールダウン
 const REFRESH_COOLDOWN_MS = 3000;
+// プレビュー表示専用のダミーid（実際には送信されない。PluginListItemはidを表示しないため
+// 見た目には影響しない）
+const PREVIEW_ID = '00000000-0000-4000-8000-000000000000' as PluginManifest['id'];
+
+const runtimeOptions = [...PluginRuntime.options];
+const hostApiOptions = [...PluginHostApiName.options];
 
 interface Prop {
   modelValue: boolean;
@@ -154,25 +265,95 @@ const emit = defineEmits<{
 
 const { t: $t } = useI18n();
 const api = useBackendApi();
+const pluginStore = usePluginStore();
 
 const devGuideUrl =
   'https://github.com/JRC-Tojo/RD-PluginStock/blob/main/docs/PLUGIN_DEVELOPMENT_GUIDE.md';
 
-const manifestFile = ref<File | null>(null);
+const name = ref('');
+const description = ref('');
+const runtime = ref<PluginRuntime>('wasm');
+const requiredHostApis = ref<PluginHostApiName[]>([]);
+const initialVersion = ref('1.0.0');
 const binaryFile = ref<File | null>(null);
 const iconFile = ref<File | null>(null);
 const validationErrors = ref<string[]>([]);
 const successMessage = ref('');
 const submitting = ref(false);
 
+// アップデートモード（設定されていれば、対象プラグインのバージョン更新申請になる）
+const updateTarget = ref<PluginManifest>();
+const bumpKind = ref<VersionBumpKind>();
+// 現行バージョンがx.y.z形式でパースできない場合のフォールバック手入力
+const manualBumpedVersion = ref('');
+
 const githubConnected = ref(true);
 const mySubmissions = ref<PluginSubmission[]>([]);
 const loadingSubmissions = ref(false);
 const refreshCooldown = ref(false);
 
-const submitButtonLabel = computed(() =>
-  submitting.value ? $t('plugins.submission.submitting') : $t('button.upload'),
+const bumpOptions = computed(() => [
+  { label: $t('plugins.submission.bumpMajor'), value: 'major' as const },
+  { label: $t('plugins.submission.bumpMinor'), value: 'minor' as const },
+  { label: $t('plugins.submission.bumpPatch'), value: 'patch' as const },
+]);
+
+const isUpdateMode = computed(() => updateTarget.value !== undefined);
+const currentVersion = computed(() => updateTarget.value?.version ?? '');
+const parsedCurrentVersion = computed(() => parseSemver(currentVersion.value));
+const nextVersion = computed(() => {
+  if (!bumpKind.value || !parsedCurrentVersion.value) return undefined;
+  return bumpVersion(currentVersion.value, bumpKind.value);
+});
+const previewVersion = computed(() =>
+  isUpdateMode.value ? (nextVersion.value ?? currentVersion.value) : initialVersion.value,
 );
+
+const submitButtonLabel = computed(() => {
+  if (submitting.value) return $t('plugins.submission.submitting');
+  return isUpdateMode.value ? $t('plugins.submission.submitUpdate') : $t('button.upload');
+});
+
+const canSubmit = computed(() => {
+  if (!name.value.trim() || !binaryFile.value || !githubConnected.value || submitting.value) {
+    return false;
+  }
+  if (!isUpdateMode.value) return true;
+  return !!nextVersion.value || manualBumpedVersion.value.trim().length > 0;
+});
+
+// 新規に選択したアイコン画像のプレビュー用object URL（選び直すたびに前のものを解放する）
+const newIconObjectUrl = ref<string>();
+watch(iconFile, (file) => {
+  if (newIconObjectUrl.value) {
+    URL.revokeObjectURL(newIconObjectUrl.value);
+    newIconObjectUrl.value = undefined;
+  }
+  if (file) newIconObjectUrl.value = URL.createObjectURL(file);
+});
+onBeforeUnmount(() => {
+  if (newIconObjectUrl.value) URL.revokeObjectURL(newIconObjectUrl.value);
+});
+
+// フォーム入力から組み立てる、ストア一覧での表示プレビュー用マニフェスト（送信はされない）
+const previewManifest = computed<PluginManifest>(() => ({
+  id: updateTarget.value?.id ?? PREVIEW_ID,
+  name: name.value,
+  version: previewVersion.value,
+  description: description.value,
+  runtime: runtime.value,
+  mainFile: binaryFile.value?.name ?? '',
+  requiredHostApis: requiredHostApis.value,
+}));
+
+// アイコンのプレビュー: 新規選択があればそちらを優先し、無ければアップデート対象の
+// 公開済みアイコン（既にロード済みのカタログキャッシュから引く。追加のfetchは行わない）
+const previewIconSrc = computed(() => {
+  if (newIconObjectUrl.value) return newIconObjectUrl.value;
+  if (!updateTarget.value) return undefined;
+  const targetId = updateTarget.value.id;
+  return pluginStore.catalog.find((entry) => entry.manifest.id === targetId)?.iconUrl;
+});
 
 interface SubmissionGroup {
   pluginId: string;
@@ -257,6 +438,7 @@ watch(
       validationErrors.value = [];
       successMessage.value = '';
       void loadSubmissions();
+      void pluginStore.loadCatalog();
       startSubmissionsPolling();
     } else {
       stopSubmissionsPolling();
@@ -270,15 +452,38 @@ function onCancel() {
   emit('update:modelValue', false);
 }
 
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      resolve(typeof reader.result === 'string' ? reader.result : '');
-    };
-    reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'));
-    reader.readAsText(file);
-  });
+/** フォーム全体を新規申請モードの初期状態に戻す */
+function resetForm() {
+  name.value = '';
+  description.value = '';
+  runtime.value = 'wasm';
+  requiredHostApis.value = [];
+  initialVersion.value = '1.0.0';
+  bumpKind.value = undefined;
+  manualBumpedVersion.value = '';
+  binaryFile.value = null;
+  iconFile.value = null;
+}
+
+/** 「アップデート」ボタン押下時: フォームを公開済みマニフェストの内容でプリフィルする */
+function startUpdate(manifest: PluginManifest) {
+  updateTarget.value = manifest;
+  name.value = manifest.name;
+  description.value = manifest.description;
+  runtime.value = manifest.runtime;
+  requiredHostApis.value = [...manifest.requiredHostApis];
+  bumpKind.value = undefined;
+  manualBumpedVersion.value = '';
+  // 本体ファイルは誤操作防止のため必ず選び直させる。アイコンは変更したい場合のみ選び直す
+  binaryFile.value = null;
+  iconFile.value = null;
+  validationErrors.value = [];
+  successMessage.value = '';
+}
+
+function cancelUpdate() {
+  updateTarget.value = undefined;
+  resetForm();
 }
 
 function readFileAsUint8Array(file: File): Promise<Uint8Array> {
@@ -297,13 +502,7 @@ function readFileAsUint8Array(file: File): Promise<Uint8Array> {
  * アイコン画像を事前検証する（ストアリポジトリCIのvalidateIcon.mjsと同じ基準）。
  * 問題なければ読み込んだバイト列を返し、問題があれば検証エラーメッセージを返す
  */
-async function validateAndReadIcon(
-  file: File,
-  declaredIconFile: unknown,
-): Promise<{ icon: Uint8Array } | { error: string }> {
-  if (typeof declaredIconFile !== 'string' || !declaredIconFile) {
-    return { error: $t('plugins.submission.iconFileMissingInManifest') };
-  }
+async function validateAndReadIcon(file: File): Promise<{ icon: Uint8Array } | { error: string }> {
   if (file.size > ICON_MAX_SIZE_BYTES) {
     return { error: $t('plugins.submission.iconFileTooLarge') };
   }
@@ -313,7 +512,7 @@ async function validateAndReadIcon(
   if (!format) {
     return { error: $t('plugins.submission.iconFileUnsupportedFormat') };
   }
-  if (!hasExtensionForImageFormat(declaredIconFile, format)) {
+  if (!hasExtensionForImageFormat(file.name, format)) {
     return { error: $t('plugins.submission.iconFileExtensionMismatch') };
   }
 
@@ -321,45 +520,21 @@ async function validateAndReadIcon(
 }
 
 async function onSubmit() {
-  if (!manifestFile.value || !binaryFile.value) return;
+  const binaryFileValue = binaryFile.value;
+  if (!binaryFileValue) return;
   validationErrors.value = [];
   successMessage.value = '';
 
-  let manifestText: string;
-  try {
-    manifestText = await readFileAsText(manifestFile.value);
-  } catch {
-    validationErrors.value = [$t('plugins.errors.loadFileFailed')];
-    return;
-  }
-
-  let manifestJson: unknown;
-  try {
-    manifestJson = JSON.parse(manifestText);
-  } catch {
-    validationErrors.value = [$t('plugins.errors.manifestInvalid')];
-    return;
-  }
-
-  const declaredId =
-    typeof manifestJson === 'object' && manifestJson !== null && 'id' in manifestJson
-      ? (manifestJson as { id?: unknown }).id
-      : undefined;
-  if (typeof declaredId === 'string' && findActiveSubmission(declaredId, 'unpublish')) {
+  if (updateTarget.value && findActiveSubmission(updateTarget.value.id, 'unpublish')) {
     validationErrors.value = [$t('plugins.errors.unpublishInProgress')];
     return;
   }
 
   submitting.value = true;
   try {
-    const declaredIconFile =
-      typeof manifestJson === 'object' && manifestJson !== null && 'iconFile' in manifestJson
-        ? (manifestJson as { iconFile?: unknown }).iconFile
-        : undefined;
-
     let icon: Uint8Array | undefined;
     if (iconFile.value) {
-      const iconResult = await validateAndReadIcon(iconFile.value, declaredIconFile);
+      const iconResult = await validateAndReadIcon(iconFile.value);
       if ('error' in iconResult) {
         validationErrors.value = [iconResult.error];
         return;
@@ -367,19 +542,32 @@ async function onSubmit() {
       icon = iconResult.icon;
     }
 
-    const binary = await readFileAsUint8Array(binaryFile.value);
-    // submitPlugin自体がGitHub側の反映待ち（リトライ）を内包して返すため、ここでは
-    // 返ってきた結果をそのまま一覧へマージするだけでよい（直後にgetSubmissionsを
-    // 呼び直すと検索APIの索引反映待ちで404・空振りしやすいため、あえて呼ばない）
-    const res = await api.submitPlugin(manifestJson, binary, icon);
+    const binary = await readFileAsUint8Array(binaryFileValue);
+
+    // iconFile: 新規選択があればそのファイル名。無ければアップデート時のみ既存の値を引き継ぐ
+    // （省略すると公開済みのiconFile参照が消えてしまうため、新規申請時のみ本当に省略してよい）
+    const iconFileName = iconFile.value ? iconFile.value.name : updateTarget.value?.iconFile;
+    const versionToSubmit = isUpdateMode.value
+      ? (nextVersion.value ?? manualBumpedVersion.value)
+      : initialVersion.value;
+
+    const draft = {
+      name: name.value,
+      description: description.value,
+      runtime: runtime.value,
+      mainFile: binaryFileValue.name,
+      ...(iconFileName ? { iconFile: iconFileName } : {}),
+      requiredHostApis: requiredHostApis.value,
+      version: versionToSubmit,
+    };
+
+    const res = await api.submitPlugin(draft, binary, icon, updateTarget.value?.id);
     if (!res.ok) {
       validationErrors.value = [res.error.error.message || $t('plugins.errors.manifestInvalid')];
       return;
     }
 
-    manifestFile.value = null;
-    binaryFile.value = null;
-    iconFile.value = null;
+    cancelUpdate();
     successMessage.value = $t('plugins.submission.submitSuccess');
     mergeSubmission(res.data);
     emit('submitted');
