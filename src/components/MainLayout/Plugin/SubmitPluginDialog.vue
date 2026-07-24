@@ -325,7 +325,14 @@ async function onSubmit() {
   validationErrors.value = [];
   successMessage.value = '';
 
-  const manifestText = await readFileAsText(manifestFile.value);
+  let manifestText: string;
+  try {
+    manifestText = await readFileAsText(manifestFile.value);
+  } catch {
+    validationErrors.value = [$t('plugins.errors.loadFileFailed')];
+    return;
+  }
+
   let manifestJson: unknown;
   try {
     manifestJson = JSON.parse(manifestText);

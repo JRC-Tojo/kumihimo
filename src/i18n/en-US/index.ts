@@ -483,6 +483,7 @@ export default {
       uninstallFailed: 'Failed to uninstall plugin',
       runFailed: 'Failed to run plugin',
       submitFailed: 'Failed to submit plugin',
+      loadFileFailed: 'An error occurred while reading the file. Please try re-selecting a same file or closing the currently open file.',
       manifestInvalid: 'The manifest content is invalid',
       unpublishInProgress:
         'This plugin has an unpublish request in progress; cannot submit a new one',

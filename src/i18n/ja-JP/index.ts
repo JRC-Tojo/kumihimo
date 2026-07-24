@@ -482,6 +482,7 @@ export default {
       uninstallFailed: 'アンインストールに失敗しました',
       runFailed: '実行に失敗しました',
       submitFailed: '申請に失敗しました',
+      loadFileFailed: 'ファイルの読み取りに失敗しました。再度ファイルを選択するか、現在開いているファイルを閉じてください。',
       manifestInvalid: 'マニフェストの内容が正しくありません',
       unpublishInProgress: 'このプラグインは取り下げ申請中のため、新規申請できません',
       submitInProgress: 'このプラグインは申請中のため、取り下げ申請できません',

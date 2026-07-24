@@ -17,7 +17,7 @@ import type { PluginExecutionContext } from 'src/services/plugin/hostContext';
 import { AnnotationID, ColorCode } from 'src/models/document/pdf';
 import type { TextAnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
-import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
+import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
