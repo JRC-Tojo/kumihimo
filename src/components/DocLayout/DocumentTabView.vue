@@ -634,7 +634,7 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 
   if (isModifierPressed && e.key.toLowerCase() === 's') {
     e.preventDefault();
-    void saveDocument(prop.file)
+    void saveDocument(prop.file);
   }
 }
 
