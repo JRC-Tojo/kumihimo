@@ -1,7 +1,8 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { Failure, Success } from 'src/models/error/result';
-import type { InstalledPlugin } from 'src/models/plugin/installation';
-import type { PluginManifest } from 'src/models/plugin/manifest';
+import type { Result } from 'src/models/error/result';
+import type { CatalogEntry, InstalledPlugin } from 'src/models/plugin/installation';
+import { PluginID, type PluginManifest } from 'src/models/plugin/manifest';
 import type { PluginSubmissionDraft } from 'src/models/plugin/submission';
 
 /**
@@ -58,14 +59,36 @@ void mock.module('src/repositories/plugin/binaryStore', () => ({
   },
 }));
 
+/**
+ * catalogリポジトリの既定実装は「このテストでは未使用」を表すFailureで固定しておき、
+ * `installFromCatalog`を検証する各テストが`mockImplementationOnce`で個別に差し替える
+ * （他のテストへ影響しないよう、差し替えない限りは常に安全なFailureへフォールバックする）
+ */
+const getCatalogEntriesMock = mock((): Promise<Result<CatalogEntry[]>> =>
+  Promise.resolve(Failure(new Error('not used in this test'))),
+);
+const getCatalogBinaryMock = mock((): Promise<Result<Uint8Array>> =>
+  Promise.resolve(Failure(new Error('not used in this test'))),
+);
+const getCatalogIconMock = mock((): Promise<Result<Uint8Array>> =>
+  Promise.resolve(Failure(new Error('not used in this test'))),
+);
+
 void mock.module('src/repositories/plugin/catalog', () => ({
-  getCatalogEntries: () => Promise.resolve(Failure(new Error('not used in this test'))),
-  getCatalogBinary: () => Promise.resolve(Failure(new Error('not used in this test'))),
-  getCatalogIcon: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  getCatalogEntries: getCatalogEntriesMock,
+  getCatalogBinary: getCatalogBinaryMock,
+  getCatalogIcon: getCatalogIconMock,
 }));
 
-const { installPlugin, installFromDraft, getInstalledPlugins, uninstallPlugin, getPluginBinary } =
-  await import('../install');
+const {
+  installPlugin,
+  installFromDraft,
+  installFromCatalog,
+  setPluginEnabled,
+  getInstalledPlugins,
+  uninstallPlugin,
+  getPluginBinary,
+} = await import('../install');
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -92,6 +115,19 @@ function buildDraft(overrides: Partial<PluginSubmissionDraft> = {}): PluginSubmi
     ...overrides,
   };
 }
+
+/** カタログエントリ（`getCatalogEntries`の戻り値要素）を組み立てる */
+function buildCatalogEntry(
+  manifest: PluginManifest,
+  overrides: Partial<CatalogEntry> = {},
+): CatalogEntry {
+  return { manifest, publishedAt: new Date(), ...overrides };
+}
+
+// PNGのマジックナンバー（`sniffImageFormat`が判定に使うシグネチャそのもの）
+const PNG_SIGNATURE_BYTES = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3,
+]);
 
 describe('install（catalog/sideloadの共存）', () => {
   it('同一manifest.idをcatalog/sideloadそれぞれでインストールすると、両方が個別に一覧へ現れる', async () => {
@@ -197,5 +233,154 @@ describe('installFromDraft（サイドロード: id/ownerを持たないフォ�
     expect(sideloadEntry).toBeDefined();
     expect(catalogEntry).toBeDefined();
     expect(sideloadEntry?.manifest.id).not.toBe(catalogEntry?.manifest.id);
+  });
+});
+
+describe('installPlugin（アイコンのdata URL化: toIconDataUrl経由）', () => {
+  it('PNGシグネチャを持つ有効なアイコンバイト列を渡すと、iconDataUrlがdata:image/png;base64,...になる', async () => {
+    const manifest = buildManifest('icon-png-id');
+
+    await installPlugin(manifest, new Uint8Array([1]), PNG_SIGNATURE_BYTES, 'sideload');
+
+    const listRes = await getInstalledPlugins();
+    expect(listRes.ok).toBeTrue();
+    if (!listRes.ok) return;
+    const found = listRes.value.find(
+      (e) => e.manifest.id === manifest.id && e.source === 'sideload',
+    );
+    expect(found?.iconDataUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('非対応形式（シグネチャに一致しない）のバイト列を渡すと、iconDataUrlはundefinedのままになる', async () => {
+    const manifest = buildManifest('icon-unsupported-id');
+
+    await installPlugin(manifest, new Uint8Array([1]), new Uint8Array([1, 2, 3]), 'sideload');
+
+    const listRes = await getInstalledPlugins();
+    expect(listRes.ok).toBeTrue();
+    if (!listRes.ok) return;
+    const found = listRes.value.find(
+      (e) => e.manifest.id === manifest.id && e.source === 'sideload',
+    );
+    expect(found?.iconDataUrl).toBeUndefined();
+  });
+});
+
+describe('installFromCatalog（カタログからのインストール）', () => {
+  it('getCatalogEntriesが失敗したら、そのまま失敗が伝播する', async () => {
+    getCatalogEntriesMock.mockImplementationOnce(() =>
+      Promise.resolve(Failure(new Error('network error'))),
+    );
+
+    const res = await installFromCatalog(PluginID.parse('11111111-1111-4111-8111-111111111111'));
+
+    expect(res.ok).toBeFalse();
+    if (!res.ok) expect(res.error.message).toBe('network error');
+  });
+
+  it('指定したidに一致するカタログエントリが無い場合は、Not Found Catalog EntryのFailureを返す', async () => {
+    const otherManifest = buildManifest('other-catalog-id');
+    getCatalogEntriesMock.mockImplementationOnce(() =>
+      Promise.resolve(Success([buildCatalogEntry(otherManifest)])),
+    );
+
+    const missingId = PluginID.parse('22222222-2222-4222-8222-222222222222');
+    const res = await installFromCatalog(missingId);
+
+    expect(res.ok).toBeFalse();
+    if (!res.ok) expect(res.error.message).toContain('Not Found Catalog Entry');
+  });
+
+  it('正常系: バイナリ・アイコン取得に成功したら、source: catalogでインストールされ一覧に反映される', async () => {
+    const manifest = { ...buildManifest('catalog-success-id'), iconFile: 'icon.png' };
+    getCatalogEntriesMock.mockImplementationOnce(() =>
+      Promise.resolve(Success([buildCatalogEntry(manifest)])),
+    );
+    getCatalogBinaryMock.mockImplementationOnce(() =>
+      Promise.resolve(Success(new Uint8Array([1, 2, 3]))),
+    );
+    getCatalogIconMock.mockImplementationOnce(() => Promise.resolve(Success(PNG_SIGNATURE_BYTES)));
+
+    const res = await installFromCatalog(manifest.id);
+    expect(res.ok).toBeTrue();
+
+    const listRes = await getInstalledPlugins();
+    expect(listRes.ok).toBeTrue();
+    if (!listRes.ok) return;
+    const found = listRes.value.find(
+      (e) => e.manifest.id === manifest.id && e.source === 'catalog',
+    );
+    expect(found).toBeDefined();
+    expect(found?.iconDataUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('iconFileが未指定の場合は、getCatalogIconを呼ばずにインストールされる', async () => {
+    const manifest = buildManifest('catalog-no-icon-id');
+    getCatalogEntriesMock.mockImplementationOnce(() =>
+      Promise.resolve(Success([buildCatalogEntry(manifest)])),
+    );
+    getCatalogBinaryMock.mockImplementationOnce(() =>
+      Promise.resolve(Success(new Uint8Array([1, 2, 3]))),
+    );
+    getCatalogIconMock.mockClear();
+
+    const res = await installFromCatalog(manifest.id);
+
+    expect(res.ok).toBeTrue();
+    expect(getCatalogIconMock).not.toHaveBeenCalled();
+  });
+
+  it('getCatalogIconが失敗しても、アイコン無しでインストール自体は続行される', async () => {
+    const manifest = { ...buildManifest('catalog-icon-fail-id'), iconFile: 'icon.png' };
+    getCatalogEntriesMock.mockImplementationOnce(() =>
+      Promise.resolve(Success([buildCatalogEntry(manifest)])),
+    );
+    getCatalogBinaryMock.mockImplementationOnce(() =>
+      Promise.resolve(Success(new Uint8Array([1, 2, 3]))),
+    );
+    getCatalogIconMock.mockImplementationOnce(() =>
+      Promise.resolve(Failure(new Error('icon fetch failed'))),
+    );
+
+    const res = await installFromCatalog(manifest.id);
+    expect(res.ok).toBeTrue();
+
+    const listRes = await getInstalledPlugins();
+    expect(listRes.ok).toBeTrue();
+    if (!listRes.ok) return;
+    const found = listRes.value.find(
+      (e) => e.manifest.id === manifest.id && e.source === 'catalog',
+    );
+    expect(found).toBeDefined();
+    expect(found?.iconDataUrl).toBeUndefined();
+  });
+});
+
+describe('setPluginEnabled', () => {
+  it('pluginDb.getInstalledPluginが失敗したら、そのまま失敗が伝播する', async () => {
+    const res = await setPluginEnabled(
+      PluginID.parse('33333333-3333-4333-8333-333333333333'),
+      'sideload',
+      false,
+    );
+    expect(res.ok).toBeFalse();
+  });
+
+  it('成功時はenabledだけ変更してputInstalledPluginする', async () => {
+    const manifest = buildManifest('enabled-toggle-id');
+    await installPlugin(manifest, new Uint8Array([1]), undefined, 'sideload');
+
+    const res = await setPluginEnabled(manifest.id, 'sideload', false);
+    expect(res.ok).toBeTrue();
+
+    const listRes = await getInstalledPlugins();
+    expect(listRes.ok).toBeTrue();
+    if (!listRes.ok) return;
+    const found = listRes.value.find(
+      (e) => e.manifest.id === manifest.id && e.source === 'sideload',
+    );
+    expect(found?.enabled).toBeFalse();
+    // manifest等の他フィールドは変更されていないこと
+    expect(found?.manifest.name).toBe(manifest.name);
   });
 });
