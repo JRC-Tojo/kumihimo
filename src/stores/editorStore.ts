@@ -120,9 +120,38 @@ export const useEditorStore = defineStore('editor', {
     activeViewMode: undefined as ViewMode | undefined,
     // メインツールから表示モード変更を要求する意図フラグ。実際の適用はアクティブなペインが行う
     viewModeAction: undefined as ViewMode | undefined,
+
+    // フッター左側に表示するステータスメッセージ。投稿元ごとにキーで管理し、
+    // 複数の操作（関係性モードの待機、今後追加されうる他の操作等）が互いのメッセージを
+    // 上書きしないようにする
+    statusMessages: new Map<string, string>(),
   }),
 
+  getters: {
+    /**
+     * フッターに表示する最新のステータスメッセージ（複数投稿されている場合は最後に投稿されたもの）
+     */
+    currentStatusMessage(state): string | undefined {
+      return Array.from(state.statusMessages.values()).at(-1);
+    },
+  },
+
   actions: {
+    /**
+     * フッター左側のステータスメッセージ領域にメッセージを投稿する。
+     * keyは投稿元を識別する任意の文字列で、同じkeyで再度呼び出すと内容を更新できる
+     */
+    postStatusMessage(key: string, message: string): void {
+      this.statusMessages.set(key, message);
+    },
+
+    /**
+     * 指定したkeyのステータスメッセージを取り下げる
+     */
+    clearStatusMessage(key: string): void {
+      this.statusMessages.delete(key);
+    },
+
     /**
      * 関係性登録モードを終了する（待機中の状態も解除する）
      */

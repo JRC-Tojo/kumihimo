@@ -73,6 +73,7 @@ const {
   relationalOverride,
   strokeDash,
   globalCompositeOperation,
+  hitStrokeWidth,
   resolvedStroke,
   withUpdatedTimestamp,
   displayAnnotation,
@@ -107,8 +108,7 @@ const lineConfig = computed(() => {
     dash: strokeDash.value,
     globalCompositeOperation: globalCompositeOperation.value,
     draggable: false,
-    // 見た目の線幅より当たり判定を広げ、細い線でもつかみやすくする
-    hitStrokeWidth: Math.max(12, (annotation.strokeWidth || 2) * 4),
+    hitStrokeWidth: hitStrokeWidth.value,
   };
 });
 

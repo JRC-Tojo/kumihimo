@@ -116,6 +116,8 @@ export default {
       importConfirmMessage:
         'Importing {count} preset(s). Append them to your existing presets, or replace all existing presets?',
       importParseError: 'Failed to read the file. It may not be a valid preset JSON file.',
+      importValidationError:
+        "The file's content doesn't match the preset format. It may be an unrelated JSON file.",
       importSaveError: 'Failed to save the imported presets.',
       importSuccess: 'Presets imported successfully.',
     },

@@ -68,6 +68,10 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
     blendModeToComposite(displayAnnotation.value.blendMode),
   );
 
+  // 見た目の線幅より当たり判定を広げ、細い線・形状でもつかみやすくする。
+  // line/arrow/polyline/polygonの各描画コンポーネントで共通利用する
+  const hitStrokeWidth = computed(() => Math.max(12, (displayAnnotation.value.strokeWidth || 2) * 4));
+
   /**
    * 明示的な不透明度（strokeOpacity/fillOpacity）が未設定の場合、後方互換のため
    * 旧`opacity`フィールド（枠線・塗り共通の単一値だった名残）にフォールバックする
@@ -189,6 +193,7 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
     relationalOverride,
     strokeDash,
     globalCompositeOperation,
+    hitStrokeWidth,
     resolveOpacity,
     resolvedStroke,
     resolveFill,

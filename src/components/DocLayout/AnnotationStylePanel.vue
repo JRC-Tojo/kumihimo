@@ -13,6 +13,7 @@
       type="number"
       dense
       borderless
+      suffix="px"
       min="1"
       max="10"
       step="0.5"
@@ -65,13 +66,13 @@
         type="number"
         dense
         borderless
+        suffix="%"
         min="0"
         max="100"
         step="2"
         class="style-number-input"
         @update:model-value="(v) => (opacityPercent = Number(v))"
       />
-      <span class="opacity-unit">%</span>
       <q-tooltip anchor="top middle" self="bottom middle">
         {{ t('pdfEditor.tools.stylePanel.opacity') }}
       </q-tooltip>
@@ -132,13 +133,13 @@
         type="number"
         dense
         borderless
+        suffix="%"
         min="0"
         max="100"
         step="2"
         class="style-number-input"
         @update:model-value="(v) => (fillOpacityPercent = Number(v))"
       />
-      <span class="opacity-unit">%</span>
       <q-tooltip anchor="top middle" self="bottom middle">
         {{ t('pdfEditor.tools.stylePanel.fillOpacity') }}
       </q-tooltip>
@@ -205,6 +206,7 @@
         type="number"
         dense
         borderless
+        suffix="px"
         class="style-number-input"
         @update:model-value="(v) => (fontSize = Number(v) || undefined)"
       >
@@ -284,6 +286,7 @@ const isTextType = computed(() => effectiveType.value === 'text');
 const opacityPercent = computed<number>({
   get: () => Math.round((opacity.value ?? 1) * 100),
   set: (v) => {
+    if (Number.isNaN(v)) return;
     opacity.value = Math.min(100, Math.max(0, v)) / 100;
   },
 });
@@ -292,6 +295,7 @@ const opacityPercent = computed<number>({
 const fillOpacityPercent = computed<number>({
   get: () => Math.round((fillOpacity.value ?? 1) * 100),
   set: (v) => {
+    if (Number.isNaN(v)) return;
     fillOpacity.value = Math.min(100, Math.max(0, v)) / 100;
   },
 });

@@ -11,7 +11,7 @@ import { ANNOTATION_GEOMETRY } from 'src/services/document/annotationGeometry';
 /**
  * 指定した種別の先頭プリセット（ユーザー設定になければレジストリのデフォルト）のスタイルを取得する
  */
-function firstPresetStyleForType(toolType: DrawingAnnotationType) {
+export function firstPresetStyleForType(toolType: DrawingAnnotationType) {
   const settingsStore = useSettingsStore();
   const userPreset = settingsStore.appSettings?.tools.annotations.find(
     (ann) => ann.style.type === toolType,

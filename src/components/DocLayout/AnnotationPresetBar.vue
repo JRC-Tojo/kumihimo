@@ -113,11 +113,23 @@ const handleMove = (evt: MoveEvent) => {
   }
 };
 
-/** 現在のcurrentAnnotationStyleと一致するプリセットをハイライトする（内容までstringifyして比較） */
+/**
+ * 2つのスタイルオブジェクトが同じ内容かどうかを、キーの並び順に依存せず判定する
+ *
+ * `DrawingAnnotationStyle`は全フィールドがプリミティブ値（文字列・数値等）のみで
+ * ネストしたオブジェクト・配列を持たないため、キー集合と値の一致だけで十分比較できる
+ */
+function isSameStyle(a: DrawingAnnotationStyle, b: DrawingAnnotationStyle): boolean {
+  const aEntries = Object.entries(a);
+  if (aEntries.length !== Object.keys(b).length) return false;
+  return aEntries.every(([key, value]) => (b as Record<string, unknown>)[key] === value);
+}
+
+/** 現在のcurrentAnnotationStyleと一致するプリセットをハイライトする */
 function isActivePreset(preset: AnnotationTool): boolean {
   // 選択編集モードは複数アノテーションの内訳が混在しうるため、ハイライトは描画モードのみ行う
   if (mode.value !== 'draw') return false;
-  return JSON.stringify(editorStore.currentAnnotationStyle) === JSON.stringify(preset.style);
+  return isSameStyle(editorStore.currentAnnotationStyle, preset.style);
 }
 
 function applyPreset(preset: AnnotationTool) {

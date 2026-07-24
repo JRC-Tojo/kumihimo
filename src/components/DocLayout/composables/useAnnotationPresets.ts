@@ -11,14 +11,8 @@ import type {
   DrawingAnnotationStyle,
   DrawingAnnotationType,
 } from 'src/models/docPage';
-import { ColorCode, type AnnotationStyle } from 'src/models/document/pdf';
-
-/** 未検証の文字列をColorCode（ブランド付き文字列）へ変換する。不正な値はundefinedを返す */
-function toColorCode(value: string | undefined): ColorCode | undefined {
-  if (value === undefined) return undefined;
-  const parsed = ColorCode.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
+import type { AnnotationStyle } from 'src/models/document/pdf';
+import { toColorCode } from 'src/utils/color/toColorCode';
 
 /**
  * 指定種別のプリセットだけを並び替えた結果を、全体配列に書き戻す

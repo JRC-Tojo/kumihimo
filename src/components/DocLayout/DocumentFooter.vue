@@ -1,7 +1,25 @@
 <template>
-  <q-bar class="document-footer">
-    <!-- 左側は空（ページネーションを見た目上中央に配置するための余白列） -->
-    <div class="footer-spacer" />
+  <q-bar
+    class="document-footer"
+    :class="{ 'document-footer--relational': editorStore.relationalMode !== undefined }"
+  >
+    <!-- 左側：ステータスメッセージ領域。関係性モードの待機メッセージ等、今後も様々な操作が
+         任意のメッセージをここへ投稿することを想定する（中身が無ければ余白列として機能する） -->
+    <div class="footer-section footer-status">
+      <span v-if="editorStore.currentStatusMessage" class="status-message">
+        {{ editorStore.currentStatusMessage }}
+      </span>
+      <q-btn
+        v-if="editorStore.relationalPendingId !== undefined"
+        flat
+        dense
+        round
+        size="sm"
+        icon="close"
+        :title="$t('pdfEditor.tools.relational.cancel')"
+        @click="editorStore.cancelRelationalPending()"
+      />
+    </div>
 
     <!-- 中央：ページネーション -->
     <div class="footer-section footer-pagination">
@@ -63,6 +81,9 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useEditorStore } from 'src/stores/editorStore';
+
+const editorStore = useEditorStore();
 
 interface Prop {
   totalPageCount: number;
@@ -128,10 +149,7 @@ watch(zoomLevel, (newZoomLevel) => {
   min-height: 44px;
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.08);
   overflow-x: auto;
-
-  .footer-spacer {
-    min-width: 0;
-  }
+  transition: background-color 0.2s ease;
 
   .footer-section {
     display: flex;
@@ -144,6 +162,24 @@ watch(zoomLevel, (newZoomLevel) => {
       color: $grey-8;
       white-space: nowrap;
     }
+  }
+
+  .footer-status {
+    min-width: 0;
+
+    .status-message {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: $primary;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
+  // 関係性登録モードがONの間、フッター全体の色を変えてモード状態を示す
+  &.document-footer--relational {
+    background-color: rgba($primary, 0.12);
   }
 
   .footer-pagination {
@@ -269,6 +305,10 @@ watch(zoomLevel, (newZoomLevel) => {
   background-color: color.adjust($dark, $lightness: -5%);
   border-top-color: $grey-8;
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.3);
+
+  &.document-footer--relational {
+    background-color: rgba($primary, 0.2);
+  }
 
   .footer-section {
     .section-label {

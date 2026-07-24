@@ -12,6 +12,7 @@
         class="toolbar-btn"
         :class="{ 'toolbar-btn--active': tool.isActive() }"
         @click="handleMainToolClick(tool)"
+        @dblclick="handleMainToolDoubleClick(tool)"
       >
         <q-menu v-if="!tool.noMenu" anchor="center right" self="center left" auto-close>
           <div class="annotation-type-menu q-pa-sm">
@@ -70,24 +71,49 @@
 </template>
 
 <script setup lang="ts">
-import { useEditorStore } from 'src/stores/editorStore';
+import { computed, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import DocTabsPage from './DocTabsPage.vue';
 import AnnotationPresetBar from 'src/components/DocLayout/AnnotationPresetBar.vue';
 import AnnotationStylePanel from 'src/components/DocLayout/AnnotationStylePanel.vue';
 import type { IDocTool } from 'src/models/docPage';
 import AnnotationPositionSizeBtn from 'src/components/DocLayout/AnnotationPositionSizeBtn.vue';
 import { useAnnotationStylePanel } from 'src/components/DocLayout/composables/useAnnotationStylePanel';
+import { callEditorTools, firstPresetStyleForType } from 'src/stores/editorTools';
+import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
+import type { DrawingAnnotationType } from 'src/models/docPage';
 
 /**
  * 文書ページコンポーネント
  * ツールバーとドキュメントレイアウトを統合
  */
 
+const { t } = useI18n();
 const editorStore = useEditorStore();
 // 常駐サブツール行にプリセットバーを表示するかどうかの判定にのみ使う
 // （AnnotationStylePanel自身も内部で同じcomposableを呼ぶが、Piniaストアを参照するだけなので二重利用しても問題ない）
 const { mode: stylePanelMode, effectiveType: stylePanelEffectiveType } = useAnnotationStylePanel();
 
+// アクティブなペイン・タブの種別（PDF文書のみメインツールを持つ）
+const activeTabKind = computed<'settings' | 'pdf' | 'text' | 'unsupported' | 'none'>(() => {
+  if (editorStore.activeTabPaths[editorStore.activeSide] === SETTINGS_TAB_KEY) return 'settings';
+  const file = editorStore.getActiveTab(editorStore.activeSide);
+  if (!file) return 'none';
+  return getSupportedDocumentKind(file.path);
+});
+
+// アクティブタブの種別に応じてメインツールを注入・撤去する。
+// PDF文書タブ以外（設定・テキスト・非対応ファイル・未選択）ではメインツールバーを空にする
+watch(
+  activeTabKind,
+  async (kind) => {
+    editorStore.setMainTools(kind === 'pdf' ? await callEditorTools(t) : []);
+  },
+  { immediate: true },
+);
+
+/** メインツールのクリックを処理する。選択中のスタイルパネル・連続描画モードを一旦リセットしたうえで、ツール本来の処理を実行する */
 function handleMainToolClick(tool: IDocTool) {
   editorStore.subTools = [];
   // アノテーション種別以外のツールをクリックした場合、プリセットバー・スタイルパネルの
@@ -97,6 +123,27 @@ function handleMainToolClick(tool: IDocTool) {
   // 連続描画モード（stickyDrawMode）も一旦解除する
   editorStore.stickyDrawMode = false;
   void tool.onClicked();
+}
+
+/** メインツールのIDから、対応するアノテーション種別ボタンであればその種別を返す（`annotation-${type}`形式のみ対象） */
+function mainToolAnnotationType(tool: IDocTool): DrawingAnnotationType | undefined {
+  const prefix = 'annotation-';
+  if (!tool.id.startsWith(prefix)) return undefined;
+  return tool.id.slice(prefix.length) as DrawingAnnotationType;
+}
+
+/**
+ * メインツール（アノテーション種別ボタン）のダブルクリックを処理する。
+ * プリセットバー先頭のプリセットをダブルクリックした場合と挙動を揃え、
+ * 現在のプリセット適用状況に関わらず先頭プリセットを強制適用したうえで連続描画モードにする
+ */
+function handleMainToolDoubleClick(tool: IDocTool) {
+  const type = mainToolAnnotationType(tool);
+  if (type === undefined) return;
+  handleMainToolClick(tool);
+  const style = firstPresetStyleForType(type);
+  if (style !== undefined) editorStore.currentAnnotationStyle = style;
+  editorStore.stickyDrawMode = true;
 }
 </script>
 

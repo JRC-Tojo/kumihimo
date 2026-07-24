@@ -8,6 +8,7 @@
 
 import type { BlendMode } from 'src/models/document/pdf';
 
+/** 指定されたアノテーションの合成モードを、Canvas用のglobalCompositeOperation値へ変換する */
 export function blendModeToComposite(blendMode: BlendMode | undefined): GlobalCompositeOperation {
   if (blendMode === undefined || blendMode === 'normal') return 'source-over';
   return blendMode;

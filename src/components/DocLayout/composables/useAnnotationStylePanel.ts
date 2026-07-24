@@ -12,13 +12,13 @@ import { computed, type WritableComputedRef } from 'vue';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useAnnotationHistory } from './useAnnotationHistory';
 import { buildPresetApplyPatch } from './useAnnotationPresets';
+import { toColorCode } from 'src/utils/color/toColorCode';
 import type { DrawingAnnotationStyle, DrawingAnnotationType } from 'src/models/docPage';
-import {
-  ColorCode,
-  type AnnotationStyle,
-  type ArrowHeadType,
-  type BlendMode,
-  type StrokeType,
+import type {
+  AnnotationStyle,
+  ArrowHeadType,
+  BlendMode,
+  StrokeType,
 } from 'src/models/document/pdf';
 
 export type StylePanelMode = 'draw' | 'selection' | 'none';
@@ -103,18 +103,33 @@ export function useAnnotationStylePanel() {
 
   const strokeWidth = universalField<number>('strokeWidth', 'strokeWidth');
   const strokeType = universalField<StrokeType>('strokeType', 'strokeType');
-  const opacity = universalField<number>('strokeOpacity', 'strokeOpacity');
+  /** 全種別共通の線の不透明度。strokeOpacity未設定時は、描画側（resolveOpacity）と同じく
+   * 後方互換用の旧opacityフィールドにフォールバックする（そうしないと、strokeOpacity導入以前に
+   * 保存された既存アノテーションを選択した際、実際の描画とは異なる値がパネルに表示されてしまう） */
+  const opacity = computed<number | undefined>({
+    get: () => {
+      if (mode.value === 'draw') {
+        // 描画スタイル（次に描く注釈のスタイル）は常に新規構築されるため旧opacityフィールドを持たない
+        return editorStore.currentAnnotationStyle.strokeOpacity;
+      }
+      if (mode.value === 'selection') {
+        return commonValue(
+          editorStore.activeSelection?.annotations ?? [],
+          (a) => a.strokeOpacity ?? a.opacity,
+        );
+      }
+      return undefined;
+    },
+    set: (value) => {
+      if (value === undefined) return;
+      if (mode.value === 'draw') patchDrawStyle({ strokeOpacity: value });
+      else if (mode.value === 'selection') {
+        void applyToSelection(() => ({ strokeOpacity: value }));
+      }
+    },
+  });
   /** 全種別共通の合成モード（半透明の図形を下地の文書とどう重ねるか） */
   const blendMode = universalField<BlendMode>('blendMode', 'blendMode');
-
-  /**
-   * 配置済みアノテーション（AnnotationStyle）の色系フィールドはColorCode（ブランド付き文字列）の
-   * ため、カラーピッカーから来る生の文字列を検証してから適用する（不正な値は無視する）
-   */
-  function toColorCode(value: string): ColorCode | undefined {
-    const parsed = ColorCode.safeParse(value);
-    return parsed.success ? parsed.data : undefined;
-  }
 
   /** 全種別共通の線色 */
   const color = computed<string | undefined>({
@@ -175,10 +190,14 @@ export function useAnnotationStylePanel() {
     },
   });
 
-  /** box/circle/polygon/textのみ有効な塗りの不透明度 */
+  /** box/circle/polygon/textのみ有効な塗りの不透明度。fillOpacity未設定時は、描画側
+   * （resolveOpacity）と同じく後方互換用の旧opacityフィールドにフォールバックする（そうしないと、
+   * fillOpacity導入以前に保存された既存アノテーションを選択した際、実際の描画とは異なる値が
+   * パネルに表示されてしまう） */
   const fillOpacity = computed<number | undefined>({
     get: () => {
       if (mode.value === 'draw') {
+        // 描画スタイル（次に描く注釈のスタイル）は常に新規構築されるため旧opacityフィールドを持たない
         const style = editorStore.currentAnnotationStyle;
         return style.type === 'box' ||
           style.type === 'circle' ||
@@ -190,7 +209,7 @@ export function useAnnotationStylePanel() {
       if (mode.value === 'selection') {
         return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
           a.type === 'box' || a.type === 'circle' || a.type === 'polygon' || a.type === 'text'
-            ? a.fillOpacity
+            ? (a.fillOpacity ?? a.opacity)
             : undefined,
         );
       }

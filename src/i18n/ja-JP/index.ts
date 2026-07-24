@@ -116,6 +116,8 @@ export default {
         '{count}件のプリセットを読み込みます。既存のプリセットに追加しますか、それとも完全に置き換えますか？',
       importParseError:
         'ファイルの読み込みに失敗しました。プリセットのJSONファイルではない可能性があります。',
+      importValidationError:
+        'ファイルの形式がプリセットのデータと一致しません。想定していない形式のJSONファイルです。',
       importSaveError: 'プリセットの保存に失敗しました。',
       importSuccess: 'プリセットをインポートしました。',
     },

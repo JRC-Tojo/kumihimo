@@ -225,14 +225,17 @@ import { ref, onMounted, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import dayjs from 'dayjs';
-import { v4 as uuidv4 } from 'uuid';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
-import { AnnotationTool } from 'src/models/docPage';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
 import { importPresetsDialog } from 'src/components/Dialog/confirmDialog';
+import {
+  parseImportedPresets,
+  regenerateImportedPresetIds,
+  applyImportedPresets,
+} from 'src/components/DocLayout/composables/useAnnotationPresetsImport';
 
 const { t: $t } = useI18n();
 const $q = useQuasar();
@@ -423,8 +426,8 @@ function onImportPresetsClick() {
 
 /**
  * インポートしたJSONファイルを検証したうえで、既存プリセットへの追加／完全な置き換えを
- * ユーザーに選択させて反映する。IDは他環境からのインポート・再インポート時の衝突を避けるため
- * 常に新規採番し直す
+ * ユーザーに選択させて反映する。実際のパース・ID再採番・保存処理はuseAnnotationPresets
+ * コンポーザブルに委ね、ここではUIイベントの処理・ダイアログ・通知表示のみを行う
  */
 async function onImportPresetsSelected(e: Event) {
   const input = e.target as HTMLInputElement;
@@ -433,36 +436,34 @@ async function onImportPresetsSelected(e: Event) {
   input.value = '';
   if (!file) return;
 
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(await file.text());
-  } catch {
-    $q.notify({ type: 'negative', message: $t('settings.annotationTools.importParseError') });
-    return;
-  }
-
-  const parsed = AnnotationTool.array().safeParse(parsedJson);
+  const parsed = parseImportedPresets(await file.text());
   if (!parsed.success) {
-    $q.notify({ type: 'negative', message: $t('settings.annotationTools.importParseError') });
+    const messageKey =
+      parsed.reason === 'parse'
+        ? 'settings.annotationTools.importParseError'
+        : 'settings.annotationTools.importValidationError';
+    $q.notify({ type: 'negative', message: $t(messageKey) });
     return;
   }
 
   const mode = await importPresetsDialog({
     title: $t('settings.annotationTools.importPresets'),
-    message: $t('settings.annotationTools.importConfirmMessage', { count: parsed.data.length }),
+    message: $t('settings.annotationTools.importConfirmMessage', { count: parsed.presets.length }),
   });
   if (mode === 'cancel') return;
 
-  const imported = parsed.data.map((preset) => ({ ...preset, id: uuidv4() }));
-  const current = settings.value?.tools.annotations ?? [];
-  const newList = mode === 'replace' ? imported : [...current, ...imported];
-
-  const ok = await settingsStore.updateAnnotationPresets(newList);
+  const imported = regenerateImportedPresetIds(parsed.presets);
+  const ok = await applyImportedPresets(imported, mode);
   if (!ok) {
     $q.notify({ type: 'negative', message: $t('settings.annotationTools.importSaveError') });
     return;
   }
-  if (settings.value) settings.value.tools.annotations = newList;
+
+  // このページが保持するローカルコピーにも反映する（他項目の保存と同じくstoreへの反映は
+  // applyImportedPresets内のsettingsStore.updateAnnotationPresetsが行うため、ここでは
+  // このページ自身のフォーム表示用ローカルstateのみ更新すればよい）
+  const latest = await api.getSettings();
+  if (latest.ok) settings.value = latest.data;
   $q.notify({ type: 'positive', message: $t('settings.annotationTools.importSuccess') });
 }
 </script>
