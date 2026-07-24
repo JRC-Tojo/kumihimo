@@ -10,7 +10,6 @@
     <!-- 線幅（スライダーではなく直接数字を入力する） -->
     <q-input
       :model-value="strokeWidth"
-      type="number"
       dense
       borderless
       suffix="px"
@@ -18,6 +17,7 @@
       max="10"
       step="0.5"
       class="style-number-input"
+      :input-style="{ textAlign: 'right' }"
       @update:model-value="(v) => (strokeWidth = Number(v) || undefined)"
     >
       <q-tooltip anchor="top middle" self="bottom middle">
@@ -63,7 +63,6 @@
       />
       <q-input
         :model-value="opacityPercent"
-        type="number"
         dense
         borderless
         suffix="%"
@@ -71,6 +70,7 @@
         max="100"
         step="2"
         class="style-number-input"
+        :input-style="{ textAlign: 'right' }"
         @update:model-value="(v) => (opacityPercent = Number(v))"
       />
       <q-tooltip anchor="top middle" self="bottom middle">
@@ -130,7 +130,6 @@
       />
       <q-input
         :model-value="fillOpacityPercent"
-        type="number"
         dense
         borderless
         suffix="%"
@@ -138,6 +137,7 @@
         max="100"
         step="2"
         class="style-number-input"
+        :input-style="{ textAlign: 'right' }"
         @update:model-value="(v) => (fillOpacityPercent = Number(v))"
       />
       <q-tooltip anchor="top middle" self="bottom middle">
@@ -203,11 +203,11 @@
       />
       <q-input
         :model-value="fontSize"
-        type="number"
         dense
         borderless
         suffix="px"
         class="style-number-input"
+        :input-style="{ textAlign: 'right' }"
         @update:model-value="(v) => (fontSize = Number(v) || undefined)"
       >
         <q-tooltip anchor="top middle" self="bottom middle">
@@ -381,16 +381,11 @@ const fontFamilyLabel = computed(
 .style-number-input {
   width: 44px;
   font-size: 0.75rem;
-
-  :deep(.q-field__control) {
-    height: 24px;
-  }
 }
 
 .opacity-control {
   display: flex;
   align-items: center;
-  gap: 0.15rem;
 }
 
 // 約2cm相当（96dpiベース）の小さなスライダー

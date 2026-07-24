@@ -4,12 +4,6 @@ import type { DrawingAnnotationStyle } from 'src/models/docPage';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { hexToRgba } from 'src/utils/color/hexToRgba';
 
-/** drawMode: 'drag' であることを型で確定させるためのテスト用ヘルパー */
-function asDragModule<T extends AnnotationStyle>(module: AnnotationGeometryModule<T>) {
-  if (module.drawMode !== 'drag') throw new Error('expected a drag-mode geometry module');
-  return module;
-}
-
 /** drawMode: 'clickPoints' であることを型で確定させるためのテスト用ヘルパー */
 function asClickPointsModule<T extends AnnotationStyle>(module: AnnotationGeometryModule<T>) {
   if (module.drawMode !== 'clickPoints')
@@ -103,11 +97,13 @@ const textStyle: DrawingAnnotationStyle = {
 };
 
 describe('ANNOTATION_GEOMETRY', () => {
-  it('box: createFromDragはドラッグ矩形からwidth/heightを計算する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.box).createFromDrag(
+  it('box: createFromPointsは2頂点からwidth/heightを計算する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.box).createFromPoints(
       1,
-      { x: 10, y: 20 },
-      { x: 30, y: 50 },
+      [
+        { x: 10, y: 20 },
+        { x: 30, y: 50 },
+      ],
       boxStyle,
     );
     expect(created).not.toBeNull();
@@ -140,11 +136,13 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created.strokeOpacity).toBe(1);
   });
 
-  it('circle: createFromDragはドラッグの中点と半径を計算する', () => {
-    const created = asDragModule(ANNOTATION_GEOMETRY.circle).createFromDrag(
+  it('circle: createFromPointsは2頂点の中点と半径を計算する', () => {
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.circle).createFromPoints(
       1,
-      { x: 0, y: 0 },
-      { x: 6, y: 8 },
+      [
+        { x: 0, y: 0 },
+        { x: 6, y: 8 },
+      ],
       circleStyle,
     );
     expect(created).not.toBeNull();
@@ -593,8 +591,8 @@ describe('boundingBox（残りの種別）', () => {
 
 describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中のプレビュー形状）', () => {
   it('box: fill/strokeにstrokeOpacity/fillOpacityをrgba合成して返す', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.box).previewFromDrag(
-      { x: 10, y: 20 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.box).previewFromPoints(
+      [{ x: 10, y: 20 }],
       { x: 30, y: 50 },
       boxStyle,
     );
@@ -625,8 +623,8 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
   });
 
   it('circle: fill/strokeにstrokeOpacity/fillOpacityをrgba合成して返す', () => {
-    const preview = asDragModule(ANNOTATION_GEOMETRY.circle).previewFromDrag(
-      { x: 0, y: 0 },
+    const preview = asClickPointsModule(ANNOTATION_GEOMETRY.circle).previewFromPoints(
+      [{ x: 0, y: 0 }],
       { x: 6, y: 8 },
       circleStyle,
     );

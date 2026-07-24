@@ -1,7 +1,7 @@
 <template>
   <q-bar
     class="document-footer"
-    :class="{ 'document-footer--relational': editorStore.relationalMode !== undefined }"
+    :class="{ 'document-footer--relational': editorStore.relationalPendingId !== undefined }"
   >
     <!-- 左側：ステータスメッセージ領域。関係性モードの待機メッセージ等、今後も様々な操作が
          任意のメッセージをここへ投稿することを想定する（中身が無ければ余白列として機能する） -->

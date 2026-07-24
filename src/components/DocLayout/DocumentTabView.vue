@@ -631,6 +631,11 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     void historyStore.redo(prop.file);
     return;
   }
+
+  if (isModifierPressed && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    void saveDocument(prop.file)
+  }
 }
 
 // ================================

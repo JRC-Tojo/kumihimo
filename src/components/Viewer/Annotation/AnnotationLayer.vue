@@ -168,7 +168,7 @@ const drawingPreviewConfig = ref<Record<string, unknown> | null>(null);
 // クリックで頂点を置いていく方式（折れ線・ポリゴン・line・text）の描画中バッファ
 const clickPointsBuffer = ref<Point[] | null>(null);
 // clickPoints方式で最初の頂点を置いた時点のステージ座標（画面px）。
-// maxPoints=2の種別（line/text）で「押したままドラッグ→離す」操作を検出するために使う
+// maxPoints=2の種別（box/circle/line/arrow/text）で「押したままドラッグ→離す」操作を検出するために使う
 const clickPointsStartScreenPos = ref<{ x: number; y: number } | null>(null);
 // 描画ツール使用中、既存アノテーションのシェイプ上でmousedownした際の曖昧開始状態。
 // 実際にドラッグへ発展すればその場から新規描画を開始し、発展せず単なるクリックで終われば
@@ -444,7 +444,7 @@ function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<
   const lockedPos = applyShiftAxisLock(clickPointsBuffer.value.at(-1), pos);
   clickPointsBuffer.value = [...clickPointsBuffer.value, lockedPos];
 
-  // line/textのような2点で完成する種別は、始点への再クリックを待たず頂点数到達で即確定する
+  // box/circle/line/arrow/textのような2点で完成する種別は、始点への再クリックを待たず頂点数到達で即確定する
   if (geometry.maxPoints !== undefined && clickPointsBuffer.value.length >= geometry.maxPoints) {
     finishClickPointsDrawing();
     return;
@@ -623,7 +623,7 @@ function handleMouseDown(e: KonvaMouseEvent) {
 
   // 空白領域からの通常開始
   if (module.geometry.drawMode === 'clickPoints') {
-    // 2点構成の種別（line/text）を「押したままドラッグ→離す」でも描けるよう、
+    // 2点構成の種別（box/circle/line/arrow/text）を「押したままドラッグ→離す」でも描けるよう、
     // 最初の頂点を置いた時点のステージ座標（画面px）を記録しておく（handleMouseUp参照）
     clickPointsStartScreenPos.value = { x: pos.x, y: pos.y };
     handleClickPointsMouseDown(adjustedPos, module.geometry);
@@ -815,7 +815,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
     return;
   }
 
-  // line/textのような2点で完成する種別を「押したままドラッグ→離す」で描いた場合、
+  // box/circle/line/arrow/textのような2点で完成する種別を「押したままドラッグ→離す」で描いた場合、
   // 1点目を置いた直後のmouseupで2点目を確定する（クリックのみでの描画と共存させるための分岐）
   if (clickPointsBuffer.value?.length === 1 && clickPointsStartScreenPos.value) {
     const style = editorStore.currentAnnotationStyle;

@@ -174,7 +174,7 @@ interface AnnotationGeometryModuleCommon<T extends AnnotationStyle> {
   defaultPresets: AnnotationDefaultPreset[];
 }
 
-/** ドラッグ（始点→終点の2点）から生成する種別（box/circle/line/arrow/text） */
+/** ドラッグ（始点→終点の2点）から生成する種別向け。現在は全種別がclickPoints方式のため未使用だが、将来の拡張のため型として残す */
 export interface DragDrawModule<
   T extends AnnotationStyle,
 > extends AnnotationGeometryModuleCommon<T> {
@@ -190,7 +190,7 @@ export interface DragDrawModule<
   previewFromDrag(start: Point, end: Point, style: DrawingAnnotationStyle): Record<string, unknown>;
 }
 
-/** クリックで頂点を置いていく方式で生成する種別（polyline/polygon） */
+/** クリックで頂点を置いていく方式で生成する種別（box/line/circle/arrow/polyline/polygon/text の全種別） */
 export interface ClickPointsDrawModule<
   T extends AnnotationStyle,
 > extends AnnotationGeometryModuleCommon<T> {
@@ -276,9 +276,14 @@ export function duplicateAnnotation(
 }
 
 const boxGeometry: AnnotationGeometryModule = {
-  drawMode: 'drag',
-  createFromDrag(pageNumber, start, end, style) {
+  drawMode: 'clickPoints',
+  closable: false,
+  maxPoints: 2,
+  createFromPoints(pageNumber, points, style) {
     if (style.type !== 'box') return null;
+    if (points.length < 2) return null;
+    const start = points[0]!;
+    const end = points[1]!;
     const built = buildBaseAnnotation(
       pageNumber,
       Math.min(start.x, end.x),
@@ -302,8 +307,11 @@ const boxGeometry: AnnotationGeometryModule = {
         : undefined,
     };
   },
-  previewFromDrag(start, end, style) {
+  previewFromPoints(points, cursor, style) {
     if (style.type !== 'box') return {};
+    const start = points[0];
+    if (!start) return {};
+    const end = points[1] ?? cursor ?? start;
     return {
       x: Math.min(start.x, end.x),
       y: Math.min(start.y, end.y),
@@ -540,9 +548,14 @@ const lineGeometry: AnnotationGeometryModule = {
 };
 
 const circleGeometry: AnnotationGeometryModule = {
-  drawMode: 'drag',
-  createFromDrag(pageNumber, start, end, style) {
+  drawMode: 'clickPoints',
+  closable: false,
+  maxPoints: 2,
+  createFromPoints(pageNumber, points, style) {
     if (style.type !== 'circle') return null;
+    if (points.length < 2) return null;
+    const start = points[0]!;
+    const end = points[1]!;
     const deltaX = end.x - start.x;
     const deltaY = end.y - start.y;
     const built = buildBaseAnnotation(
@@ -567,8 +580,11 @@ const circleGeometry: AnnotationGeometryModule = {
       radius: Math.sqrt(deltaX * deltaX + deltaY * deltaY) / 2,
     };
   },
-  previewFromDrag(start, end, style) {
+  previewFromPoints(points, cursor, style) {
     if (style.type !== 'circle') return {};
+    const start = points[0];
+    if (!start) return {};
+    const end = points[1] ?? cursor ?? start;
     const deltaX = end.x - start.x;
     const deltaY = end.y - start.y;
     return {
