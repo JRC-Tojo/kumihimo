@@ -2,7 +2,7 @@
 export default {
   // Page titles
   title: {
-    app: 'Relational Documents',
+    app: 'Kumihimo',
     documents: 'Documents',
     viewer: 'Document Viewer',
     settings: 'Settings',

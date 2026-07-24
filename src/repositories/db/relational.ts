@@ -364,7 +364,7 @@ export async function softRemoveRelationalsByAnnotationID(
  * 指定ファイルがsrc・target問わず関わる関係性DBレコードをすべて削除する
  *
  * 「保存せず閉じる」際、仮登録・確定済み問わずこのファイルが関わる記録を一旦すべて消し去り、
- * `.rd/relational.json`（コンテナルートのキャッシュ）から読み直して確定済み状態を
+ * `.kumihimo/relational.json`（コンテナルートのキャッシュ）から読み直して確定済み状態を
  * 再構築するために使う
  */
 export async function deleteRelationalsInvolvingFile(

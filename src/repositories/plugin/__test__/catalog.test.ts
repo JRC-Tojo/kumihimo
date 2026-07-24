@@ -10,7 +10,7 @@ import type { Result } from 'src/models/error/result';
 import type { PluginManifest } from 'src/models/plugin/manifest';
 
 const STORE_REPO_OWNER = 'JRC-Tojo';
-const STORE_REPO_NAME = 'RD-PluginStock';
+const STORE_REPO_NAME = 'K-PluginStock';
 const STORE_REPO_DEFAULT_BRANCH = 'main';
 
 /** raw.githubusercontent.comのURLを組み立てる（githubApi.tsの実装を再現する） */

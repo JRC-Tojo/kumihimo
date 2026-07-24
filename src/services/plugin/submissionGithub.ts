@@ -1,5 +1,5 @@
 /**
- * プラグイン申請フローの実装（プラグインストア・リポジトリ https://github.com/JRC-Tojo/RD-PluginStock
+ * プラグイン申請フローの実装（プラグインストア・リポジトリ https://github.com/JRC-Tojo/K-PluginStock
  * への実際のフォーク・ブランチ作成・ファイルコミット・Pull Request作成）
  *
  * 認証は設定画面で入力するGitHub個人アクセストークン（PAT）を使う。ブラウザから直接
@@ -290,7 +290,7 @@ export async function submitPlugin(
       STORE_REPO_NAME,
       {
         title: `[Plugin] ${manifestToSubmit.name} (${manifestToSubmit.id}) v${manifestToSubmit.version}`,
-        body: `プラグイン「${manifestToSubmit.name}」（\`${manifestToSubmit.id}\`）v${manifestToSubmit.version} の${updateId ? '更新' : '新規'}申請です。\n\n_RelationalDocumentsアプリから自動送信されました。_`,
+        body: `プラグイン「${manifestToSubmit.name}」（\`${manifestToSubmit.id}\`）v${manifestToSubmit.version} の${updateId ? '更新' : '新規'}申請です。\n\n_kumihimoアプリから自動送信されました。_`,
         head: `${login}:${branch}`,
         base: STORE_REPO_DEFAULT_BRANCH,
       },
@@ -435,7 +435,7 @@ export async function unpublishPlugin(
       STORE_REPO_NAME,
       {
         title: `[Unpublish] ${updated.name} (${updated.id})`,
-        body: `プラグイン「${updated.name}」（\`${updated.id}\`）の取り下げ（unpublish）申請です。\n\n_RelationalDocumentsアプリから自動送信されました。_`,
+        body: `プラグイン「${updated.name}」（\`${updated.id}\`）の取り下げ（unpublish）申請です。\n\n_kumihimoアプリから自動送信されました。_`,
         head: `${login}:${branch}`,
         base: STORE_REPO_DEFAULT_BRANCH,
       },

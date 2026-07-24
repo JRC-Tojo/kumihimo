@@ -1,4 +1,4 @@
-# RelationalDocuments (rd)
+# kumihimo
 
 Documents base on the relational model of annotation text blocks
 

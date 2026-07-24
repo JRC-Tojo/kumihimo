@@ -265,8 +265,8 @@ class BackendApi {
   /**
    * 文書のメタ情報（ハッシュ値、アノテーション等）を取得
    *
-   * 実ファイルの`.rdcfg`を都度確認し、アノテーションDBを最新の内容と整合させる。
-   * 実ファイルが`.rdcfg`記録時から更新されている場合は`DOC_CONFIG_CONFLICT`として返すため、
+   * 実ファイルの`.kcfg`を都度確認し、アノテーションDBを最新の内容と整合させる。
+   * 実ファイルが`.kcfg`記録時から更新されている場合は`DOC_CONFIG_CONFLICT`として返すため、
    * 呼び出し側でコンフリクト解決フローに分岐できる
    */
   async loadDocumentConfig(file: ContainerElementFile): Promise<ApiResponse<DocumentConfigFile>> {
@@ -324,7 +324,7 @@ class BackendApi {
    *
    * `loadDocumentConfig`がハッシュ不一致で失敗した際、`updateDocumentConfig`で得た
    * （再追跡済み、または追跡できず現状のまま採用する）設定内容をここで書き込むことで、
-   * `.rdcfg`とアノテーションDBを実ファイルの内容と整合させる
+   * `.kcfg`とアノテーションDBを実ファイルの内容と整合させる
    */
   async acceptExternalDocumentConfig(
     file: ContainerElementFile,
@@ -337,7 +337,7 @@ class BackendApi {
   /**
    * ファイル・フォルダのパスをリネームする
    *
-   * 実データのパス変更に加え、`.rdcfg`サイドカー・関係性キャッシュ・読み込み中DBの
+   * 実データのパス変更に加え、`.kcfg`サイドカー・関係性キャッシュ・読み込み中DBの
    * ファイルパス参照もあわせて更新する（詳細は`documentService.renamePath`を参照）
    */
   async renamePath(elem: ContainerElement, newPath: string): Promise<ApiResponse<RenamedEntry[]>> {

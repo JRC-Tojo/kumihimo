@@ -268,7 +268,7 @@ const api = useBackendApi();
 const pluginStore = usePluginStore();
 
 const devGuideUrl =
-  'https://github.com/JRC-Tojo/RD-PluginStock/blob/main/docs/PLUGIN_DEVELOPMENT_GUIDE.md';
+  'https://github.com/JRC-Tojo/K-PluginStock/blob/main/docs/PLUGIN_DEVELOPMENT_GUIDE.md';
 
 const name = ref('');
 const description = ref('');

@@ -9,7 +9,7 @@ import type { Result } from 'src/models/error/result';
 import { Failure, Success, toError } from 'src/models/error/result';
 
 export const STORE_REPO_OWNER = 'JRC-Tojo';
-export const STORE_REPO_NAME = 'RD-PluginStock';
+export const STORE_REPO_NAME = 'K-PluginStock';
 export const STORE_REPO_DEFAULT_BRANCH = 'main';
 
 const GITHUB_API_BASE = 'https://api.github.com';

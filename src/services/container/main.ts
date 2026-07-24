@@ -462,7 +462,7 @@ export async function deleteFolder(
  * ファイル・フォルダのパスを変更する
  *
  * Fileの場合は1件、Folderの場合は配下の全要素も新パスに付け替えて返す
- * （呼び出し側で`.rdcfg`・関係性キャッシュ等の副作用伝播に使えるよう、旧パスと新要素の組で返す）
+ * （呼び出し側で`.kcfg`・関係性キャッシュ等の副作用伝播に使えるよう、旧パスと新要素の組で返す）
  */
 export async function renamePath(
   cId: ContainerID,

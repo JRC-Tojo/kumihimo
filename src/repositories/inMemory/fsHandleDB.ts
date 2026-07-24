@@ -9,7 +9,7 @@ import type { ContainerID, ContainerSkel } from 'src/models/container';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success } from 'src/models/error/result';
 
-const DB_NAME = 'RelationalDocumentsFsHandles';
+const DB_NAME = 'KumihimoFsHandles';
 const STORE_NAME = 'directory-handles';
 
 export interface StoredHandle {

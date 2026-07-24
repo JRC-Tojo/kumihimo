@@ -191,7 +191,7 @@ export async function registerAnnotationStyle(
 /**
  * DBにアノテーション情報を追加する
  *
- * @param isTemporary 未保存の仮登録として追加するか。`.rdcfg`から読み込んだ確定済みデータを
+ * @param isTemporary 未保存の仮登録として追加するか。`.kcfg`から読み込んだ確定済みデータを
  * 反映する場合は`false`を指定すること
  */
 export function registerAnnotationInfo(

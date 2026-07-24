@@ -11,7 +11,7 @@ import type z from 'zod';
  * ローカルストレージリポジトリ
  * IndexedDB とメモリ上のストレージを組み合わせてデータを管理
  */
-const dbName = 'RelationalDocumentsDB';
+const dbName = 'KumihimoDB';
 
 let currentVersion = -1;
 let db: IDBDatabase | null = null;

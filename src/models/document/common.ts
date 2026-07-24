@@ -3,7 +3,7 @@ import z from 'zod';
 /**
  * 各文書と並列に保存する設定ファイルの拡張子
  */
-export const CONFIG_FILE_EXTS = '.rdcfg';
+export const CONFIG_FILE_EXTS = '.kcfg';
 
 /**
  * 本システムが内容を表示できる文書の拡張子

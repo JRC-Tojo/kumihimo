@@ -220,7 +220,7 @@ const peekDialogOpen = ref(false);
 // ================================
 
 /**
- * 実ファイルの内容が`.rdcfg`記録時から変更されている場合の解決を試みる
+ * 実ファイルの内容が`.kcfg`記録時から変更されている場合の解決を試みる
  *
  * ユーザーに確認の上、可能であればアノテーション位置を新しい内容に追跡し直して確定する
  * （既存のExpContainer.vueの外部変更コンフリクトと同様、ユーザーの明示的な操作なしには確定しない）。
@@ -249,7 +249,7 @@ async function resolveConfigConflict(): Promise<boolean> {
 async function loadDocument() {
   loading.value = true;
 
-  // 実ファイルの`.rdcfg`を確認し、キャッシュ（アノテーションDB）を最新の内容と整合させる。
+  // 実ファイルの`.kcfg`を確認し、キャッシュ（アノテーションDB）を最新の内容と整合させる。
   // ハッシュ不一致（外部での更新）を検知した場合はコンフリクト解決を経てから開く
   // （それ以外の読み込み失敗は後続のgetDocumentSourceでも同様に検知されるため、ここでは無視して進める）
   const configRes = await api.loadDocumentConfig(prop.file);

@@ -15,7 +15,7 @@ import type { AnnotationStyle } from 'src/models/document/pdf';
 import { invalidatePdfDocument } from 'src/repositories/document/pdfDocumentCache';
 
 /**
- * `.rdcfg`のハッシュ記録と実ファイルの内容が一致しない場合（＝アプリ外でファイルが更新された場合）に
+ * `.kcfg`のハッシュ記録と実ファイルの内容が一致しない場合（＝アプリ外でファイルが更新された場合）に
  * `loadConfig`が返すエラー
  *
  * 通常の読み込み失敗（ファイルアクセスエラー等）と区別し、呼び出し側（フロントエンド）で
@@ -31,7 +31,7 @@ export class DocumentConfigConflictError extends Error {
 /**
  * 指定したファイルに紐づく本システムの設定ファイルを読み込む
  *
- * `.rdcfg`がまだ存在しない場合（そのファイルに一度もアノテーションが保存されたことがない場合）は
+ * `.kcfg`がまだ存在しない場合（そのファイルに一度もアノテーションが保存されたことがない場合）は
  * エラーにせず、現在のファイル内容のハッシュを持つ空の設定として扱う。
  * 読み込み・パース自体の失敗（権限エラー・破損等）はアノテーション消失につながるため、
  * ファイル不存在（`NotFoundError`）と確認できた場合以外はそのままエラーとして返す
@@ -60,7 +60,7 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
   }
 
   // 返す前にConfigから読み取ったAnnotation情報をAnnotDBに保存する
-  // （`.rdcfg`に記録済みの確定データであるため、仮フラグは付けない＝isTemporary: false）
+  // （`.kcfg`に記録済みの確定データであるため、仮フラグは付けない＝isTemporary: false）
   const annotInfos = Object.values(configFile.annots);
   const registRes = await annotationService.registerAnnotationInfo(annotInfos, file, false);
   if (!registRes.ok) return registRes;
@@ -70,7 +70,7 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
 }
 
 /**
- * コンフリクト解決時、外部で更新された実ファイルの内容を正としてアノテーションDBと`.rdcfg`を更新する
+ * コンフリクト解決時、外部で更新された実ファイルの内容を正としてアノテーションDBと`.kcfg`を更新する
  *
  * `updateConfigForNewDoc`で再追跡した（または位置追跡できず現状のまま採用する）設定内容を
  * 確定として書き込む。内容そのものの変更ではなく外部変更の追認であるため、
@@ -155,7 +155,7 @@ export async function saveConfig(
   const commitRelRes = await relationalService.saveRelationals(file);
   if (!commitRelRes.ok) return commitRelRes;
 
-  // `.rdcfg`・関係性キャッシュへ書き込む内容は、現在有効な（削除されていない）全件を取得し直す。
+  // `.kcfg`・関係性キャッシュへ書き込む内容は、現在有効な（削除されていない）全件を取得し直す。
   // saveAnnotationInfo/saveRelationalsの戻り値は今回のセッションで確定した差分のみのため、
   // それをそのまま書き込むと、今回変更していない既存のアノテーション・関係性を消してしまう
   const annotInfos = await annotationService.getAnnotationsByFile(file);
@@ -184,9 +184,9 @@ export async function saveConfig(
 
 /**
  * 「保存せず閉じる」選択時、このファイルについて仮登録されたアノテーション・関係性を破棄し、
- * 最後に保存された状態（実ファイルの`.rdcfg`・関係性キャッシュの内容）へ戻す
+ * 最後に保存された状態（実ファイルの`.kcfg`・関係性キャッシュの内容）へ戻す
  *
- * アノテーションDBの当該ファイル分の記録を一旦すべて削除したうえで`.rdcfg`から読み直し、
+ * アノテーションDBの当該ファイル分の記録を一旦すべて削除したうえで`.kcfg`から読み直し、
  * 関係性DBも同様にコンテナの関係性キャッシュから当該ファイルが関わる分だけを読み直す。
  * 新規追加・削除いずれも区別なく巻き戻せるため、以降`hasUnsavedChangesByFile`は
  * 再びfalseを返すようになる
@@ -253,7 +253,7 @@ export async function updateConfigForNewDoc(
 }
 
 /**
- * ファイル削除時に、対応する`.rdcfg`サイドカー設定ファイルが存在すれば削除する（ベストエフォート）
+ * ファイル削除時に、対応する`.kcfg`サイドカー設定ファイルが存在すれば削除する（ベストエフォート）
  *
  * サイドカーが存在しない場合の削除失敗も含め、本体ファイルの削除自体は成功として扱いたいため、
  * ここでのエラーは呼び出し元に伝播させずログのみに留める
@@ -271,8 +271,8 @@ export async function deleteConfigForFile(file: ContainerElementFile): Promise<v
 /**
  * ファイル・フォルダのパス変更（リネーム・移動）を行う
  *
- * 実データのパス変更に加えて、対応する`.rdcfg`サイドカー設定ファイル、コンテナルートの
- * 関係性キャッシュファイル（`.rd/relational.json`）、読み込み中のアノテーション/関係性DBの
+ * 実データのパス変更に加えて、対応する`.kcfg`サイドカー設定ファイル、コンテナルートの
+ * 関係性キャッシュファイル（`.kumihimo/relational.json`）、読み込み中のアノテーション/関係性DBの
  * ファイルパス参照もあわせて更新し、リネームによって整合性が崩れないようにする
  *
  * 戻り値は旧パスを保持した`RenamedEntry[]`とする（呼び出し側でPiniaストア等の
@@ -284,7 +284,7 @@ export async function renamePath(
 ): Promise<Result<RenamedEntry[]>> {
   const cID = elem.containerID;
 
-  // Fileの場合、対応する.rdcfgサイドカーが存在するかをリネーム前に確認しておく
+  // Fileの場合、対応する.kcfgサイドカーが存在するかをリネーム前に確認しておく
   const containerBefore = containerService.getContainer(cID);
   if (!containerBefore.ok) return containerBefore;
   const elementsBefore = 'elements' in containerBefore.value ? containerBefore.value.elements : {};
@@ -295,7 +295,7 @@ export async function renamePath(
 
   const allRenamed = [...mainRenameRes.value];
 
-  // 2. リネームされた各Fileについて、対応する.rdcfgサイドカーがあれば追従させる
+  // 2. リネームされた各Fileについて、対応する.kcfgサイドカーがあれば追従させる
   const renamedFiles = mainRenameRes.value.filter((r) => r.element.type === 'File');
   for (const renamedFile of renamedFiles) {
     const oldSidecarPath = containerConfigService.getConfigPath(renamedFile.oldPath);
