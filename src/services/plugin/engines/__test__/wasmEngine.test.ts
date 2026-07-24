@@ -70,7 +70,7 @@ describe('wasmEngine', () => {
 
   test('runEntryPoint reports a missing entry point export as a failure', async () => {
     const manifest: PluginManifest = {
-      id: PluginID.parse('test-plugin'),
+      id: PluginID.parse('11111111-1111-4111-8111-111111111111'),
       name: 'Test Plugin',
       version: '1.0.0',
       description: '',

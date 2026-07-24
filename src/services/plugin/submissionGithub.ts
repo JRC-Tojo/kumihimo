@@ -11,7 +11,7 @@
  */
 import type { Result } from 'src/models/error/result';
 import { Failure, Success, toError } from 'src/models/error/result';
-import { PluginManifest } from 'src/models/plugin/manifest';
+import { PluginID, PluginManifest } from 'src/models/plugin/manifest';
 import type {
   PluginSubmission,
   PluginSubmissionKind,
@@ -222,10 +222,12 @@ async function waitAndBuildSubmission(
 /**
  * プラグインを申請する（新規申請・バージョン更新のいずれも同じ経路で扱う）
  *
- * - 新規プラグイン: マニフェストのownerを申請者のGitHubユーザー名に設定する
+ * - 新規プラグイン: マニフェストのownerを申請者のGitHubユーザー名に設定する。`id`は
+ *   `PluginID`がブランド付きUUIDであり開発者が選べる値ではないため、ここで新規に採番する
+ *   （ローカルのサイドロード開発時に使っていた仮のidは、初回申請時に破棄・上書きされる）
  * - 既存プラグインの更新: default branchに公開済みのownerと申請者が一致しない場合は拒否する
  *   （最終的な、なりすまし防止の実効的な検証はストアリポジトリのCI側で行われる。
- *   ここでのチェックはユーザーへの早期フィードバックのため）
+ *   ここでのチェックはユーザーへの早期フィードバックのため）。`id`は公開済みの値をそのまま使う
  */
 export async function submitPlugin(
   manifest: PluginManifest,
@@ -248,7 +250,8 @@ export async function submitPlugin(
     );
   }
 
-  const manifestToSubmit: PluginManifest = { ...manifest, owner: login };
+  const id = published ? manifest.id : PluginID.parse(crypto.randomUUID());
+  const manifestToSubmit: PluginManifest = { ...manifest, id, owner: login };
 
   const forkRes = await gh.ensureFork(token, login);
   if (!forkRes.ok) return forkRes;
@@ -261,7 +264,7 @@ export async function submitPlugin(
   );
   if (!baseShaRes.ok) return baseShaRes;
 
-  const branch = branchNameFor(manifest.id);
+  const branch = branchNameFor(id);
   const branchRes = await gh.ensureBranch(login, STORE_REPO_NAME, branch, baseShaRes.value, token);
   if (!branchRes.ok) return branchRes;
 

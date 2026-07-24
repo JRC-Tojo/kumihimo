@@ -1,18 +1,19 @@
 import z from 'zod';
 
 /**
- * プラグインの識別子（開発者が指定する文字列。UUIDではない）
+ * プラグインの識別子
  *
- * ストアリポジトリ内のディレクトリ名・パス組み立て（`pluginFilePath`）や、申請フローの
- * GitHubブランチ名（`plugin/<id>`等）へそのまま埋め込まれるため、英数字とハイフンのみの
- * スラッグに制限する。これ以外の文字（`..`や`/`等）を許すと、パスの正規化でプラグイン領域外を
- * 指したり、Gitのref命名規則に反してブランチ作成が失敗したりする
+ * 他のドメインID（`ContainerID`等）と同様にブランド付きUUIDとする。開発者が自由に選べる値では
+ * なく、新規プラグインの申請時に`submissionGithub.ts`の`submitPlugin`がアプリ側で自動採番する
+ * （`crypto.randomUUID()`）。ストアリポジトリ内のディレクトリ名・パス組み立て（`pluginFilePath`）や
+ * 申請フローのGitHubブランチ名（`plugin/<id>`等）へそのまま埋め込まれるため、開発者が任意の
+ * 文字列を指定できてしまうと、パスの正規化でプラグイン領域外を指したり、Gitのref命名規則に
+ * 反してブランチ作成が失敗したりする恐れがあった。UUIDに固定することでこれを構造的に防ぐ
+ *
+ * ローカルでのサイドロード開発時など、まだ申請していないプラグインの`plugin.json`にも
+ * 有効なUUID形式の値を仮置きしておく必要がある（開発者ガイド参照）
  */
-export const PluginID = z
-  .string()
-  .min(1)
-  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, '英数字（小文字）とハイフンのみのスラッグを指定してください')
-  .brand('PluginID');
+export const PluginID = z.uuidv4().brand('PluginID');
 export type PluginID = z.infer<typeof PluginID>;
 
 /**

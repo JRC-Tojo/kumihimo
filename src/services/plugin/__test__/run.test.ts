@@ -81,8 +81,8 @@ void mock.module('src/repositories/plugin/binaryStore', () => ({
 }));
 
 void mock.module('src/services/container/main', () => ({
-  loadFileAsDocumentSource: () => Promise.resolve(Success('dummy-src' as never)),
-  getContainer: () => Success({ id: containerID, name: 'テストコンテナ', type: 'local' } as never),
+  loadFileAsDocumentSource: () => Promise.resolve(Success('dummy-src')),
+  getContainer: () => Success({ id: containerID, name: 'テストコンテナ', type: 'local' }),
 }));
 
 void mock.module('src/repositories/document/pdfDocumentCache', () => ({

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { PluginManifest } from '../manifest';
 
 const validManifest = {
-  id: 'wasm-page-number-stamper',
+  id: '11111111-1111-4111-8111-111111111111',
   name: 'ページ番号スタンパー',
   version: '1.0.0',
   description: '説明',
@@ -53,8 +53,13 @@ describe('PluginManifest', () => {
     expect(result.success).toBeFalse();
   });
 
-  it('idに英数字（小文字）・ハイフン以外の文字が含まれる場合は検証エラーになる（パス・ブランチ名への直接埋め込み対策）', () => {
-    for (const invalidId of ['../etc/passwd', 'Foo', 'foo_bar', 'foo/bar', 'foo bar', 'foo..bar']) {
+  it('idがUUID形式でない場合は検証エラーになる（開発者が任意の文字列を指定できないようにする対策）', () => {
+    for (const invalidId of [
+      '../etc/passwd',
+      'wasm-page-number-stamper',
+      'not-a-uuid',
+      '11111111-1111-1111-1111-111111111111', // version 4 ではない
+    ]) {
       const result = PluginManifest.safeParse({ ...validManifest, id: invalidId });
       expect(result.success).toBeFalse();
     }

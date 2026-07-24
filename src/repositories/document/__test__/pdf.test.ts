@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TextItemBox } from 'src/models/document/pdf';
 
 // pdfjs-distはモジュール読み込み時（トップレベル）に`new DOMMatrix()`を評価するため、
 // DOMのないbunテスト環境ではimportするだけで`ReferenceError`になる。実際にレンダリング系の
@@ -25,6 +26,11 @@ function buildViewport(rotation: 0 | 90 | 180 | 270) {
   return { transform: transforms[rotation] };
 }
 
+/**
+ * `extractTextBlocksByPageFromDoc`のテストで使う、最小限のPDFDocumentProxyモックを生成する。
+ * PDF空間上の位置(50, 20)・スケール1・回転無しの文字ブロック（"AB"）を1件持つページを、
+ * 指定した回転角度のビューポートで返す（`pdfItemToBox`の回転考慮を検証するため）
+ */
 function buildFakePdf(rotation: 0 | 90 | 180 | 270) {
   const item = {
     str: 'AB',
@@ -45,6 +51,18 @@ function buildFakePdf(rotation: 0 | 90 | 180 | 270) {
   } as unknown as PDFDocumentProxy;
 }
 
+/**
+ * 三角関数由来（`Math.cos`/`Math.sin`）の浮動小数端数を許容するため、`TextItemBox`の
+ * 各数値フィールドを`toBeCloseTo`で比較する（`toEqual`による完全一致比較は使わない）
+ */
+function expectBoxCloseTo(box: TextItemBox | undefined, expected: TextItemBox): void {
+  expect(box?.text).toBe(expected.text);
+  expect(box?.x).toBeCloseTo(expected.x);
+  expect(box?.y).toBeCloseTo(expected.y);
+  expect(box?.width).toBeCloseTo(expected.width);
+  expect(box?.height).toBeCloseTo(expected.height);
+}
+
 describe('extractTextBlocksByPageFromDoc（pdfItemToBox）', () => {
   it('回転無し（0度）のページでは、ベースライン位置からwidth/heightそのままの矩形になる', async () => {
     const res = await extractTextBlocksByPageFromDoc(buildFakePdf(0), 1);
@@ -52,7 +70,7 @@ describe('extractTextBlocksByPageFromDoc（pdfItemToBox）', () => {
     if (!res.ok) return;
 
     expect(res.value).toHaveLength(1);
-    expect(res.value[0]).toEqual({ text: 'AB', x: 50, y: 68, width: 30, height: 12 });
+    expectBoxCloseTo(res.value[0], { text: 'AB', x: 50, y: 68, width: 30, height: 12 });
   });
 
   it('90度回転したページでは、width/heightが入れ替わった矩形になる（回転を考慮しない実装では検知できない回帰）', async () => {
@@ -61,16 +79,24 @@ describe('extractTextBlocksByPageFromDoc（pdfItemToBox）', () => {
     if (!res.ok) return;
 
     expect(res.value).toHaveLength(1);
-    expect(res.value[0]).toEqual({ text: 'AB', x: 20, y: 50, width: 12, height: 30 });
+    expectBoxCloseTo(res.value[0], { text: 'AB', x: 20, y: 50, width: 12, height: 30 });
   });
 
-  it('270度回転したページでも、90度と同様にwidth/heightが入れ替わった矩形になる', async () => {
+  it('180度回転したページでは、位置は反転するがwidth/heightは0度と同じになる', async () => {
+    const res = await extractTextBlocksByPageFromDoc(buildFakePdf(180), 1);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    expect(res.value).toHaveLength(1);
+    expectBoxCloseTo(res.value[0], { text: 'AB', x: 120, y: 20, width: 30, height: 12 });
+  });
+
+  it('270度回転したページでも、90度と同様にwidth/heightが入れ替わり、座標も正しく変換される', async () => {
     const res = await extractTextBlocksByPageFromDoc(buildFakePdf(270), 1);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
     expect(res.value).toHaveLength(1);
-    expect(res.value[0]?.width).toBe(12);
-    expect(res.value[0]?.height).toBe(30);
+    expectBoxCloseTo(res.value[0], { text: 'AB', x: 68, y: 120, width: 12, height: 30 });
   });
 });
