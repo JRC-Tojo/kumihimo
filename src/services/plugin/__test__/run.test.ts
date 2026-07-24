@@ -68,29 +68,42 @@ void mock.module('src/repositories/db/plugin', () => ({
   dismissSubmission: () => Promise.resolve(Failure(new Error('not used in this test'))),
 }));
 
+// 注意: `src/services/plugin/install`・`src/services/plugin/hostContext`自体は
+// モックしない（install.test.ts/hostContext.test.tsがそれぞれ実装本体を直接検証する対象であり、
+// `bun test`のmock.moduleはプロセス全体で共有される＝どちらのファイルが先に読み込まれても
+// 他方が実装ではなくこちらのスタブを掴んでしまうため）。代わりに、それぞれが依存する
+// 末端（永続化層・PDF解析層）だけをスタブし、run.tsから見た実行フロー自体は本物を通す
 const getPluginBinaryMock = mock(() => Promise.resolve(Success(new Uint8Array([1, 2, 3]))));
-void mock.module('src/services/plugin/install', () => ({
-  getPluginBinary: getPluginBinaryMock,
+void mock.module('src/repositories/plugin/binaryStore', () => ({
+  getBinary: getPluginBinaryMock,
+  setBinary: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  deleteBinary: () => Promise.resolve(Failure(new Error('not used in this test'))),
 }));
 
-void mock.module('src/services/plugin/hostContext', () => ({
-  buildExecutionContext: () =>
-    Promise.resolve(
-      Success({
-        targetFiles: [targetFile],
-        fileContexts: [
-          {
-            pageCount: 2,
-            metadataJson: '{}',
-            pageSizes: new Map(),
-            pageTextBlocksJson: new Map(),
-            pageImages: new Map(),
-            existingAnnotations: [],
-          },
-        ],
-        representativePageSize: { width: 600, height: 800 },
-      }),
-    ),
+void mock.module('src/services/container/main', () => ({
+  loadFileAsDocumentSource: () => Promise.resolve(Success('dummy-src' as never)),
+  getContainer: () => Success({ id: containerID, name: 'テストコンテナ', type: 'local' } as never),
+}));
+
+void mock.module('src/repositories/document/pdfDocumentCache', () => ({
+  acquirePdfDocument: () =>
+    Promise.resolve(Success({ document: { numPages: 2 } as never, release: () => {} })),
+  invalidatePdfDocument: () => {},
+}));
+
+void mock.module('src/repositories/document/pdf', () => ({
+  getPageSizeFromDoc: () => Promise.resolve(Success({ width: 600, height: 800 })),
+  extractTextBlocksByPageFromDoc: () =>
+    Promise.resolve(Failure(new Error('not used in this test'))),
+  renderPageToCanvasFromDoc: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  getNumPages: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  getPageSize: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  extractTextBlocksByPage: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  renderPageToCanvas: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  extractImageFromRegion: () => Promise.resolve(Failure(new Error('not used in this test'))),
+  extractAnnotationContextPreview: () =>
+    Promise.resolve(Failure(new Error('not used in this test'))),
+  extractTextByAnnot: () => Promise.resolve(Failure(new Error('not used in this test'))),
 }));
 
 // 注意: `bun test`のmock.moduleはプロセス全体で共有される（テストファイルをまたいで永続する）ため、

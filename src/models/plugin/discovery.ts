@@ -39,6 +39,9 @@ export const PluginSelectField = PluginFieldBase.extend({
   defaultValue: z.string(),
   // `ui.addSelectField`のoptionsCsvを分割した値。selectでは必須
   options: z.string().array().min(1),
+}).refine((field) => field.options.includes(field.defaultValue), {
+  message: 'defaultValueはoptionsに含まれる値である必要があります',
+  path: ['defaultValue'],
 });
 /**
  * 処理対象文書を1件選択させるフィールド（`ui.addFileField`で宣言される）

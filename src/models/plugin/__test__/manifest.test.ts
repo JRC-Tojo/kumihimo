@@ -52,4 +52,23 @@ describe('PluginManifest', () => {
     const result = PluginManifest.safeParse({ ...validManifest, id: '' });
     expect(result.success).toBeFalse();
   });
+
+  it('idに英数字（小文字）・ハイフン以外の文字が含まれる場合は検証エラーになる（パス・ブランチ名への直接埋め込み対策）', () => {
+    for (const invalidId of ['../etc/passwd', 'Foo', 'foo_bar', 'foo/bar', 'foo bar', 'foo..bar']) {
+      const result = PluginManifest.safeParse({ ...validManifest, id: invalidId });
+      expect(result.success).toBeFalse();
+    }
+  });
+
+  it('mainFile/iconFileにtraversalを含むパスが指定された場合は検証エラーになる', () => {
+    expect(
+      PluginManifest.safeParse({ ...validManifest, mainFile: '../outside.wasm' }).success,
+    ).toBe(false);
+    expect(PluginManifest.safeParse({ ...validManifest, iconFile: '../../icon.png' }).success).toBe(
+      false,
+    );
+    expect(PluginManifest.safeParse({ ...validManifest, mainFile: '/etc/passwd' }).success).toBe(
+      false,
+    );
+  });
 });

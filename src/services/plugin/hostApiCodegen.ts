@@ -19,10 +19,15 @@ import type {
 /** 1行に収めた場合の長さがこの値を超える場合、引数を1行ずつに折り返す */
 const MAX_LINE_LENGTH = 100;
 
+/** JS側の型名（`HostApiParamRustType`）をRustの`extern "C"`引数型表現へ変換する */
 function rustParamType(rustType: HostApiParamRustType): string {
   return rustType === 'string' ? '*const u8' : rustType;
 }
 
+/**
+ * 1関数ぶんの`extern "C"`関数宣言を整形する。1行に収まる場合はそのまま1行で、
+ * `MAX_LINE_LENGTH`を超える場合は引数を1つずつ改行して折り返す
+ */
 function formatFunctionDeclaration(spec: HostApiFunctionSpec): string {
   const paramStrs = spec.params.map((param) => `${param.name}: ${rustParamType(param.rustType)}`);
   const returnsSuffix = spec.returns === 'string' ? ' -> *const u8' : '';

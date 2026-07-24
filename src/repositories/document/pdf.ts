@@ -9,7 +9,7 @@
  */
 
 import { getDocument } from 'pdfjs-dist';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
 import { PDFDocument, rgb } from 'pdf-lib';
 import { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
@@ -111,23 +111,72 @@ export async function extractTextByPage(
   }
 }
 
+/** 2D affine変換行列 `[a, b, c, d, e, f]`（`x' = a*x + c*y + e`, `y' = b*x + d*y + f`） */
+type Mat2D = [number, number, number, number, number, number];
+
+/**
+ * 2つの2D affine変換行列を合成する（`m1 ∘ m2`。`m2`を先に適用してから`m1`を適用するのと同じ）。
+ * pdf.jsの`Util.transform`と同じ計算だが、pdf.jsは`DOMMatrix`（DOM API）に依存しておりNode/bun
+ * テスト環境で読み込めないため、幾何計算だけをここに切り出して依存を避けている
+ */
+function combineTransforms(m1: Mat2D, m2: Mat2D): Mat2D {
+  return [
+    m1[0] * m2[0] + m1[2] * m2[1],
+    m1[1] * m2[0] + m1[3] * m2[1],
+    m1[0] * m2[2] + m1[2] * m2[3],
+    m1[1] * m2[2] + m1[3] * m2[3],
+    m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+    m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+  ];
+}
+
 /**
  * pdf.jsのテキストアイテム（`transform`行列由来の左下原点座標）を、左上原点の
  * バウンディングボックスへ変換する（`extractTextByAnnot`/`extractTextBlocksByPage`で共用）
+ *
+ * `viewport.transform`（ページ回転・スケールを含む）と`item.transform`（文字ブロック自身の
+ * ベースライン変換）を合成し、ベースライン起点＋回転角度をもとに矩形の4隅をビューポート空間
+ * （左上原点）へ回転させたうえで外接矩形を求める。`item.transform[4]/[5]`と`item.height`だけを
+ * 使う単純計算では、90°/270°回転したPDFやskewを含む文字で矩形がずれるため
  */
 function pdfItemToBox(
-  item: { str?: string; transform?: number[]; width?: number; height?: number },
-  pageHeight: number,
+  item: { str?: string; transform?: Mat2D; width?: number; height?: number },
+  viewport: PageViewport,
 ): TextItemBox | null {
   if (item.str === undefined || item.str === '') return null;
   if (item.transform === undefined || item.width === undefined || item.height === undefined) {
     return null;
   }
-  // item.transform は [scaleX, skewY, skewX, scaleY, translateX, translateY] の6要素配列
-  const tx = item.transform[4]!; // X座標（左下原点）
-  const ty = item.transform[5]!; // Y座標（左下原点）
-  const topY = pageHeight - ty - item.height; // 左上原点でのY座標に変換
-  return { text: item.str, x: tx, y: topY, width: item.width, height: item.height };
+
+  // viewport空間（左上原点、Y軸下向き）でのベースライン起点＋回転角度
+  const combined = combineTransforms(viewport.transform as Mat2D, item.transform);
+  const baseX = combined[4];
+  const baseY = combined[5];
+  const angle = Math.atan2(combined[1], combined[0]);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  // ベースラインを起点に、文字は「上方向（ローカルY軸負方向）」へheight分、
+  // 「右方向（ローカルX軸正方向）」へwidth分広がる矩形として4隅を回転させる
+  const localCorners: Array<[number, number]> = [
+    [0, 0],
+    [item.width, 0],
+    [0, -item.height],
+    [item.width, -item.height],
+  ];
+  const worldXs: number[] = [];
+  const worldYs: number[] = [];
+  for (const [lx, ly] of localCorners) {
+    worldXs.push(baseX + lx * cos - ly * sin);
+    worldYs.push(baseY + lx * sin + ly * cos);
+  }
+
+  const x = Math.min(...worldXs);
+  const y = Math.min(...worldYs);
+  const width = Math.max(...worldXs) - x;
+  const height = Math.max(...worldYs) - y;
+
+  return { text: item.str, x, y, width, height };
 }
 
 /**
@@ -144,13 +193,13 @@ export async function extractTextBlocksByPageFromDoc(
   try {
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
-    const pageHeight = page.getViewport({ scale: 1 }).height;
+    const viewport = page.getViewport({ scale: 1 });
 
     const blocks: TextItemBox[] = [];
     for (const item of textContent.items) {
       const box = pdfItemToBox(
-        item as { str?: string; transform?: number[]; width?: number; height?: number },
-        pageHeight,
+        item as { str?: string; transform?: Mat2D; width?: number; height?: number },
+        viewport,
       );
       if (box) blocks.push(box);
     }
@@ -193,7 +242,7 @@ export async function extractTextByAnnot(
     const textContent = await page.getTextContent();
     const bbox = calculateBoundingBox(style);
     // PDF のテキスト座標系（左下原点・Y軸上向き）を bbox の座標系（左上原点・Y軸下向き）に揃えるために使用
-    const pageHeight = page.getViewport({ scale: 1 }).height;
+    const viewport = page.getViewport({ scale: 1 });
     // 文字ごとの幅の内訳推定に使う（pdf.js の TextLayer 自体が採用している手法に準拠）
     const measureCtx = document.createElement('canvas').getContext('2d');
 
@@ -201,8 +250,8 @@ export async function extractTextByAnnot(
 
     for (const item of textContent.items) {
       const box = pdfItemToBox(
-        item as { str?: string; transform?: number[]; width?: number; height?: number },
-        pageHeight,
+        item as { str?: string; transform?: Mat2D; width?: number; height?: number },
+        viewport,
       );
       if (!box || !('str' in item)) continue;
 

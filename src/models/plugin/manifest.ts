@@ -2,9 +2,37 @@ import z from 'zod';
 
 /**
  * プラグインの識別子（開発者が指定する文字列。UUIDではない）
+ *
+ * ストアリポジトリ内のディレクトリ名・パス組み立て（`pluginFilePath`）や、申請フローの
+ * GitHubブランチ名（`plugin/<id>`等）へそのまま埋め込まれるため、英数字とハイフンのみの
+ * スラッグに制限する。これ以外の文字（`..`や`/`等）を許すと、パスの正規化でプラグイン領域外を
+ * 指したり、Gitのref命名規則に反してブランチ作成が失敗したりする
  */
-export const PluginID = z.string().min(1).brand('PluginID');
+export const PluginID = z
+  .string()
+  .min(1)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, '英数字（小文字）とハイフンのみのスラッグを指定してください')
+  .brand('PluginID');
 export type PluginID = z.infer<typeof PluginID>;
+
+/**
+ * `plugin.json`と同じディレクトリ内を指す、traversalを含まない相対ファイル名かどうかを検証する
+ *
+ * `mainFile`/`iconFile`はストアリポジトリ（外部由来）の`plugin.json`が自己申告する値のため、
+ * `../`等で兄弟プラグインのディレクトリや任意のパスを指せてしまうと、取得先URLの組み立て
+ * （`utils/binary/path`の`Path.child()`）でプラグイン領域外に到達しうる。絶対パス・空文字・
+ * `.`/`..`セグメントを禁止し、単純な相対ファイル名のみを許可する
+ */
+function isSafePluginRelativeFile(value: string): boolean {
+  if (value.length === 0 || value.startsWith('/') || value.startsWith('\\')) return false;
+  const segments = value.split(/[\\/]+/);
+  return segments.every((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
+}
+
+const PluginRelativeFile = z
+  .string()
+  .min(1)
+  .refine(isSafePluginRelativeFile, 'traversalを含まない相対ファイル名を指定してください');
 
 /**
  * プラグインの実行ランタイム
@@ -52,9 +80,9 @@ export const PluginManifest = z.object({
   version: z.string().min(1),
   description: z.string().default(''),
   runtime: PluginRuntime,
-  mainFile: z.string().min(1),
+  mainFile: PluginRelativeFile,
   // 一覧表示用のアイコン画像ファイル名（plugin.jsonと同じディレクトリ内）。未指定時はデフォルトアイコンを表示する
-  iconFile: z.string().optional(),
+  iconFile: PluginRelativeFile.optional(),
   // このプラグインを最初に公開したGitHubユーザー名。なりすまし更新を防ぐため、ストアリポジトリの
   // CI（validateManifest.mjs）がPR作成者と突き合わせて検証する。新規申請時はアプリが自動設定する
   owner: z.string().min(1).optional(),

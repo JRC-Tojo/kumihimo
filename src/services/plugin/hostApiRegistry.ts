@@ -34,6 +34,7 @@ export interface HostApiFunctionSpec {
   returns: 'void' | 'string';
 }
 
+/** `HostApiFunctionSpec.params`を並べる際の記述量を減らすための、`HostApiParam`組み立てヘルパー */
 function p(name: string, jsType: HostApiParamJsType, rustType: HostApiParamRustType): HostApiParam {
   return { name, jsType, rustType };
 }

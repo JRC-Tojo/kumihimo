@@ -24,6 +24,18 @@ describe('PluginField', () => {
     });
     expect(result.success).toBeTrue();
   });
+
+  it('select型はdefaultValueがoptionsに含まれない場合は検証エラーになる', () => {
+    const result = PluginField.safeParse({
+      fieldId: 'position',
+      label: '配置位置',
+      type: 'select',
+      defaultValue: 'top-center',
+      options: ['bottom-center', 'bottom-left'],
+      optional: true,
+    });
+    expect(result.success).toBeFalse();
+  });
 });
 
 describe('PluginEntryPointDescriptor', () => {

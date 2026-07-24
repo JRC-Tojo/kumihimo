@@ -672,7 +672,7 @@ class BackendApi {
     enabled: boolean,
   ): Promise<ApiResponse<void>> {
     const res = await pluginInstallService.setPluginEnabled(id, source, enabled);
-    return toApiResponse(res, 'PLUGIN_INSTALL_FAILED');
+    return toApiResponse(res, 'PLUGIN_TOGGLE_ENABLED_FAILED');
   }
 
   /**
@@ -799,7 +799,7 @@ class BackendApi {
    */
   async dismissPluginSubmission(prNumber: number): Promise<ApiResponse<void>> {
     const res = await pluginSubmissionService.dismissSubmission(prNumber);
-    return toApiResponse(res, 'PLUGIN_SUBMISSION_GET_FAILED');
+    return toApiResponse(res, 'PLUGIN_DISMISS_SUBMISSION_FAILED');
   }
 }
 
