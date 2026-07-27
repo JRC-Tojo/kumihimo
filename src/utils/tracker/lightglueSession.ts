@@ -14,6 +14,12 @@
  *
  * 未配置・読み込み失敗時はFailureを返す。呼び出し側（trackPdfAnnot.ts）はこれを
  * 「追跡不可（元の座標のまま採用）」のフォールバック条件として扱う
+ *
+ * 【重要】onnxruntime-webのwasm実行はデフォルトではメインスレッド上で同期的に実行される。
+ * LightGlueの推論は1ページ対あたり数秒かかることがあり、これをメインスレッドで行うと
+ * 実行中ずっと画面がフリーズ・ポインタ入力が効かなくなる（実機で確認済みの不具合）。
+ * `ort.env.wasm.proxy = true`によりwasm本体の実行をWorkerスレッドへオフロードし、
+ * メインスレッドを解放する
  */
 
 import * as ort from 'onnxruntime-web';
@@ -25,11 +31,24 @@ import { Failure, Success, toError, type Result } from 'src/models/error/result'
  */
 export const LIGHTGLUE_MODEL_URL = '/models/superpoint_lightglue_pipeline.onnx';
 
+/**
+ * onnxruntime-web本体（wasm/workerスクリプト）の配信元。
+ * バンドラー（Vite/Quasar）経由の自動解決に委ねると、workerスクリプトの解決に失敗して
+ * `ort.env.wasm.proxy`が機能しない/読み込みが止まる場合があるため、`package.json`固定の
+ * インストール済みバージョン（1.27.0）に一致するCDNを明示指定する。
+ * 同じ手法を`ppu-paddle-ocr`（本リポジトリのOCR機能が使用）も採用している
+ */
+const ONNXRUNTIME_WEB_VERSION = '1.27.0';
+const WASM_PATHS = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ONNXRUNTIME_WEB_VERSION}/dist/`;
+
 // セッション初期化Promiseをキャッシュする（失敗時は次回呼び出しで再試行可能にする）
 let sessionPromise: Promise<Result<ort.InferenceSession>> | undefined;
 
 async function createSession(): Promise<Result<ort.InferenceSession>> {
   try {
+    if (!ort.env.wasm.wasmPaths) ort.env.wasm.wasmPaths = WASM_PATHS;
+    ort.env.wasm.proxy = true;
+
     const session = await ort.InferenceSession.create(LIGHTGLUE_MODEL_URL, {
       executionProviders: ['wasm'],
     });

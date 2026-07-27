@@ -55,7 +55,7 @@ import * as githubAuthService from 'src/services/plugin/githubAuth';
 import { parseSubmissionDraft } from 'src/services/plugin/manifest';
 import { Path } from 'src/utils/binary/path';
 import { calcBase64Hash } from 'src/utils/binary/base64';
-import { LOW_CONFIDENCE_TAG } from 'src/utils/tracker/trackPdfAnnot';
+import { LOW_CONFIDENCE_TAG, type TrackingProgress } from 'src/utils/tracker/trackPdfAnnot';
 
 /** アップロードによる文書上書き時に行った追跡処理の結果概要 */
 export interface RetrackingSummary {
@@ -373,12 +373,20 @@ class BackendApi {
    * 文書設定ファイルに含まれるアノテーションを新文書に基づいて位置や内容を更新する
    *
    * @param confFilePath 読み込む文書設定ファイルを指定できる（指定しない場合はFileに紐づくconfigFileを読み込む）
+   * @param onProgress PDFの追跡処理はページ数によっては時間がかかるため、進捗（完了ページ数/総ページ数）
+   * を呼び出し側（UI）へ通知するためのコールバック
    */
   async updateDocumentConfig(
     file: ContainerElementFile,
     confFilePath?: string,
+    onProgress?: (progress: TrackingProgress) => void,
   ): Promise<ApiResponse<DocumentConfigFile>> {
-    const updatedConfig = await documentService.updateConfigForNewDoc(file, confFilePath);
+    const updatedConfig = await documentService.updateConfigForNewDoc(
+      file,
+      confFilePath,
+      undefined,
+      onProgress,
+    );
     return toApiResponse(updatedConfig, 'DOCINFO_UPDATE_FAILED');
   }
 

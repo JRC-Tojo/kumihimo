@@ -280,6 +280,9 @@ export default {
         'Could not re-track annotation positions. Opening with the existing annotation data, which may not match the current content.',
       conflictLowConfidence:
         '{count} annotation(s) were tracked with low confidence — please double-check their positions.',
+      trackingProgressTitle: 'Tracking annotation positions',
+      trackingProgressMessage:
+        'Automatically adjusting annotation positions to match the updated document. This may take a moment.',
     },
     peek: {
       title: 'Relational Peek',

@@ -7,6 +7,11 @@
  * モデル未配置時は追跡処理自体を行わず座標を維持する。個別のページで推論・変換推定に
  * 失敗した場合は座標を維持したうえで`tags`に`LOW_CONFIDENCE_TAG`を追加し、
  * 呼び出し側（UI）でユーザーに確認を促せるようにする
+ *
+ * ページ数が多い文書では全体の処理に数十秒〜分単位の時間がかかり得るため、`onProgress`で
+ * 進捗（完了ページ数/総ページ数）を呼び出し側へ通知できるようにしている。また、各ページの
+ * 処理後に明示的にマクロタスク境界へ処理を戻す（`setTimeout(0)`）ことで、メインスレッドが
+ * ポインタ入力やUI描画を処理できる猶予を確保している
  */
 
 import type { DocumentSource } from 'src/models/document/common';
@@ -39,6 +44,17 @@ function withoutLowConfidenceTag(style: AnnotationStyle): AnnotationStyle {
   return { ...style, tags: style.tags.filter((tag) => tag !== LOW_CONFIDENCE_TAG) };
 }
 
+/** 追跡処理の進捗（ページ単位）。`total`は追跡対象ページ数の確定時点で通知する */
+export interface TrackingProgress {
+  completed: number;
+  total: number;
+}
+
+/** マクロタスク境界へ処理を戻し、メインスレッドにポインタ入力・描画処理の機会を与える */
+function yieldToMainThread(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /**
  * 旧文書のアノテーションを新文書における位置で上書きして返す
  */
@@ -46,6 +62,7 @@ export async function trackPdfAnnotation(
   oldSrc: DocumentSource,
   newSrc: DocumentSource,
   annotStyles: AnnotationStyle[],
+  onProgress?: (progress: TrackingProgress) => void,
 ): Promise<Result<AnnotationStyle[]>> {
   if (annotStyles.length === 0) return Success(annotStyles);
 
@@ -76,43 +93,55 @@ export async function trackPdfAnnotation(
     newNumPagesRes.value,
   );
 
-  const tasks = Array.from(byOldPage.entries()).map(
+  const pageEntries = Array.from(byOldPage.entries());
+  const total = pageEntries.length;
+  let completed = 0;
+  onProgress?.({ completed, total });
+
+  async function trackPage(oldPageNum: number, styles: AnnotationStyle[]) {
+    const newPageNum = correspondence.get(oldPageNum);
+    if (newPageNum === undefined) {
+      // 対応する新ページが見つからない（ページ削除等）ため座標を維持し低信頼とする
+      return styles.map(withLowConfidenceTag);
+    }
+
+    const [oldCanvasRes, newCanvasRes] = await Promise.all([
+      renderPageToCanvas(oldSrc, oldPageNum, RENDER_SCALE),
+      renderPageToCanvas(newSrc, newPageNum, RENDER_SCALE),
+    ]);
+    if (!oldCanvasRes.ok || !newCanvasRes.ok) {
+      return styles.map(withLowConfidenceTag);
+    }
+
+    const matchRes = await matchPageImages(oldCanvasRes.value, newCanvasRes.value);
+    if (!matchRes.ok) {
+      return styles.map(withLowConfidenceTag);
+    }
+
+    const estimate = estimateSimilarityRansac(matchRes.value.oldPoints, matchRes.value.newPoints);
+    if (!estimate) {
+      return styles.map(withLowConfidenceTag);
+    }
+
+    return styles.map((style) => {
+      const moved = transformAnnotationStyle(
+        { ...style, pageNumber: newPageNum },
+        estimate.transform,
+      );
+      return withoutLowConfidenceTag(moved);
+    });
+  }
+
+  const tasks = pageEntries.map(
     ([oldPageNum, styles]) =>
       async (): Promise<AnnotationStyle[]> => {
-        const newPageNum = correspondence.get(oldPageNum);
-        if (newPageNum === undefined) {
-          // 対応する新ページが見つからない（ページ削除等）ため座標を維持し低信頼とする
-          return styles.map(withLowConfidenceTag);
-        }
+        const result = await trackPage(oldPageNum, styles);
 
-        const [oldCanvasRes, newCanvasRes] = await Promise.all([
-          renderPageToCanvas(oldSrc, oldPageNum, RENDER_SCALE),
-          renderPageToCanvas(newSrc, newPageNum, RENDER_SCALE),
-        ]);
-        if (!oldCanvasRes.ok || !newCanvasRes.ok) {
-          return styles.map(withLowConfidenceTag);
-        }
+        completed += 1;
+        onProgress?.({ completed, total });
+        await yieldToMainThread();
 
-        const matchRes = await matchPageImages(oldCanvasRes.value, newCanvasRes.value);
-        if (!matchRes.ok) {
-          return styles.map(withLowConfidenceTag);
-        }
-
-        const estimate = estimateSimilarityRansac(
-          matchRes.value.oldPoints,
-          matchRes.value.newPoints,
-        );
-        if (!estimate) {
-          return styles.map(withLowConfidenceTag);
-        }
-
-        return styles.map((style) => {
-          const moved = transformAnnotationStyle(
-            { ...style, pageNumber: newPageNum },
-            estimate.transform,
-          );
-          return withoutLowConfidenceTag(moved);
-        });
+        return result;
       },
   );
 

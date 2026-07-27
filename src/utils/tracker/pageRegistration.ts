@@ -18,6 +18,11 @@ import { buildPairTensor, unletterbox } from './imagePreprocess';
 const MODEL_INPUT_SIZE = 1024;
 /** マッチの信頼度スコア下限。これ未満のペアは変換推定に使わない */
 const MIN_MATCH_SCORE = 0.2;
+/**
+ * 出力テンソルの`dims`読み取りが想定と食い違った場合に、誤った巨大な値をそのままループ回数に
+ * 使ってしまうと処理がほぼ無限に固まって見える（実機で確認済みの不具合）。そのための安全上限
+ */
+const MAX_REASONABLE_COUNT = 16384;
 
 export interface PageMatchResult {
   oldPoints: Point[];
@@ -25,18 +30,33 @@ export interface PageMatchResult {
   scores: number[];
 }
 
-/** keypoints出力（形状`[2, numKeypoints, 2]`を想定）から、指定画像インデックス分の座標配列を取り出す */
-function extractKeypoints(tensor: ort.Tensor, imageIndex: number): Point[] {
+/**
+ * keypoints出力（形状`[2, numKeypoints, 2]`を想定）から、指定画像インデックス分の座標配列を取り出す
+ *
+ * `dims`の読み取りが想定と異なる場合（`numKeypoints`が実データ長を超える等）はFailureを返し、
+ * 誤った要素数でループし続けて処理が固まって見える事態を避ける
+ */
+function extractKeypoints(tensor: ort.Tensor, imageIndex: number): Result<Point[]> {
   const dims = tensor.dims;
   const numKeypoints = dims[1] ?? 0;
   const data = tensor.data as ArrayLike<number | bigint>;
   const base = imageIndex * numKeypoints * 2;
 
+  if (
+    numKeypoints < 0 ||
+    numKeypoints > MAX_REASONABLE_COUNT ||
+    base + numKeypoints * 2 > data.length
+  ) {
+    return Failure(
+      new Error(`keypoints出力の形状が想定と異なります（dims=${JSON.stringify(dims)}）`),
+    );
+  }
+
   const points: Point[] = [];
   for (let i = 0; i < numKeypoints; i++) {
     points.push({ x: Number(data[base + i * 2]), y: Number(data[base + i * 2 + 1]) });
   }
-  return points;
+  return Success(points);
 }
 
 /**
@@ -67,8 +87,12 @@ export async function matchPageImages(
       );
     }
 
-    const oldKeypoints = extractKeypoints(keypointsTensor, 0);
-    const newKeypoints = extractKeypoints(keypointsTensor, 1);
+    const oldKeypointsRes = extractKeypoints(keypointsTensor, 0);
+    if (!oldKeypointsRes.ok) return oldKeypointsRes;
+    const newKeypointsRes = extractKeypoints(keypointsTensor, 1);
+    if (!newKeypointsRes.ok) return newKeypointsRes;
+    const oldKeypoints = oldKeypointsRes.value;
+    const newKeypoints = newKeypointsRes.value;
 
     const matchData = matchesTensor.data as ArrayLike<number | bigint>;
     const scoreData = scoresTensor.data as ArrayLike<number | bigint>;
@@ -77,6 +101,12 @@ export async function matchPageImages(
     // 想定形式は[num, 3]（status, oldIdx, newIdx）。[num, 2]（oldIdx, newIdxのみ）の場合にも対応する
     const cols = matchDims[1] ?? 3;
     const hasStatusColumn = cols >= 3;
+
+    if (numMatches < 0 || numMatches > MAX_REASONABLE_COUNT || numMatches * cols > matchData.length) {
+      return Failure(
+        new Error(`matches出力の形状が想定と異なります（dims=${JSON.stringify(matchDims)}）`),
+      );
+    }
 
     const oldPoints: Point[] = [];
     const newPoints: Point[] = [];

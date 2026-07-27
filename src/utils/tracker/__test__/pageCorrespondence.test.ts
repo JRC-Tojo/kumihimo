@@ -5,6 +5,11 @@ import { Success, type Result } from 'src/models/error/result';
 /**
  * `src/repositories/document/pdf`をモック化し、実際のPDF読み込みを行わずに
  * `buildPageCorrespondence`のページ対応付けロジックのみを検証する
+ *
+ * 注意: `bun test`の`mock.module`はプロセス全体で共有され、テストファイルをまたいで残り続ける。
+ * 同じモジュールパスを`trackPdfAnnot.test.ts`でも（別の関数を）モックしているため、
+ * どちらが先に評価されても他方が必要とする関数が欠けないよう、ここでもその関数を
+ * スタブとして含めておく（実際にはこのファイルからは呼ばれない）
  */
 const OLD_PAGE_TEXT: Record<number, string> = {
   1: '契約書 第一条 目的 本契約は業務委託に関する事項を定める',
@@ -27,6 +32,8 @@ const extractTextByPageMock = mock(
 
 void mock.module('src/repositories/document/pdf', () => ({
   extractTextByPage: extractTextByPageMock,
+  getNumPages: mock((): Promise<Result<number>> => Promise.resolve(Success(0))),
+  renderPageToCanvas: mock((): Promise<Result<unknown>> => Promise.resolve(Success({}))),
 }));
 
 const { buildPageCorrespondence } = await import('../pageCorrespondence');

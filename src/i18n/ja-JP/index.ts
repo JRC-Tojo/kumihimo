@@ -280,6 +280,9 @@ export default {
         'アノテーション位置の再追跡に失敗しました。既存のアノテーション情報のまま開きます（現在の内容と一致していない可能性があります）。',
       conflictLowConfidence:
         '{count}件のアノテーションは自動追跡の精度が低いため、位置が正しいかご確認ください。',
+      trackingProgressTitle: 'アノテーション位置を追跡中',
+      trackingProgressMessage:
+        '更新後の文書に合わせてアノテーションの位置を自動調整しています。しばらくお待ちください。',
     },
     peek: {
       title: '関係性の一覧',

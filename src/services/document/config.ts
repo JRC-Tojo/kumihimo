@@ -8,7 +8,7 @@ import * as containerConfigService from 'src/services/container/config';
 import * as relationalService from 'src/services/document/relational';
 import * as annotationService from 'src/services/document/annotation';
 import { Path } from 'src/utils/binary/path';
-import { trackPdfAnnotation } from 'src/utils/tracker/trackPdfAnnot';
+import { trackPdfAnnotation, type TrackingProgress } from 'src/utils/tracker/trackPdfAnnot';
 import { fromEntries } from 'src/utils/obj/obj';
 import { calcBase64Hash } from 'src/utils/binary/base64';
 import type { AnnotationStyle } from 'src/models/document/pdf';
@@ -206,11 +206,14 @@ export async function discardUnsavedChanges(file: ContainerElementFile): Promise
  *
  * @param oldSrcOverride 上書き前の実バイト列を呼び出し側が既に持っている場合に指定する
  * （アップロードによる上書き検知など）。省略時は従来通りハッシュキーのバックアップから取得する
+ * @param onProgress PDFの追跡処理はページ数によっては時間がかかるため、進捗（完了ページ数/総ページ数）
+ * を呼び出し側（UI）へ通知するためのコールバック
  */
 export async function updateConfigForNewDoc(
   file: ContainerElementFile,
   confFilePath?: string,
   oldSrcOverride?: DocumentSource,
+  onProgress?: (progress: TrackingProgress) => void,
 ): Promise<Result<DocumentConfigFile>> {
   // 文書設定メタ情報を取得
   let loadedConf;
@@ -239,6 +242,7 @@ export async function updateConfigForNewDoc(
     oldSrc.value,
     newSrc.value,
     Object.values(loadedConf.value.annots).map((a) => a.style),
+    onProgress,
   );
   if (!newAnnotStyle.ok) return newAnnotStyle;
 
@@ -356,13 +360,14 @@ async function trackAnnotation(
   oldFileSrc: DocumentSource,
   newFileSrc: DocumentSource,
   annotInfo: AnnotationStyle[],
+  onProgress?: (progress: TrackingProgress) => void,
 ): Promise<Result<AnnotationStyle[]>> {
   const pathExts = new Path(file.path).extname();
   switch (pathExts) {
     case '.pdf':
       // TODO: 本当はプラグインとして処理を外部に出すべき
       // 現状はプラグインの設計が固まっていないため、このまま処理を内包する
-      return trackPdfAnnotation(oldFileSrc, newFileSrc, annotInfo);
+      return trackPdfAnnotation(oldFileSrc, newFileSrc, annotInfo, onProgress);
     default:
       return Failure(new Error(`Not supported this file type (${pathExts})`));
   }
