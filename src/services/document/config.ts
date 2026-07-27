@@ -203,10 +203,14 @@ export async function discardUnsavedChanges(file: ContainerElementFile): Promise
 
 /**
  * 既存文書が新規文書で更新されたときにConfig情報も更新する
+ *
+ * @param oldSrcOverride 上書き前の実バイト列を呼び出し側が既に持っている場合に指定する
+ * （アップロードによる上書き検知など）。省略時は従来通りハッシュキーのバックアップから取得する
  */
 export async function updateConfigForNewDoc(
   file: ContainerElementFile,
   confFilePath?: string,
+  oldSrcOverride?: DocumentSource,
 ): Promise<Result<DocumentConfigFile>> {
   // 文書設定メタ情報を取得
   let loadedConf;
@@ -224,11 +228,11 @@ export async function updateConfigForNewDoc(
   if (!newHash.ok) return newHash;
   if (loadedConf.value.fileHash === newHash.value) return loadedConf;
 
-  // アノテーションの更新（位置・文書内容）
-  const oldSrc = await containerConfigService.getBackupSrc(
-    file.containerID,
-    loadedConf.value.fileHash,
-  );
+  // アノテーションの更新（位置・文書内容）。上書き前の実バイト列が指定されていればそれを使い、
+  // 指定がなければ従来通りハッシュキーのバックアップから取得する
+  const oldSrc = oldSrcOverride
+    ? Success(oldSrcOverride)
+    : await containerConfigService.getBackupSrc(file.containerID, loadedConf.value.fileHash);
   if (!oldSrc.ok) return oldSrc;
   const newAnnotStyle = await trackAnnotation(
     file,

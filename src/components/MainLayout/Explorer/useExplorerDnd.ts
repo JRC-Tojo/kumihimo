@@ -167,6 +167,7 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
       if (!createRes.ok) failedPaths.push(folderPath);
     }
 
+    let lowConfidenceCount = 0;
     for (const { path, file } of allFiles) {
       const buffer = await file.arrayBuffer();
       const base64Res = await arrayBufferToBase64(buffer);
@@ -186,7 +187,19 @@ export function useExplorerDnd(options: UseExplorerDndOptions) {
         targetFolderPath.child(path).path,
         parsedSource.data,
       );
-      if (!saveRes.ok) failedPaths.push(path);
+      if (!saveRes.ok) {
+        failedPaths.push(path);
+        continue;
+      }
+      lowConfidenceCount += saveRes.data.retracking?.lowConfidenceCount ?? 0;
+    }
+
+    // 上書きアップロードにより自動追跡されたアノテーションのうち、精度が低いものがあれば確認を促す
+    if (lowConfidenceCount > 0) {
+      $q.notify({
+        type: 'warning',
+        message: t('explorer.retrackLowConfidence', { count: lowConfidenceCount }),
+      });
     }
 
     return failedPaths;

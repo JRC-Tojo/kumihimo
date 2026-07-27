@@ -9,7 +9,7 @@ import {
   ensureDefaultAnnotationPresets,
 } from 'src/settings/main';
 import { toApiResponse, type ApiResponse } from 'src/models/error/api';
-import { Failure, Success } from 'src/models/error/result';
+import { Failure, NotFoundError, Success, type Result } from 'src/models/error/result';
 import * as containerService from 'src/services/container/main';
 import * as relationalService from 'src/services/document/relational';
 import * as pdfRepo from 'src/repositories/document/pdf';
@@ -53,6 +53,55 @@ import * as pluginRunService from 'src/services/plugin/run';
 import * as pluginSubmissionService from 'src/services/plugin/submissionGithub';
 import * as githubAuthService from 'src/services/plugin/githubAuth';
 import { parseSubmissionDraft } from 'src/services/plugin/manifest';
+import { Path } from 'src/utils/binary/path';
+import { calcBase64Hash } from 'src/utils/binary/base64';
+import { LOW_CONFIDENCE_TAG } from 'src/utils/tracker/trackPdfAnnot';
+
+/** アップロードによる文書上書き時に行った追跡処理の結果概要 */
+export interface RetrackingSummary {
+  tracked: boolean;
+  /** 自動追跡できなかった、または精度が低いためユーザー確認が必要なアノテーション件数 */
+  lowConfidenceCount: number;
+}
+
+/**
+ * アップロードによる文書上書き時、内容が変化していればアノテーション位置の追跡を試みる
+ *
+ * `documentService.updateConfigForNewDoc`（タブを開いたときのコンフリクト解決と同じ処理）を、
+ * 上書き前に取得しておいた実バイト列を渡して能動的に呼び出す。ハッシュキーのバックアップの
+ * 有無に依存せず追跡できる点が、タブを開いたときの遅延経路との違い。
+ * 新規アップロード（上書きではない）の場合や、追跡処理自体が失敗した場合はnullを返す
+ * （本体ファイルの保存自体はベストエフォートで成功として扱うため、ここでの失敗は伝播させない）
+ */
+async function tryRetrackAfterUpload(
+  file: ContainerElementFile,
+  oldSrcRes: Result<DocumentSource>,
+  newSrc: DocumentSource,
+): Promise<RetrackingSummary | null> {
+  if (!oldSrcRes.ok) return null;
+
+  const [oldHash, newHash] = await Promise.all([
+    calcBase64Hash(oldSrcRes.value),
+    calcBase64Hash(newSrc),
+  ]);
+  if (!oldHash.ok || !newHash.ok || oldHash.value === newHash.value) return null;
+
+  const updatedConfig = await documentService.updateConfigForNewDoc(
+    file,
+    undefined,
+    oldSrcRes.value,
+  );
+  if (!updatedConfig.ok) return null;
+
+  const acceptRes = await documentService.acceptExternalConfig(file, updatedConfig.value);
+  if (!acceptRes.ok) return null;
+
+  const lowConfidenceCount = Object.values(updatedConfig.value.annots).filter((info) =>
+    info.style.tags?.includes(LOW_CONFIDENCE_TAG),
+  ).length;
+
+  return { tracked: true, lowConfidenceCount };
+}
 
 /**
  * バックエンド統合 API層
@@ -240,14 +289,28 @@ class BackendApi {
 
   /**
    * 文書を新規登録
+   *
+   * 既存のPDF文書を同名で上書きする場合、上書き前の内容とのハッシュ差分を検知し、
+   * `documentService.updateConfigForNewDoc`によるアノテーション位置の追跡（LightGlue-ONNXによる
+   * 特徴点マッチング）をアップロード時点で能動的に行う（タブを開いたときの遅延検知を待たない）。
+   * 追跡自体に失敗しても本体ファイルの保存は成功として扱う（ベストエフォート）
    */
   async saveFile(
     cId: ContainerID,
     filePath: string,
     srcData: DocumentSource,
-  ): Promise<ApiResponse<ContainerElementFile>> {
+  ): Promise<ApiResponse<{ file: ContainerElementFile; retracking: RetrackingSummary | null }>> {
+    const isTrackableDoc = new Path(filePath).extname() === '.pdf';
+    const oldSrcRes = isTrackableDoc
+      ? await containerService.loadFileAsDocumentSource(cId, filePath)
+      : Failure(new NotFoundError('not a trackable document'));
+
     const file = await containerService.createFile(cId, filePath, srcData);
-    return toApiResponse(file, 'DOC_SAVE_FAILED');
+    if (!file.ok) return toApiResponse(file, 'DOC_SAVE_FAILED');
+
+    const retracking = await tryRetrackAfterUpload(file.value, oldSrcRes, srcData);
+
+    return toApiResponse(Success({ file: file.value, retracking }), 'DOC_SAVE_FAILED');
   }
 
   /**

@@ -105,6 +105,7 @@ import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.
 import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
+import { LOW_CONFIDENCE_TAG } from 'src/utils/tracker/trackPdfAnnot';
 import { useAnnotationActions } from './composables/useAnnotationActions';
 
 interface Prop {
@@ -239,7 +240,19 @@ async function resolveConfigConflict(): Promise<boolean> {
   const updatedConfig = await api.updateDocumentConfig(prop.file);
   if (updatedConfig.ok) {
     const acceptRes = await api.acceptExternalDocumentConfig(prop.file, updatedConfig.data);
-    if (acceptRes.ok) return true;
+    if (acceptRes.ok) {
+      // 自動追跡できなかった、または精度が低いアノテーションがあればユーザーに確認を促す
+      const lowConfidenceCount = Object.values(updatedConfig.data.annots).filter((info) =>
+        info.style.tags?.includes(LOW_CONFIDENCE_TAG),
+      ).length;
+      if (lowConfidenceCount > 0) {
+        $q.notify({
+          type: 'warning',
+          message: t('pdfEditor.document.conflictLowConfidence', { count: lowConfidenceCount }),
+        });
+      }
+      return true;
+    }
   }
 
   $q.notify({ type: 'warning', message: t('pdfEditor.document.conflictTrackFailed') });
