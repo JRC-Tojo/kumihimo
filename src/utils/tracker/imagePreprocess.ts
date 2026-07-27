@@ -53,7 +53,10 @@ function letterboxResize(
 }
 
 /** リサイズ後画像上の座標を、元のCanvas座標系（＝ページレンダリング時のピクセル座標）に逆変換する */
-export function unletterbox(point: { x: number; y: number }, info: LetterboxInfo): {
+export function unletterbox(
+  point: { x: number; y: number },
+  info: LetterboxInfo,
+): {
   x: number;
   y: number;
 } {
