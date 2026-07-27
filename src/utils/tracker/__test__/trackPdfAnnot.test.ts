@@ -12,17 +12,13 @@ import { Success, type Result } from 'src/models/error/result';
  * モックしているため、どちらが先に評価されても他方が必要とする関数が欠けないよう、
  * ここでもその関数をスタブとして含めておく（実際にはこのファイルからは呼ばれない）
  */
-const getLightGlueSessionMock = mock(
-  (): Promise<Result<object>> => Promise.resolve(Success({})),
-);
+const getLightGlueSessionMock = mock((): Promise<Result<object>> => Promise.resolve(Success({})));
 void mock.module('src/utils/tracker/lightglueSession', () => ({
   getLightGlueSession: getLightGlueSessionMock,
 }));
 
 const getNumPagesMock = mock((): Promise<Result<number>> => Promise.resolve(Success(3)));
-const renderPageToCanvasMock = mock(
-  (): Promise<Result<unknown>> => Promise.resolve(Success({})),
-);
+const renderPageToCanvasMock = mock((): Promise<Result<unknown>> => Promise.resolve(Success({})));
 void mock.module('src/repositories/document/pdf', () => ({
   getNumPages: getNumPagesMock,
   renderPageToCanvas: renderPageToCanvasMock,
@@ -59,9 +55,7 @@ const buildPageCorrespondenceMock = mock(
     _newSrc: DocumentSource,
     targetOldPageNumbers: number[],
   ): Promise<Map<number, number | undefined>> =>
-    Promise.resolve(
-      new Map(targetOldPageNumbers.map((p) => [p, p === 3 ? undefined : p])),
-    ),
+    Promise.resolve(new Map(targetOldPageNumbers.map((p) => [p, p === 3 ? undefined : p]))),
 );
 void mock.module('src/utils/tracker/pageCorrespondence', () => ({
   buildPageCorrespondence: buildPageCorrespondenceMock,

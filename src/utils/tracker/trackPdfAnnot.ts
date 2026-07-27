@@ -132,18 +132,15 @@ export async function trackPdfAnnotation(
     });
   }
 
-  const tasks = pageEntries.map(
-    ([oldPageNum, styles]) =>
-      async (): Promise<AnnotationStyle[]> => {
-        const result = await trackPage(oldPageNum, styles);
+  const tasks = pageEntries.map(([oldPageNum, styles]) => async (): Promise<AnnotationStyle[]> => {
+    const result = await trackPage(oldPageNum, styles);
 
-        completed += 1;
-        onProgress?.({ completed, total });
-        await yieldToMainThread();
+    completed += 1;
+    onProgress?.({ completed, total });
+    await yieldToMainThread();
 
-        return result;
-      },
-  );
+    return result;
+  });
 
   const results = await runConcurrently(tasks, PAGE_CONCURRENCY);
   return Success(results.flat());

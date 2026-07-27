@@ -102,7 +102,11 @@ export async function matchPageImages(
     const cols = matchDims[1] ?? 3;
     const hasStatusColumn = cols >= 3;
 
-    if (numMatches < 0 || numMatches > MAX_REASONABLE_COUNT || numMatches * cols > matchData.length) {
+    if (
+      numMatches < 0 ||
+      numMatches > MAX_REASONABLE_COUNT ||
+      numMatches * cols > matchData.length
+    ) {
       return Failure(
         new Error(`matches出力の形状が想定と異なります（dims=${JSON.stringify(matchDims)}）`),
       );
