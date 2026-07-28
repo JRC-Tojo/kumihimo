@@ -189,6 +189,7 @@ function buildTestContext(): PluginExecutionContext {
         pageTextBlocksJson: new Map(),
         pageImages: new Map(),
         existingAnnotations: [],
+        visionTaskResults: new Map(),
       },
     ],
     representativePageSize: { width: 1, height: 1 },
@@ -258,7 +259,9 @@ describe('wasmEngine', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     // 3引数とも同じ「ゼロ初期化された」メモリ番地を渡しているため、readCStringは空文字列を返す
-    expect(res.value).toEqual([{ entryId: '', label: '', description: '', fields: [] }]);
+    expect(res.value).toEqual([
+      { entryId: '', label: '', description: '', fields: [], visionTasks: [] },
+    ]);
   });
 
   test('discoverEntryPoints reports a WebAssembly.instantiate failure (invalid binary) as a failure', async () => {

@@ -98,7 +98,10 @@ export async function runEntryPoint(
   const descriptor = descriptorsRes.value.find((d) => d.entryId === entryId);
   if (!descriptor) return Failure(new Error(`Not Found Entry Point (entryId: ${entryId})`));
 
-  const ctxRes = await buildExecutionContext(manifest, targetFiles);
+  // `ai.getVisionTaskResult`はdescribePlugin実行時に`ai.declareVisionTask`で宣言された内容
+  // （どのモデル・どのタスクで事前推論するか）に基づいて事前解決するため、descriptorを
+  // buildExecutionContextより前に確定させ、その`visionTasks`を渡す
+  const ctxRes = await buildExecutionContext(manifest, targetFiles, descriptor.visionTasks);
   if (!ctxRes.ok) return ctxRes;
   const ctx = ctxRes.value;
 

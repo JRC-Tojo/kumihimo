@@ -64,11 +64,30 @@ export const PluginField = z.discriminatedUnion('type', [
 ]);
 export type PluginField = z.infer<typeof PluginField>;
 
+/**
+ * `ai.declareVisionTask`（発見専用API）で宣言される、ページ画像に対するONNXビジョン
+ * 言語モデルの推論タスク。特定のモデル・特定のプラグイン用途に依らない汎用の宣言で、
+ * `modelId`（Hugging Face Hub上のtransformers.js対応モデルのリポジトリID）と
+ * `task`（そのモデルへ渡すプロンプト/タスク指示文字列）を自由に指定できる。
+ *
+ * WASMのホスト関数は同期呼び出しのみ可能な一方、モデル推論は本質的に非同期（かつ
+ * WebGPU実行を想定するとなおさら）であるため、`file`型フィールドと同様に
+ * 「discoverePlugin時に宣言→実行前にホストが対象ファイルの全ページ分を事前解決→
+ * 実行時は`ai.getVisionTaskResult`で結果を参照するだけ」という方式を取る
+ */
+export const PluginVisionTask = z.object({
+  taskId: z.string(),
+  modelId: z.string(),
+  task: z.string(),
+});
+export type PluginVisionTask = z.infer<typeof PluginVisionTask>;
+
 export const PluginEntryPointDescriptor = z.object({
   // WASMのexport関数名と完全一致させる規約（`instance.exports[entryId]`をそのまま呼び出す）
   entryId: z.string(),
   label: z.string(),
   description: z.string(),
   fields: PluginField.array(),
+  visionTasks: PluginVisionTask.array().default([]),
 });
 export type PluginEntryPointDescriptor = z.infer<typeof PluginEntryPointDescriptor>;

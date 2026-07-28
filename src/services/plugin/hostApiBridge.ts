@@ -10,7 +10,11 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { PluginManifest, PluginHostApiName } from 'src/models/plugin/manifest';
-import type { PluginField, PluginEntryPointDescriptor } from 'src/models/plugin/discovery';
+import type {
+  PluginField,
+  PluginEntryPointDescriptor,
+  PluginVisionTask,
+} from 'src/models/plugin/discovery';
 import type { PluginConfirmationMode, PluginPlanItem } from 'src/models/plugin/plan';
 import type { PluginPanelBlock } from 'src/models/plugin/panel';
 import type { PluginExecutionContext } from 'src/services/plugin/hostContext';
@@ -36,10 +40,20 @@ function addField(state: DiscoveryState, field: PluginField): void {
   current.fields.push(field);
 }
 
+function addVisionTask(state: DiscoveryState, task: PluginVisionTask): void {
+  const current = state.entryPoints[state.entryPoints.length - 1];
+  // ui.registerEntryPointを呼ばずに宣言しようとした場合は無視する
+  if (!current) return;
+  current.visionTasks.push(task);
+}
+
 export function buildDiscoveryBridge(state: DiscoveryState): Record<string, HostFn> {
   return {
     ui_register_entry_point: (entryId: string, label: string, description: string) => {
-      state.entryPoints.push({ entryId, label, description, fields: [] });
+      state.entryPoints.push({ entryId, label, description, fields: [], visionTasks: [] });
+    },
+    ai_declare_vision_task: (taskId: string, modelId: string, task: string) => {
+      addVisionTask(state, { taskId, modelId, task });
     },
     ui_add_text_field: (
       fieldId: string,
@@ -425,6 +439,11 @@ export function buildExecutionBridge(
           .filter((a) => a.style.tags?.includes(tag))
           .map((a) => a.style.id)
           .join(','),
+    },
+    'ai.getVisionTaskResult': {
+      hostKey: 'ai_get_vision_task_result',
+      fn: (fileIndex: number, page: number, taskId: string) =>
+        ctx.fileContexts[fileIndex]?.visionTaskResults.get(taskId)?.get(page) ?? '',
     },
   };
 

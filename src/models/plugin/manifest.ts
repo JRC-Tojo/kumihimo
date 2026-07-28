@@ -65,6 +65,7 @@ export const PluginHostApiName = z.enum([
   'doc.getPageImage',
   'doc.getAnnotationsByFile',
   'doc.getAnnotationIdsByTag',
+  'ai.getVisionTaskResult',
 ]);
 export type PluginHostApiName = z.infer<typeof PluginHostApiName>;
 

@@ -11,6 +11,7 @@
  */
 import type { ContainerElementFile } from 'src/models/container';
 import type { PluginManifest, PluginHostApiName } from 'src/models/plugin/manifest';
+import type { PluginVisionTask } from 'src/models/plugin/discovery';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success } from 'src/models/error/result';
@@ -18,6 +19,7 @@ import * as containerService from 'src/services/container/main';
 import * as annotationService from 'src/services/document/annotation';
 import * as pdfRepo from 'src/repositories/document/pdf';
 import { acquirePdfDocument } from 'src/repositories/document/pdfDocumentCache';
+import { runVisionTask } from 'src/utils/onnxVision/main';
 
 /** `targetFiles`内の1ファイルぶんの先読みデータ */
 export interface PluginFileContext {
@@ -27,6 +29,8 @@ export interface PluginFileContext {
   pageTextBlocksJson: Map<number, string>;
   pageImages: Map<number, string>;
   existingAnnotations: AnnotationInfo[];
+  // `ai.declareVisionTask`で宣言されたtaskIdごとの、ページ番号→推論結果テキスト
+  visionTaskResults: Map<string, Map<number, string>>;
 }
 
 export interface PluginExecutionContext {
@@ -58,10 +62,15 @@ function emptyContext(): PluginExecutionContext {
  * PDFを`acquirePdfDocument`で1回だけ取得し、全ページのサイズ・テキスト・画像の先読みを
  * そのインスタンスに対して行う（ページごとに`loadPdfFromSrc64`し直すとページ数に比例して
  * 読み込みが繰り返され、pdf.jsのWorker生成コストが増大するため）
+ *
+ * `visionTasks`は`describePlugin`実行時に`ai.declareVisionTask`で宣言された、ページ画像に
+ * 対するONNXビジョン言語モデルの推論タスク一覧（`run.ts`がdiscover結果から渡す）。
+ * `ai.getVisionTaskResult`が要求されている場合のみ、全ページぶん事前に推論しておく
  */
 async function buildFileContext(
   manifest: PluginManifest,
   file: ContainerElementFile,
+  visionTasks: PluginVisionTask[],
 ): Promise<
   Result<PluginFileContext & { representativePageSize: { width: number; height: number } }>
 > {
@@ -130,6 +139,27 @@ async function buildFileContext(
       if (res.ok) existingAnnotations = res.value;
     }
 
+    // 既知の制約: doc.getPageImageと同様、要求された場合は全ページぶんの推論を実行前に
+    // まとめて行うため、ページ数の多い文書・大きなモデルでは起動が大きく遅くなる。
+    // v1では簡潔さを優先し許容する
+    const visionTaskResults = new Map<string, Map<number, string>>();
+    if (requestsApi(manifest, 'ai.getVisionTaskResult') && visionTasks.length > 0) {
+      for (const visionTask of visionTasks) {
+        const pageResults = new Map<number, string>();
+        for (let page = 1; page <= pageCount; page++) {
+          const res = await pdfRepo.renderPageToCanvasFromDoc(pdf, page, 1);
+          if (!res.ok) continue;
+          try {
+            const text = await runVisionTask(res.value, visionTask.modelId, visionTask.task);
+            pageResults.set(page, text);
+          } catch (e) {
+            console.error('[plugin] vision task failed:', visionTask.taskId, page, e);
+          }
+        }
+        visionTaskResults.set(visionTask.taskId, pageResults);
+      }
+    }
+
     return Success({
       pageCount,
       metadataJson,
@@ -137,6 +167,7 @@ async function buildFileContext(
       pageTextBlocksJson,
       pageImages,
       existingAnnotations,
+      visionTaskResults,
       representativePageSize: repSizeRes.value,
     });
   } finally {
@@ -154,6 +185,7 @@ async function buildFileContext(
 export async function buildExecutionContext(
   manifest: PluginManifest,
   targetFiles: ContainerElementFile[],
+  visionTasks: PluginVisionTask[] = [],
 ): Promise<Result<PluginExecutionContext>> {
   if (targetFiles.length === 0) return Success(emptyContext());
 
@@ -163,7 +195,7 @@ export async function buildExecutionContext(
   for (let i = 0; i < targetFiles.length; i++) {
     const file = targetFiles[i];
     if (!file) continue;
-    const res = await buildFileContext(manifest, file);
+    const res = await buildFileContext(manifest, file, visionTasks);
     if (!res.ok) return res;
     const { representativePageSize: fileRepSize, ...fileContext } = res.value;
     fileContexts.push(fileContext);

@@ -17,6 +17,7 @@
     "generate:plugin-sdk": "bun run scripts/generatePluginSdk.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@quasar/extras": "^1.16.4",
     "dayjs": "^1.11.20",
     "dexie": "^4.4.4",

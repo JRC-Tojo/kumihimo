@@ -35,6 +35,7 @@ function buildFileContext(overrides: Partial<PluginFileContext> = {}): PluginFil
     pageTextBlocksJson: new Map(),
     pageImages: new Map(),
     existingAnnotations: [],
+    visionTaskResults: new Map(),
     ...overrides,
   };
 }

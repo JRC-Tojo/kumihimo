@@ -104,6 +104,24 @@ export const HOST_API_REGISTRY: HostApiFunctionSpec[] = [
     ],
     returns: 'void',
   },
+  {
+    // 任意のONNXビジョン言語モデルによる画像解析タスクを宣言する（特定のモデル・特定の
+    // プラグイン用途に依らない汎用API）。WASMのホスト関数は同期呼び出しのみ可能で、
+    // モデル推論は本質的に非同期（かつWebGPU実行を想定すると特に）であるため、
+    // ui.addFileField等と同様に「discoverePlugin時に宣言→実行前にホストが事前解決→
+    // 実行時APIで結果を参照するだけ」という方式を取る。`modelId`はHugging Face Hub上の
+    // transformers.js対応モデルのリポジトリID（例:
+    // "onnx-community/GLM-OCR-ONNX"）、`task`はそのモデルへ渡すプロンプト/タスク指示
+    // （例: "Formula Recognition:"）で、いずれもホスト側にハードコードされない
+    hostFnName: 'ai_declare_vision_task',
+    group: 'discovery',
+    params: [
+      p('task_id', 'string', 'string'),
+      p('model_id', 'string', 'string'),
+      p('task', 'string', 'string'),
+    ],
+    returns: 'void',
+  },
 
   // ============ 実行時API（requiredHostApisで最小権限制御） ============
   {
@@ -219,6 +237,19 @@ export const HOST_API_REGISTRY: HostApiFunctionSpec[] = [
     hostFnName: 'doc_get_annotation_ids_by_tag',
     group: 'execution',
     params: [p('file_index', 'number', 'i32'), p('tag', 'string', 'string')],
+    returns: 'string',
+  },
+  {
+    // `ai.declareVisionTask`で宣言済みのtaskIdに対応する、指定ページの推論結果テキストを
+    // 取得する。事前解決済みの結果を参照するだけの同期APIで、実際の推論は
+    // hostContext.tsのbuildFileContextが実行前にまとめて行っている
+    hostFnName: 'ai_get_vision_task_result',
+    group: 'execution',
+    params: [
+      p('file_index', 'number', 'i32'),
+      p('page', 'number', 'i32'),
+      p('task_id', 'string', 'string'),
+    ],
     returns: 'string',
   },
 ];
