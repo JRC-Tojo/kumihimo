@@ -200,8 +200,8 @@ export default {
         equal: '等しい',
         link: 'リンク',
         cancel: 'キャンセル',
-        defineEqual: '「等しい」として関係性を定義',
-        defineLink: '「リンク」として関係性を定義',
+        defineequal: '「等しい」として関係性を定義',
+        definelink: '「リンク」として関係性を定義',
         openSettings: '関係性検証スタイルの設定を開く',
         waitingMessage:
           '対になるアノテーションを待機しています（{mode}モード）。描画または選択するとリンクされます。',

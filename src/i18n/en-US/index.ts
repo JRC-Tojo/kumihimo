@@ -200,8 +200,8 @@ export default {
         equal: 'Equal',
         link: 'Linked',
         cancel: 'Cancel',
-        defineEqual: 'Define relationship as "Equal"',
-        defineLink: 'Define relationship as "Linked"',
+        defineequal: 'Define relationship as "Equal"',
+        definelink: 'Define relationship as "Linked"',
         openSettings: 'Open relational verification style settings',
         waitingMessage:
           'Waiting for the paired annotation ({mode} mode). Draw or select it to link them.',

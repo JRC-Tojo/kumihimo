@@ -505,11 +505,13 @@ function scrollToSection(id: string) {
 }
 
 // 他画面（関係性SubTools等）から「設定タブを開いて特定セクションへスクロールしてほしい」という
-// 意図が届いた場合、対象セクションが検索フィルタで隠れないようクリアした上でスクロールする
+// 意図が届いた場合、対象セクションが検索フィルタで隠れないようクリアした上でスクロールする。
+// `settings`（API取得結果）が読み込まれるまでは対象セクション自体がDOMに存在しないため、
+// 両方が揃うまで待ってから実行する（意図が先に届き、まだ設定を読み込み中の初回マウント時にも対応する）
 watch(
-  () => editorStore.settingsScrollTarget,
-  async (target) => {
-    if (target === undefined) return;
+  [() => editorStore.settingsScrollTarget, settings],
+  async ([target, loadedSettings]) => {
+    if (target === undefined || loadedSettings === undefined) return;
     searchQuery.value = '';
     await nextTick();
     scrollToSection(target);
