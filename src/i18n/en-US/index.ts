@@ -226,7 +226,8 @@ export default {
       },
       stylePanel: {
         color: 'Stroke Color',
-        lockedByRelational: 'Cannot change — overridden by the relational verification result style',
+        lockedByRelational:
+          'Cannot change — overridden by the relational verification result style',
         strokeWidth: 'Stroke Width',
         strokeType: 'Stroke Type',
         opacity: 'Opacity',

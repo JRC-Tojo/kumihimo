@@ -142,7 +142,8 @@ export const useRelationalStore = defineStore('relational', {
       const api = useBackendApi();
       await this.refreshFile(file);
 
-      const otherId = edge.relational.srcID === selfId ? edge.relational.targetID : edge.relational.srcID;
+      const otherId =
+        edge.relational.srcID === selfId ? edge.relational.targetID : edge.relational.srcID;
       const otherFileRes = await api.resolveAnnotationFile(otherId);
       if (otherFileRes.ok && !isSameFile(otherFileRes.data, file)) {
         await this.refreshFile(otherFileRes.data);

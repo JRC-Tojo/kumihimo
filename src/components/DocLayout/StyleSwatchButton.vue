@@ -67,7 +67,8 @@ const colorValue = defineModel<string | undefined>({ required: true });
 const settingsStore = useSettingsStore();
 
 const swatchStyle = computed(() => {
-  const colorSetter = (defColor: string) => props.disable ? 'gray' : (colorValue.value ?? defColor);
+  const colorSetter = (defColor: string) =>
+    props.disable ? 'gray' : (colorValue.value ?? defColor);
 
   if (props.variant === 'outline') {
     return { backgroundColor: 'transparent', borderColor: colorSetter('#000000') };
