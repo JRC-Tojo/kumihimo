@@ -170,7 +170,10 @@ export const useRelationalStore = defineStore('relational', {
     ): Promise<boolean> {
       const api = useBackendApi();
 
-      const removeRes = await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
+      const removeRes = await api.removeRelationalEdge(
+        edge.relational.srcID,
+        edge.relational.targetID,
+      );
       if (!removeRes.ok) return false;
 
       const registRes = await api.registRelationals({
