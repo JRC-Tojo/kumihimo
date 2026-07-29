@@ -65,7 +65,7 @@
             <div class="relation-row-value q-mt-xs text-caption text-grey-7">
               {{ $t('pdfEditor.rightDrawer.annotation.otherValue') }}: {{ otherValueDisplay(edge) }}
             </div>
-            <div class="relation-row-actions q-mt-xs" @click.stop>
+            <div class="relation-row-actions q-mt-xs" @click.stop @dblclick.stop>
               <q-select
                 :model-value="edge.relational.rule.type"
                 :options="ruleTypeOptions"
@@ -96,6 +96,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useEditorStore } from 'src/stores/editorStore';
 import {
@@ -106,7 +107,7 @@ import {
 } from 'src/stores/relationalStore';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
-import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
+import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
 
 interface Prop {
   annotId: AnnotationID;
@@ -116,6 +117,7 @@ const prop = defineProps<Prop>();
 
 const open = defineModel<boolean>('open', { required: true });
 
+const $q = useQuasar();
 const api = useBackendApi();
 const editorStore = useEditorStore();
 const relationalStore = useRelationalStore();
@@ -177,19 +179,15 @@ const ruleTypeOptions: { label: string; value: RelationalRuleType }[] = [
 ];
 
 /**
- * ルール種別の変更：既存の1本を削除してから新しいルールで登録し直す
+ * ルール種別の変更：既存の1本を削除してから新しいルールで登録し直す（失敗時は元のルールへロールバック）
  */
 async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleType) {
   if (newType === edge.relational.rule.type) return;
 
-  // TODO: エラーハンドリング
-  await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
-  await api.registRelationals({
-    srcID: edge.relational.srcID,
-    targetID: edge.relational.targetID,
-    rule: buildRelationalRule(newType),
-  });
-  await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, prop.annotId);
+  const ok = await relationalStore.changeRelationalRuleType(prop.file, edge, prop.annotId, newType);
+  if (!ok) {
+    $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
+  }
 }
 
 /**
@@ -197,9 +195,10 @@ async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleTyp
  * 残りのエッジがあれば`watch(edges, ...)`が新しい先頭エッジを自動選択する
  */
 async function onRemoveRelation(edge: RelationalEdge) {
+  const selfId = prop.annotId;
   await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
   if (previewedAnnotId.value === otherAnnotId(edge)) previewedAnnotId.value = undefined;
-  await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, prop.annotId);
+  await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, selfId);
 }
 
 /**

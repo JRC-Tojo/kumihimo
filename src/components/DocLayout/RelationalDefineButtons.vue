@@ -98,6 +98,12 @@ const relationalModes = [
   { type: 'link', icon: 'link' },
 ] as { type: RelationalRuleType; icon: string }[];
 
+/**
+ * 「等しい」「リンク」ボタンのシングルクリック処理
+ *
+ * 未待機時は選択中のアノテーションを基準に対になるアノテーションの待機状態を開始し、
+ * 待機中はそのまま種別だけを切り替える（種別の確認・変更を待機中でも行えるようにするため）
+ */
 function onDefine(mode: RelationalRuleType) {
   if (isPending.value) {
     // 待機中は待機状態を維持したまま種別だけ切り替える
@@ -148,10 +154,16 @@ watch(target, (annot) => {
   startRelationalDefine(editorStore, t, mode, annot.id, file);
 });
 
+/**
+ * 関係性登録モードを終了する（待機中の状態・連続定義モードも解除する）
+ */
 function onCancel() {
   editorStore.cancelRelationalMode();
 }
 
+/**
+ * 設定タブを開き、関係性検証スタイルのセクションへ自動スクロールする
+ */
 function onOpenSettings() {
   editorStore.requestSettingsScroll('relational');
 }

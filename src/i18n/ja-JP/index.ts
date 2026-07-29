@@ -207,6 +207,7 @@ export default {
           '対になるアノテーションを待機しています（{mode}モード）。描画または選択するとリンクされます。',
         registerSuccess: '関係性を登録しました。',
         registerFailed: '関係性の登録に失敗しました。',
+        changeFailed: '関係性の種別変更に失敗しました。',
       },
       layerOrder: {
         title: '重ね順',

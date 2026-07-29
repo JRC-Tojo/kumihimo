@@ -207,6 +207,7 @@ export default {
           'Waiting for the paired annotation ({mode} mode). Draw or select it to link them.',
         registerSuccess: 'Relationship registered.',
         registerFailed: 'Failed to register the relationship.',
+        changeFailed: 'Failed to change the relationship type.',
       },
       layerOrder: {
         title: 'Layer Order',

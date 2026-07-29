@@ -288,14 +288,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, nextTick, watch } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import dayjs from 'dayjs';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
 import { useSettingsStore } from 'src/stores/settingsStore';
-import { useEditorStore } from 'src/stores/editorStore';
+import { useSettingsScrollTarget } from 'src/composables/useSettingsScrollTarget';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
 import { importPresetsDialog } from 'src/components/Dialog/confirmDialog';
@@ -309,7 +309,6 @@ const { t: $t } = useI18n();
 const $q = useQuasar();
 const api = useBackendApi();
 const settingsStore = useSettingsStore();
-const editorStore = useEditorStore();
 
 const settings = ref<AppSettings>();
 const importFileInput = ref<HTMLInputElement>();
@@ -500,25 +499,9 @@ const visibleSections = computed(() =>
 
 const contentRef = ref<HTMLElement>();
 
-function scrollToSection(id: string) {
-  contentRef.value?.querySelector(`#${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-// 他画面（関係性SubTools等）から「設定タブを開いて特定セクションへスクロールしてほしい」という
-// 意図が届いた場合、対象セクションが検索フィルタで隠れないようクリアした上でスクロールする。
-// `settings`（API取得結果）が読み込まれるまでは対象セクション自体がDOMに存在しないため、
-// 両方が揃うまで待ってから実行する（意図が先に届き、まだ設定を読み込み中の初回マウント時にも対応する）
-watch(
-  [() => editorStore.settingsScrollTarget, settings],
-  async ([target, loadedSettings]) => {
-    if (target === undefined || loadedSettings === undefined) return;
-    searchQuery.value = '';
-    await nextTick();
-    scrollToSection(target);
-    editorStore.clearSettingsScrollTarget();
-  },
-  { immediate: true },
-);
+// 他画面（関係性SubTools等）からの「設定タブを開いて特定セクションへスクロールしてほしい」という
+// 意図の消費・自動スクロールはcomposableに委譲する
+const { scrollToSection } = useSettingsScrollTarget(contentRef, settings, searchQuery);
 
 // ================================ 保存・その他操作 ================================
 

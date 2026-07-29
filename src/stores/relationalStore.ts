@@ -5,8 +5,10 @@ import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { Relational } from 'src/models/relational/common';
 import type { RelationalCheckedRule } from 'src/models/relational/fileSchema';
+import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
 import { runConcurrently } from 'src/utils/promise/concurrent';
 import { fileKey } from 'src/utils/document/fileKey';
+import { Path } from 'src/utils/binary/path';
 
 /**
  * 関係性の検証状態
@@ -31,9 +33,11 @@ function edgeKey(r: Relational): string {
 
 /**
  * 2つのファイルがcontainerID込みで同一かどうか
+ *
+ * pathは区切り文字表記の揺れによる不一致を防ぐため、Pathオブジェクトで正規化してから比較する
  */
 function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
-  return a.containerID === b.containerID && a.path === b.path;
+  return a.containerID === b.containerID && new Path(a.path).path === new Path(b.path).path;
 }
 
 /**
@@ -147,6 +151,47 @@ export const useRelationalStore = defineStore('relational', {
       if (otherFileRes.ok && !isSameFile(otherFileRes.data, file)) {
         await this.refreshFile(otherFileRes.data);
       }
+    },
+
+    /**
+     * 関係性のルール種別を変更する（既存の1本を削除してから新しいルールで登録し直す）
+     *
+     * 削除と登録は別々のAPI呼び出しのため、途中で失敗すると中途半端な状態
+     * （リンクが消えたままになる等）が残りうる。新ルールでの再登録に失敗した場合は
+     * 元のルールで登録し直すロールバックを試みることで、データを失わないようにする。
+     * 戻り値は最終的にユーザーの意図した変更（新ルールでの登録）が成功したかどうか
+     */
+    async changeRelationalRuleType(
+      file: ContainerElementFile,
+      edge: RelationalEdge,
+      selfId: AnnotationID,
+      newType: RelationalRuleType,
+    ): Promise<boolean> {
+      const api = useBackendApi();
+
+      const removeRes = await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
+      if (!removeRes.ok) return false;
+
+      const registRes = await api.registRelationals({
+        srcID: edge.relational.srcID,
+        targetID: edge.relational.targetID,
+        rule: buildRelationalRule(newType),
+      });
+
+      if (!registRes.ok) {
+        // 新ルールでの再登録に失敗した場合、リンク自体が失われないよう元のルールで登録し直す
+        // TODO: このロールバック自体が失敗した場合のエラーハンドリング
+        await api.registRelationals({
+          srcID: edge.relational.srcID,
+          targetID: edge.relational.targetID,
+          rule: edge.relational.rule,
+        });
+        await this.refreshEdgeBothEndpoints(file, edge, selfId);
+        return false;
+      }
+
+      await this.refreshEdgeBothEndpoints(file, edge, selfId);
+      return true;
     },
 
     /**
