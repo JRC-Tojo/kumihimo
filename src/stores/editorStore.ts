@@ -126,6 +126,15 @@ export const useEditorStore = defineStore('editor', {
     relationalPendingId: undefined as AnnotationID | undefined,
     // 待機中の基準アノテーションが属するファイル（複数タブ表示時に待機の発生元を判別するために保持）
     relationalPendingFile: undefined as ContainerElementFile | undefined,
+    // 連続定義モード（関係性ボタンのダブルクリックで開始）。有効な間は1組の関係性が確定して待機が
+    // 解除された後、次に選択されたアノテーションを新たな基準として待機状態を自動的に再開する
+    // （`RelationalDefineButtons.vue`が選択変化を監視して行う）。
+    // ユーザーが明示的にキャンセルするまで（cancelRelationalMode）有効であり続ける
+    relationalContinuous: false,
+    // 直前に関係性が確定した際の対象アノテーションID。連続定義モードが選択変化を監視する際、
+    // 「ペア確定直後に選択され続けているだけの対象」を新たな起点として誤って再利用しないための
+    // 目印（対象そのものが変わるまでの一時的なマーカー）
+    relationalLastPairedId: undefined as AnnotationID | undefined,
 
     // 削除によるタブクローズの対象（tabKey）。DocumentTabView等がonBeforeUnmount時に
     // 「削除によるクローズか、通常のタブクローズか」を判別するための一時的なマーカー
@@ -151,6 +160,10 @@ export const useEditorStore = defineStore('editor', {
     // 複数の操作（関係性モードの待機、今後追加されうる他の操作等）が互いのメッセージを
     // 上書きしないようにする
     statusMessages: new Map<string, string>(),
+
+    // 設定タブを開いた際に自動スクロールさせたいセクションID（layerOrderAction等と同じ
+    // 「意図をeditorStoreに橋渡しする」パターン。SettingsPage.vue側がこれをwatchして消費する）
+    settingsScrollTarget: undefined as string | undefined,
   }),
 
   getters: {
@@ -179,12 +192,14 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 関係性登録モードを終了する（待機中の状態も解除する）
+     * 関係性登録モードを終了する（待機中の状態・連続定義モードも解除する）
      */
     cancelRelationalMode(): void {
       this.relationalMode = undefined;
       this.relationalPendingId = undefined;
       this.relationalPendingFile = undefined;
+      this.relationalContinuous = false;
+      this.relationalLastPairedId = undefined;
     },
 
     /**
@@ -406,6 +421,21 @@ export const useEditorStore = defineStore('editor', {
     selectSettingsTab(layoutSide: LayoutSide, isFocus: boolean): void {
       this.activeTabPaths[layoutSide] = SETTINGS_TAB_KEY;
       if (isFocus) this.activeSide = layoutSide;
+    },
+
+    /**
+     * 設定タブを開き、指定セクションへ自動スクロールするよう要求する
+     */
+    requestSettingsScroll(id: string): void {
+      this.openSettingsTab();
+      this.settingsScrollTarget = id;
+    },
+
+    /**
+     * 設定タブへの自動スクロール要求を消費（解除）する
+     */
+    clearSettingsScrollTarget(): void {
+      this.settingsScrollTarget = undefined;
     },
 
     /**

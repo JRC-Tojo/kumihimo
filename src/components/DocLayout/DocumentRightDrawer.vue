@@ -173,11 +173,12 @@
 </template>
 
 <script setup lang="ts">
+import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import { ColorCode, type AnnotationID, type AnnotationStyle } from 'src/models/document/pdf';
 import type { ArrowHeadType } from 'src/models/document/pdf';
 import type { ContainerElementFile } from 'src/models/container';
-import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
+import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
 import {
   useRelationalStore,
   edgeValueFor,
@@ -201,6 +202,7 @@ const emit = defineEmits<{
   'add-relation': [annotId: AnnotationID];
 }>();
 
+const $q = useQuasar();
 const api = useBackendApi();
 const history = useAnnotationHistory();
 const relationalStore = useRelationalStore();
@@ -421,46 +423,36 @@ function onAddRelationClicked() {
 }
 
 /**
- * 編集対象のエッジについて、このファイルだけでなく相手側アノテーションのファイルの
- * 関係性キャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
- * キャッシュに古い情報が残ったままにならないようにする）
- */
-async function refreshBothEndpoints(edge: RelationalEdge, selfId: AnnotationID) {
-  await relationalStore.refreshFile(prop.file);
-
-  const otherFileRes = await api.resolveAnnotationFile(otherAnnotId(edge, selfId));
-  if (otherFileRes.ok && !isSameFile(otherFileRes.data, prop.file)) {
-    await relationalStore.refreshFile(otherFileRes.data);
-  }
-}
-
-function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
-  return a.containerID === b.containerID && a.path === b.path;
-}
-
-/**
- * ルール種別の変更：既存の1本を削除してから新しいルールで登録し直す
+ * ルール種別の変更：既存の1本を削除してから新しいルールで登録し直す（失敗時は元のルールへロールバック）
+ *
+ * `selectedAnnotId`は選択状態から算出するcomputedのため、await中に選択が変わると
+ * 別アノテーションを指してしまう。両端の解決に使うIDは呼び出し開始時点で固定する
  */
 async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleType) {
-  if (newType === edge.relational.rule.type || selectedAnnotId.value === undefined) return;
+  const selfId = selectedAnnotId.value;
+  if (newType === edge.relational.rule.type || selfId === undefined) return;
 
-  // TODO: エラーハンドリング
-  await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
-  await api.registRelationals({
-    srcID: edge.relational.srcID,
-    targetID: edge.relational.targetID,
-    rule: buildRelationalRule(newType),
-  });
-  await refreshBothEndpoints(edge, selectedAnnotId.value);
+  const ok = await relationalStore.changeRelationalRuleType(prop.file, edge, selfId, newType);
+  if (!ok) {
+    $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
+  }
 }
 
 /**
  * リンクの削除
+ *
+ * `selectedAnnotId`は選択状態から算出するcomputedのため、await中に選択が変わると
+ * 別アノテーションを指してしまう。両端の解決に使うIDは呼び出し開始時点で固定する
  */
 async function onRemoveRelation(edge: RelationalEdge) {
-  if (selectedAnnotId.value === undefined) return;
-  await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
-  await refreshBothEndpoints(edge, selectedAnnotId.value);
+  const selfId = selectedAnnotId.value;
+  if (selfId === undefined) return;
+  const removeRes = await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
+  if (!removeRes.ok) {
+    $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
+    return;
+  }
+  await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, selfId);
 }
 </script>
 

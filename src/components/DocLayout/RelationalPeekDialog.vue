@@ -61,12 +61,30 @@
                 class="q-mr-sm"
               />
               <span class="relation-target-label">{{ otherFileLabel(edge) }}</span>
-              <q-badge outline color="primary" class="q-ml-sm">
-                {{ $t(`pdfEditor.tools.relational.${edge.relational.rule.type}`) }}
-              </q-badge>
             </div>
             <div class="relation-row-value q-mt-xs text-caption text-grey-7">
               {{ $t('pdfEditor.rightDrawer.annotation.otherValue') }}: {{ otherValueDisplay(edge) }}
+            </div>
+            <div class="relation-row-actions q-mt-xs" @click.stop @dblclick.stop>
+              <q-select
+                :model-value="edge.relational.rule.type"
+                :options="ruleTypeOptions"
+                emit-value
+                map-options
+                dense
+                outlined
+                class="rule-select"
+                @update:model-value="(v: RelationalRuleType) => onChangeRuleType(edge, v)"
+              />
+              <q-btn
+                flat
+                round
+                dense
+                icon="link_off"
+                size="sm"
+                color="negative"
+                @click="onRemoveRelation(edge)"
+              />
             </div>
           </div>
         </template>
@@ -78,6 +96,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useEditorStore } from 'src/stores/editorStore';
 import {
@@ -86,15 +105,19 @@ import {
   otherEdgeValueFor,
   type RelationalEdge,
 } from 'src/stores/relationalStore';
+import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
+import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
 
 interface Prop {
   annotId: AnnotationID;
+  file: ContainerElementFile;
 }
 const prop = defineProps<Prop>();
 
 const open = defineModel<boolean>('open', { required: true });
 
+const $q = useQuasar();
 const api = useBackendApi();
 const editorStore = useEditorStore();
 const relationalStore = useRelationalStore();
@@ -148,6 +171,38 @@ function otherValueDisplay(edge: RelationalEdge): string {
 
 function otherFileLabel(edge: RelationalEdge): string {
   return otherFileLabelCache.value[otherAnnotId(edge)] ?? '...';
+}
+
+const ruleTypeOptions: { label: string; value: RelationalRuleType }[] = [
+  { label: t('pdfEditor.tools.relational.equal'), value: 'equal' },
+  { label: t('pdfEditor.tools.relational.link'), value: 'link' },
+];
+
+/**
+ * ルール種別の変更：既存の1本を削除してから新しいルールで登録し直す（失敗時は元のルールへロールバック）
+ */
+async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleType) {
+  if (newType === edge.relational.rule.type) return;
+
+  const ok = await relationalStore.changeRelationalRuleType(prop.file, edge, prop.annotId, newType);
+  if (!ok) {
+    $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
+  }
+}
+
+/**
+ * リンクの削除。削除したエッジが現在プレビュー中だった場合、プレビュー対象をリセットし、
+ * 残りのエッジがあれば`watch(edges, ...)`が新しい先頭エッジを自動選択する
+ */
+async function onRemoveRelation(edge: RelationalEdge) {
+  const selfId = prop.annotId;
+  const removeRes = await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
+  if (!removeRes.ok) {
+    $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
+    return;
+  }
+  if (previewedAnnotId.value === otherAnnotId(edge)) previewedAnnotId.value = undefined;
+  await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, selfId);
 }
 
 /**
@@ -282,6 +337,18 @@ watch(open, (isOpen) => {
 
   .relation-row-value {
     word-break: break-all;
+  }
+
+  .relation-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: default;
+
+    .rule-select {
+      flex: 1;
+      min-width: 0;
+    }
   }
 }
 

@@ -3,6 +3,7 @@
     dense
     flat
     :ripple="false"
+    :disable="disable"
     class="style-swatch-btn"
     :class="{ 'style-swatch-btn--outline': variant === 'outline' }"
     :style="swatchStyle"
@@ -56,23 +57,29 @@ interface Props {
   // 'fill': 塗りつぶし四角形（既定・塗り色用）, 'outline': 中空四角形（線色用、塗り色ボタンと区別するため）,
   // 'text': 色付きの「A」文字（文字色用、Word/PowerPoint等の「フォントの色」ボタンに近い見た目）
   variant?: 'fill' | 'outline' | 'text';
+  // trueの間、色の変更（ポップアップ表示自体）を無効化する（関係性検証結果の色で上書き中の場合に使う）
+  disable?: boolean;
 }
-const props = withDefaults(defineProps<Props>(), { variant: 'fill' });
+const props = withDefaults(defineProps<Props>(), { variant: 'fill', disable: false });
 
 const colorValue = defineModel<string | undefined>({ required: true });
 
 const settingsStore = useSettingsStore();
 
 const swatchStyle = computed(() => {
+  /** 無効化中は実際の色に関わらずグレー表示を優先し、それ以外は現在値（無ければ既定色）を返す */
+  const colorSetter = (defColor: string) =>
+    props.disable ? 'gray' : (colorValue.value ?? defColor);
+
   if (props.variant === 'outline') {
-    return { backgroundColor: 'transparent', borderColor: colorValue.value ?? '#000000' };
+    return { backgroundColor: 'transparent', borderColor: colorSetter('#000000') };
   }
   if (props.variant === 'text') {
     // プリセットプレビュー（AnnotationPresetPreview.vue）と同様、ダークモードでも
     // 文字色（黒等）が見えなくならないよう、常に明るい背景の上に表示する
     return { backgroundColor: '#ffffff' };
   }
-  return { backgroundColor: colorValue.value ?? '#ffffff' };
+  return { backgroundColor: colorSetter('#ffffff') };
 });
 
 const recentColorsPadded = computed<(string | undefined)[]>(() => {

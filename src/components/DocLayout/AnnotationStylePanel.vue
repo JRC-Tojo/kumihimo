@@ -1,13 +1,18 @@
 <template>
   <div v-if="mode !== 'none'" class="annotation-style-panel">
-    <!-- 線色（中空四角形にして塗り色ボタンと区別する） -->
+    <!-- 線色（中空四角形にして塗り色ボタンと区別する）。関係性検証結果の色で上書き描画中は編集不可にする -->
     <StyleSwatchButton
       v-model="color"
       variant="outline"
-      :tooltip="t('pdfEditor.tools.stylePanel.color')"
+      :disable="relationalOverrideActive"
+      :tooltip="
+        relationalOverrideActive
+          ? t('pdfEditor.tools.stylePanel.lockedByRelational')
+          : t('pdfEditor.tools.stylePanel.color')
+      "
     />
 
-    <!-- 線幅（スライダーではなく直接数字を入力する） -->
+    <!-- 線幅（スライダーではなく直接数字を入力する）。関係性検証結果の線幅で上書き描画中は編集不可にする -->
     <q-input
       :model-value="strokeWidth"
       dense
@@ -17,11 +22,16 @@
       max="10"
       step="0.5"
       class="style-number-input"
+      :disable="relationalOverrideActive"
       :input-style="{ textAlign: 'right' }"
       @update:model-value="(v) => (strokeWidth = Number(v) || undefined)"
     >
       <q-tooltip anchor="top middle" self="bottom middle">
-        {{ t('pdfEditor.tools.stylePanel.strokeWidth') }}
+        {{
+          relationalOverrideActive
+            ? t('pdfEditor.tools.stylePanel.lockedByRelational')
+            : t('pdfEditor.tools.stylePanel.strokeWidth')
+        }}
       </q-tooltip>
     </q-input>
 
@@ -59,6 +69,7 @@
         :step="2"
         color="primary"
         class="opacity-slider"
+        :disable="relationalOverrideActive"
         @update:model-value="(v) => (opacityPercent = v ?? 100)"
       />
       <q-input
@@ -70,11 +81,69 @@
         max="100"
         step="2"
         class="style-number-input"
+        :disable="relationalOverrideActive"
         :input-style="{ textAlign: 'right' }"
         @update:model-value="(v) => (opacityPercent = Number(v))"
       />
       <q-tooltip anchor="top middle" self="bottom middle">
-        {{ t('pdfEditor.tools.stylePanel.opacity') }}
+        {{
+          relationalOverrideActive
+            ? t('pdfEditor.tools.stylePanel.lockedByRelational')
+            : t('pdfEditor.tools.stylePanel.opacity')
+        }}
+      </q-tooltip>
+    </div>
+
+    <q-separator
+      v-if="isFillableType || isHeadedType || isTextType"
+      vertical
+      inset
+      class="style-separator"
+    />
+
+    <!-- box/circle/polygon/text: 塗り色。関係性検証結果の色で上書き描画中は編集不可にする -->
+    <StyleSwatchButton
+      v-if="isFillableType"
+      v-model="fillColor"
+      :disable="relationalOverrideActive"
+      :tooltip="
+        relationalOverrideActive
+          ? t('pdfEditor.tools.stylePanel.lockedByRelational')
+          : t('pdfEditor.tools.stylePanel.fillColor')
+      "
+    />
+
+    <!-- box/circle/polygon/text: 塗りの不透明度。関係性検証結果の塗りで上書き描画中は編集不可にする -->
+    <div v-if="isFillableType" class="opacity-control">
+      <q-slider
+        :model-value="fillOpacityPercent"
+        :min="0"
+        :max="100"
+        :step="2"
+        color="primary"
+        class="opacity-slider"
+        :disable="relationalOverrideActive"
+        @update:model-value="(v) => (fillOpacityPercent = v ?? 100)"
+      />
+      <q-input
+        :model-value="fillOpacityPercent"
+        dense
+        borderless
+        suffix="%"
+        min="0"
+        max="100"
+        step="2"
+        class="style-number-input"
+        :disable="relationalOverrideActive"
+        :input-style="{ textAlign: 'right' }"
+        @update:model-value="(v) => (fillOpacityPercent = Number(v))"
+      />
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{
+          relationalOverrideActive
+            ? t('pdfEditor.tools.stylePanel.lockedByRelational')
+            : t('pdfEditor.tools.stylePanel.fillOpacity')
+        }}
       </q-tooltip>
     </div>
 
@@ -103,47 +172,7 @@
       </q-tooltip>
     </q-btn>
 
-    <q-separator
-      v-if="isFillableType || isHeadedType || isTextType"
-      vertical
-      inset
-      class="style-separator"
-    />
-
-    <!-- box/circle/polygon/text: 塗り色 -->
-    <StyleSwatchButton
-      v-if="isFillableType"
-      v-model="fillColor"
-      :tooltip="t('pdfEditor.tools.stylePanel.fillColor')"
-    />
-
-    <!-- box/circle/polygon/text: 塗りの不透明度 -->
-    <div v-if="isFillableType" class="opacity-control">
-      <q-slider
-        :model-value="fillOpacityPercent"
-        :min="0"
-        :max="100"
-        :step="2"
-        color="primary"
-        class="opacity-slider"
-        @update:model-value="(v) => (fillOpacityPercent = v ?? 100)"
-      />
-      <q-input
-        :model-value="fillOpacityPercent"
-        dense
-        borderless
-        suffix="%"
-        min="0"
-        max="100"
-        step="2"
-        class="style-number-input"
-        :input-style="{ textAlign: 'right' }"
-        @update:model-value="(v) => (fillOpacityPercent = Number(v))"
-      />
-      <q-tooltip anchor="top middle" self="bottom middle">
-        {{ t('pdfEditor.tools.stylePanel.fillOpacity') }}
-      </q-tooltip>
-    </div>
+    <q-separator vertical inset class="style-separator" />
 
     <!-- arrow/polyline: 終端の矢じり形状 -->
     <q-btn v-if="isHeadedType" dense flat :ripple="false" class="style-icon-btn">
@@ -257,6 +286,7 @@ const { t } = useI18n();
 const {
   mode,
   effectiveType,
+  relationalOverrideActive,
   color,
   strokeWidth,
   strokeType,

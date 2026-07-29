@@ -526,7 +526,8 @@ watch(drawingType, () => {
 
 /**
  * Escapeキー押下時、描画中の状態（クリック点バッファ・ドラッグ中の描画）を破棄したうえで、
- * 描画モード中であれば選択（ポインタ）モードへ戻す
+ * 描画モード中であれば選択（ポインタ）モードへ戻す。また、関係性登録モード
+ * （待機中・連続定義モードを含む）が有効であればそれも解除する
  */
 function handleKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;
@@ -544,6 +545,9 @@ function handleKeydown(e: KeyboardEvent) {
     editorStore.stickyDrawMode = false;
     editorStore.activeAnnotationType = undefined;
     editorStore.currentTools = 'pointer';
+  }
+  if (editorStore.relationalMode !== undefined) {
+    editorStore.cancelRelationalMode();
   }
 }
 

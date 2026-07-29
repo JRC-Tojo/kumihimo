@@ -173,7 +173,6 @@ export default {
       polyline: 'Polyline',
       polygon: 'Polygon',
       text: 'Text',
-      relationalToggle: 'Relational Annotations',
       annotationToggle: 'Show / Hide Annotations',
       handMode: 'Hand Mode',
       selectMode: 'Select Mode',
@@ -200,12 +199,15 @@ export default {
       relational: {
         equal: 'Equal',
         link: 'Linked',
-        off: 'Off',
         cancel: 'Cancel',
+        defineequal: 'Define relationship as "Equal"',
+        definelink: 'Define relationship as "Linked"',
+        openSettings: 'Open relational verification style settings',
         waitingMessage:
           'Waiting for the paired annotation ({mode} mode). Draw or select it to link them.',
         registerSuccess: 'Relationship registered.',
         registerFailed: 'Failed to register the relationship.',
+        changeFailed: 'Failed to change the relationship type.',
       },
       layerOrder: {
         title: 'Layer Order',
@@ -225,6 +227,8 @@ export default {
       },
       stylePanel: {
         color: 'Stroke Color',
+        lockedByRelational:
+          'Cannot change — overridden by the relational verification result style',
         strokeWidth: 'Stroke Width',
         strokeType: 'Stroke Type',
         opacity: 'Opacity',

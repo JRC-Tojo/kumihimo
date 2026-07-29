@@ -295,6 +295,7 @@ import dayjs from 'dayjs';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
 import { useSettingsStore } from 'src/stores/settingsStore';
+import { useSettingsScrollTarget } from 'src/composables/useSettingsScrollTarget';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
 import { importPresetsDialog } from 'src/components/Dialog/confirmDialog';
@@ -498,9 +499,9 @@ const visibleSections = computed(() =>
 
 const contentRef = ref<HTMLElement>();
 
-function scrollToSection(id: string) {
-  contentRef.value?.querySelector(`#${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
+// 他画面（関係性SubTools等）からの「設定タブを開いて特定セクションへスクロールしてほしい」という
+// 意図の消費・自動スクロールはcomposableに委譲する
+const { scrollToSection } = useSettingsScrollTarget(contentRef, settings, searchQuery);
 
 // ================================ 保存・その他操作 ================================
 
