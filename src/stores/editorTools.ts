@@ -175,44 +175,6 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
   const tools: IDocTool[] = [
     ...annotationTypeTools,
     {
-      id: 'toggle-relational',
-      icon: 'school',
-      label: t('pdfEditor.tools.relationalToggle'),
-      isActive: () => editorStore.relationalMode !== undefined,
-      onClicked: () => {
-        const subTools: IDocTool[] = [
-          {
-            id: 'rel-equal-mode',
-            icon: 'sync_alt',
-            label: t('pdfEditor.tools.relational.equal'),
-            isActive: () => editorStore.relationalMode === 'equal',
-            onClicked: () => {
-              editorStore.relationalMode = 'equal';
-            },
-          },
-          {
-            id: 'rel-link-mode',
-            icon: 'link',
-            label: t('pdfEditor.tools.relational.link'),
-            isActive: () => editorStore.relationalMode === 'link',
-            onClicked: () => {
-              editorStore.relationalMode = 'link';
-            },
-          },
-          {
-            id: 'rel-off-mode',
-            icon: 'link_off',
-            label: t('pdfEditor.tools.relational.off'),
-            isActive: () => editorStore.relationalMode === undefined,
-            onClicked: () => {
-              editorStore.cancelRelationalMode();
-            },
-          },
-        ];
-        editorStore.subTools = subTools;
-      },
-    },
-    {
       id: 'layer-order-menu',
       icon: 'layers',
       label: t('pdfEditor.tools.layerOrder.title'),

@@ -50,6 +50,7 @@
         />
         <AnnotationStylePanel class="style-panel-wrapper" />
         <AnnotationPositionSizeBtn />
+        <RelationalDefineButtons />
       </q-bar>
 
       <!-- ドキュメントレイアウト -->
@@ -79,6 +80,7 @@ import AnnotationPresetBar from 'src/components/DocLayout/AnnotationPresetBar.vu
 import AnnotationStylePanel from 'src/components/DocLayout/AnnotationStylePanel.vue';
 import type { IDocTool } from 'src/models/docPage';
 import AnnotationPositionSizeBtn from 'src/components/DocLayout/AnnotationPositionSizeBtn.vue';
+import RelationalDefineButtons from 'src/components/DocLayout/RelationalDefineButtons.vue';
 import { useAnnotationStylePanel } from 'src/components/DocLayout/composables/useAnnotationStylePanel';
 import { callEditorTools, firstPresetStyleForType } from 'src/stores/editorTools';
 import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';

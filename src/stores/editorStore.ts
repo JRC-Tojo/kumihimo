@@ -151,6 +151,10 @@ export const useEditorStore = defineStore('editor', {
     // 複数の操作（関係性モードの待機、今後追加されうる他の操作等）が互いのメッセージを
     // 上書きしないようにする
     statusMessages: new Map<string, string>(),
+
+    // 設定タブを開いた際に自動スクロールさせたいセクションID（layerOrderAction等と同じ
+    // 「意図をeditorStoreに橋渡しする」パターン。SettingsPage.vue側がこれをwatchして消費する）
+    settingsScrollTarget: undefined as string | undefined,
   }),
 
   getters: {
@@ -406,6 +410,21 @@ export const useEditorStore = defineStore('editor', {
     selectSettingsTab(layoutSide: LayoutSide, isFocus: boolean): void {
       this.activeTabPaths[layoutSide] = SETTINGS_TAB_KEY;
       if (isFocus) this.activeSide = layoutSide;
+    },
+
+    /**
+     * 設定タブを開き、指定セクションへ自動スクロールするよう要求する
+     */
+    requestSettingsScroll(id: string): void {
+      this.openSettingsTab();
+      this.settingsScrollTarget = id;
+    },
+
+    /**
+     * 設定タブへの自動スクロール要求を消費（解除）する
+     */
+    clearSettingsScrollTarget(): void {
+      this.settingsScrollTarget = undefined;
     },
 
     /**

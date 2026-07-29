@@ -30,6 +30,13 @@ function edgeKey(r: Relational): string {
 }
 
 /**
+ * 2つのファイルがcontainerID込みで同一かどうか
+ */
+function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
+  return a.containerID === b.containerID && a.path === b.path;
+}
+
+/**
  * エッジ一覧から検証状態を集計する（優先度: ng > pending > ok、空配列はundefined）
  */
 function aggregateStatus(edges: RelationalEdge[]): RelationalStatus {
@@ -120,6 +127,26 @@ export const useRelationalStore = defineStore('relational', {
       });
 
       this.edgesByFileKey[fileKey(file)] = await runConcurrently(edgeCheckers, 5);
+    },
+
+    /**
+     * 編集対象のエッジについて、自身のファイルだけでなく相手側アノテーションのファイルの
+     * 関係性キャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
+     * キャッシュに古い情報が残ったままにならないようにする）
+     */
+    async refreshEdgeBothEndpoints(
+      file: ContainerElementFile,
+      edge: RelationalEdge,
+      selfId: AnnotationID,
+    ): Promise<void> {
+      const api = useBackendApi();
+      await this.refreshFile(file);
+
+      const otherId = edge.relational.srcID === selfId ? edge.relational.targetID : edge.relational.srcID;
+      const otherFileRes = await api.resolveAnnotationFile(otherId);
+      if (otherFileRes.ok && !isSameFile(otherFileRes.data, file)) {
+        await this.refreshFile(otherFileRes.data);
+      }
     },
 
     /**

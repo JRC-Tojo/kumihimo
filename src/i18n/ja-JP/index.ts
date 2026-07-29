@@ -173,7 +173,6 @@ export default {
       polyline: '折れ線',
       polygon: 'ポリゴン',
       text: 'テキスト',
-      relationalToggle: '関係性登録モード',
       annotationToggle: 'アノテーションの表示切替',
       handMode: 'ハンドモード',
       selectMode: '選択モード',
@@ -200,8 +199,10 @@ export default {
       relational: {
         equal: '等しい',
         link: 'リンク',
-        off: 'オフ',
         cancel: 'キャンセル',
+        defineEqual: '「等しい」として関係性を定義',
+        defineLink: '「リンク」として関係性を定義',
+        openSettings: '関係性検証スタイルの設定を開く',
         waitingMessage:
           '対になるアノテーションを待機しています（{mode}モード）。描画または選択するとリンクされます。',
         registerSuccess: '関係性を登録しました。',
@@ -225,6 +226,7 @@ export default {
       },
       stylePanel: {
         color: '線の色',
+        lockedByRelational: '関係性の検証結果の表示で上書きされているため変更できません',
         strokeWidth: '線の幅',
         strokeType: '線種',
         opacity: '不透明度',

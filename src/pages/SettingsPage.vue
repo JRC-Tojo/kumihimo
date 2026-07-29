@@ -288,13 +288,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, nextTick, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import dayjs from 'dayjs';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AppSettings } from 'src/models/settings';
 import { useSettingsStore } from 'src/stores/settingsStore';
+import { useEditorStore } from 'src/stores/editorStore';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
 import { importPresetsDialog } from 'src/components/Dialog/confirmDialog';
@@ -308,6 +309,7 @@ const { t: $t } = useI18n();
 const $q = useQuasar();
 const api = useBackendApi();
 const settingsStore = useSettingsStore();
+const editorStore = useEditorStore();
 
 const settings = ref<AppSettings>();
 const importFileInput = ref<HTMLInputElement>();
@@ -501,6 +503,20 @@ const contentRef = ref<HTMLElement>();
 function scrollToSection(id: string) {
   contentRef.value?.querySelector(`#${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+// 他画面（関係性SubTools等）から「設定タブを開いて特定セクションへスクロールしてほしい」という
+// 意図が届いた場合、対象セクションが検索フィルタで隠れないようクリアした上でスクロールする
+watch(
+  () => editorStore.settingsScrollTarget,
+  async (target) => {
+    if (target === undefined) return;
+    searchQuery.value = '';
+    await nextTick();
+    scrollToSection(target);
+    editorStore.clearSettingsScrollTarget();
+  },
+  { immediate: true },
+);
 
 // ================================ 保存・その他操作 ================================
 

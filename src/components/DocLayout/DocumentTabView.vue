@@ -73,6 +73,7 @@
       v-if="peekAnnotId"
       v-model:open="peekDialogOpen"
       :annot-id="peekAnnotId"
+      :file="prop.file"
     />
   </div>
 </template>
@@ -102,6 +103,10 @@ import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
+import {
+  RELATIONAL_STATUS_MESSAGE_KEY,
+  startRelationalDefine,
+} from 'src/components/DocLayout/composables/useRelationalDefine';
 import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
@@ -384,30 +389,6 @@ async function scrollToCurrentPage(viewerContainerHeight: number) {
 // ================================
 
 /**
- * フッターのステータスメッセージ領域へ関係性モードの待機メッセージを投稿する際に使うキー
- */
-const RELATIONAL_STATUS_MESSAGE_KEY = 'relational-waiting';
-
-/**
- * 待機中の関係性モードに応じた通知メッセージを組み立てる
- */
-function relationalWaitingMessage(): string {
-  const modeLabel =
-    editorStore.relationalMode === 'equal'
-      ? t('pdfEditor.tools.relational.equal')
-      : t('pdfEditor.tools.relational.link');
-  return t('pdfEditor.tools.relational.waitingMessage', { mode: modeLabel });
-}
-
-/**
- * 対になるアノテーションの待機メッセージを、フッターのステータスメッセージ領域へ表示・更新する
- * モード変更時にも再度呼び出すことでメッセージ内容を最新化する
- */
-function showRelationalWaitingNotify() {
-  editorStore.postStatusMessage(RELATIONAL_STATUS_MESSAGE_KEY, relationalWaitingMessage());
-}
-
-/**
  * 待機中の基準アノテーションと対象アノテーションの間に関係性を登録する
  */
 async function finishRelational(targetId: AnnotationID) {
@@ -445,8 +426,7 @@ async function finishRelational(targetId: AnnotationID) {
  */
 function startRelationalFromDrawer(annotId: AnnotationID) {
   editorStore.relationalMode ??= 'link';
-  editorStore.startRelationalPending(annotId, prop.file);
-  showRelationalWaitingNotify();
+  startRelationalDefine(editorStore, t, editorStore.relationalMode, annotId, prop.file);
 }
 
 /**
@@ -469,7 +449,8 @@ function isRelationalPendingFile(): boolean {
  * 1つ目の追加で待機モードへ、待機中の2つ目の追加で関係性を確定する
  */
 async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: AnnotationStyle[]) {
-  if (editorStore.relationalMode === void 0) return;
+  const mode = editorStore.relationalMode;
+  if (mode === undefined) return;
   const oldAnnotIds = new Set(oldAnnots.map((annot) => annot.id));
   const addedAnnots = newAnnots.filter((annot) => !oldAnnotIds.has(annot.id));
   if (addedAnnots.length !== 1) return; // アノテーションが1つ増えたときのみ対象
@@ -478,8 +459,7 @@ async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: An
 
   if (editorStore.relationalPendingId === undefined) {
     // 1つ目のアノテーション：対になるアノテーションの待機モードへ移行
-    editorStore.startRelationalPending(addedId, prop.file);
-    showRelationalWaitingNotify();
+    startRelationalDefine(editorStore, t, mode, addedId, prop.file);
     return;
   }
 

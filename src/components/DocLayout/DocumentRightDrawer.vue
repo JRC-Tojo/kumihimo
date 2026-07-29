@@ -421,24 +421,6 @@ function onAddRelationClicked() {
 }
 
 /**
- * 編集対象のエッジについて、このファイルだけでなく相手側アノテーションのファイルの
- * 関係性キャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
- * キャッシュに古い情報が残ったままにならないようにする）
- */
-async function refreshBothEndpoints(edge: RelationalEdge, selfId: AnnotationID) {
-  await relationalStore.refreshFile(prop.file);
-
-  const otherFileRes = await api.resolveAnnotationFile(otherAnnotId(edge, selfId));
-  if (otherFileRes.ok && !isSameFile(otherFileRes.data, prop.file)) {
-    await relationalStore.refreshFile(otherFileRes.data);
-  }
-}
-
-function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
-  return a.containerID === b.containerID && a.path === b.path;
-}
-
-/**
  * ルール種別の変更：既存の1本を削除してから新しいルールで登録し直す
  */
 async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleType) {
@@ -451,7 +433,7 @@ async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleTyp
     targetID: edge.relational.targetID,
     rule: buildRelationalRule(newType),
   });
-  await refreshBothEndpoints(edge, selectedAnnotId.value);
+  await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, selectedAnnotId.value);
 }
 
 /**
@@ -460,7 +442,7 @@ async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleTyp
 async function onRemoveRelation(edge: RelationalEdge) {
   if (selectedAnnotId.value === undefined) return;
   await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
-  await refreshBothEndpoints(edge, selectedAnnotId.value);
+  await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, selectedAnnotId.value);
 }
 </script>
 
