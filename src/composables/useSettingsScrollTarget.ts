@@ -17,7 +17,9 @@ export function useSettingsScrollTarget<T>(
 
   /** 指定IDのセクション要素までスムーズスクロールする */
   function scrollToSection(id: string): void {
-    contentRef.value?.querySelector(`#${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    contentRef.value
+      ?.querySelector(`#${id}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   watch(
