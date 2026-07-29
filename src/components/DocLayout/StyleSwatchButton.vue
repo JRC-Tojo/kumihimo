@@ -68,7 +68,8 @@ const settingsStore = useSettingsStore();
 
 const swatchStyle = computed(() => {
   /** 無効化中は実際の色に関わらずグレー表示を優先し、それ以外は現在値（無ければ既定色）を返す */
-  const colorSetter = (defColor: string) => (props.disable ? 'gray' : (colorValue.value ?? defColor));
+  const colorSetter = (defColor: string) =>
+    (props.disable ? 'gray' : (colorValue.value ?? defColor));
 
   if (props.variant === 'outline') {
     return { backgroundColor: 'transparent', borderColor: colorSetter('#000000') };

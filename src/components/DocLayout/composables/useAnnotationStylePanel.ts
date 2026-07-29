@@ -48,7 +48,8 @@ export function useAnnotationStylePanel() {
    * 一方、線の不透明度・線種・合成モードは上書きの対象外のため、そちらは対象にしない */
   const relationalOverrideActive = computed<boolean>(() => {
     const selection = editorStore.activeSelection?.annotations;
-    if (mode.value !== 'selection' || selection === undefined || selection.length !== 1) return false;
+    if (mode.value !== 'selection' || selection === undefined || selection.length !== 1)
+      return false;
     const status = relationalStore.statusForAnnotation((selection[0] as AnnotationStyle).id);
     return status === 'ok' || status === 'ng';
   });
