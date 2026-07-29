@@ -196,7 +196,11 @@ async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleTyp
  */
 async function onRemoveRelation(edge: RelationalEdge) {
   const selfId = prop.annotId;
-  await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
+  const removeRes = await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
+  if (!removeRes.ok) {
+    $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
+    return;
+  }
   if (previewedAnnotId.value === otherAnnotId(edge)) previewedAnnotId.value = undefined;
   await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, selfId);
 }
