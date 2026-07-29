@@ -216,6 +216,11 @@ export default {
         sendBackward: '背面へ移動',
         sendToBack: '最背面へ移動',
       },
+      contextMenu: {
+        copy: 'コピー',
+        applyPreset: 'プリセットスタイルを適用',
+        registerPreset: 'プリセットとして登録',
+      },
       presetBar: {
         add: 'プリセットを追加',
         rename: '名前を変更',
@@ -227,6 +232,7 @@ export default {
       },
       stylePanel: {
         color: '線の色',
+        noColor: '色なし',
         lockedByRelational: '関係性の検証結果の表示で上書きされているため変更できません',
         strokeWidth: '線の幅',
         strokeType: '線種',
@@ -234,7 +240,8 @@ export default {
         blendMode: '合成モード',
         fillColor: '塗り色',
         fillOpacity: '塗りの不透明度',
-        endHead: '矢じり形状',
+        startHead: '始点の矢じり形状',
+        endHead: '終点の矢じり形状',
         fontFamily: 'フォント',
         fontSize: '文字サイズ',
         textColor: '文字色',
@@ -249,6 +256,13 @@ export default {
           none: 'なし',
           triangle: '塗り三角',
           open: '輪郭のみ',
+          square: '塗り四角',
+          circle: '塗り丸',
+          diamond: '塗りひし形',
+          butt: '短い横棒',
+          slash: '斜め線',
+          reverseOpen: '外向き輪郭のみ',
+          reverseTriangle: '外向き塗り三角',
         },
         blendModeOptions: {
           normal: '通常',
@@ -305,7 +319,6 @@ export default {
       annotation: {
         title: 'プロパティ',
         type: '種別',
-        startHead: '開始側の矢じり形状',
         headSize: '矢じりサイズ',
         fontWeight: '文字の太さ',
         textAlign: '文字揃え',

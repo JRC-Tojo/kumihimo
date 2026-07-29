@@ -20,13 +20,18 @@ import ArrowAnnotation from './ArrowAnnotation.vue';
 import PolylineAnnotation from './PolylineAnnotation.vue';
 import PolygonAnnotation from './PolygonAnnotation.vue';
 import TextBoxAnnotation from './TextBoxAnnotation.vue';
+import ArrowLikePreviewShape from './ArrowLikePreviewShape.vue';
 
 export interface AnnotationTypeModule {
   geometry: AnnotationGeometryModule;
   /** アノテーション実体を描画するVueコンポーネント（annotation/isEditing/isSelected props、update/delete emit） */
   component: Component;
-  /** 描画中プレビューに使うkonvaタグ名（vue-konvaが自動登録する`v-xxx`コンポーネント） */
-  previewComponent: string;
+  /**
+   * 描画中プレビューに使うコンポーネント。多くの種別はvue-konvaが自動登録する`v-xxx`タグ名
+   * （文字列）で足りるが、独自の合成描画が必要な種別（arrow/polyline、矢じりの両端を
+   * 独立して描画する必要があるため）はVueコンポーネントを直接指定する
+   */
+  previewComponent: string | Component;
   /** プリセットボタン（サブツールバー）に使うMaterial Iconsのアイコン名 */
   icon: string;
   /** メインツールバーのアノテーション種別選択ボタンに使うMaterial Iconsのアイコン名（presetのiconとは意図的に別デザインにできる） */
@@ -68,7 +73,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
   arrow: {
     geometry: ANNOTATION_GEOMETRY.arrow,
     component: ArrowAnnotation,
-    previewComponent: 'v-arrow',
+    previewComponent: ArrowLikePreviewShape,
     icon: 'north_east',
     mainToolIcon: 'north_east',
     supportsTransformer: false,
@@ -77,7 +82,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
   polyline: {
     geometry: ANNOTATION_GEOMETRY.polyline,
     component: PolylineAnnotation,
-    previewComponent: 'v-arrow',
+    previewComponent: ArrowLikePreviewShape,
     icon: 'timeline',
     mainToolIcon: 'timeline',
     supportsTransformer: false,

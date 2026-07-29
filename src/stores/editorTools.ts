@@ -7,6 +7,7 @@ import { useBackendApi } from 'src/apis/backendApi';
 import { saveDocument } from 'src/utils/document/saveDocument';
 import { ANNOTATION_REGISTRY } from 'src/components/Viewer/Annotation/registry';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
+import { shouldKeepSelectionMode } from 'src/utils/document/annotationToolClickMode';
 
 /**
  * 指定した種別の先頭プリセット（ユーザー設定になければレジストリのデフォルト）のスタイルを取得する
@@ -159,6 +160,10 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
     label: t(`pdfEditor.tools.${type}`),
     isActive: () => editorStore.currentTools === type,
     onClicked: () => {
+      if (shouldKeepSelectionMode(editorStore.activeSelection?.annotations, type)) {
+        return;
+      }
+
       editorStore.activeAnnotationType = type;
       editorStore.currentTools = type;
 

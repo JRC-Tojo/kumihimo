@@ -188,6 +188,20 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(created).toBeNull();
   });
 
+  it('createFromPointsはstrokeColorが未設定（「線色なし」）でも有効な注釈を生成する', () => {
+    const noColorStyle = { ...arrowStyle, strokeColor: undefined };
+    const created = asClickPointsModule(ANNOTATION_GEOMETRY.arrow).createFromPoints(
+      1,
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
+      noColorStyle,
+    );
+    expect(created).not.toBeNull();
+    expect(created?.color).toBeUndefined();
+  });
+
   it('box: boundingBoxはpadding分だけ外側に広がる', () => {
     const box = ANNOTATION_GEOMETRY.box.boundingBox({
       id: '00000000-0000-4000-8000-000000000000' as never,
@@ -638,29 +652,26 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
     });
   });
 
-  it('arrow: 矢じりのfillも枠線と同じrgba合成色を使う', () => {
+  it('arrow: previewFromPointsはstroke/startHead/endHead/headSizeをそのまま返す（矢じりの合成描画はArrowLikePreviewShape.vue側が行う）', () => {
     const preview = asClickPointsModule(ANNOTATION_GEOMETRY.arrow).previewFromPoints(
       [{ x: 0, y: 0 }],
       { x: 10, y: 0 },
       arrowStyle,
     );
-    const stroke = hexToRgba('#000000', 1);
     expect(preview).toEqual({
       x: 0,
       y: 0,
       points: [0, 0, 10, 0],
-      stroke,
+      stroke: hexToRgba('#000000', 1),
       strokeWidth: 3,
-      fill: stroke,
-      fillEnabled: true,
-      pointerAtBeginning: false,
-      pointerAtEnding: true,
-      pointerLength: 12,
-      pointerWidth: 12,
+      dash: undefined,
+      startHead: 'none',
+      endHead: 'triangle',
+      headSize: 12,
     });
   });
 
-  it('polyline: previewFromPointsは末尾にcursor座標を追加できる', () => {
+  it('polyline: previewFromPointsは末尾にcursor座標を追加でき、stroke/startHead/endHead/headSizeをそのまま返す', () => {
     const points = [
       { x: 10, y: 10 },
       { x: 30, y: 10 },
@@ -670,19 +681,16 @@ describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中�
       null,
       polylineStyle,
     );
-    const stroke = hexToRgba('#000000', 1);
     expect(withoutCursor).toEqual({
       x: 10,
       y: 10,
       points: [0, 0, 20, 0],
-      stroke,
+      stroke: hexToRgba('#000000', 1),
       strokeWidth: 3,
-      fill: stroke,
-      fillEnabled: true,
-      pointerAtBeginning: false,
-      pointerAtEnding: true,
-      pointerLength: 12,
-      pointerWidth: 12,
+      dash: undefined,
+      startHead: 'none',
+      endHead: 'triangle',
+      headSize: 12,
     });
 
     const withCursor = asClickPointsModule(ANNOTATION_GEOMETRY.polyline).previewFromPoints(

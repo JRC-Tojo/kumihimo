@@ -225,15 +225,20 @@ export type AnnotationGeometryModule<T extends AnnotationStyle = AnnotationStyle
 
 const BOUNDING_BOX_PADDING = 2;
 
-/** ドラッグ開始・終了座標から共通のベースフィールドを生成する。strokeColorが不正な場合はnullを返す */
+/**
+ * ドラッグ開始・終了座標から共通のベースフィールドを生成する。
+ * strokeColorが未設定（「線色なし」）の場合はcolor: undefinedとして有効に扱い、
+ * 値はあるが不正な文字列の場合のみnullを返す
+ */
 function buildBaseAnnotation(
   pageNumber: number,
   x: number,
   y: number,
   style: DrawingAnnotationStyle,
 ) {
-  const strokeColor = ColorCode.safeParse(style.strokeColor);
-  if (!strokeColor.success) return null;
+  const strokeColor =
+    style.strokeColor === undefined ? undefined : ColorCode.safeParse(style.strokeColor);
+  if (strokeColor && !strokeColor.success) return null;
 
   const now = dayjs().toISOString();
   return {
@@ -246,8 +251,13 @@ function buildBaseAnnotation(
       updatedAt: now,
       comment: {},
     },
-    color: strokeColor.data,
+    color: strokeColor?.data,
   };
+}
+
+/** プレビュー描画用の線色。strokeColorが未設定（「線色なし」）の場合は'transparent'を返す */
+function previewStroke(style: DrawingAnnotationStyle): string {
+  return style.strokeColor ? hexToRgba(style.strokeColor, style.strokeOpacity) : 'transparent';
 }
 
 /**
@@ -318,7 +328,7 @@ const boxGeometry: AnnotationGeometryModule = {
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
       fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
-      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
+      stroke: previewStroke(style),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
@@ -494,7 +504,7 @@ const lineGeometry: AnnotationGeometryModule = {
       x: start.x,
       y: start.y,
       points: [0, 0, end.x - start.x, end.y - start.y],
-      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
+      stroke: previewStroke(style),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
@@ -592,7 +602,7 @@ const circleGeometry: AnnotationGeometryModule = {
       y: start.y + deltaY / 2,
       radius: Math.sqrt(deltaX * deltaX + deltaY * deltaY) / 2,
       fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
-      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
+      stroke: previewStroke(style),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
@@ -677,20 +687,16 @@ const arrowGeometry: AnnotationGeometryModule = {
     const start = points[0];
     if (!start) return {};
     const end = points[1] ?? cursor ?? start;
-    const stroke = hexToRgba(style.strokeColor, style.strokeOpacity);
     return {
       x: start.x,
       y: start.y,
       points: [0, 0, end.x - start.x, end.y - start.y],
-      stroke,
+      stroke: previewStroke(style),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
-      fill: stroke,
-      fillEnabled: style.endHead !== 'open' && style.startHead !== 'open',
-      pointerAtBeginning: style.startHead !== 'none',
-      pointerAtEnding: style.endHead !== 'none',
-      pointerLength: style.headSize,
-      pointerWidth: style.headSize,
+      startHead: style.startHead,
+      endHead: style.endHead,
+      headSize: style.headSize,
     };
   },
   boundingBox(style) {
@@ -766,20 +772,16 @@ const polylineGeometry: AnnotationGeometryModule = {
     const flat = points.flatMap((p) => [p.x - origin.x, p.y - origin.y]);
     if (cursor) flat.push(cursor.x - origin.x, cursor.y - origin.y);
 
-    const stroke = hexToRgba(style.strokeColor, style.strokeOpacity);
     return {
       x: origin.x,
       y: origin.y,
       points: flat,
-      stroke,
+      stroke: previewStroke(style),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
-      fill: stroke,
-      fillEnabled: style.endHead !== 'open' && style.startHead !== 'open',
-      pointerAtBeginning: style.startHead !== 'none',
-      pointerAtEnding: style.endHead !== 'none',
-      pointerLength: style.headSize,
-      pointerWidth: style.headSize,
+      startHead: style.startHead,
+      endHead: style.endHead,
+      headSize: style.headSize,
     };
   },
   boundingBox(style) {
@@ -874,11 +876,13 @@ const polygonGeometry: AnnotationGeometryModule = {
       // できる状態（closing）のときだけは、閉じた図形として塗りを適用し、ユーザーに
       // 「ここで閉じられる」ことを視覚的に伝える
       closed: closing,
-      fill:
-        closing || style.fillColor
-          ? hexToRgba(style.fillColor ?? style.strokeColor, style.fillOpacity)
-          : 'transparent',
-      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
+      fill: (() => {
+        const fillSource = style.fillColor ?? style.strokeColor;
+        return (closing || style.fillColor) && fillSource
+          ? hexToRgba(fillSource, style.fillOpacity)
+          : 'transparent';
+      })(),
+      stroke: previewStroke(style),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };
@@ -969,7 +973,7 @@ const textGeometry: AnnotationGeometryModule = {
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
       fill: style.fillColor ? hexToRgba(style.fillColor, style.fillOpacity) : 'transparent',
-      stroke: hexToRgba(style.strokeColor, style.strokeOpacity),
+      stroke: previewStroke(style),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),
     };

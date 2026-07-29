@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   AnnotationStyle,
   ArrowAnnotationStyle,
+  ArrowHeadType,
   PolygonAnnotationStyle,
   PolylineAnnotationStyle,
   TextAnnotationStyle,
@@ -16,6 +17,36 @@ const baseFields = {
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
+
+describe('ArrowHeadType', () => {
+  it('拡充後の全10種類をパースできる', () => {
+    const types = [
+      'none',
+      'triangle',
+      'open',
+      'square',
+      'circle',
+      'diamond',
+      'butt',
+      'slash',
+      'reverseOpen',
+      'reverseTriangle',
+    ];
+    for (const type of types) {
+      expect(ArrowHeadType.safeParse(type).success).toBeTrue();
+    }
+  });
+
+  it('拡充前から保存済みの値（none/triangle/open）は名称変更されておらず、引き続きパースできる（後方互換）', () => {
+    expect(ArrowHeadType.parse('none')).toBe('none');
+    expect(ArrowHeadType.parse('triangle')).toBe('triangle');
+    expect(ArrowHeadType.parse('open')).toBe('open');
+  });
+
+  it('未定義の値はパースエラーになる', () => {
+    expect(ArrowHeadType.safeParse('not-a-head-type').success).toBeFalse();
+  });
+});
 
 describe('ArrowAnnotationStyle', () => {
   it('startHead/endHead/headSizeを省略した場合はデフォルト値が補完される', () => {

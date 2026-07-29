@@ -83,15 +83,29 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
   }
 
   /**
+   * 線色に線の不透明度をrgbaで合成する（fillと同じ「未設定＝色なし」の規約に揃える）
+   *
+   * `resolveFill`と対になる関数。色が未設定（「線色なし」）の場合は`'transparent'`を返し、
+   * Konvaのノードに実際の枠線が描画されないようにする
+   */
+  function resolveStroke(color: string | undefined, strokeOpacity: number | undefined): string {
+    if (!color) return 'transparent';
+    return hexToRgba(color, resolveOpacity(strokeOpacity));
+  }
+
+  /**
    * 枠線色。Konvaのノードはfill/strokeそれぞれ個別のopacityを持たないため、
    * 線の不透明度は色側にrgba合成して表現する。関係性の検証結果による上書きがあれば優先する
    */
-  const resolvedStroke = computed(() =>
-    hexToRgba(
-      relationalOverride.value?.stroke ?? displayAnnotation.value.color,
-      resolveOpacity(displayAnnotation.value.strokeOpacity),
-    ),
-  );
+  const resolvedStroke = computed(() => {
+    if (relationalOverride.value) {
+      return hexToRgba(
+        relationalOverride.value.stroke,
+        resolveOpacity(displayAnnotation.value.strokeOpacity),
+      );
+    }
+    return resolveStroke(displayAnnotation.value.color, displayAnnotation.value.strokeOpacity);
+  });
 
   /**
    * 塗り色に塗りの不透明度をrgbaで合成する（box/circle/polygon/textのみ呼び出す）
@@ -198,6 +212,7 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: { annotatio
     hitStrokeWidth,
     resolveOpacity,
     resolvedStroke,
+    resolveStroke,
     resolveFill,
     withUpdatedTimestamp,
     displayAnnotation,

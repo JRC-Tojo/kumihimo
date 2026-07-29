@@ -58,7 +58,6 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
-import { v4 as uuidv4 } from 'uuid';
 import { type MoveEvent, VueDraggable } from 'vue-draggable-plus';
 import AnnotationPresetPreview from './AnnotationPresetPreview.vue';
 import { useEditorStore } from 'src/stores/editorStore';
@@ -70,6 +69,7 @@ import {
   reorderPresetsOfType,
 } from './composables/useAnnotationPresets';
 import { confirmDialog, promptDialog } from 'src/components/Dialog/confirmDialog';
+import { registerAnnotationPreset } from './composables/useAnnotationPresetRegistration';
 
 const { t } = useI18n();
 const $q = useQuasar();
@@ -188,24 +188,9 @@ async function onDelete(preset: AnnotationTool) {
 }
 
 async function onAdd() {
-  const type = effectiveType.value;
   const style = currentStyleForPresetOp();
-  if (type === undefined || !style) return;
-
-  const defaultName = `${t(`pdfEditor.tools.${type}`)} ${presetsForType.value.length + 1}`;
-  const name = await promptDialog({
-    title: t('pdfEditor.tools.presetBar.add'),
-    promptLabel: t('pdfEditor.tools.presetBar.nameLabel'),
-    initialValue: defaultName,
-  });
-  if (name === undefined || name.trim() === '') return;
-
-  const newPreset: AnnotationTool = {
-    id: uuidv4(),
-    name,
-    style,
-  };
-  await settingsStore.updateAnnotationPresets([...allPresets.value, newPreset]);
+  if (!style) return;
+  await registerAnnotationPreset(t, settingsStore, style);
 }
 </script>
 

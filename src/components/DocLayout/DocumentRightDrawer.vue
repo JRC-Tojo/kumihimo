@@ -10,22 +10,8 @@
           <div class="property-value">{{ selectedAnnotationType }}</div>
         </div>
 
-        <!-- arrow/polyline: 開始側の矢じり形状・矢じりサイズ（終端側・線色等はスタイルパネルで調整する） -->
+        <!-- arrow/polyline: 矢じりサイズ（始点・終点の形状・線色等はスタイルパネルで調整する） -->
         <template v-if="isHeadedSelection">
-          <div class="property-group q-mb-md">
-            <label class="property-label">{{
-              $t('pdfEditor.rightDrawer.annotation.startHead')
-            }}</label>
-            <q-select
-              :model-value="startHead"
-              :options="headOptions"
-              emit-value
-              map-options
-              dense
-              outlined
-              @update:model-value="(v: ArrowHeadType) => (startHead = v)"
-            />
-          </div>
           <div class="property-group q-mb-md">
             <label class="property-label">{{
               $t('pdfEditor.rightDrawer.annotation.headSize')
@@ -176,7 +162,6 @@
 import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import { ColorCode, type AnnotationID, type AnnotationStyle } from 'src/models/document/pdf';
-import type { ArrowHeadType } from 'src/models/document/pdf';
 import type { ContainerElementFile } from 'src/models/container';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
 import {
@@ -251,25 +236,6 @@ const isHeadedSelection = computed(
 const isTextSelection = computed(
   () => prop.selectedAnnots.length > 0 && prop.selectedAnnots.every((a) => a.type === 'text'),
 );
-
-const headOptions: { label: string; value: ArrowHeadType }[] = [
-  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.none'), value: 'none' },
-  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.triangle'), value: 'triangle' },
-  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.open'), value: 'open' },
-];
-
-const startHead = computed<ArrowHeadType | undefined>({
-  get: () =>
-    commonValue(prop.selectedAnnots, (a) =>
-      a.type === 'arrow' || a.type === 'polyline' ? a.startHead : undefined,
-    ),
-  set: (value) => {
-    if (value === undefined) return;
-    void applyPatch((annot) =>
-      annot.type === 'arrow' || annot.type === 'polyline' ? { startHead: value } : null,
-    );
-  },
-});
 
 const headSize = computed<number | undefined>({
   get: () =>

@@ -12,12 +12,16 @@
       onDragend: onDragEnd,
     }"
   >
-    <v-arrow
-      ref="arrowRef"
-      :config="arrowConfig"
+    <v-line
+      ref="shaftRef"
+      :config="shaftConfig"
       @mouseenter="onMouseEnter"
       @mouseleave="onMouseLeave"
     />
+    <v-circle v-if="startHead?.type === 'circle'" :config="startHead.config" />
+    <v-line v-else-if="startHead" :config="startHead.config" />
+    <v-circle v-if="endHead?.type === 'circle'" :config="endHead.config" />
+    <v-line v-else-if="endHead" :config="endHead.config" />
 
     <!-- 端点アンカー: 選択されて編集中の場合のみ表示 -->
     <template v-if="props.isEditing && props.isSelected">
@@ -40,11 +44,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, type ComputedRef } from 'vue';
 import type Konva from 'konva';
-import type { AnnotationID, ArrowAnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, ArrowAnnotationStyle, ArrowHeadType } from 'src/models/document/pdf';
 import { useAnnotationShape } from './composables/useAnnotationShape';
 import { useTwoPointAnchors } from './composables/useTwoPointAnchors';
+import {
+  computeHeadTransform,
+  getHeadLocalPoints,
+  getHeadRadius,
+  isClosedHead,
+  isFilledHead,
+} from './arrowHeadGeometry';
 
 interface Props {
   annotation: ArrowAnnotationStyle;
@@ -63,7 +74,7 @@ const emit = defineEmits<{
 }>();
 
 const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
-const arrowRef = ref<{ getNode: () => Konva.Arrow | null } | null>(null);
+const shaftRef = ref<{ getNode: () => Konva.Line | null } | null>(null);
 const anchor1Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const anchor2Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const isHovered = ref(false);
@@ -95,29 +106,73 @@ const arrowPoints = computed(() => {
   ] as const;
 });
 
-const arrowConfig = computed(() => {
+const resolvedStrokeWidth = computed(
+  () => relationalOverride.value?.strokeWidth ?? (displayAnnotation.value.strokeWidth || 2),
+);
+
+const shaftConfig = computed(() => {
   const annotation = displayAnnotation.value;
-  const headSize = annotation.headSize ?? 10;
   return {
     id: annotation.id,
     name: 'annotation-shape',
     points: arrowPoints.value,
     stroke: resolvedStroke.value,
-    strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
-    fill: resolvedStroke.value,
-    // KonvaのArrowは矢じりの塗りつぶし可否を始点・終点で共通のフラグしか持たないため、
-    // 片方でも'open'が指定されていればアウトラインのみの矢じりとして描画する
-    fillEnabled: annotation.startHead !== 'open' && annotation.endHead !== 'open',
-    pointerAtBeginning: annotation.startHead !== 'none',
-    pointerAtEnding: annotation.endHead !== 'none',
-    pointerLength: headSize,
-    pointerWidth: headSize,
+    strokeWidth: resolvedStrokeWidth.value,
     dash: strokeDash.value,
     globalCompositeOperation: globalCompositeOperation.value,
     draggable: false,
     hitStrokeWidth: hitStrokeWidth.value,
   };
 });
+
+interface ArrowHeadRenderInfo {
+  type: ArrowHeadType;
+  config: Record<string, unknown>;
+}
+
+/**
+ * 矢じり（始点/終点）の実際のKonva描画設定を組み立てる。KonvaネイティブのArrowは
+ * 塗りつぶし可否が始点・終点で共通のフラグしか持たないため使えず（両端で独立した見た目に
+ * できない）、arrowHeadGeometry.tsのローカル座標を実際の端点座標・角度へ変換して
+ * v-line（多くの矢じり形状）またはv-circle（'circle'のみ）として描画する
+ */
+function buildHeadInfo(end: 'start' | 'end'): ComputedRef<ArrowHeadRenderInfo | null> {
+  return computed(() => {
+    const annotation = displayAnnotation.value;
+    const headType = end === 'start' ? annotation.startHead : annotation.endHead;
+    if (headType === 'none') return null;
+
+    const transform = computeHeadTransform(arrowPoints.value, end);
+    if (!transform) return null;
+
+    const headSize = annotation.headSize ?? 10;
+    const base = {
+      id: annotation.id,
+      name: 'annotation-shape',
+      x: transform.tipX,
+      y: transform.tipY,
+      rotation: transform.angleDeg,
+      stroke: resolvedStroke.value,
+      strokeWidth: resolvedStrokeWidth.value,
+      fill: resolvedStroke.value,
+      fillEnabled: isFilledHead(headType),
+      globalCompositeOperation: globalCompositeOperation.value,
+      draggable: false,
+      listening: props.isEditing,
+      hitStrokeWidth: hitStrokeWidth.value,
+    };
+
+    if (headType === 'circle') {
+      return { type: headType, config: { ...base, radius: getHeadRadius(headType, headSize) ?? 0 } };
+    }
+    const points = getHeadLocalPoints(headType, headSize);
+    if (!points) return null;
+    return { type: headType, config: { ...base, points, closed: isClosedHead(headType) } };
+  });
+}
+
+const startHead = buildHeadInfo('start');
+const endHead = buildHeadInfo('end');
 
 const anchor1Config = computed(() => {
   const annotation = displayAnnotation.value;
@@ -132,7 +187,8 @@ const anchor1Config = computed(() => {
     offset: { x: 5, y: 5 },
     name: 'annotation-anchor',
     fill: '#ffffff',
-    stroke: annotation.color,
+    // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
+    stroke: annotation.color ?? '#000000',
     strokeWidth: 2,
     cornerRadius: 0,
     draggable: props.isEditing && !!props.isSelected,
@@ -154,7 +210,8 @@ const anchor2Config = computed(() => {
     offset: { x: 5, y: 5 },
     name: 'annotation-anchor',
     fill: '#ffffff',
-    stroke: annotation.color,
+    // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
+    stroke: annotation.color ?? '#000000',
     strokeWidth: 2,
     cornerRadius: 0,
     draggable: props.isEditing && !!props.isSelected,
@@ -165,7 +222,7 @@ const anchor2Config = computed(() => {
 
 function getNode() {
   // 親がTransformerを割り当てられるようにグループノードを公開する（矢印は個別アンカー編集のため実際には未使用）
-  return groupRef.value?.getNode() ?? arrowRef.value?.getNode() ?? null;
+  return groupRef.value?.getNode() ?? shaftRef.value?.getNode() ?? null;
 }
 
 defineExpose({ getNode });
@@ -195,7 +252,7 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
 }
 
 const { onAnchorDragStart, onAnchorDrag0, onAnchorDrag1, onAnchorDragEnd } = useTwoPointAnchors({
-  getShapeNode: () => arrowRef.value?.getNode() ?? null,
+  getShapeNode: () => shaftRef.value?.getNode() ?? null,
   getGroupNode: () => groupRef.value?.getNode() ?? null,
   getAnchorNode: (idx) =>
     (idx === 0 ? anchor1Ref.value?.getNode() : anchor2Ref.value?.getNode()) ?? null,

@@ -216,6 +216,11 @@ export default {
         sendBackward: 'Send Backward',
         sendToBack: 'Send to Back',
       },
+      contextMenu: {
+        copy: 'Copy',
+        applyPreset: 'Apply preset style',
+        registerPreset: 'Register as preset',
+      },
       presetBar: {
         add: 'Add preset',
         rename: 'Rename',
@@ -227,6 +232,7 @@ export default {
       },
       stylePanel: {
         color: 'Stroke Color',
+        noColor: 'No color',
         lockedByRelational:
           'Cannot change — overridden by the relational verification result style',
         strokeWidth: 'Stroke Width',
@@ -235,7 +241,8 @@ export default {
         blendMode: 'Blend Mode',
         fillColor: 'Fill Color',
         fillOpacity: 'Fill Opacity',
-        endHead: 'Arrowhead',
+        startHead: 'Start Arrowhead',
+        endHead: 'End Arrowhead',
         fontFamily: 'Font',
         fontSize: 'Font Size',
         textColor: 'Text Color',
@@ -250,6 +257,13 @@ export default {
           none: 'None',
           triangle: 'Filled Triangle',
           open: 'Open',
+          square: 'Filled Square',
+          circle: 'Filled Circle',
+          diamond: 'Filled Diamond',
+          butt: 'Butt',
+          slash: 'Slash',
+          reverseOpen: 'Reverse Open',
+          reverseTriangle: 'Reverse Filled Triangle',
         },
         blendModeOptions: {
           normal: 'Normal',
@@ -306,7 +320,6 @@ export default {
       annotation: {
         title: 'Annotation Properties',
         type: 'Annotation Type',
-        startHead: 'Start Arrowhead',
         headSize: 'Arrowhead Size',
         fontWeight: 'Font Weight',
         textAlign: 'Text Align',

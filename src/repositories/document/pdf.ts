@@ -751,7 +751,9 @@ export async function embedAnnotationsIntoPdf(
       if (pageIndex < 0 || pageIndex >= pdfDoc.getPageCount()) continue;
       const page = pdfDoc.getPage(pageIndex);
 
-      const color = hexToRgb(a.color || '#ff0000');
+      // 線色未設定（「線色なし」）の場合、以前は赤色で代替描画していたが、これは意図しない
+      // フォールバックだった。未設定は「枠線を描画しない」ものとして扱う
+      const color = a.color ? hexToRgb(a.color) : undefined;
       const opacity = a.strokeOpacity ?? a.opacity ?? 1;
       const strokeWidth = a.strokeWidth ?? 2;
 
@@ -763,11 +765,13 @@ export async function embedAnnotationsIntoPdf(
           y: pageHeight - y - height,
           width,
           height,
-          borderColor: rgb(color.r, color.g, color.b),
-          borderWidth: strokeWidth,
+          ...(color
+            ? { borderColor: rgb(color.r, color.g, color.b), borderWidth: strokeWidth }
+            : {}),
           opacity,
         });
       } else if (a.type === 'line') {
+        if (!color) continue; // 線色が無ければ描画するものが無い
         const { x, y, points } = a;
         if (!Array.isArray(points) || points.length < 4) continue;
         const [, , width, height] = points;
@@ -788,8 +792,9 @@ export async function embedAnnotationsIntoPdf(
           // 楕円化されている場合はradiusX/radiusYを使い、未設定（正円）の場合はradiusにフォールバックする
           xScale: radiusX ?? radius,
           yScale: radiusY ?? radius,
-          borderColor: rgb(color.r, color.g, color.b),
-          borderWidth: strokeWidth,
+          ...(color
+            ? { borderColor: rgb(color.r, color.g, color.b), borderWidth: strokeWidth }
+            : {}),
           opacity,
         });
       }

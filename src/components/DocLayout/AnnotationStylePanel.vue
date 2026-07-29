@@ -174,13 +174,38 @@
 
     <q-separator vertical inset class="style-separator" />
 
-    <!-- arrow/polyline: 終端の矢じり形状 -->
+    <!-- arrow/polyline: 始点の矢じり形状 -->
     <q-btn v-if="isHeadedType" dense flat :ripple="false" class="style-icon-btn">
-      <q-icon :name="endHeadIcon(endHead)" size="18px" />
+      <ArrowHeadPreview :head-type="startHead ?? 'none'" :color="color ?? '#000000'" end="start" />
       <q-menu anchor="bottom left" self="top left">
         <q-list dense class="style-menu-list">
           <q-item
-            v-for="opt in endHeadOptions"
+            v-for="opt in headOptions"
+            :key="opt.value"
+            v-close-popup
+            clickable
+            :active="startHead === opt.value"
+            @click="startHead = opt.value"
+          >
+            <q-item-section avatar>
+              <ArrowHeadPreview :head-type="opt.value" :color="color ?? '#000000'" end="start" />
+            </q-item-section>
+            <q-item-section>{{ opt.label }}</q-item-section>
+          </q-item>
+        </q-list>
+      </q-menu>
+      <q-tooltip anchor="top middle" self="bottom middle">
+        {{ t('pdfEditor.tools.stylePanel.startHead') }}
+      </q-tooltip>
+    </q-btn>
+
+    <!-- arrow/polyline: 終端の矢じり形状 -->
+    <q-btn v-if="isHeadedType" dense flat :ripple="false" class="style-icon-btn">
+      <ArrowHeadPreview :head-type="endHead ?? 'none'" :color="color ?? '#000000'" end="end" />
+      <q-menu anchor="bottom left" self="top left">
+        <q-list dense class="style-menu-list">
+          <q-item
+            v-for="opt in headOptions"
             :key="opt.value"
             v-close-popup
             clickable
@@ -188,7 +213,7 @@
             @click="endHead = opt.value"
           >
             <q-item-section avatar>
-              <q-icon :name="endHeadIcon(opt.value)" size="18px" />
+              <ArrowHeadPreview :head-type="opt.value" :color="color ?? '#000000'" end="end" />
             </q-item-section>
             <q-item-section>{{ opt.label }}</q-item-section>
           </q-item>
@@ -279,7 +304,8 @@ import { useAnnotationStylePanel } from './composables/useAnnotationStylePanel';
 import StyleSwatchButton from './StyleSwatchButton.vue';
 import StrokeTypePreview from './StrokeTypePreview.vue';
 import BlendModePreview from './BlendModePreview.vue';
-import type { ArrowHeadType, BlendMode } from 'src/models/document/pdf';
+import ArrowHeadPreview from './ArrowHeadPreview.vue';
+import type { BlendMode } from 'src/models/document/pdf';
 
 const { t } = useI18n();
 
@@ -294,6 +320,7 @@ const {
   blendMode,
   fillColor,
   fillOpacity,
+  startHead,
   endHead,
   fontFamily,
   fontSize,
@@ -353,23 +380,25 @@ const strokeTypeOptions = computed(() => [
   { label: t('pdfEditor.tools.stylePanel.strokeTypeOptions.double'), value: 'double' as const },
 ]);
 
-const endHeadOptions = computed(() => [
+/** 始点・終点で共用する矢じり形状の選択肢一覧（全10種類） */
+const headOptions = computed(() => [
   { label: t('pdfEditor.tools.stylePanel.endHeadOptions.none'), value: 'none' as const },
   { label: t('pdfEditor.tools.stylePanel.endHeadOptions.triangle'), value: 'triangle' as const },
   { label: t('pdfEditor.tools.stylePanel.endHeadOptions.open'), value: 'open' as const },
+  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.square'), value: 'square' as const },
+  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.circle'), value: 'circle' as const },
+  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.diamond'), value: 'diamond' as const },
+  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.butt'), value: 'butt' as const },
+  { label: t('pdfEditor.tools.stylePanel.endHeadOptions.slash'), value: 'slash' as const },
+  {
+    label: t('pdfEditor.tools.stylePanel.endHeadOptions.reverseOpen'),
+    value: 'reverseOpen' as const,
+  },
+  {
+    label: t('pdfEditor.tools.stylePanel.endHeadOptions.reverseTriangle'),
+    value: 'reverseTriangle' as const,
+  },
 ]);
-
-/** 矢じり形状に対応するMaterial Iconsのアイコン名 */
-function endHeadIcon(head: ArrowHeadType | undefined): string {
-  switch (head) {
-    case 'triangle':
-      return 'arrow_forward';
-    case 'open':
-      return 'north_east';
-    default:
-      return 'horizontal_rule';
-  }
-}
 
 const fontFamilyOptions = [
   { label: 'Sans Serif', value: 'sans-serif' },

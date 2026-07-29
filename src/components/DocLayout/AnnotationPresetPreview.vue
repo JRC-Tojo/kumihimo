@@ -71,30 +71,42 @@
         :stroke-width="previewStrokeWidth"
         :stroke-dasharray="previewDash"
       />
-      <path
-        v-if="annotationStyle.endHead === 'triangle'"
-        d="M18,6 L13,7.5 L16.5,10.5 Z"
-        :fill="annotationStyle.strokeColor"
-      />
-      <path
-        v-else-if="annotationStyle.endHead === 'open'"
-        d="M13,7 L18,6 L16.5,11"
-        fill="none"
-        :stroke="annotationStyle.strokeColor"
-        :stroke-width="previewStrokeWidth"
-      />
-      <path
-        v-if="annotationStyle.startHead === 'triangle'"
-        d="M4,18 L9,16.5 L5.5,13.5 Z"
-        :fill="annotationStyle.strokeColor"
-      />
-      <path
-        v-else-if="annotationStyle.startHead === 'open'"
-        d="M9,17 L4,18 L5.5,13"
-        fill="none"
-        :stroke="annotationStyle.strokeColor"
-        :stroke-width="previewStrokeWidth"
-      />
+      <g v-if="endHeadRender" :transform="endHeadRender.transform">
+        <path
+          v-if="endHeadRender.path"
+          :d="endHeadRender.path"
+          :fill="endHeadRender.filled ? annotationStyle.strokeColor : 'none'"
+          :stroke="annotationStyle.strokeColor"
+          stroke-width="1"
+        />
+        <circle
+          v-else-if="endHeadRender.radius"
+          cx="0"
+          cy="0"
+          :r="endHeadRender.radius"
+          :fill="endHeadRender.filled ? annotationStyle.strokeColor : 'none'"
+          :stroke="annotationStyle.strokeColor"
+          stroke-width="1"
+        />
+      </g>
+      <g v-if="startHeadRender" :transform="startHeadRender.transform">
+        <path
+          v-if="startHeadRender.path"
+          :d="startHeadRender.path"
+          :fill="startHeadRender.filled ? annotationStyle.strokeColor : 'none'"
+          :stroke="annotationStyle.strokeColor"
+          stroke-width="1"
+        />
+        <circle
+          v-else-if="startHeadRender.radius"
+          cx="0"
+          cy="0"
+          :r="startHeadRender.radius"
+          :fill="startHeadRender.filled ? annotationStyle.strokeColor : 'none'"
+          :stroke="annotationStyle.strokeColor"
+          stroke-width="1"
+        />
+      </g>
     </g>
 
     <!-- text -->
@@ -134,11 +146,53 @@
 import { computed } from 'vue';
 import type { DrawingAnnotationStyle } from 'src/models/docPage';
 import { strokeTypeToPreviewDash } from 'src/utils/document/strokeDashPreview';
+import {
+  buildHeadLocalSvgPath,
+  computeHeadTransform,
+  getHeadRadius,
+  isFilledHead,
+} from 'src/components/Viewer/Annotation/arrowHeadGeometry';
 
 interface Props {
   annotationStyle: DrawingAnnotationStyle;
 }
 const props = defineProps<Props>();
+
+// このプレビュー内でarrow/polylineのシャフトとして描く固定の線分（下記<line>と同じ座標）
+const ARROW_PREVIEW_POINTS = [4, 18, 18, 6];
+const PREVIEW_HEAD_SIZE = 6;
+
+interface HeadRender {
+  transform: string;
+  path: string | null;
+  radius: number | null;
+  filled: boolean;
+}
+
+/**
+ * 矢じり（始点/終点）のミニプレビュー描画情報を組み立てる。実際の描画
+ * （ArrowAnnotation.vue等）と同じarrowHeadGeometry.tsのジオメトリ計算を使うことで、
+ * 見た目のズレが生じないようにする
+ */
+function buildHeadRender(end: 'start' | 'end'): HeadRender | null {
+  const style = props.annotationStyle;
+  if (style.type !== 'arrow' && style.type !== 'polyline') return null;
+  const headType = end === 'start' ? style.startHead : style.endHead;
+  if (headType === 'none') return null;
+
+  const transform = computeHeadTransform(ARROW_PREVIEW_POINTS, end);
+  if (!transform) return null;
+
+  return {
+    transform: `translate(${transform.tipX},${transform.tipY}) rotate(${transform.angleDeg})`,
+    path: buildHeadLocalSvgPath(headType, PREVIEW_HEAD_SIZE),
+    radius: getHeadRadius(headType, PREVIEW_HEAD_SIZE),
+    filled: isFilledHead(headType),
+  };
+}
+
+const startHeadRender = computed(() => buildHeadRender('start'));
+const endHeadRender = computed(() => buildHeadRender('end'));
 
 /** アイコン内で見やすいようクランプした線幅（実際のstrokeWidthはpx単位が大きく、小さいSVGでは太すぎるため） */
 const previewStrokeWidth = computed(() =>

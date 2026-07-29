@@ -125,7 +125,8 @@ const anchor1Config = computed(() => {
     offset: { x: 5, y: 5 },
     name: 'annotation-anchor',
     fill: '#ffffff',
-    stroke: annotation.color,
+    // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
+    stroke: annotation.color ?? '#000000',
     strokeWidth: 2,
     cornerRadius: 0,
     draggable: props.isEditing && !!props.isSelected,
@@ -147,7 +148,8 @@ const anchor2Config = computed(() => {
     offset: { x: 5, y: 5 },
     name: 'annotation-anchor',
     fill: '#ffffff',
-    stroke: annotation.color,
+    // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
+    stroke: annotation.color ?? '#000000',
     strokeWidth: 2,
     cornerRadius: 0,
     draggable: props.isEditing && !!props.isSelected,

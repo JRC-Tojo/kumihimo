@@ -29,7 +29,7 @@ export type TileMode = 'none' | 'vertical' | 'horizontal' | 'grid';
  */
 export const AnnotationLineStyle = z.object({
   type: z.literal('line'),
-  strokeColor: z.string(),
+  strokeColor: z.string().optional(), // 未設定は「線色なし」を表す
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
   strokeOpacity: z.number(),
@@ -37,7 +37,7 @@ export const AnnotationLineStyle = z.object({
 });
 export const AnnotationBoxStyle = z.object({
   type: z.literal('box'),
-  strokeColor: z.string(),
+  strokeColor: z.string().optional(), // 未設定は「線色なし」を表す
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
   strokeOpacity: z.number(),
@@ -48,7 +48,7 @@ export const AnnotationBoxStyle = z.object({
 });
 export const AnnotationCircleStyle = z.object({
   type: z.literal('circle'),
-  strokeColor: z.string(),
+  strokeColor: z.string().optional(), // 未設定は「線色なし」を表す
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
   strokeOpacity: z.number(),
@@ -64,7 +64,7 @@ export const AnnotationTextStyle = z.object({
   fontFamily: z.string(),
   fontSize: z.number(),
   textAlign: z.enum(['left', 'center', 'right']),
-  strokeColor: z.string(),
+  strokeColor: z.string().optional(), // 未設定は「線色なし」を表す
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
   strokeOpacity: z.number(),
@@ -75,7 +75,7 @@ export const AnnotationTextStyle = z.object({
 });
 export const AnnotationArrowStyle = z.object({
   type: z.literal('arrow'),
-  strokeColor: z.string(),
+  strokeColor: z.string().optional(), // 未設定は「線色なし」を表す
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
   strokeOpacity: z.number(),
@@ -86,7 +86,7 @@ export const AnnotationArrowStyle = z.object({
 });
 export const AnnotationPolylineStyle = z.object({
   type: z.literal('polyline'),
-  strokeColor: z.string(),
+  strokeColor: z.string().optional(), // 未設定は「線色なし」を表す
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
   strokeOpacity: z.number(),
@@ -97,7 +97,7 @@ export const AnnotationPolylineStyle = z.object({
 });
 export const AnnotationPolygonStyle = z.object({
   type: z.literal('polygon'),
-  strokeColor: z.string(),
+  strokeColor: z.string().optional(), // 未設定は「線色なし」を表す
   strokeWidth: z.number(),
   strokeType: z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']),
   strokeOpacity: z.number(),

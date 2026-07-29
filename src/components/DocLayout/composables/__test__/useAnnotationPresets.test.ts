@@ -164,9 +164,47 @@ describe('buildPresetApplyPatch', () => {
     const boxAnnot = { type: 'box' } as unknown as AnnotationStyle;
     expect(patchFn(boxAnnot)).toBeNull();
   });
+
+  it('strokeColorが未設定（「線色なし」）の場合は、nullを返さずcolor: undefinedのpatchを返す', () => {
+    const noStrokeColorStyle: DrawingAnnotationStyle = {
+      ...boxDrawingStyle,
+      strokeColor: undefined,
+    };
+    const patchFn = buildPresetApplyPatch(noStrokeColorStyle);
+    const boxAnnot = { type: 'box' } as unknown as AnnotationStyle;
+    const patch = patchFn(boxAnnot);
+    expect(patch).not.toBeNull();
+    expect(patch?.color).toBeUndefined();
+  });
+
+  it('fillPatternが"none"の場合、fillColorに値が残っていても適用しない（fillColor: undefinedを返す）', () => {
+    const noneFillStyle: DrawingAnnotationStyle = {
+      ...boxDrawingStyle,
+      fillPattern: 'none',
+      fillColor: '#222222',
+    };
+    const patchFn = buildPresetApplyPatch(noneFillStyle);
+    const boxAnnot = { type: 'box' } as unknown as AnnotationStyle;
+    const patch = patchFn(boxAnnot);
+    expect(patch).toMatchObject({ fillColor: undefined });
+  });
 });
 
 describe('annotationStyleToPresetStyle', () => {
+  it('color未設定（「線色なし」）の場合、strokeColorもundefinedのまま引き継ぐ', () => {
+    const lineAnnot = {
+      type: 'line',
+      color: undefined,
+      strokeWidth: 2,
+      strokeType: 'solid',
+      strokeOpacity: 1,
+    } as unknown as AnnotationStyle;
+
+    const preset = annotationStyleToPresetStyle(lineAnnot);
+
+    expect(preset.strokeColor).toBeUndefined();
+  });
+
   it('box種別: fillColor未設定時はcolorをfillColorとして流用し、fillPatternは"none"になる', () => {
     const boxAnnot = {
       type: 'box',
