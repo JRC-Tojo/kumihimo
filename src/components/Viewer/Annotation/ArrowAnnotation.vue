@@ -99,10 +99,10 @@ const arrowPoints = computed(() => {
   const annotation = displayAnnotation.value;
   if (annotation.points.length !== 4) return [0, 0, 0, 0] as const;
   return [
-    annotation.points[0],
-    annotation.points[1],
-    annotation.points[2],
-    annotation.points[3],
+    annotation.points[0]!,
+    annotation.points[1]!,
+    annotation.points[2]!,
+    annotation.points[3]!,
   ] as const;
 });
 
