@@ -23,13 +23,19 @@
             <q-menu anchor="top end" self="top start">
               <q-list dense>
                 <q-item v-close-popup clickable @click="onReorder('front')">
-                  <q-item-section>{{ t('pdfEditor.tools.layerOrder.bringToFront') }}</q-item-section>
+                  <q-item-section>{{
+                    t('pdfEditor.tools.layerOrder.bringToFront')
+                  }}</q-item-section>
                 </q-item>
                 <q-item v-close-popup clickable @click="onReorder('forward')">
-                  <q-item-section>{{ t('pdfEditor.tools.layerOrder.bringForward') }}</q-item-section>
+                  <q-item-section>{{
+                    t('pdfEditor.tools.layerOrder.bringForward')
+                  }}</q-item-section>
                 </q-item>
                 <q-item v-close-popup clickable @click="onReorder('backward')">
-                  <q-item-section>{{ t('pdfEditor.tools.layerOrder.sendBackward') }}</q-item-section>
+                  <q-item-section>{{
+                    t('pdfEditor.tools.layerOrder.sendBackward')
+                  }}</q-item-section>
                 </q-item>
                 <q-item v-close-popup clickable @click="onReorder('back')">
                   <q-item-section>{{ t('pdfEditor.tools.layerOrder.sendToBack') }}</q-item-section>
@@ -89,9 +95,7 @@ import type { AnnotationStyle } from 'src/models/document/pdf';
 import type { AnnotationTool } from 'src/models/docPage';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { useAnnotationStylePanel } from 'src/components/DocLayout/composables/useAnnotationStylePanel';
-import {
-  annotationStyleToPresetStyle,
-} from 'src/components/DocLayout/composables/useAnnotationPresets';
+import { annotationStyleToPresetStyle } from 'src/components/DocLayout/composables/useAnnotationPresets';
 import { registerAnnotationPreset } from 'src/components/DocLayout/composables/useAnnotationPresetRegistration';
 import AnnotationPresetPreview from 'src/components/DocLayout/AnnotationPresetPreview.vue';
 

@@ -398,9 +398,7 @@ function handleContextMenu(e: KonvaMouseEvent) {
   if (isDrawing.value || clickPointsBuffer.value) return;
 
   const clickedId = resolveContextMenuAnnotationId(e.target.attrs as ContextMenuHitAttrs);
-  const annotation = clickedId
-    ? props.annotations.find((a) => a.id === clickedId)
-    : undefined;
+  const annotation = clickedId ? props.annotations.find((a) => a.id === clickedId) : undefined;
   if (!annotation) return;
 
   e.evt.preventDefault();

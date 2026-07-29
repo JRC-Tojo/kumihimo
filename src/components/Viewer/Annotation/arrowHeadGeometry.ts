@@ -91,7 +91,12 @@ export function computeHeadTransform(
 
   const [fromX, fromY, tipX, tipY] =
     end === 'end'
-      ? [points[points.length - 4], points[points.length - 3], points[points.length - 2], points[points.length - 1]]
+      ? [
+          points[points.length - 4],
+          points[points.length - 3],
+          points[points.length - 2],
+          points[points.length - 1],
+        ]
       : [points[2], points[3], points[0], points[1]];
 
   if (fromX === undefined || fromY === undefined || tipX === undefined || tipY === undefined) {

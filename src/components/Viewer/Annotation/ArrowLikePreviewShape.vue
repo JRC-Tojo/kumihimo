@@ -78,7 +78,10 @@ function buildHeadInfo(end: 'start' | 'end'): ComputedRef<ArrowHeadRenderInfo | 
     };
 
     if (headType === 'circle') {
-      return { type: headType, config: { ...base, radius: getHeadRadius(headType, headSize) ?? 0 } };
+      return {
+        type: headType,
+        config: { ...base, radius: getHeadRadius(headType, headSize) ?? 0 },
+      };
     }
     const points = getHeadLocalPoints(headType, headSize);
     if (!points) return null;
