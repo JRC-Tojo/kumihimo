@@ -55,7 +55,7 @@
         :label="$t('explorer.demo')"
         color="primary"
         class="q-ma-sm"
-        style="width: calc(100% - 8px);"
+        style="width: calc(100% - 8px)"
         @click="onCreateDemo"
       />
     </div>
