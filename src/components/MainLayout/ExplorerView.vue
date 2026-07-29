@@ -54,7 +54,8 @@
         outline
         :label="$t('explorer.demo')"
         color="primary"
-        class="full-width q-my-sm"
+        class="q-ma-sm"
+        style="width: calc(100% - 8px);"
         @click="onCreateDemo"
       />
     </div>
