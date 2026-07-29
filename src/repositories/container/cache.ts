@@ -115,7 +115,7 @@ export async function deleteFile(c: Container, element: ContainerElement): Promi
  */
 export async function loadSrcData(cId: ContainerID, path: string): Promise<Result<DocumentSource>> {
   const docKey = getDocKey(cId, path);
-  return db.getValue(SOURCE_STORE_NAME, DocumentSource, docKey);
+  return db.getValue(SOURCE_STORE_NAME, DocumentSource, docKey, { notFoundIfMissing: true });
 }
 
 /**
@@ -156,7 +156,9 @@ export async function renameEntry(
   // ファイルの場合は本体データのキーも付け替える
   const oldKey = getDocKey(c.id, oldPath);
   const newKey = getDocKey(c.id, newPath);
-  const srcRes = await db.getValue(SOURCE_STORE_NAME, DocumentSource, oldKey);
+  const srcRes = await db.getValue(SOURCE_STORE_NAME, DocumentSource, oldKey, {
+    notFoundIfMissing: true,
+  });
   if (!srcRes.ok) return srcRes;
 
   const setRes = await db.setValue(SOURCE_STORE_NAME, newKey, srcRes.value);

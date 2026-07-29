@@ -2,7 +2,7 @@
  * ブラウザのキャッシュ（indexedDB）に文書を保存する
  */
 import type { Result } from 'src/models/error/result';
-import { Failure, Success } from 'src/models/error/result';
+import { Failure, NotFoundError, Success } from 'src/models/error/result';
 import { fromEntries } from 'src/utils/obj/obj';
 import { ref } from 'vue';
 import type z from 'zod';
@@ -92,11 +92,17 @@ function wrapRequest<T>(starter: () => IDBRequest<T>): Promise<Result<T>> {
  * ストアから値を取得する
  *
  * @param key 値を取得する対象のキー（指定しない場合はストア全体をRecordで返す）
+ * @param options.notFoundIfMissing trueの場合、指定したkeyに対応する値がストアに
+ * 存在しない際、Zodでのパースを試みる前に`NotFoundError`を返す。「未保存＝空/初期状態」
+ * として扱いたい呼び出し元（`local`リポジトリのファイル未存在時の扱いと合わせるため）向け。
+ * 指定しない場合は従来通り、未存在時の`undefined`もそのままtargetZodTypeでパースする
+ * （スキーマ側の`.default()`等で吸収する既存の呼び出し元の挙動を変えないため）
  */
 export async function getValue<T extends z.ZodType>(
   storeName: string,
   targetZodType: T,
   key?: string,
+  options?: { notFoundIfMissing?: boolean },
 ): Promise<Result<z.infer<T>>> {
   if (isNeedInitialize(storeName)) {
     const initRes = await initialize(storeName);
@@ -110,6 +116,9 @@ export async function getValue<T extends z.ZodType>(
   if (key) {
     const res = await wrapRequest(() => store.get(key));
     if (!res.ok) return res;
+    if (res.value === undefined && options?.notFoundIfMissing) {
+      return Failure(new NotFoundError(`Not found (store=${storeName}, key=${key})`));
+    }
     gotData = res.value;
   } else {
     const keys = await wrapRequest(() => store.getAllKeys());
