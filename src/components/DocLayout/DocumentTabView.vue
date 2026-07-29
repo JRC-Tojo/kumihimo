@@ -400,6 +400,8 @@ async function finishRelational(targetId: AnnotationID) {
 
   // 通知や待機状態は結果を待たずに解除し、モード自体は次の登録に備えて維持する
   editorStore.cancelRelationalPending();
+  // 連続定義モードが、選択され続けているだけのこの対象を新たな起点と誤認しないための目印
+  editorStore.relationalLastPairedId = targetId;
 
   const res = await api.registRelationals({
     srcID: srcId,
@@ -417,6 +419,11 @@ async function finishRelational(targetId: AnnotationID) {
   if (pendingFile !== undefined && !isSameFile(pendingFile, prop.file)) {
     void relationalStore.refreshFile(pendingFile);
   }
+
+  // 連続定義モード（関係性ボタンのダブルクリックで開始）が有効な場合でも、ここでは基準を
+  // リセットするだけに留める。次に選択されたアノテーションを新たな基準とする処理は
+  // `RelationalDefineButtons.vue`側で選択変化を監視して行う（1組確定するごとに直前の対象と
+  // 自動で連鎖させるのではなく、次の選択を独立した新しいペアの起点として扱うため）
 
   scheduleAutoSave();
 }
