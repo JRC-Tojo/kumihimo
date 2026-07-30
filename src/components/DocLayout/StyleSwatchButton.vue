@@ -91,6 +91,7 @@ const colorValue = defineModel<string | undefined>({ required: true });
 
 const settingsStore = useSettingsStore();
 
+/** 「色なし」状態かどうか（文字色は常に必須のため、variant==='text'では常にfalse扱い） */
 const isNone = computed(() => props.variant !== 'text' && colorValue.value === undefined);
 
 const swatchStyle = computed(() => {

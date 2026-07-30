@@ -75,7 +75,7 @@
         <path
           v-if="endHeadRender.path"
           :d="endHeadRender.path"
-          :fill="endHeadRender.filled ? annotationStyle.strokeColor : 'none'"
+          :fill="endHeadRender.filled ? (annotationStyle.strokeColor ?? 'none') : 'none'"
           :stroke="annotationStyle.strokeColor"
           stroke-width="1"
         />
@@ -84,7 +84,7 @@
           cx="0"
           cy="0"
           :r="endHeadRender.radius"
-          :fill="endHeadRender.filled ? annotationStyle.strokeColor : 'none'"
+          :fill="endHeadRender.filled ? (annotationStyle.strokeColor ?? 'none') : 'none'"
           :stroke="annotationStyle.strokeColor"
           stroke-width="1"
         />
@@ -93,7 +93,7 @@
         <path
           v-if="startHeadRender.path"
           :d="startHeadRender.path"
-          :fill="startHeadRender.filled ? annotationStyle.strokeColor : 'none'"
+          :fill="startHeadRender.filled ? (annotationStyle.strokeColor ?? 'none') : 'none'"
           :stroke="annotationStyle.strokeColor"
           stroke-width="1"
         />
@@ -102,7 +102,7 @@
           cx="0"
           cy="0"
           :r="startHeadRender.radius"
-          :fill="startHeadRender.filled ? annotationStyle.strokeColor : 'none'"
+          :fill="startHeadRender.filled ? (annotationStyle.strokeColor ?? 'none') : 'none'"
           :stroke="annotationStyle.strokeColor"
           stroke-width="1"
         />
@@ -218,6 +218,7 @@ const fillValue = computed(() => {
   return style.fillPattern !== 'none' && style.fillColor ? style.fillColor : 'none';
 });
 
+/** box/circle/polygon/textの塗りの不透明度。対象外の種別は不透明（1）を返す */
 const fillOpacityValue = computed(() => {
   const style = props.annotationStyle;
   if (

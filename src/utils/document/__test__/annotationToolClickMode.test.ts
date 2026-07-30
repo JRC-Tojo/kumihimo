@@ -2,8 +2,9 @@ import { describe, expect, it } from 'bun:test';
 import { shouldKeepSelectionMode } from 'src/utils/document/annotationToolClickMode';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 
+/** 指定した種別だけを持つテスト用アノテーションを作成する */
 function makeAnnotation(type: AnnotationStyle['type']): AnnotationStyle {
-  return { type } as unknown as AnnotationStyle;
+  return { type } as AnnotationStyle;
 }
 
 describe('shouldKeepSelectionMode', () => {

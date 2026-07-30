@@ -261,6 +261,19 @@ function previewStroke(style: DrawingAnnotationStyle): string {
 }
 
 /**
+ * ポリゴンのプレビュー描画用の塗り色を算出する。未確定（始点を再クリックして閉合するまで）の
+ * 間は基本的に塗らないが、閉合確定できる状態（closing）またはfillColorが設定済みの場合は
+ * 塗り色（未設定ならstrokeColorで代用）を使う
+ */
+function previewPolygonFill(style: DrawingAnnotationStyle, closing: boolean): string {
+  if (style.type !== 'polygon') return 'transparent';
+  const fillSource = style.fillColor ?? style.strokeColor;
+  return (closing || style.fillColor) && fillSource
+    ? hexToRgba(fillSource, style.fillOpacity)
+    : 'transparent';
+}
+
+/**
  * 既存の注釈をもとに、新しいIDを持つ複製オブジェクトを生成する
  *
  * ペースト（Ctrl+V）・Ctrl+ドラッグによる複製・（将来の）右クリックメニュー「複製」の
@@ -876,12 +889,7 @@ const polygonGeometry: AnnotationGeometryModule = {
       // できる状態（closing）のときだけは、閉じた図形として塗りを適用し、ユーザーに
       // 「ここで閉じられる」ことを視覚的に伝える
       closed: closing,
-      fill: (() => {
-        const fillSource = style.fillColor ?? style.strokeColor;
-        return (closing || style.fillColor) && fillSource
-          ? hexToRgba(fillSource, style.fillOpacity)
-          : 'transparent';
-      })(),
+      fill: previewPolygonFill(style, closing),
       stroke: previewStroke(style),
       strokeWidth: style.strokeWidth,
       dash: strokeTypeToDash(style.strokeType, style.strokeWidth),

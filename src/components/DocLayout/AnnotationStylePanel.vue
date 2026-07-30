@@ -459,6 +459,7 @@ const fontFamilyLabel = computed(
   () => fontFamilyOptions.find((opt) => opt.value === fontFamily.value)?.label ?? 'Sans Serif',
 );
 
+/** テキストの文字揃えの選択肢一覧（左寄せ・中央寄せ・右寄せ） */
 const textAlignOptions: { icon: string; value: 'left' | 'center' | 'right' }[] = [
   { icon: 'format_align_left', value: 'left' },
   { icon: 'format_align_center', value: 'center' },

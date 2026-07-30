@@ -18,6 +18,7 @@ const { registerAnnotationPreset } = await import('../useAnnotationPresetRegistr
 
 const t = (key: string) => key;
 
+/** 指定した種別のテスト用描画スタイルを生成する */
 function makeStyle(type: DrawingAnnotationStyle['type']): DrawingAnnotationStyle {
   return {
     type,
@@ -28,6 +29,7 @@ function makeStyle(type: DrawingAnnotationStyle['type']): DrawingAnnotationStyle
   } as unknown as DrawingAnnotationStyle;
 }
 
+/** 既存プリセット一覧を持つ、テスト用のsettingsStoreダブルを生成する */
 function makeSettingsStore(existing: AnnotationTool[]) {
   const updateAnnotationPresets = mock(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する

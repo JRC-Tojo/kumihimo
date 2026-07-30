@@ -395,7 +395,7 @@ function handleDblClick(e: KonvaMouseEvent) {
  * 単独選択に切り替え（含まれていれば、複数選択中の右クリックとして選択状態を維持する）
  */
 function handleContextMenu(e: KonvaMouseEvent) {
-  if (isDrawing.value || clickPointsBuffer.value) return;
+  if (isDrawing.value || clickPointsBuffer.value || !isEditingMode.value) return;
 
   const clickedId = resolveContextMenuAnnotationId(e.target.attrs as ContextMenuHitAttrs);
   const annotation = clickedId ? props.annotations.find((a) => a.id === clickedId) : undefined;
