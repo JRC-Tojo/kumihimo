@@ -9,9 +9,7 @@
 
       <!-- 自身の値（比較のもう一方の基準として表示） -->
       <q-card-section class="q-py-none">
-        <span class="text-caption text-grey-6">
-          {{ $t('pdfEditor.peek.selfValue') }}:
-        </span>
+        <span class="text-caption text-grey-6"> {{ $t('pdfEditor.peek.selfValue') }}: </span>
         <span class="self-value-text">{{ selfValueDisplay }}</span>
       </q-card-section>
 
