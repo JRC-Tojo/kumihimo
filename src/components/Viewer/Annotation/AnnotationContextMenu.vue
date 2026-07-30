@@ -29,7 +29,11 @@
               :model-value="activeSubmenu === 'layerOrder'"
               anchor="top end"
               self="top start"
-              @update:model-value="(v) => { if (!v) activeSubmenu = null; }"
+              @update:model-value="
+                (v) => {
+                  if (!v) activeSubmenu = null;
+                }
+              "
             >
               <q-list dense>
                 <q-item v-close-popup clickable @click="onReorder('front')">
@@ -71,7 +75,11 @@
               :model-value="activeSubmenu === 'preset'"
               anchor="top end"
               self="top start"
-              @update:model-value="(v) => { if (!v) activeSubmenu = null; }"
+              @update:model-value="
+                (v) => {
+                  if (!v) activeSubmenu = null;
+                }
+              "
             >
               <q-list dense>
                 <q-item
@@ -90,12 +98,7 @@
             </q-menu>
           </q-item>
 
-          <q-item
-            v-close-popup
-            clickable
-            @click="onRegisterPreset"
-            @mouseenter="closeSubmenu"
-          >
+          <q-item v-close-popup clickable @click="onRegisterPreset" @mouseenter="closeSubmenu">
             <q-item-section>{{ t('pdfEditor.tools.contextMenu.registerPreset') }}</q-item-section>
           </q-item>
         </q-list>
