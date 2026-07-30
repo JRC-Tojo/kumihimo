@@ -243,15 +243,17 @@ export default {
         fillOpacity: 'Fill Opacity',
         startHead: 'Start Arrowhead',
         endHead: 'End Arrowhead',
+        headSize: 'Arrowhead Size',
         fontFamily: 'Font',
         fontSize: 'Font Size',
+        fontWeight: 'Font Weight',
+        textAlign: 'Text Align',
         textColor: 'Text Color',
         strokeTypeOptions: {
           solid: 'Solid',
           dashed: 'Dashed',
           dotted: 'Dotted',
           dashDot: 'Dash-Dot',
-          double: 'Double',
         },
         endHeadOptions: {
           none: 'None',
@@ -320,14 +322,6 @@ export default {
       annotation: {
         title: 'Annotation Properties',
         type: 'Annotation Type',
-        headSize: 'Arrowhead Size',
-        fontWeight: 'Font Weight',
-        textAlign: 'Text Align',
-        fillColor: 'Background Color',
-        fontWeightOptions: {
-          normal: 'Normal',
-          bold: 'Bold',
-        },
         relations: 'Registered Relations',
         addRelation: 'Add Relation',
         noRelations: 'No relations',

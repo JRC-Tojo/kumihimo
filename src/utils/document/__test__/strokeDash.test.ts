@@ -10,10 +10,6 @@ describe('strokeTypeToDash', () => {
     expect(strokeTypeToDash('solid', 2)).toBeUndefined();
   });
 
-  it("'double'の場合もKonvaが二重線を未サポートのためundefinedを返す", () => {
-    expect(strokeTypeToDash('double', 2)).toBeUndefined();
-  });
-
   it("'dashed'はstrokeWidthに応じてスケールしたdashパターンを返す", () => {
     expect(strokeTypeToDash('dashed', 1)).toEqual([4, 3]);
     expect(strokeTypeToDash('dashed', 2)).toEqual([8, 6]);

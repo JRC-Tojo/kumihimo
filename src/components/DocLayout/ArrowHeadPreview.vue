@@ -1,9 +1,9 @@
 <template>
-  <svg viewBox="0 0 28 14" class="arrow-head-preview" aria-hidden="true">
+  <svg viewBox="0 0 34 14" class="arrow-head-preview" aria-hidden="true">
     <!-- ダークモードでも線色（黒等）が見えなくならないよう、常に明るい背景チップの上に描画する -->
-    <rect x="0" y="0" width="28" height="14" rx="3" class="preview-backdrop" />
+    <rect x="0" y="0" width="34" height="14" rx="3" class="preview-backdrop" />
 
-    <line x1="2" y1="7" x2="26" y2="7" :stroke="color" stroke-width="2" />
+    <line x1="8" y1="7" x2="26" y2="7" :stroke="color" stroke-width="2" />
     <g v-if="path" :transform="`translate(${tipX},${tipY}) rotate(${angleDeg})`">
       <path :d="path" :fill="isFilled ? color : 'none'" :stroke="color" stroke-width="1.5" />
     </g>
@@ -44,11 +44,15 @@ interface Props {
 }
 const props = withDefaults(defineProps<Props>(), { color: '#000000' });
 
-/** viewBox(28x14)の中でプレビュー線が十分見えるよう、実際の描画よりやや小さめに固定する */
-const PREVIEW_HEAD_SIZE = 8;
+/**
+ * viewBox(34x14)の中でプレビュー線・矢じりが見切れないよう、実際の描画よりやや小さめに固定する。
+ * reverseOpen/reverseTriangleは先端がtipからさらに外側（size分）へ突き出すため、
+ * viewBoxの端まで最低でもsize分の余白が必要
+ */
+const PREVIEW_HEAD_SIZE = 7;
 const tipY = 7;
 
-const tipX = computed(() => (props.end === 'end' ? 26 : 2));
+const tipX = computed(() => (props.end === 'end' ? 26 : 8));
 // ローカル座標系は+xが外向きのため、start側（左向きに突き出す）は180度回転させる
 const angleDeg = computed(() => (props.end === 'end' ? 0 : 180));
 
@@ -59,7 +63,7 @@ const isFilled = computed(() => isFilledHead(props.headType));
 
 <style scoped lang="scss">
 .arrow-head-preview {
-  width: 28px;
+  width: 34px;
   height: 14px;
   display: block;
 }

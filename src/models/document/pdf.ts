@@ -12,11 +12,8 @@ export type ColorCode = z.infer<typeof ColorCode>;
 
 /**
  * 線種（破線・点線等）
- *
- * 'double'はKonva/SVGが二重線の描画をネイティブでサポートしないため、
- * 実際のキャンバス描画では'solid'と同等に扱う（既知の制限。プリセットプレビューアイコンのみ近似表現する）
  */
-export const StrokeType = z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']);
+export const StrokeType = z.enum(['solid', 'dashed', 'dotted', 'dash-dot']);
 export type StrokeType = z.infer<typeof StrokeType>;
 
 /**

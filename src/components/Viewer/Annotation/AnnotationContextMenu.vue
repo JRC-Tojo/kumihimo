@@ -11,16 +11,26 @@
     >
       <q-menu :model-value="true" anchor="top left" self="top left" @hide="emit('close')">
         <q-list dense style="min-width: 220px">
-          <q-item v-close-popup clickable @click="onCopy">
+          <q-item v-close-popup clickable @click="onCopy" @mouseenter="closeSubmenu">
             <q-item-section>{{ t('pdfEditor.tools.contextMenu.copy') }}</q-item-section>
           </q-item>
 
-          <q-item clickable>
+          <q-item
+            clickable
+            @click="activeSubmenu = 'layerOrder'"
+            @mouseenter="scheduleOpenSubmenu('layerOrder')"
+            @mouseleave="cancelScheduledOpen"
+          >
             <q-item-section>{{ t('pdfEditor.tools.layerOrder.title') }}</q-item-section>
             <q-item-section side>
               <q-icon name="chevron_right" />
             </q-item-section>
-            <q-menu anchor="top end" self="top start">
+            <q-menu
+              :model-value="activeSubmenu === 'layerOrder'"
+              anchor="top end"
+              self="top start"
+              @update:model-value="(v) => { if (!v) activeSubmenu = null; }"
+            >
               <q-list dense>
                 <q-item v-close-popup clickable @click="onReorder('front')">
                   <q-item-section>{{
@@ -46,12 +56,23 @@
 
           <q-separator />
 
-          <q-item v-if="presetsForType.length > 0" clickable>
+          <q-item
+            v-if="presetsForType.length > 0"
+            clickable
+            @click="activeSubmenu = 'preset'"
+            @mouseenter="scheduleOpenSubmenu('preset')"
+            @mouseleave="cancelScheduledOpen"
+          >
             <q-item-section>{{ t('pdfEditor.tools.contextMenu.applyPreset') }}</q-item-section>
             <q-item-section side>
               <q-icon name="chevron_right" />
             </q-item-section>
-            <q-menu anchor="top end" self="top start">
+            <q-menu
+              :model-value="activeSubmenu === 'preset'"
+              anchor="top end"
+              self="top start"
+              @update:model-value="(v) => { if (!v) activeSubmenu = null; }"
+            >
               <q-list dense>
                 <q-item
                   v-for="preset in presetsForType"
@@ -69,7 +90,12 @@
             </q-menu>
           </q-item>
 
-          <q-item v-close-popup clickable @click="onRegisterPreset">
+          <q-item
+            v-close-popup
+            clickable
+            @click="onRegisterPreset"
+            @mouseenter="closeSubmenu"
+          >
             <q-item-section>{{ t('pdfEditor.tools.contextMenu.registerPreset') }}</q-item-section>
           </q-item>
         </q-list>
@@ -87,7 +113,7 @@
  * （MainToolsポップアップ経由の登録バグの根本原因については`useAnnotationStylePanel`の
  * mode判定・editorTools.tsのonClicked参照）
  */
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
@@ -116,6 +142,46 @@ const presetsForType = computed<AnnotationTool[]>(() =>
     (p) => p.style.type === props.annotation.type,
   ),
 );
+
+// サブメニュー（表示順序変更・プリセットスタイルを適用）を素早くマウスが通り過ぎただけで
+// 開いてしまわないよう、ややの長さのホバーを経てから開く。クリックでは即座に開く
+type SubmenuKey = 'layerOrder' | 'preset';
+const HOVER_OPEN_DELAY_MS = 400;
+const activeSubmenu = ref<SubmenuKey | null>(null);
+let hoverOpenTimer: ReturnType<typeof setTimeout> | undefined;
+
+function clearHoverOpenTimer() {
+  if (hoverOpenTimer !== undefined) {
+    clearTimeout(hoverOpenTimer);
+    hoverOpenTimer = undefined;
+  }
+}
+
+/** サブメニューを持つ項目にマウスが乗った時: 別のサブメニューが開いていれば即座に閉じ、
+ * 一定時間ホバーが続いたら対象のサブメニューを開く */
+function scheduleOpenSubmenu(key: SubmenuKey) {
+  clearHoverOpenTimer();
+  if (activeSubmenu.value === key) return;
+  if (activeSubmenu.value !== null) activeSubmenu.value = null;
+  hoverOpenTimer = setTimeout(() => {
+    activeSubmenu.value = key;
+  }, HOVER_OPEN_DELAY_MS);
+}
+
+/** サブメニューを持つ項目からマウスが離れた時: まだ開いていない予約だけを取り消す
+ * （既に開いているサブメニューはここでは閉じない。ポインタがサブメニュー自体へ移動する間の
+ * 猶予はq-menu側の挙動に任せる） */
+function cancelScheduledOpen() {
+  clearHoverOpenTimer();
+}
+
+/** サブメニューを持たない項目にマウスが乗った時: 開いているサブメニューを即座に閉じる */
+function closeSubmenu() {
+  clearHoverOpenTimer();
+  activeSubmenu.value = null;
+}
+
+onBeforeUnmount(clearHoverOpenTimer);
 
 function onCopy() {
   const targets = editorStore.activeSelection?.annotations ?? [props.annotation];

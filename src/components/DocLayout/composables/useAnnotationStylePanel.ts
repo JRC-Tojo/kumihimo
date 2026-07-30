@@ -316,8 +316,35 @@ export function useAnnotationStylePanel() {
     },
   });
 
+  /** arrow/polylineのみ有効な矢じりサイズ（以前は右ドロワーにのみ存在していた） */
+  const headSize = computed<number | undefined>({
+    get: () => {
+      if (mode.value === 'draw') {
+        const style = editorStore.currentAnnotationStyle;
+        return style.type === 'arrow' || style.type === 'polyline' ? style.headSize : undefined;
+      }
+      if (mode.value === 'selection') {
+        return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
+          a.type === 'arrow' || a.type === 'polyline' ? a.headSize : undefined,
+        );
+      }
+      return undefined;
+    },
+    set: (value) => {
+      if (value === undefined) return;
+      if (mode.value === 'draw') patchDrawStyle({ headSize: value });
+      else if (mode.value === 'selection') {
+        void applyToSelection((annot) =>
+          annot.type === 'arrow' || annot.type === 'polyline' ? { headSize: value } : null,
+        );
+      }
+    },
+  });
+
   /** textのみ有効なフォント系フィールド（文字色以外。ブランド付き文字列ではないため単純に読み書きできる） */
-  function textField<V>(key: 'fontFamily' | 'fontSize'): WritableComputedRef<V | undefined> {
+  function textField<V>(
+    key: 'fontFamily' | 'fontSize' | 'fontWeight' | 'textAlign',
+  ): WritableComputedRef<V | undefined> {
     return computed<V | undefined>({
       get: () => {
         if (mode.value === 'draw') {
@@ -343,6 +370,8 @@ export function useAnnotationStylePanel() {
 
   const fontFamily = textField<string>('fontFamily');
   const fontSize = textField<number>('fontSize');
+  const fontWeight = textField<number>('fontWeight');
+  const textAlign = textField<'left' | 'center' | 'right'>('textAlign');
 
   /** textのみ有効な文字色 */
   const textColor = computed<string | undefined>({
@@ -383,8 +412,11 @@ export function useAnnotationStylePanel() {
     fillOpacity,
     startHead,
     endHead,
+    headSize,
     fontFamily,
     fontSize,
+    fontWeight,
+    textAlign,
     textColor,
   };
 }

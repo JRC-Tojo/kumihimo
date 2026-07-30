@@ -112,14 +112,16 @@
     <!-- text -->
     <g v-else-if="annotationStyle.type === 'text'">
       <rect
-        v-if="annotationStyle.fillPattern !== 'none' && annotationStyle.fillColor"
         x="2"
-        y="4"
+        y="2"
         width="20"
-        height="16"
+        height="20"
         rx="2"
-        :fill="annotationStyle.fillColor"
-        :fill-opacity="annotationStyle.fillOpacity"
+        :fill="fillValue"
+        :fill-opacity="fillOpacityValue"
+        :stroke="annotationStyle.strokeColor"
+        :stroke-width="previewStrokeWidth"
+        :stroke-dasharray="previewDash"
       />
       <text
         x="12"
@@ -128,7 +130,7 @@
         :fill="annotationStyle.textColor"
         :font-weight="annotationStyle.fontWeight"
         font-size="14"
-        font-family="sans-serif"
+        :font-family="annotationStyle.fontFamily"
       >
         A
       </text>
@@ -160,7 +162,9 @@ const props = defineProps<Props>();
 
 // このプレビュー内でarrow/polylineのシャフトとして描く固定の線分（下記<line>と同じ座標）
 const ARROW_PREVIEW_POINTS = [4, 18, 18, 6];
-const PREVIEW_HEAD_SIZE = 6;
+// reverseOpen/reverseTriangleは先端がtipからさらに外側（size分）へ突き出すため、
+// viewBox(0 0 24 24)から見切れないよう小さめに固定する
+const PREVIEW_HEAD_SIZE = 3;
 
 interface HeadRender {
   transform: string;
@@ -201,16 +205,28 @@ const previewStrokeWidth = computed(() =>
 
 const previewDash = computed(() => strokeTypeToPreviewDash(props.annotationStyle.strokeType));
 
-/** box/circle/polygonの塗り色。fillPatternが'none'の場合は塗らない */
+/** box/circle/polygon/textの塗り色。fillPatternが'none'の場合は塗らない */
 const fillValue = computed(() => {
   const style = props.annotationStyle;
-  if (style.type !== 'box' && style.type !== 'circle' && style.type !== 'polygon') return 'none';
+  if (
+    style.type !== 'box' &&
+    style.type !== 'circle' &&
+    style.type !== 'polygon' &&
+    style.type !== 'text'
+  )
+    return 'none';
   return style.fillPattern !== 'none' && style.fillColor ? style.fillColor : 'none';
 });
 
 const fillOpacityValue = computed(() => {
   const style = props.annotationStyle;
-  if (style.type !== 'box' && style.type !== 'circle' && style.type !== 'polygon') return 1;
+  if (
+    style.type !== 'box' &&
+    style.type !== 'circle' &&
+    style.type !== 'polygon' &&
+    style.type !== 'text'
+  )
+    return 1;
   return style.fillOpacity;
 });
 </script>

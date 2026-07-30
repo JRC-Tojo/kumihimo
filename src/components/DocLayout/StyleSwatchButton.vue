@@ -17,7 +17,7 @@
     </span>
     <!-- 「色なし」を示す斜線オーバーレイ（Illustrator等の「なし」スウォッチと同じ視覚言語） -->
     <div v-if="isNone" class="swatch-none-slash" aria-hidden="true" />
-    <q-popup-proxy cover transition-show="scale" transition-hide="scale" @hide="commitColorPick">
+    <q-popup-proxy cover transition-show="scale" transition-hide="scale" @hide="commitColorPick()">
       <div class="style-swatch-popup q-pa-sm">
         <!-- 直近で使用した色（設定の件数分。未登録分は白で埋める）＋「色なし」スウォッチ -->
         <div class="recent-colors-row">
@@ -137,7 +137,11 @@ function pickNone() {
   colorValue.value = undefined;
 }
 
-/** ポップアップが閉じた時点のcolorValueを1回だけ直近使用色へ永続化する */
+/**
+ * 色選択ダイアログ（ポップアップ）が閉じた時点で1回だけ、その時点のcolorValueを
+ * 直近使用色へ永続化する。ドラッグ中・調整中に何度も保存してしまわないよう、
+ * 確定タイミングをポップアップの`hide`一箇所のみに一本化する
+ */
 function commitColorPick() {
   const value = colorValue.value;
   if (!value || value === lastPersistedColor.value) return;

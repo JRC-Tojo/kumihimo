@@ -242,15 +242,17 @@ export default {
         fillOpacity: '塗りの不透明度',
         startHead: '始点の矢じり形状',
         endHead: '終点の矢じり形状',
+        headSize: '矢じりサイズ',
         fontFamily: 'フォント',
         fontSize: '文字サイズ',
+        fontWeight: '文字の太さ',
+        textAlign: '文字揃え',
         textColor: '文字色',
         strokeTypeOptions: {
           solid: '実線',
           dashed: '破線',
           dotted: '点線',
           dashDot: '一点鎖線',
-          double: '二重線',
         },
         endHeadOptions: {
           none: 'なし',
@@ -319,14 +321,6 @@ export default {
       annotation: {
         title: 'プロパティ',
         type: '種別',
-        headSize: '矢じりサイズ',
-        fontWeight: '文字の太さ',
-        textAlign: '文字揃え',
-        fillColor: '背景色',
-        fontWeightOptions: {
-          normal: '標準',
-          bold: '太字',
-        },
         relations: 'リンク',
         addRelation: 'リンクを追加',
         noRelations: 'リンクはありません',
