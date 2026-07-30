@@ -12,11 +12,8 @@ export type ColorCode = z.infer<typeof ColorCode>;
 
 /**
  * 線種（破線・点線等）
- *
- * 'double'はKonva/SVGが二重線の描画をネイティブでサポートしないため、
- * 実際のキャンバス描画では'solid'と同等に扱う（既知の制限。プリセットプレビューアイコンのみ近似表現する）
  */
-export const StrokeType = z.enum(['solid', 'dashed', 'dotted', 'dash-dot', 'double']);
+export const StrokeType = z.enum(['solid', 'dashed', 'dotted', 'dash-dot']);
 export type StrokeType = z.infer<typeof StrokeType>;
 
 /**
@@ -47,7 +44,7 @@ const AnnotationBase = z.object({
   pageNumber: z.number().int().positive(),
   x: z.number(),
   y: z.number(),
-  color: ColorCode, // 16進カラーコード
+  color: ColorCode.optional(), // 16進カラーコード。未設定は「線色なし」を表す
   strokeWidth: z.number().optional().default(2),
   strokeType: StrokeType.optional().default('solid'),
   // TODO: 旧フィールド。strokeOpacity/fillOpacity未設定の既存データ（枠線・塗りの区別がない）読み込み時の
@@ -102,9 +99,27 @@ export type CircleAnnotationStyle = z.infer<typeof CircleAnnotationStyle>;
 /**
  * 矢印の矢じり形状
  *
- * 'none': 矢じりなし（直線と同じ見た目）, 'triangle': 塗りつぶし三角形, 'open': 輪郭のみの矢じり
+ * PDF仕様（ISO 32000のLine/PolyLine注釈における`/LE`）のAcrobat線端形状に準拠した命名。
+ * 'none': 矢じりなし（直線と同じ見た目）, 'triangle': 塗りつぶし三角形（ClosedArrow）,
+ * 'open': 輪郭のみの矢じり（OpenArrow）, 'square': 塗りつぶし四角, 'circle': 塗りつぶし円,
+ * 'diamond': 塗りつぶし菱形, 'butt': 線に垂直な短い棒（Butt）, 'slash': 斜めの短い棒（Slash）,
+ * 'reverseOpen': 外向きの輪郭のみの矢じり（ROpenArrow）,
+ * 'reverseTriangle': 外向きの塗りつぶし三角形（RClosedArrow）
+ *
+ * 既存の値（none/triangle/open）は保存済みの`.kcfg`・プリセットとの後方互換のため名称を変更しない
  */
-export const ArrowHeadType = z.enum(['none', 'triangle', 'open']);
+export const ArrowHeadType = z.enum([
+  'none',
+  'triangle',
+  'open',
+  'square',
+  'circle',
+  'diamond',
+  'butt',
+  'slash',
+  'reverseOpen',
+  'reverseTriangle',
+]);
 export type ArrowHeadType = z.infer<typeof ArrowHeadType>;
 
 export const ArrowAnnotationStyle = AnnotationBase.extend({

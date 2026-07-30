@@ -9,9 +9,7 @@
 
       <!-- 自身の値（比較のもう一方の基準として表示） -->
       <q-card-section class="q-py-none">
-        <span class="text-caption text-grey-6">
-          {{ $t('pdfEditor.rightDrawer.annotation.selfValue') }}:
-        </span>
+        <span class="text-caption text-grey-6"> {{ $t('pdfEditor.peek.selfValue') }}: </span>
         <span class="self-value-text">{{ selfValueDisplay }}</span>
       </q-card-section>
 
@@ -40,7 +38,7 @@
       <q-card-section>
         <div class="text-subtitle2 q-mb-sm">{{ $t('pdfEditor.peek.linkedAnnotations') }}</div>
         <p v-if="edges.length === 0" class="text-caption text-grey-6 q-mb-none">
-          {{ $t('pdfEditor.rightDrawer.annotation.noRelations') }}
+          {{ $t('pdfEditor.peek.noRelations') }}
         </p>
         <template v-else>
           <p class="text-caption text-grey-6 q-mb-sm">
@@ -63,7 +61,7 @@
               <span class="relation-target-label">{{ otherFileLabel(edge) }}</span>
             </div>
             <div class="relation-row-value q-mt-xs text-caption text-grey-7">
-              {{ $t('pdfEditor.rightDrawer.annotation.otherValue') }}: {{ otherValueDisplay(edge) }}
+              {{ $t('pdfEditor.peek.otherValue') }}: {{ otherValueDisplay(edge) }}
             </div>
             <div class="relation-row-actions q-mt-xs" @click.stop @dblclick.stop>
               <q-select
@@ -154,8 +152,8 @@ function statusColor(edge: RelationalEdge): string {
  * 検証結果の値を表示用の文字列に変換する（検証中は明示し、空文字列は空であることが分かるようにする）
  */
 function displayValue(rawValue: string, edge: RelationalEdge): string {
-  if (edge.checkedRule === undefined) return t('pdfEditor.rightDrawer.annotation.verifying');
-  return rawValue === '' ? t('pdfEditor.rightDrawer.annotation.emptyValue') : rawValue;
+  if (edge.checkedRule === undefined) return t('pdfEditor.peek.verifying');
+  return rawValue === '' ? t('pdfEditor.peek.emptyValue') : rawValue;
 }
 
 // 自身の値。どのエッジも同じ自身の値を返すため先頭のエッジから取得する

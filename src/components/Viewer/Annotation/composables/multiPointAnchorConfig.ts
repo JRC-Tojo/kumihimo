@@ -26,7 +26,7 @@ export interface PointAnchorConfig {
 
 export function buildPointAnchorConfigs(
   points: readonly number[],
-  color: ColorCode,
+  color: ColorCode | undefined,
   annotationId: AnnotationID,
   isEditing: boolean,
   isSelected: boolean,
@@ -46,7 +46,8 @@ export function buildPointAnchorConfigs(
       offset: { x: 5, y: 5 },
       name: 'annotation-anchor',
       fill: '#ffffff',
-      stroke: color,
+      // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
+      stroke: color ?? ('#000000' as ColorCode),
       strokeWidth: 2,
       cornerRadius: 0,
       draggable,

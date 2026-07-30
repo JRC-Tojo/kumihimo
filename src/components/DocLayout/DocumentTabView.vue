@@ -1,5 +1,9 @@
 <template>
-  <div class="document-layout row" @click="editorStore.selectTab(file, layoutSide, true)">
+  <div
+    class="document-layout row"
+    @click="editorStore.selectTab(file, layoutSide, true)"
+    @contextmenu="editorStore.selectTab(file, layoutSide, true)"
+  >
     <!-- 左Drawer：ドキュメント情報とサムネイル -->
     <DocumentLeftDrawer
       v-model:drawer-open="editorStore.leftDrawerModel"
@@ -57,17 +61,6 @@
       />
     </div>
 
-    <!-- 右Drawer：アノテーションプロパティ -->
-    <DocumentRightDrawer
-      :key="JSON.stringify(selectedAnnotations)"
-      :selected-annots="selectedAnnotations"
-      :file="prop.file"
-      :on-delete-selected="annotationActions.deleteSelected"
-      v-model:drawer-open="editorStore.rightDrawerModel"
-      @add-relation="startRelationalFromDrawer"
-      class="col-1"
-    />
-
     <!-- 関係性の簡易閲覧ダイアログ（Spaceキーで表示） -->
     <RelationalPeekDialog
       v-if="peekAnnotId"
@@ -81,7 +74,6 @@
 <script setup lang="ts">
 import DocumentLeftDrawer from 'src/components/DocLayout/DocumentLeftDrawer.vue';
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
-import DocumentRightDrawer from 'src/components/DocLayout/DocumentRightDrawer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -429,14 +421,6 @@ async function finishRelational(targetId: AnnotationID) {
 }
 
 /**
- * RightDrawerの「リンクを追加」ボタンから関係性登録の待機を開始する
- */
-function startRelationalFromDrawer(annotId: AnnotationID) {
-  editorStore.relationalMode ??= 'link';
-  startRelationalDefine(editorStore, t, editorStore.relationalMode, annotId, prop.file);
-}
-
-/**
  * 2つのファイルがcontainerID込みで同一かどうか
  */
 function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
@@ -666,6 +650,18 @@ watch(
     if (editorStore.activeSide !== prop.layoutSide) return;
     void annotationActions.reorderSelected(action).finally(() => {
       editorStore.clearLayerOrderAction();
+    });
+  },
+);
+// アノテーション右クリックメニューの「削除」からの意図をここで実行する（確認ダイアログなし）。
+// メニュー自体は選択状態を持たないため、選択状態を持つこの場所でwatchして実処理を行う
+watch(
+  () => editorStore.deleteRequested,
+  (requested) => {
+    if (!requested) return;
+    if (editorStore.activeSide !== prop.layoutSide) return;
+    void annotationActions.deleteSelected().finally(() => {
+      editorStore.clearDeleteRequest();
     });
   },
 );

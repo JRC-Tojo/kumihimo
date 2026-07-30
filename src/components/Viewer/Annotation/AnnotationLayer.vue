@@ -7,6 +7,7 @@
       @mousemove="handleMouseMove"
       @mouseup="handleMouseUp"
       @dblclick="handleDblClick"
+      @contextmenu="handleContextMenu"
       :style="{ cursor: cursor }"
     >
       <!-- 注釈ごとに専用レイヤー（＝専用canvas）を割り当て、合成モードが他の注釈やスタイル
@@ -69,6 +70,13 @@
       @blur="commitTextEdit"
       @keydown.esc="cancelTextEdit"
     />
+
+    <AnnotationContextMenu
+      v-if="contextMenuAnnotation"
+      :annotation="contextMenuAnnotation"
+      :client-pos="contextMenuPos"
+      @close="contextMenuAnnotation = null"
+    />
   </div>
 </template>
 
@@ -90,6 +98,11 @@ import { getAnnotationSortKey } from 'src/utils/document/annotationOrder';
 import { useModifierKeys } from './composables/useModifierKeys';
 import { lockToDominantAxis } from 'src/utils/document/annotationDrag';
 import AnnotationBlendLayer from './AnnotationBlendLayer.vue';
+import AnnotationContextMenu from './AnnotationContextMenu.vue';
+import {
+  resolveContextMenuAnnotationId,
+  type ContextMenuHitAttrs,
+} from './annotationContextMenuHitTest';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -133,6 +146,10 @@ function setAnnotationRef(id: AnnotationID, el: unknown) {
   }
 }
 const pendingPointerTarget = ref<{ id: string; wasSelected: boolean } | null>(null);
+// 右クリックされた注釈本体（コンテキストメニュー表示中のみ非null）。表示位置は
+// 右クリック時点のclientX/clientY（真の画面座標）をそのまま保持する
+const contextMenuAnnotation = ref<AnnotationStyle | null>(null);
+const contextMenuPos = ref<{ x: number; y: number }>({ x: 0, y: 0 });
 
 // Ctrl+drag複製: マウスダウン時点ではクリックなのかドラッグなのか確定しないため、
 // 実際にしきい値を超えて動いた時点で初めて複製プレビューへ昇格させる（昇格しなければ
@@ -305,7 +322,7 @@ const editingTextStyle = computed(() => {
     textAlign: annotation.textAlign,
     background: annotation.fillColor ?? 'transparent',
     // strokeWidth未指定/0（デフォルト状態）でもTextBoxAnnotation.vue側の描画と同じく細い枠線を表示する
-    border: `${(annotation.strokeWidth || 1) * s}px solid ${annotation.color}`,
+    border: `${(annotation.strokeWidth || 1) * s}px solid ${annotation.color ?? 'transparent'}`,
     padding: `${4 * s}px`,
     boxSizing: 'border-box' as const,
     whiteSpace: 'pre-wrap' as const,
@@ -369,6 +386,27 @@ function handleDblClick(e: KonvaMouseEvent) {
   if (annotation.type !== 'text') return;
 
   startTextEdit(annotation);
+}
+
+/**
+ * ステージ上の右クリックを処理する。既存アノテーション上でのみコンテキストメニューを表示する
+ * （空白領域の右クリックはpreventDefaultせず、ブラウザ既定のメニューに委ねる）。
+ * 描画中・頂点追加中は割り込まない。右クリックされた注釈が現在の選択に含まれていなければ
+ * 単独選択に切り替え（含まれていれば、複数選択中の右クリックとして選択状態を維持する）
+ */
+function handleContextMenu(e: KonvaMouseEvent) {
+  if (isDrawing.value || clickPointsBuffer.value || !isEditingMode.value) return;
+
+  const clickedId = resolveContextMenuAnnotationId(e.target.attrs as ContextMenuHitAttrs);
+  const annotation = clickedId ? props.annotations.find((a) => a.id === clickedId) : undefined;
+  if (!annotation) return;
+
+  e.evt.preventDefault();
+  if (!selectedAnnotIds.value.includes(annotation.id)) {
+    selectedAnnotIds.value = [annotation.id];
+  }
+  contextMenuAnnotation.value = annotation;
+  contextMenuPos.value = { x: e.evt.clientX, y: e.evt.clientY };
 }
 
 // 多角形（closable=trueの種別）描画中のみ、始点位置を示す小さな円を出す。

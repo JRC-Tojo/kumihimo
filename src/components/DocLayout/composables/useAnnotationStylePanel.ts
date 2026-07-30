@@ -155,9 +155,16 @@ export function useAnnotationStylePanel() {
       return undefined;
     },
     set: (value) => {
-      if (value === undefined) return;
-      if (mode.value === 'draw') patchDrawStyle({ strokeColor: value });
-      else if (mode.value === 'selection') {
+      // value===undefinedは「色なし」の明示的な選択のため、他フィールドと異なりここでは無視しない
+      if (mode.value === 'draw') {
+        patchDrawStyle({ strokeColor: value });
+        return;
+      }
+      if (mode.value === 'selection') {
+        if (value === undefined) {
+          void applyToSelection(() => ({ color: undefined }));
+          return;
+        }
         const parsed = toColorCode(value);
         if (parsed === undefined) return;
         void applyToSelection(() => ({ color: parsed }));
@@ -187,9 +194,23 @@ export function useAnnotationStylePanel() {
       return undefined;
     },
     set: (value) => {
-      if (value === undefined) return;
-      if (mode.value === 'draw') patchDrawStyle({ fillColor: value });
-      else if (mode.value === 'selection') {
+      // value===undefinedは「塗りなし」の明示的な選択のため、他フィールドと異なりここでは無視しない
+      if (mode.value === 'draw') {
+        patchDrawStyle({ fillColor: value });
+        return;
+      }
+      if (mode.value === 'selection') {
+        if (value === undefined) {
+          void applyToSelection((annot) =>
+            annot.type === 'box' ||
+            annot.type === 'circle' ||
+            annot.type === 'polygon' ||
+            annot.type === 'text'
+              ? { fillColor: undefined }
+              : null,
+          );
+          return;
+        }
         const parsed = toColorCode(value);
         if (parsed === undefined) return;
         void applyToSelection((annot) =>
@@ -270,8 +291,60 @@ export function useAnnotationStylePanel() {
     },
   });
 
+  /** arrow/polylineのみ有効な始点の矢じり形状（endHeadと対になる。以前は右クリック右ドロワーにのみ存在していた） */
+  const startHead = computed<ArrowHeadType | undefined>({
+    get: () => {
+      if (mode.value === 'draw') {
+        const style = editorStore.currentAnnotationStyle;
+        return style.type === 'arrow' || style.type === 'polyline' ? style.startHead : undefined;
+      }
+      if (mode.value === 'selection') {
+        return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
+          a.type === 'arrow' || a.type === 'polyline' ? a.startHead : undefined,
+        );
+      }
+      return undefined;
+    },
+    set: (value) => {
+      if (value === undefined) return;
+      if (mode.value === 'draw') patchDrawStyle({ startHead: value });
+      else if (mode.value === 'selection') {
+        void applyToSelection((annot) =>
+          annot.type === 'arrow' || annot.type === 'polyline' ? { startHead: value } : null,
+        );
+      }
+    },
+  });
+
+  /** arrow/polylineのみ有効な矢じりサイズ（以前は右ドロワーにのみ存在していた） */
+  const headSize = computed<number | undefined>({
+    get: () => {
+      if (mode.value === 'draw') {
+        const style = editorStore.currentAnnotationStyle;
+        return style.type === 'arrow' || style.type === 'polyline' ? style.headSize : undefined;
+      }
+      if (mode.value === 'selection') {
+        return commonValue(editorStore.activeSelection?.annotations ?? [], (a) =>
+          a.type === 'arrow' || a.type === 'polyline' ? a.headSize : undefined,
+        );
+      }
+      return undefined;
+    },
+    set: (value) => {
+      if (value === undefined) return;
+      if (mode.value === 'draw') patchDrawStyle({ headSize: value });
+      else if (mode.value === 'selection') {
+        void applyToSelection((annot) =>
+          annot.type === 'arrow' || annot.type === 'polyline' ? { headSize: value } : null,
+        );
+      }
+    },
+  });
+
   /** textのみ有効なフォント系フィールド（文字色以外。ブランド付き文字列ではないため単純に読み書きできる） */
-  function textField<V>(key: 'fontFamily' | 'fontSize'): WritableComputedRef<V | undefined> {
+  function textField<V>(
+    key: 'fontFamily' | 'fontSize' | 'fontWeight' | 'textAlign',
+  ): WritableComputedRef<V | undefined> {
     return computed<V | undefined>({
       get: () => {
         if (mode.value === 'draw') {
@@ -297,6 +370,8 @@ export function useAnnotationStylePanel() {
 
   const fontFamily = textField<string>('fontFamily');
   const fontSize = textField<number>('fontSize');
+  const fontWeight = textField<number>('fontWeight');
+  const textAlign = textField<'left' | 'center' | 'right'>('textAlign');
 
   /** textのみ有効な文字色 */
   const textColor = computed<string | undefined>({
@@ -335,9 +410,13 @@ export function useAnnotationStylePanel() {
     blendMode,
     fillColor,
     fillOpacity,
+    startHead,
     endHead,
+    headSize,
     fontFamily,
     fontSize,
+    fontWeight,
+    textAlign,
     textColor,
   };
 }

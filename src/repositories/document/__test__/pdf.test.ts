@@ -305,6 +305,20 @@ describe('embedAnnotationsIntoPdf（pdf-lib）', () => {
     const res = await embedAnnotationsIntoPdf(src, [buildBoxAnnotation(99)]);
     expect(res.ok).toBeTrue();
   });
+
+  it('線色未設定（「線色なし」）のbox/line/circleでもエラーにならず埋め込める（以前は赤色へフォールバックしていた）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const noColorBox = { ...buildBoxAnnotation(1), color: undefined };
+    const noColorLine = { ...buildLineAnnotation(1), color: undefined };
+    const noColorCircle = { ...buildCircleAnnotation(1), color: undefined };
+
+    const res = await embedAnnotationsIntoPdf(src, [noColorBox, noColorLine, noColorCircle]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const loaded = await loadTestPdf(res.value);
+    expect(loaded.getPageCount()).toBe(1);
+  });
 });
 
 // ============================================================

@@ -3,7 +3,7 @@
  *
  * 固定の依存を持たないステートレスな設計とし、file・アノテーションを呼び出しごとの引数として
  * 受け取る。そのため、DocumentTabViewの子孫コンポーネントかどうかに関わらず、
- * アノテーションのCRUDを行うあらゆる箇所（描画・スタイルパネル編集・右ドロワー編集等）から
+ * アノテーションのCRUDを行うあらゆる箇所（描画・スタイルパネル編集・右クリックメニュー等）から
  * propsの受け渡しなしにそのまま呼び出せる
  */
 
@@ -120,8 +120,7 @@ export function useAnnotationHistory() {
    * 選択中アノテーション群に種別依存のpatchを適用し、registerManyWithHistoryへ渡す
    * previous/nextペアの配列を組み立てる（対象外の種別はbuildingがnullを返すことで除外される）
    *
-   * useAnnotationStylePanel（パネル編集）・DocumentRightDrawer（右ドロワー編集）双方の
-   * 同一ロジックをここに集約する
+   * useAnnotationStylePanel（パネル編集）が使う共通ロジックをここに集約する
    */
   function buildRegisterManyItems(
     annots: AnnotationStyle[],

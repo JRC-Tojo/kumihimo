@@ -42,8 +42,11 @@ export function buildPresetApplyPatch(
   return (annot) => {
     if (annot.type !== preset.type) return null;
 
-    const color = toColorCode(preset.strokeColor);
-    if (color === undefined) return null;
+    // strokeColor未設定（「線色なし」）は有効な状態として扱い、値はあるが不正な文字列の
+    // 場合のみこのアノテーションへの適用をスキップする（toColorCodeは両者とも同じundefinedを
+    // 返すため、ここで区別する）
+    const color = preset.strokeColor === undefined ? undefined : toColorCode(preset.strokeColor);
+    if (preset.strokeColor !== undefined && color === undefined) return null;
 
     const common = {
       color,
@@ -59,7 +62,8 @@ export function buildPresetApplyPatch(
       case 'polygon':
         return {
           ...common,
-          fillColor: toColorCode(preset.fillColor),
+          // fillPatternが'none'の場合、fillColorに値が残っていても適用しない（「塗りなし」プリセット）
+          fillColor: preset.fillPattern === 'none' ? undefined : toColorCode(preset.fillColor),
           fillOpacity: preset.fillOpacity,
         };
       case 'arrow':
@@ -79,7 +83,7 @@ export function buildPresetApplyPatch(
           fontFamily: preset.fontFamily,
           fontSize: preset.fontSize,
           fontWeight: preset.fontWeight,
-          fillColor: toColorCode(preset.fillColor),
+          fillColor: preset.fillPattern === 'none' ? undefined : toColorCode(preset.fillColor),
           fillOpacity: preset.fillOpacity,
         };
       }
@@ -110,7 +114,9 @@ export function annotationStyleToPresetStyle(annot: AnnotationStyle): DrawingAnn
       return {
         ...common,
         type: annot.type,
-        fillColor: annot.fillColor ?? annot.color,
+        // box/polygonのpresetスキーマはfillColorが必須のため、塗り色も線色も未設定の場合は
+        // 便宜上のデフォルト値を入れる（fillPattern:'none'のため実際の描画には使われない）
+        fillColor: annot.fillColor ?? annot.color ?? '#000000',
         fillPattern: annot.fillColor ? 'solid' : 'none',
         fillOpacity: annot.fillOpacity ?? 1,
       };

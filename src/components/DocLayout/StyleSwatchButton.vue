@@ -15,10 +15,23 @@
     >
       A
     </span>
-    <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+    <!-- 「色なし」を示す斜線オーバーレイ（Illustrator等の「なし」スウォッチと同じ視覚言語） -->
+    <div v-if="isNone" class="swatch-none-slash" aria-hidden="true" />
+    <q-popup-proxy cover transition-show="scale" transition-hide="scale" @hide="commitColorPick()">
       <div class="style-swatch-popup q-pa-sm">
-        <!-- 直近で使用した色（設定の件数分。未登録分は白で埋める） -->
+        <!-- 直近で使用した色（設定の件数分。未登録分は白で埋める）＋「色なし」スウォッチ -->
         <div class="recent-colors-row">
+          <q-btn
+            v-if="allowNone && variant !== 'text'"
+            dense
+            flat
+            :ripple="false"
+            class="recent-color-swatch recent-color-swatch--none"
+            @click="pickNone"
+          >
+            <div class="swatch-none-slash" aria-hidden="true" />
+            <q-tooltip>{{ t('pdfEditor.tools.stylePanel.noColor') }}</q-tooltip>
+          </q-btn>
           <q-btn
             v-for="(recent, i) in recentColorsPadded"
             :key="i"
@@ -28,12 +41,12 @@
             :disable="recent === undefined"
             class="recent-color-swatch"
             :style="{ backgroundColor: recent ?? '#ffffff' }"
-            @click="onPick(recent)"
+            @click="pickRecentColor(recent)"
           >
             <q-tooltip v-if="recent">{{ recent }}</q-tooltip>
           </q-btn>
         </div>
-        <q-color :model-value="colorValue ?? '#000000'" @update:model-value="onPick" />
+        <q-color :model-value="colorValue ?? '#000000'" @update:model-value="updateLivePreview" />
       </div>
     </q-popup-proxy>
     <q-tooltip anchor="top middle" self="bottom middle">{{ tooltip }}</q-tooltip>
@@ -41,17 +54,22 @@
 </template>
 
 <script setup lang="ts">
-import { useSettingsStore } from 'src/stores/settingsStore';
-import { computed } from 'vue';
-
 /**
- * スタイルパネル・RightDrawerで共用する、小さな色スウォッチボタン
+ * アノテーションスタイルパネルで使う、小さな色スウォッチボタン
  *
  * Illustrator/Affinity的な操作盤を意識し、常時展開されたカラーピッカーではなく、
  * クリックでポップアップ表示するコンパクトなスウォッチのみを常設する。ポップアップ内には
- * 直近で使用した色（AppSettingsで件数変更可、未登録分は白で埋める）も並べ、ワンクリックで
- * 再選択できるようにする
+ * 直近で使用した色（AppSettingsで件数変更可、未登録分は白で埋める）・「色なし」スウォッチも並べ、
+ * ワンクリックで再選択できるようにする。
+ *
+ * 直近使用色への保存は、ポップアップが閉じた時点（確定時）のみ行う。`q-color`は
+ * ドラッグ中も`update:model-value`を連続発火するため、ドラッグ中の値はライブプレビュー
+ * （`colorValue`の更新）にのみ使い、永続化（`recordRecentColor`）は`commitColorPick`に一本化する
  */
+import { useSettingsStore } from 'src/stores/settingsStore';
+import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+
 interface Props {
   tooltip: string;
   // 'fill': 塗りつぶし四角形（既定・塗り色用）, 'outline': 中空四角形（線色用、塗り色ボタンと区別するため）,
@@ -59,12 +77,22 @@ interface Props {
   variant?: 'fill' | 'outline' | 'text';
   // trueの間、色の変更（ポップアップ表示自体）を無効化する（関係性検証結果の色で上書き中の場合に使う）
   disable?: boolean;
+  // 「色なし」スウォッチを表示するかどうか（文字色は常に必須のため、variant==='text'では無視される）
+  allowNone?: boolean;
 }
-const props = withDefaults(defineProps<Props>(), { variant: 'fill', disable: false });
+const props = withDefaults(defineProps<Props>(), {
+  variant: 'fill',
+  disable: false,
+  allowNone: true,
+});
 
+const { t } = useI18n();
 const colorValue = defineModel<string | undefined>({ required: true });
 
 const settingsStore = useSettingsStore();
+
+/** 「色なし」状態かどうか（文字色は常に必須のため、variant==='text'では常にfalse扱い） */
+const isNone = computed(() => props.variant !== 'text' && colorValue.value === undefined);
 
 const swatchStyle = computed(() => {
   /** 無効化中は実際の色に関わらずグレー表示を優先し、それ以外は現在値（無ければ既定色）を返す */
@@ -88,16 +116,44 @@ const recentColorsPadded = computed<(string | undefined)[]>(() => {
   return Array.from({ length: limit }, (_, i) => colors[i]);
 });
 
-/** カラーピッカー・直近使用色のどちらから選んだ場合も、値を反映したうえで直近使用色に記録する */
-function onPick(value: string | null | undefined) {
+// commitColorPickでの二重永続化（pickRecentColorで既に保存済みの値の再保存）を避けるための記録
+const lastPersistedColor = ref<string | undefined>(undefined);
+
+/** q-colorのライブプレビュー用。ドラッグ中も連続発火するため、ここでは永続化しない */
+function updateLivePreview(value: string | null | undefined) {
+  if (!value) return;
+  colorValue.value = value;
+}
+
+/** 直近使用色のクリックは確定的な操作のため、従来通り即座に反映・永続化する */
+function pickRecentColor(value: string | undefined) {
   if (!value) return;
   colorValue.value = value;
   void settingsStore.recordRecentColor(value);
+  lastPersistedColor.value = value;
+}
+
+/** 「色なし」スウォッチのクリック。明示的にcolorValueをundefinedにする（再利用可能な色ではないため直近使用色には記録しない） */
+function pickNone() {
+  colorValue.value = undefined;
+}
+
+/**
+ * 色選択ダイアログ（ポップアップ）が閉じた時点で1回だけ、その時点のcolorValueを
+ * 直近使用色へ永続化する。ドラッグ中・調整中に何度も保存してしまわないよう、
+ * 確定タイミングをポップアップの`hide`一箇所のみに一本化する
+ */
+function commitColorPick() {
+  const value = colorValue.value;
+  if (!value || value === lastPersistedColor.value) return;
+  void settingsStore.recordRecentColor(value);
+  lastPersistedColor.value = value;
 }
 </script>
 
 <style scoped lang="scss">
 .style-swatch-btn {
+  position: relative;
   width: 20px;
   height: 20px;
   min-height: 20px;
@@ -114,6 +170,19 @@ function onPick(value: string | null | undefined) {
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
+}
+
+.swatch-none-slash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - 1px),
+    #e53935 calc(50% - 1px),
+    #e53935 calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
 }
 
 .body--dark .style-swatch-btn {
@@ -135,6 +204,7 @@ function onPick(value: string | null | undefined) {
 }
 
 .recent-color-swatch {
+  position: relative;
   width: 18px;
   height: 18px;
   min-height: 18px;
@@ -144,6 +214,10 @@ function onPick(value: string | null | undefined) {
 
   &:disabled {
     opacity: 0.5;
+  }
+
+  &--none {
+    background: #ffffff;
   }
 }
 

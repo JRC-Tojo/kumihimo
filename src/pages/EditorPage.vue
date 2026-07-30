@@ -17,7 +17,7 @@
         <q-menu v-if="!tool.noMenu" anchor="center right" self="center left" auto-close>
           <div class="annotation-type-menu q-pa-sm">
             <AnnotationPresetBar
-              v-if="editorStore.activeAnnotationType"
+              v-if="stylePanelEffectiveType !== undefined"
               class="preset-bar-wrapper"
             />
             <q-btn
@@ -40,14 +40,10 @@
       <!--
         SubTools領域: MainToolsと同じ高さで常駐させ、内容の有無に関わらずレイアウトが
         伸縮しないようにする。関係性/重ね順/保存/タイル等の汎用ツール、または
-        アノテーションプリセット一覧＋スタイルパネル（描画スタイルモード・選択編集モード）を
-        この領域内で出し分ける
+        スタイルパネル（描画スタイルモード・選択編集モード）をこの領域内で出し分ける。
+        プリセット一覧はMainToolsのポップアップ側にのみ表示する（issue #45）
       -->
       <q-bar class="sub-toolbar">
-        <AnnotationPresetBar
-          v-if="stylePanelMode !== 'none' && stylePanelEffectiveType"
-          class="preset-bar-wrapper"
-        />
         <AnnotationStylePanel class="style-panel-wrapper" />
         <AnnotationPositionSizeBtn />
         <RelationalDefineButtons />
@@ -93,9 +89,9 @@ import type { DrawingAnnotationType } from 'src/models/docPage';
 
 const { t } = useI18n();
 const editorStore = useEditorStore();
-// 常駐サブツール行にプリセットバーを表示するかどうかの判定にのみ使う
+// MainToolsポップアップ内にプリセットバーを表示するかどうかの判定にのみ使う
 // （AnnotationStylePanel自身も内部で同じcomposableを呼ぶが、Piniaストアを参照するだけなので二重利用しても問題ない）
-const { mode: stylePanelMode, effectiveType: stylePanelEffectiveType } = useAnnotationStylePanel();
+const { effectiveType: stylePanelEffectiveType } = useAnnotationStylePanel();
 
 // アクティブなペイン・タブの種別（PDF文書のみメインツールを持つ）
 const activeTabKind = computed<'settings' | 'pdf' | 'text' | 'unsupported' | 'none'>(() => {
@@ -240,13 +236,6 @@ function handleMainToolDoubleClick(tool: IDocTool) {
     &:active {
       transform: translateY(0);
     }
-  }
-
-  .preset-bar-wrapper {
-    // プリセット数に関わらずスタイルパネルが画面外に押し出されないよう、
-    // 一覧側に最大幅を設けたうえで横スクロールにする
-    flex: 0 1 60%;
-    min-width: 0;
   }
 
   .style-panel-wrapper {
