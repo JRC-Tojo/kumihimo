@@ -220,6 +220,7 @@ export default {
         copy: 'Copy',
         applyPreset: 'Apply preset style',
         registerPreset: 'Register as preset',
+        delete: 'Delete',
       },
       presetBar: {
         add: 'Add preset',
@@ -305,6 +306,11 @@ export default {
       previewUnavailable: 'Preview unavailable',
       openDocument: 'Open Document',
       rowHint: 'Click to preview, double-click to open in a new tab',
+      noRelations: 'No relations',
+      selfValue: 'Own value',
+      otherValue: 'Other value',
+      verifying: 'Verifying...',
+      emptyValue: '(empty)',
     },
     leftDrawer: {
       title: 'Thumbnails / Bookmarks',
@@ -315,22 +321,6 @@ export default {
         title: 'Bookmarks',
         noBookmarks: 'No Bookmarks',
         page: 'Page',
-      },
-    },
-    rightDrawer: {
-      title: 'Annotation Properties',
-      annotation: {
-        title: 'Annotation Properties',
-        type: 'Annotation Type',
-        relations: 'Registered Relations',
-        addRelation: 'Add Relation',
-        noRelations: 'No relations',
-        selfValue: 'Own value',
-        otherValue: 'Other value',
-        verifying: 'Verifying...',
-        emptyValue: '(empty)',
-        delete: 'Delete',
-        notSelected: 'Select any annotations',
       },
     },
     footer: {

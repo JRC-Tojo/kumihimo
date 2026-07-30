@@ -115,7 +115,6 @@ export const useEditorStore = defineStore('editor', {
 
     // サイドパネルの表示状態
     leftDrawerModel: false,
-    rightDrawerModel: false,
 
     // タブ表示のタイルモード
     tileMode: 'single' as TileMode,
@@ -149,6 +148,11 @@ export const useEditorStore = defineStore('editor', {
     // ツールバー（MainTools/SubTools）は選択状態を持たないため、意図だけをここにセットし、
     // 実際の処理は選択状態を持つDocumentTabView側でwatchして実行する
     layerOrderAction: undefined as LayerOrderAction | undefined,
+
+    // 削除操作の意図フラグ（layerOrderActionと同じパターン）。アノテーション右クリック
+    // メニュー（選択状態を持たない）からの削除要求をここに一時的にセットし、
+    // 実際の処理は選択状態を持つDocumentTabView側でwatchして実行する
+    deleteRequested: false,
 
     // アクティブなペインの表示モード（単一/連続）。表示モード自体はペインごとのローカルstateのため、
     // layerOrderAction/activeSelectionと同じ「意図・状態をeditorStoreに橋渡しする」パターンで扱う
@@ -525,6 +529,21 @@ export const useEditorStore = defineStore('editor', {
      */
     clearLayerOrderAction(): void {
       this.layerOrderAction = undefined;
+    },
+
+    /**
+     * 削除操作の意図をセットする（アノテーション右クリックメニューの「削除」から使う。
+     * 確認ダイアログは表示しない即時削除）
+     */
+    requestDelete(): void {
+      this.deleteRequested = true;
+    },
+
+    /**
+     * 削除操作の意図フラグを解除する
+     */
+    clearDeleteRequest(): void {
+      this.deleteRequested = false;
     },
 
     /**

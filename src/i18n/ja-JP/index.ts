@@ -220,6 +220,7 @@ export default {
         copy: 'コピー',
         applyPreset: 'プリセットスタイルを適用',
         registerPreset: 'プリセットとして登録',
+        delete: '削除',
       },
       presetBar: {
         add: 'プリセットを追加',
@@ -304,6 +305,11 @@ export default {
       previewUnavailable: 'プレビューを取得できませんでした',
       openDocument: '文書を開く',
       rowHint: 'クリックでプレビュー、ダブルクリックで新規タブを開きます',
+      noRelations: 'リンクはありません',
+      selfValue: '自身の値',
+      otherValue: '相手の値',
+      verifying: '検証中...',
+      emptyValue: '(空)',
     },
     leftDrawer: {
       title: 'サムネイル / ブックマーク',
@@ -314,22 +320,6 @@ export default {
         title: 'ブックマーク',
         noBookmarks: 'ブックマークなし',
         page: 'ページ',
-      },
-    },
-    rightDrawer: {
-      title: 'プロパティ',
-      annotation: {
-        title: 'プロパティ',
-        type: '種別',
-        relations: 'リンク',
-        addRelation: 'リンクを追加',
-        noRelations: 'リンクはありません',
-        selfValue: '自身の値',
-        otherValue: '相手の値',
-        verifying: '検証中...',
-        emptyValue: '(空)',
-        delete: '削除',
-        notSelected: 'アノテーションを選択してください',
       },
     },
     footer: {

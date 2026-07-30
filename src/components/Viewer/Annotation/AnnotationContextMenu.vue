@@ -98,6 +98,18 @@
           >
             <q-item-section>{{ t('pdfEditor.tools.contextMenu.registerPreset') }}</q-item-section>
           </q-item>
+
+          <q-separator />
+
+          <q-item
+            v-close-popup
+            clickable
+            class="text-negative"
+            @click="onDelete"
+            @mouseenter="closeSubmenu"
+          >
+            <q-item-section>{{ t('pdfEditor.tools.contextMenu.delete') }}</q-item-section>
+          </q-item>
         </q-list>
       </q-menu>
     </div>
@@ -199,5 +211,14 @@ function onApplyPreset(preset: AnnotationTool) {
 function onRegisterPreset() {
   // 選択状態に関わらず、右クリックされた注釈1件のみを対象にする（一意なため曖昧さがない）
   void registerAnnotationPreset(t, settingsStore, annotationStyleToPresetStyle(props.annotation));
+}
+
+/**
+ * 削除（確認ダイアログなしの即時削除）。AnnotationLayer.vueのhandleContextMenuが
+ * 右クリック時点で右クリックされた注釈を選択状態に含めているため、キーボードのDelete/Backspaceと
+ * 同じ「選択中の注釈をまとめて削除する」経路（editorStore.requestDelete）にそのまま乗せる
+ */
+function onDelete() {
+  editorStore.requestDelete();
 }
 </script>

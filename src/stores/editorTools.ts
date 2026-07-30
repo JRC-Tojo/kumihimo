@@ -325,8 +325,6 @@ function callViewTools(t: (key: string) => string): IDocTool[] {
  * @returns ドキュメント操作ツール配列
  */
 function callDocTools(t: (key: string) => string): IDocTool[] {
-  const editorStore = useEditorStore();
-
   const tools: IDocTool[] = [
     {
       id: 'print',
@@ -347,16 +345,6 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
       isActive: () => false,
       onClicked: () => {
         /** TODO: 今後実装 */
-      },
-    },
-    {
-      id: 'toggle-right-drawer',
-      icon: 'info',
-      label: t('pdfEditor.rightDrawer.title'),
-      noMenu: true,
-      isActive: () => false,
-      onClicked: () => {
-        editorStore.rightDrawerModel = !editorStore.rightDrawerModel;
       },
     },
   ];

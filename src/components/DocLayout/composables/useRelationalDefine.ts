@@ -1,7 +1,7 @@
 /**
  * 関係性登録の待機状態（対になるアノテーション待ち）に関する共通ロジック
  *
- * `DocumentTabView.vue`（RightDrawerの「リンクを追加」ボタン経由）と
+ * `DocumentTabView.vue`（連続定義モードでの自動連鎖）と
  * `RelationalDefineButtons.vue`（選択中アノテーションからの新規定義）の両方から使う。
  * 実際のペア確定処理（`finishRelational`等）は選択状態・アノテーション一覧を持つ
  * `DocumentTabView.vue`側に残し、ここでは「待機を開始し、フッターへ通知する」部分のみを共通化する
