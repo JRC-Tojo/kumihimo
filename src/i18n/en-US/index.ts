@@ -331,6 +331,10 @@ export default {
         spread: 'Spread Pages',
         c_spread: 'Continuous Spread',
       },
+      zoom: {
+        fitPage: 'Fit Page',
+        fitWidth: 'Fit Width',
+      },
     },
   },
 

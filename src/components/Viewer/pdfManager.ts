@@ -46,6 +46,14 @@ export async function acquirePdf(
   return res.value;
 }
 
+// 同一canvas要素に対して発行した直近のrenderPage()呼び出し世代を追跡する。
+// ズームのデバウンス再描画とページ切り替えの再描画などが同じcanvasに対して重なって呼ばれると、
+// 先に開始した（古い）呼び出しのpage.render()が、後から開始した（新しい）呼び出しより
+// 遅れて完了することがある。世代チェック無しで無条件にcanvasへ転写すると、後から完了した
+// 古い呼び出しが新しい表示を古い画像で上書きしてしまうため、実際にcanvasへ転写する直前に
+// 「自分がそのcanvasに対する最新の呼び出しか」を確認し、古い世代の結果は反映しないようにする
+const canvasRenderGeneration = new WeakMap<HTMLCanvasElement, number>();
+
 /**
  * ページをCanvasにレンダリングする。戻り値はCSS px（devicePixelRatio適用前）でのページ寸法で、
  * レイアウト計算（連続表示モードのページサイズ確保等）に利用する
@@ -57,6 +65,9 @@ export async function renderPage(
   scale: number = 1,
   maxWidth: number = 0,
 ): Promise<PageSize> {
+  const generation = (canvasRenderGeneration.get(canvas) ?? 0) + 1;
+  canvasRenderGeneration.set(canvas, generation);
+
   try {
     const page = await pdfDocument.getPage(pageNumber);
     let viewport = page.getViewport({ scale });
@@ -64,28 +75,47 @@ export async function renderPage(
       viewport = page.getViewport({ scale: maxWidth / viewport.width });
     }
 
-    const context = canvas.getContext('2d');
-    if (!context) {
-      throw new Error('Canvas context not available');
-    }
-
     // 高解像度ディスプレイ（Retina等）対応
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = viewport.width * dpr;
-    canvas.height = viewport.height * dpr;
-    canvas.style.width = `${viewport.width}px`;
-    canvas.style.height = `${viewport.height}px`;
+    const pixelWidth = viewport.width * dpr;
+    const pixelHeight = viewport.height * dpr;
 
-    // レンダリングコンテキストをDPRに合わせてスケール
-    context.scale(dpr, dpr);
+    // 画面に表示中のcanvasへ直接`width`/`height`を設定すると、その瞬間に同期的にラスタが
+    // クリアされ、非同期の`page.render()`が完了するまでの間、白紙のcanvasが一瞬見えてしまう
+    // （ズームのデバウンス再描画で顕著）。オフスクリーンのcanvasへ描画を完了させてから、
+    // 表示用canvasのリサイズと転写を同一の同期処理内でまとめて行うことで、表示用canvasが
+    // 古い内容から新しい内容へ一度に切り替わるようにし、空白フレームが表示されないようにする
+    const offscreen = document.createElement('canvas');
+    offscreen.width = pixelWidth;
+    offscreen.height = pixelHeight;
+    const offscreenContext = offscreen.getContext('2d');
+    if (!offscreenContext) {
+      throw new Error('Canvas context not available');
+    }
+    offscreenContext.scale(dpr, dpr);
 
     const renderContext = {
-      canvasContext: context,
+      canvasContext: offscreenContext,
       viewport: viewport,
-      canvas: canvas,
+      canvas: offscreen,
     };
-
     await page.render(renderContext).promise;
+
+    // ここまで来て初めて表示用canvasを更新する（リサイズ→転写が同一タスク内で完結するため、
+    // ブラウザが空白状態を描画する隙が生まれない）。ただし、待機中に同じcanvasへ向けた
+    // より新しい呼び出しが発行されていた場合、この結果はもう古いため転写しない
+    if (canvasRenderGeneration.get(canvas) === generation) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('Canvas context not available');
+      }
+      context.drawImage(offscreen, 0, 0);
+    }
+
     return { width: viewport.width, height: viewport.height };
   } catch (error) {
     throw new Error(

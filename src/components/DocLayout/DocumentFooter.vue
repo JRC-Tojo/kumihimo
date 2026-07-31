@@ -57,23 +57,43 @@
 
     <!-- 右側：ズームコントロール -->
     <div class="footer-section footer-zoom">
-      <q-btn flat dense icon="zoom_out" @click="onZoomOut()" :disable="zoomLevel === 20" />
-      <input
-        v-model.number="zoomInputValue"
-        type="number"
-        class="zoom-input"
-        @blur="onZoomInputBlur"
-        @keyup.enter="onZoomInputEnter"
+      <q-btn
+        flat
+        dense
+        icon="fit_screen"
+        :title="$t('pdfEditor.footer.zoom.fitPage')"
+        @click="onFitPage()"
       />
-      <span class="zoom-label">%</span>
-      <q-btn flat dense icon="zoom_in" @click="onZoomIn()" :disable="zoomLevel === 800" />
+      <q-btn
+        flat
+        dense
+        icon="width_full"
+        :title="$t('pdfEditor.footer.zoom.fitWidth')"
+        @click="onFitWidth()"
+      />
+      <q-btn flat dense icon="zoom_out" @click="onZoomOut()" :disable="zoomLevel === MIN_ZOOM" />
       <q-slider
-        v-model="zoomLevel"
-        @update:model-value="(newVal) => (zoomInputValue = String(newVal))"
-        :min="20"
-        :max="800"
+        :model-value="zoomLevel"
+        :min="MIN_ZOOM"
+        :max="MAX_ZOOM"
         :step="5"
         class="zoom-slider"
+        @update:model-value="(value) => value !== null && props.onSetZoom(value)"
+      />
+      <q-btn flat dense icon="zoom_in" @click="onZoomIn()" :disable="zoomLevel === MAX_ZOOM" />
+      <q-input
+        v-model="zoomInputValue"
+        type="number"
+        dense
+        borderless
+        suffix="%"
+        :min="MIN_ZOOM"
+        :max="MAX_ZOOM"
+        step="5"
+        class="zoom-input"
+        :input-style="{ textAlign: 'right' }"
+        @blur="onZoomInputBlur"
+        @keyup.enter="onZoomInputEnter"
       />
     </div>
   </q-bar>
@@ -82,6 +102,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useEditorStore } from 'src/stores/editorStore';
+import { MAX_ZOOM, MIN_ZOOM } from 'src/components/Viewer/zoomSteps';
 
 const editorStore = useEditorStore();
 
@@ -96,6 +117,8 @@ interface Prop {
   onSetZoom: (level: number) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  onFitWidth: () => void;
+  onFitPage: () => void;
 }
 const props = defineProps<Prop>();
 
@@ -120,8 +143,18 @@ function onZoomInputBlur() {
   zoomInputValue.value = String(zoomLevel.value);
 }
 
+/**
+ * ズーム数値入力の確定処理。`abc`のような非数値入力は`Number()`で`NaN`になり、
+ * そのまま`clampZoom`（`Math.max`/`Math.min`）へ渡すと結果もNaNになって
+ * ズームレベルが壊れてしまうため、有限な数値かどうかを確認してから反映する。
+ * 不正な入力は反映せず、表示だけ現在のズームレベルへ戻す
+ */
 function onZoomInputEnter() {
   const parsed = Number(zoomInputValue.value);
+  if (!Number.isFinite(parsed)) {
+    zoomInputValue.value = String(zoomLevel.value);
+    return;
+  }
   props.onSetZoom(parsed);
 }
 
@@ -254,45 +287,11 @@ watch(zoomLevel, (newZoomLevel) => {
 
     .zoom-input {
       width: 50px;
-      padding: 0.5rem 0.75rem;
-      border: 1px solid $grey-4;
-      border-radius: 6px;
-      text-align: center;
-      font-size: 0.9rem;
-      font-weight: 500;
-      background: white;
-      transition: all 0.2s ease;
-
-      &:focus {
-        outline: none;
-        border-color: $primary;
-        box-shadow: 0 0 0 2px rgba($primary, 0.1);
-        background: white;
-      }
-
-      &::-webkit-outer-spin-button,
-      &::-webkit-inner-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
-      }
-
-      &[type='number'] {
-        appearance: textfield;
-        -moz-appearance: textfield;
-      }
-    }
-
-    .zoom-label {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: $grey-8;
-      white-space: nowrap;
-      min-width: 20px;
+      background: transparent !important;
     }
 
     .zoom-slider {
       width: 120px;
-      margin: 0 0.5rem;
 
       :deep(.q-slider) {
         color: $primary;

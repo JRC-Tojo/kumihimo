@@ -55,7 +55,7 @@ const lastRenderedScale = ref(1);
  * ズーム中の見た目はCSS transformのみで追従させ、操作が落ち着いた時点で
  * その時点のスケールに合わせて描き直すことで、鮮明さとメモリ・描画コストを両立する
  */
-const ZOOM_RERENDER_DEBOUNCE_MS = 400;
+const ZOOM_RERENDER_DEBOUNCE_MS = 200;
 
 // ラスタライズ済みの内容を、CSS transformで現在のズーム倍率まで拡大・縮小する係数。
 // lastRenderedScaleとscaleが乖離するほど画質は劣化する（乖離が大きいほど、CSSでの拡大時はぼやけ、
@@ -83,9 +83,19 @@ const currentPageAnnotations = computed(() => {
   return props.annotations.filter((a) => a.pageNumber === page.value);
 });
 
+// 同じPdfPageインスタンスに対してrender()が重ねて呼ばれた場合（ズームのデバウンス再描画と
+// ページ切り替えの再描画が競合するケース等）、先に呼んだ（古い）render()の完了が後から呼んだ
+// （新しい）render()より遅れることがある。世代番号を使い、自分より新しいrender()呼び出しが
+// 既に発行されていれば、古い結果でreactive state（layoutSize等）を上書きしないようにする
+let renderGeneration = 0;
+
 async function render(targetRenderScale: number) {
   if (canvas.value === null) return;
-  layoutSize.value = await props.onRender(page.value, canvas.value, targetRenderScale);
+  const generation = ++renderGeneration;
+  const result = await props.onRender(page.value, canvas.value, targetRenderScale);
+  if (generation !== renderGeneration) return;
+
+  layoutSize.value = result;
   canvasSize.value = {
     width: canvas.value.width,
     height: canvas.value.height,

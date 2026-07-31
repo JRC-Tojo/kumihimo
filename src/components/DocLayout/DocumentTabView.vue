@@ -25,6 +25,7 @@
       >
         <DocumentViewer
           v-if="!loading && onRender"
+          ref="documentViewer"
           :file="file"
           :page-count="pageCount"
           :page-sizes="pageSizes"
@@ -58,6 +59,8 @@
         @set-zoom="setZoomLevel"
         @zoom-in="zoomIn"
         @zoom-out="zoomOut"
+        @fit-width="fitToWidth"
+        @fit-page="fitToPage"
       />
     </div>
 
@@ -103,6 +106,7 @@ import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
+import { useZoomControl } from './composables/useZoomControl';
 
 interface Prop {
   file: ContainerElementFile;
@@ -110,6 +114,7 @@ interface Prop {
 }
 const prop = defineProps<Prop>();
 const viewer = useTemplateRef('viewer');
+const documentViewer = useTemplateRef<InstanceType<typeof DocumentViewer>>('documentViewer');
 const api = useBackendApi();
 
 // ハンドモード時のドラッグパン。Konva/AnnotationLayer側はhandモードで一切介入しないため、
@@ -207,7 +212,12 @@ if (observed.ok) {
 }
 
 // for footer
-const zoomLevel = ref(100);
+const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZoomControl({
+  viewer,
+  documentViewer,
+  currentPage,
+  pageSizes,
+});
 const viewMode = ref<ViewMode>('single');
 
 // for relational peek dialog
@@ -298,31 +308,6 @@ async function loadDocument() {
 
   loading.value = false;
 }
-
-// ================================
-
-/**
- * ズームレベルを設定
- */
-const setZoomLevel = (level: number): void => {
-  const MIN_ZOOM = 20;
-  const MAX_ZOOM = 800;
-  zoomLevel.value = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, level));
-};
-
-/**
- * ズームイン
- */
-const zoomIn = (step: number = 5): void => {
-  setZoomLevel(zoomLevel.value + step);
-};
-
-/**
- * ズームアウト
- */
-const zoomOut = (step: number = 5): void => {
-  setZoomLevel(zoomLevel.value - step);
-};
 
 // ================================
 

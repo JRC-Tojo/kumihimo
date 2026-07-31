@@ -330,6 +330,10 @@ export default {
         spread: '見開き',
         c_spread: '見開き連続表示',
       },
+      zoom: {
+        fitPage: 'ページに合わせる',
+        fitWidth: '幅に合わせる',
+      },
     },
   },
 
