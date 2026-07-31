@@ -104,6 +104,7 @@ import {
 } from 'src/components/DocLayout/composables/useRelationalDefine';
 import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
+import { fileKey } from 'src/utils/document/fileKey';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
 import { useZoomControl } from './composables/useZoomControl';
@@ -310,7 +311,7 @@ async function loadDocument() {
     canvas: HTMLCanvasElement,
     scale: number,
   ): Promise<PageSize> => {
-    return await renderPage(loadedDocument, pageNumber, canvas, scale);
+    return await renderPage(loadedDocument, pageNumber, canvas, scale, 0, fileKey(prop.file));
   };
 
   // サムネイルを生成

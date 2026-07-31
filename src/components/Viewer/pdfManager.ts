@@ -10,6 +10,11 @@ import {
   acquirePdfDocument,
   type AcquiredPdfDocument,
 } from 'src/repositories/document/pdfDocumentCache';
+import {
+  getCachedRender,
+  renderCacheKey,
+  setCachedRender,
+} from 'src/repositories/document/renderCache';
 
 export type PdfDocument = pdfjsLib.PDFDocumentProxy;
 export type { AcquiredPdfDocument };
@@ -54,9 +59,34 @@ export async function acquirePdf(
 // 「自分がそのcanvasに対する最新の呼び出しか」を確認し、古い世代の結果は反映しないようにする
 const canvasRenderGeneration = new WeakMap<HTMLCanvasElement, number>();
 
+/** 実際にcanvasへリサイズ・転写を行う（新旧どちらの経路でも同一の反映手順を共有する） */
+function commitToCanvas(
+  canvas: HTMLCanvasElement,
+  source: CanvasImageSource,
+  pixelWidth: number,
+  pixelHeight: number,
+  cssWidth: number,
+  cssHeight: number,
+): void {
+  canvas.width = pixelWidth;
+  canvas.height = pixelHeight;
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Canvas context not available');
+  }
+  context.drawImage(source, 0, 0);
+}
+
 /**
  * ページをCanvasにレンダリングする。戻り値はCSS px（devicePixelRatio適用前）でのページ寸法で、
  * レイアウト計算（連続表示モードのページサイズ確保等）に利用する
+ *
+ * `fileKeyForCache`（`src/utils/document/fileKey.ts`の`fileKey()`）を渡すと、`renderCache.ts`に
+ * ファイル・ページ・倍率単位でレンダリング結果をキャッシュし、再訪問時はpdf.js側の呼び出し自体を
+ * スキップする。`generateThumbnail`（`maxWidth`指定あり）はページごとに解像度が異なりキャッシュの
+ * 恩恵が薄いため、意図的にこの引数を渡さず対象から除外している
  */
 export async function renderPage(
   pdfDocument: PdfDocument,
@@ -64,11 +94,30 @@ export async function renderPage(
   canvas: HTMLCanvasElement,
   scale: number = 1,
   maxWidth: number = 0,
+  fileKeyForCache?: string,
 ): Promise<PageSize> {
   const generation = (canvasRenderGeneration.get(canvas) ?? 0) + 1;
   canvasRenderGeneration.set(canvas, generation);
 
+  const dpr = window.devicePixelRatio || 1;
+  const cacheKey =
+    fileKeyForCache !== undefined && maxWidth === 0
+      ? renderCacheKey({ fileKey: fileKeyForCache, pageNumber, scale, devicePixelRatio: dpr })
+      : undefined;
+
   try {
+    if (cacheKey !== undefined) {
+      const cached = getCachedRender(cacheKey);
+      if (cached) {
+        const width = cached.width / dpr;
+        const height = cached.height / dpr;
+        if (canvasRenderGeneration.get(canvas) === generation) {
+          commitToCanvas(canvas, cached, cached.width, cached.height, width, height);
+        }
+        return { width, height };
+      }
+    }
+
     const page = await pdfDocument.getPage(pageNumber);
     let viewport = page.getViewport({ scale });
     if (maxWidth !== 0) {
@@ -76,7 +125,6 @@ export async function renderPage(
     }
 
     // 高解像度ディスプレイ（Retina等）対応
-    const dpr = window.devicePixelRatio || 1;
     const pixelWidth = viewport.width * dpr;
     const pixelHeight = viewport.height * dpr;
 
@@ -101,19 +149,18 @@ export async function renderPage(
     };
     await page.render(renderContext).promise;
 
+    // キャッシュへの登録は、以降のcanvas転写がこの呼び出しの世代であるかどうかに関わらず行う
+    // （このpdf.js呼び出し自体が生成した内容はページ・倍率の組に対して常に有効なため）
+    if (cacheKey !== undefined) {
+      const bitmap = await createImageBitmap(offscreen);
+      setCachedRender(cacheKey, bitmap);
+    }
+
     // ここまで来て初めて表示用canvasを更新する（リサイズ→転写が同一タスク内で完結するため、
     // ブラウザが空白状態を描画する隙が生まれない）。ただし、待機中に同じcanvasへ向けた
     // より新しい呼び出しが発行されていた場合、この結果はもう古いため転写しない
     if (canvasRenderGeneration.get(canvas) === generation) {
-      canvas.width = pixelWidth;
-      canvas.height = pixelHeight;
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-      const context = canvas.getContext('2d');
-      if (!context) {
-        throw new Error('Canvas context not available');
-      }
-      context.drawImage(offscreen, 0, 0);
+      commitToCanvas(canvas, offscreen, pixelWidth, pixelHeight, viewport.width, viewport.height);
     }
 
     return { width: viewport.width, height: viewport.height };
