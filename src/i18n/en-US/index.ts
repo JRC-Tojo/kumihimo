@@ -212,13 +212,23 @@ export default {
         auto: 'Auto Save',
         success: 'Saved',
         failed: 'Failed to save',
+        saveAsDialog: {
+          title: 'Save As',
+          mode: {
+            title: 'What to save',
+            documentOnly: 'Document only',
+            embedAnnotations: 'Embed annotations into the document',
+            annotationsAsComments: 'Save annotations as comments',
+          },
+          destination: 'Destination',
+          fileName: 'File name',
+        },
       },
       history: {
         undo: 'Undo',
         redo: 'Redo',
       },
       print: 'Print',
-      download: 'Download',
       viewStyle: {
         title: 'Grid View Styles',
         noGrid: 'Single View',

@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFDict, PDFArray, PDFName, PDFHexString, type PDFNumber } from 'pdf-lib';
 import { JSDOM } from 'jsdom';
 import { createCanvas } from 'canvas';
 import type { TextItemBox, AnnotationStyle } from 'src/models/document/pdf';
@@ -69,6 +69,7 @@ const {
   addBlankPageToPdf,
   removePageFromPdf,
   embedAnnotationsIntoPdf,
+  embedAnnotationsAsCommentsIntoPdf,
   extractImageFromRegion,
   extractAnnotationContextPreview,
 } = await import('../pdf');
@@ -229,6 +230,53 @@ function buildCircleAnnotation(pageNumber = 1): AnnotationStyle {
   return { ...buildAnnotationBase(pageNumber), type: 'circle', radius: 15 };
 }
 
+function buildArrowAnnotation(pageNumber = 1): AnnotationStyle {
+  return {
+    ...buildAnnotationBase(pageNumber),
+    type: 'arrow',
+    points: [0, 0, 50, 60],
+    startHead: 'none',
+    endHead: 'triangle',
+    headSize: 10,
+  };
+}
+
+function buildPolylineAnnotation(pageNumber = 1): AnnotationStyle {
+  return {
+    ...buildAnnotationBase(pageNumber),
+    type: 'polyline',
+    points: [0, 0, 20, 10, 40, 0],
+    startHead: 'none',
+    endHead: 'none',
+    headSize: 10,
+  };
+}
+
+function buildPolygonAnnotation(pageNumber = 1): AnnotationStyle {
+  return {
+    ...buildAnnotationBase(pageNumber),
+    type: 'polygon',
+    points: [0, 0, 20, 0, 10, 20],
+    fillColor: TEST_COLOR,
+    fillOpacity: 0.5,
+  };
+}
+
+function buildTextAnnotation(pageNumber = 1): AnnotationStyle {
+  return {
+    ...buildAnnotationBase(pageNumber),
+    type: 'text',
+    width: 100,
+    height: 40,
+    text: 'コメント本文',
+    fontFamily: 'sans-serif',
+    fontSize: 16,
+    fontWeight: 400,
+    textColor: TEST_COLOR,
+    textAlign: 'left',
+  };
+}
+
 describe('addBlankPageToPdf / removePageFromPdf（pdf-lib、実PDFを使用）', () => {
   it('addBlankPageToPdf: 指定したサイズのページが追加され、ページ数が1つ増える', async () => {
     const src = await buildTestPdfSrc(1);
@@ -318,6 +366,119 @@ describe('embedAnnotationsIntoPdf（pdf-lib）', () => {
 
     const loaded = await loadTestPdf(res.value);
     expect(loaded.getPageCount()).toBe(1);
+  });
+});
+
+describe('embedAnnotationsAsCommentsIntoPdf（pdf-lib、ネイティブ注釈として埋め込み）', () => {
+  /** 保存後のPDFから、指定ページの`/Annots`をPDFDictの配列として取得する */
+  async function getAnnotDicts(src64: DocumentSource, pageIndex = 0): Promise<PDFDict[]> {
+    const doc = await loadTestPdf(src64);
+    const page = doc.getPage(pageIndex);
+    const annots = page.node.Annots();
+    if (!annots) return [];
+    return annots.asArray().map((ref) => doc.context.lookup(ref, PDFDict));
+  }
+
+  function subtypeOf(dict: PDFDict): string {
+    return dict.get(PDFName.of('Subtype'))?.toString() ?? '';
+  }
+
+  function numbersOf(dict: PDFDict, key: string): number[] {
+    const arr = dict.lookup(PDFName.of(key), PDFArray);
+    return arr.asArray().map((n) => (n as PDFNumber).asNumber());
+  }
+
+  it('box/circle/line/arrow/polyline/polygon/textの全種別をエラーなく埋め込み、Successを返す', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [
+      buildBoxAnnotation(1),
+      buildCircleAnnotation(1),
+      buildLineAnnotation(1),
+      buildArrowAnnotation(1),
+      buildPolylineAnnotation(1),
+      buildPolygonAnnotation(1),
+      buildTextAnnotation(1),
+    ]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const dicts = await getAnnotDicts(res.value);
+    expect(dicts).toHaveLength(7);
+    expect(dicts.map(subtypeOf)).toEqual([
+      '/Square',
+      '/Circle',
+      '/Line',
+      '/Line',
+      '/PolyLine',
+      '/Polygon',
+      '/FreeText',
+    ]);
+  });
+
+  it('boxはSquare注釈として、指定した位置・サイズに応じたRectを持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildBoxAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(subtypeOf(dict)).toBe('/Square');
+    // buildAnnotationBase: x=10, y=10 / buildBoxAnnotation: width=50, height=30 / ページ高さ300
+    expect(numbersOf(dict, 'Rect')).toEqual([10, 260, 60, 290]);
+  });
+
+  it('arrowはLine注釈として、start/endHeadに対応する/LEを持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildArrowAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(subtypeOf(dict)).toBe('/Line');
+    const le = dict.lookup(PDFName.of('LE'));
+    expect(le?.toString()).toBe('[ /None /ClosedArrow ]');
+  });
+
+  it('polygonはfillColor/fillOpacity指定時に/IC・/CAを持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildPolygonAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(subtypeOf(dict)).toBe('/Polygon');
+    expect(dict.get(PDFName.of('IC'))).toBeDefined();
+    expect((dict.lookup(PDFName.of('CA')) as PDFNumber).asNumber()).toBeCloseTo(0.5);
+  });
+
+  it('textはFreeText注釈として本文を保持する', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildTextAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(subtypeOf(dict)).toBe('/FreeText');
+    const contents = dict.lookup(PDFName.of('Contents'), PDFHexString);
+    expect(contents.decodeText()).toBe('コメント本文');
+  });
+
+  it('存在しないページ番号を指すアノテーションは無視される（エラーにならない）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildBoxAnnotation(99)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const dicts = await getAnnotDicts(res.value);
+    expect(dicts).toHaveLength(0);
   });
 });
 

@@ -392,6 +392,20 @@ class BackendApi {
   }
 
   /**
+   * 文書別アノテーションを、ネイティブのPDF注釈（コメント）として保存
+   *
+   * `packAnnotationsInSource`（図形として焼き込み、非可逆）とは異なり、Acrobat等の
+   * 「コメント」パネルから個別に参照・削除できる形でPDFへ埋め込む
+   */
+  async packAnnotationsAsCommentsInSource(
+    docSrc: DocumentSource,
+    annotations: AnnotationStyle[],
+  ): Promise<ApiResponse<DocumentSource>> {
+    const packedSrc = await pdfRepo.embedAnnotationsAsCommentsIntoPdf(docSrc, annotations);
+    return toApiResponse(packedSrc, 'DOC_ANNOT_EMBED_FAILED');
+  }
+
+  /**
    * 指定ファイルのアノテーション情報をDBから取得する
    */
   async getAnnotationsByFile(file: ContainerElementFile): Promise<ApiResponse<AnnotationInfo[]>> {

@@ -10,11 +10,11 @@
 
 import { getDocument } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, PDFHexString, rgb } from 'pdf-lib';
 import { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
 import { Success, Failure, toError } from 'src/models/error/result';
-import type { AnnotationStyle, TextItemBox } from 'src/models/document/pdf';
+import type { AnnotationStyle, ArrowHeadType, TextItemBox } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
@@ -718,6 +718,24 @@ export async function extractAnnotationsFromPdf(
   }
 }
 
+/** 16進カラーコード（"#rgb"/"#rrggbb"）を0〜1範囲のRGB成分へ変換する */
+function hexToRgb(hex: string) {
+  const h = hex.replace('#', '');
+  const bigint = parseInt(
+    h.length === 3
+      ? h
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : h,
+    16,
+  );
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return { r: r / 255, g: g / 255, b: b / 255 };
+}
+
 /**
  * PDF にアノテーションを焼き込む。Annotation 型に応じて矩形や線、円を描画する。
  * 返り値は編集後の DocumentSource を Result で返す
@@ -728,23 +746,6 @@ export async function embedAnnotationsIntoPdf(
 ): Promise<Result<DocumentSource>> {
   try {
     const pdfDoc = await PDFDocument.load(src64);
-
-    function hexToRgb(hex: string) {
-      const h = hex.replace('#', '');
-      const bigint = parseInt(
-        h.length === 3
-          ? h
-              .split('')
-              .map((c) => c + c)
-              .join('')
-          : h,
-        16,
-      );
-      const r = (bigint >> 16) & 255;
-      const g = (bigint >> 8) & 255;
-      const b = bigint & 255;
-      return { r: r / 255, g: g / 255, b: b / 255 };
-    }
 
     for (const a of annotations) {
       const pageIndex = a.pageNumber - 1;
@@ -807,6 +808,163 @@ export async function embedAnnotationsIntoPdf(
   }
 }
 
+/**
+ * 矢印の矢じり種別を、PDF仕様（`/LE`）の線端形状名へ変換する
+ */
+function arrowHeadTypeToLineEnding(head: ArrowHeadType) {
+  const map: Record<ArrowHeadType, string> = {
+    none: 'None',
+    triangle: 'ClosedArrow',
+    open: 'OpenArrow',
+    square: 'Square',
+    circle: 'Circle',
+    diamond: 'Diamond',
+    butt: 'Butt',
+    slash: 'Slash',
+    reverseOpen: 'ROpenArrow',
+    reverseTriangle: 'RClosedArrow',
+  };
+  return map[head];
+}
+
+/**
+ * PDF にアノテーションをネイティブの注釈オブジェクト（コメント）として埋め込む。
+ * `embedAnnotationsIntoPdf`（図形をページ内容として焼き込む＝非可逆）とは異なり、
+ * Acrobat等の「コメント」パネルから個別に参照・削除できる`/Annots`エントリを追加する。
+ * `extractAnnotationsFromPdf`が読み取る対象と対をなす、書き込み側の処理
+ */
+export async function embedAnnotationsAsCommentsIntoPdf(
+  src64: DocumentSource,
+  annotations: AnnotationStyle[],
+): Promise<Result<DocumentSource>> {
+  try {
+    const pdfDoc = await PDFDocument.load(src64);
+    const context = pdfDoc.context;
+
+    for (const a of annotations) {
+      const pageIndex = a.pageNumber - 1;
+      if (pageIndex < 0 || pageIndex >= pdfDoc.getPageCount()) continue;
+      const page = pdfDoc.getPage(pageIndex);
+      const pageHeight = page.getSize().height;
+
+      const color = a.color ? hexToRgb(a.color) : undefined;
+      const strokeWidth = a.strokeWidth ?? 2;
+      const opacity = a.strokeOpacity ?? a.opacity ?? 1;
+      const halfStroke = strokeWidth / 2;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dictLiteral: Record<string, any> = {
+        Type: 'Annot',
+        F: 4, // Print フラグ（印刷・他ビューアでの表示互換のため付与）
+        CA: opacity,
+        ...(color ? { C: [color.r, color.g, color.b] } : {}),
+        ...(strokeWidth ? { BS: { W: strokeWidth } } : {}),
+        ...(a.content ? { Contents: PDFHexString.fromText(a.content) } : {}),
+      };
+
+      if (a.type === 'box') {
+        const { x, y, width, height, fillColor, fillOpacity } = a;
+        dictLiteral.Subtype = 'Square';
+        dictLiteral.Rect = [x, pageHeight - y - height, x + width, pageHeight - y];
+        if (fillColor) {
+          const fc = hexToRgb(fillColor);
+          dictLiteral.IC = [fc.r, fc.g, fc.b];
+        }
+        if (fillOpacity !== undefined) dictLiteral.CA = fillOpacity;
+      } else if (a.type === 'circle') {
+        const { x, y, radius, radiusX, radiusY, fillColor, fillOpacity } = a;
+        const rx = radiusX ?? radius;
+        const ry = radiusY ?? radius;
+        const cy = pageHeight - y;
+        dictLiteral.Subtype = 'Circle';
+        dictLiteral.Rect = [x - rx, cy - ry, x + rx, cy + ry];
+        if (fillColor) {
+          const fc = hexToRgb(fillColor);
+          dictLiteral.IC = [fc.r, fc.g, fc.b];
+        }
+        if (fillOpacity !== undefined) dictLiteral.CA = fillOpacity;
+      } else if (a.type === 'line' || a.type === 'arrow') {
+        const { x, y, points } = a;
+        if (!Array.isArray(points) || points.length < 4) continue;
+        const [, , dx, dy] = points;
+        if (typeof dx !== 'number' || typeof dy !== 'number') continue;
+        const x1 = x;
+        const y1 = pageHeight - y;
+        const x2 = x + dx;
+        const y2 = pageHeight - (y + dy);
+        dictLiteral.Subtype = 'Line';
+        dictLiteral.L = [x1, y1, x2, y2];
+        dictLiteral.Rect = [
+          Math.min(x1, x2) - halfStroke,
+          Math.min(y1, y2) - halfStroke,
+          Math.max(x1, x2) + halfStroke,
+          Math.max(y1, y2) + halfStroke,
+        ];
+        if (a.type === 'arrow') {
+          dictLiteral.LE = [
+            arrowHeadTypeToLineEnding(a.startHead),
+            arrowHeadTypeToLineEnding(a.endHead),
+          ];
+        }
+      } else if (a.type === 'polyline' || a.type === 'polygon') {
+        const { x, y, points } = a;
+        if (!Array.isArray(points) || points.length < 4) continue;
+        const vertices: number[] = [];
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        for (let i = 0; i + 1 < points.length; i += 2) {
+          const vx = x + points[i]!;
+          const vy = pageHeight - (y + points[i + 1]!);
+          vertices.push(vx, vy);
+          minX = Math.min(minX, vx);
+          maxX = Math.max(maxX, vx);
+          minY = Math.min(minY, vy);
+          maxY = Math.max(maxY, vy);
+        }
+        dictLiteral.Subtype = a.type === 'polyline' ? 'PolyLine' : 'Polygon';
+        dictLiteral.Vertices = vertices;
+        dictLiteral.Rect = [
+          minX - halfStroke,
+          minY - halfStroke,
+          maxX + halfStroke,
+          maxY + halfStroke,
+        ];
+        if (a.type === 'polyline') {
+          dictLiteral.LE = [
+            arrowHeadTypeToLineEnding(a.startHead),
+            arrowHeadTypeToLineEnding(a.endHead),
+          ];
+        } else if (a.fillColor) {
+          const fc = hexToRgb(a.fillColor);
+          dictLiteral.IC = [fc.r, fc.g, fc.b];
+          if (a.fillOpacity !== undefined) dictLiteral.CA = a.fillOpacity;
+        }
+      } else if (a.type === 'text') {
+        const { x, y, width, height, text, fontSize, textColor } = a;
+        const textRgb = hexToRgb(textColor);
+        dictLiteral.Subtype = 'FreeText';
+        dictLiteral.Rect = [x, pageHeight - y - height, x + width, pageHeight - y];
+        dictLiteral.Contents = PDFHexString.fromText(text);
+        dictLiteral.DA = `${textRgb.r} ${textRgb.g} ${textRgb.b} rg /Helv ${fontSize} Tf`;
+        delete dictLiteral.C;
+      } else {
+        continue;
+      }
+
+      const annotDict = context.obj(dictLiteral);
+      const annotRef = context.register(annotDict);
+      page.node.addAnnot(annotRef);
+    }
+
+    const out = await pdfDoc.save();
+    return uint8ToDocSrc(out);
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
 // Export まとめ
 export default {
   loadPdfFromSrc64,
@@ -819,4 +977,5 @@ export default {
   addBlankPageToPdf,
   removePageFromPdf,
   embedAnnotationsIntoPdf,
+  embedAnnotationsAsCommentsIntoPdf,
 };
