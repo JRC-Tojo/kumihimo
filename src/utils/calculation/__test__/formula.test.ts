@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { evaluateFormula, formatValueWithFormula, parseNumericValue } from '../formula';
+import {
+  evaluateFormula,
+  formatValueWithFormula,
+  normalizeNumericString,
+  parseNumericValue,
+  roundFormulaResult,
+} from '../formula';
 
 describe('evaluateFormula', () => {
   test('四則演算と演算子の優先順位を評価できる', () => {
@@ -49,6 +55,36 @@ describe('parseNumericValue', () => {
     expect(parseNumericValue('')).toBeUndefined();
     expect(parseNumericValue('   ')).toBeUndefined();
     expect(parseNumericValue('12.')).toBeUndefined();
+  });
+});
+
+describe('normalizeNumericString', () => {
+  test('先頭・末尾の余分な0や符号違いのゼロを吸収する', () => {
+    expect(normalizeNumericString('08')).toBe('8');
+    expect(normalizeNumericString('8.000')).toBe('8');
+    expect(normalizeNumericString('-0')).toBe('0');
+    expect(normalizeNumericString('-0.0')).toBe('0');
+  });
+
+  test('number型を経由しないため、安全な整数範囲を超えても精度を保つ', () => {
+    expect(normalizeNumericString('9007199254740993')).toBe('9007199254740993');
+    expect(normalizeNumericString('9007199254740992')).not.toBe(
+      normalizeNumericString('9007199254740993'),
+    );
+  });
+
+  test('数値として解釈できない文字列はundefinedを返す', () => {
+    expect(normalizeNumericString('12abc')).toBeUndefined();
+  });
+});
+
+describe('roundFormulaResult', () => {
+  test('浮動小数点演算特有の丸め誤差を吸収する', () => {
+    expect(roundFormulaResult(100 * 1.09)).toBe(109);
+  });
+
+  test('乗算でオーバーフローしうる非常に大きな値は、桁あふれさせずそのまま返す', () => {
+    expect(roundFormulaResult(Number.MAX_VALUE)).toBe(Number.MAX_VALUE);
   });
 });
 

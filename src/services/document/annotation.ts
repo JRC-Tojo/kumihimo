@@ -189,8 +189,12 @@ export async function registerAnnotationStyle(
   if (!saveRes.ok) return saveRes;
 
   if (geometryChanged) {
-    // コンテンツの読み込みは投げっぱなし（失敗しても空文字列がコンテンツとして格納されるだけ）
-    void loadAnnotContent(file, annotationInfo);
+    // コンテンツの読み込みは投げっぱなしにするが、失敗時はcontext.textがundefinedのまま
+    // DBに残り続けないよう、明示的に空文字列で確定させる
+    void loadAnnotContent(file, annotationInfo).then((res) => {
+      if (!res.ok)
+        void annotationRepository.updateAnnotationContentText(annotationInfo.style.id, '');
+    });
   }
 
   return Success(annotationInfo);

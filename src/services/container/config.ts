@@ -293,7 +293,11 @@ export async function getContainerSettingsFile(
   const settingsFilePath = getContainerSettingsFilePath(container.value.containerPath);
   const src = await containerService.loadFileAsDocumentSource(cID, settingsFilePath);
   if (!src.ok) {
-    if (src.error instanceof NotFoundError) return Success(DEFAULT_CONTAINER_SETTINGS_FILE);
+    // モジュール定数への参照をそのまま返すと、呼び出し側（`ref()`等）による書き換えが
+    // 既定値そのものを汚染してしまうため、複製して返す
+    if (src.error instanceof NotFoundError) {
+      return Success(structuredClone(DEFAULT_CONTAINER_SETTINGS_FILE));
+    }
     return src;
   }
 
@@ -304,7 +308,9 @@ export async function getContainerSettingsFile(
  * コンテナルートのコンテナ単位の設定ファイルを更新する
  *
  * 同一コンテナを開いた他のユーザー・端末にも同じ内容が反映される（IndexedDBベースの
- * アプリ設定とは異なり、ブラウザ単位ではなくコンテナ単位で共有される）
+ * アプリ設定とは異なり、ブラウザ単位ではなくコンテナ単位で共有される）。
+ * `createFile`はファイルが既存でも上書き保存するが、既存設定を丸ごと消さないよう、
+ * 保存前に現在の設定を読み込んでからマージする
  */
 export async function saveContainerSettingsFile(
   cID: ContainerID,
@@ -314,7 +320,10 @@ export async function saveContainerSettingsFile(
   const container = containerService.getContainer(cID);
   if (!container.ok) return container;
 
-  const settingsStr = JSON.stringify(settings, null, 2);
+  const existing = await getContainerSettingsFile(cID);
+  const mergedSettings = existing.ok ? { ...existing.value, ...settings } : settings;
+
+  const settingsStr = JSON.stringify(mergedSettings, null, 2);
   const settingsSrc = textRepository.encodeTextContents(settingsStr);
   if (!settingsSrc.ok) return settingsSrc;
 

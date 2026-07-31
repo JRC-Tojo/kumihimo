@@ -158,6 +158,9 @@ function selectPluginTab(key: string) {
   editorStore.selectPluginTab(key, prop.layoutSide, true);
 }
 
+/**
+ * コンテナ設定タブを選択状態にする
+ */
 function selectContainerSettingsTab(key: string) {
   editorStore.selectContainerSettingsTab(key, prop.layoutSide, true);
 }

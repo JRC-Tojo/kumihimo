@@ -4,7 +4,7 @@
  */
 
 import type { RelaxationOptions } from 'src/models/relational/relaxation';
-import { parseNumericValue } from 'src/utils/calculation/formula';
+import { normalizeNumericString } from 'src/utils/calculation/formula';
 
 /**
  * 緩和ルールに従い、置換グループ一覧を1文字列に対して適用する
@@ -43,16 +43,17 @@ export function normalizeForComparison(value: string, options: RelaxationOptions
  * 緩和ルールを適用したうえで2つの文字列が一致するかどうかを判定する
  *
  * `numericEquivalence`が有効な場合、正規化後の両値が共に数値として解釈できれば
- * 数値として比較する（例：「8」と「8.000」を同じ値として扱う）。どちらかが数値化できない
- * 場合は通常の文字列比較にフォールバックする
+ * 数値として比較する（例：「8」と「8.000」を同じ値として扱う）。比較は`number`型を
+ * 経由せず正規化した10進文字列同士で行うため、安全な整数範囲を超える桁数でも精度が
+ * 失われない。どちらかが数値化できない場合は通常の文字列比較にフォールバックする
  */
 export function relaxedEqual(a: string, b: string, options: RelaxationOptions): boolean {
   const normA = normalizeForComparison(a, options);
   const normB = normalizeForComparison(b, options);
 
   if (options.numericEquivalence) {
-    const numA = parseNumericValue(normA);
-    const numB = parseNumericValue(normB);
+    const numA = normalizeNumericString(normA);
+    const numB = normalizeNumericString(normB);
     if (numA !== undefined && numB !== undefined) return numA === numB;
   }
 

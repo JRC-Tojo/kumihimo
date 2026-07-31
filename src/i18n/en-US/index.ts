@@ -171,11 +171,12 @@ export default {
     },
   },
 
-  // Container settings (.kumihimo/settings.json, shared per container)
+  // コンテナ設定（.kumihimo/settings.json、コンテナ単位で共有）
   containerSettings: {
     title: 'Container Settings',
     searchPlaceholder: 'Search settings',
     noResults: 'No settings found',
+    loadFailed: 'Failed to load the setting.',
     saveFailed: 'Failed to save the setting.',
     sections: {
       relational: 'Relational',
@@ -338,7 +339,7 @@ export default {
       noRelations: 'No relations',
       selfValue: 'Own value',
       otherValue: 'Other value',
-      verifying: '<Loading>',
+      verifying: 'Verifying...',
       emptyValue: '(empty)',
       editRule: 'Edit relaxation rule',
       ruleEdit: {

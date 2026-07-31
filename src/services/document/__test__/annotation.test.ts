@@ -546,6 +546,9 @@ describe('registerAnnotationStyleにおけるコンテンツ再読み込みの�
     // DBへ保存される内容も同様にundefinedであること
     expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
     expect(addAnnotationInfosMock.mock.calls[0]?.[1]?.[0]?.context.text).toBeUndefined();
+    // 再読込自体は実際に発火していること
+    expect(loadFileAsDocumentSourceMock).toHaveBeenCalledTimes(1);
+    expect(loadFileAsDocumentSourceMock).toHaveBeenCalledWith(file.containerID, file.path);
   });
 
   it('ジオメトリ（ページ番号・外接矩形）が変化していない場合、コンテンツ読み込みは発火しない', async () => {

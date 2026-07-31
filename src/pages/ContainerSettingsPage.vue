@@ -101,8 +101,8 @@ onMounted(async () => {
   if (res.ok) {
     relaxation.value = res.data;
   } else {
-    // TODO: エラーハンドリング
     console.error(res.error);
+    $q.notify({ type: 'negative', message: $t('containerSettings.loadFailed') });
   }
 });
 

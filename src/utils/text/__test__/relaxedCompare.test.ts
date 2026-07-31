@@ -56,6 +56,14 @@ describe('relaxedEqual', () => {
     expect(relaxedEqual('8', '8.000', NO_RELAXATION)).toBe(false);
   });
 
+  test('numericEquivalence: 安全な整数範囲を超える桁数でも精度を落とさず比較する', () => {
+    const options = { ...NO_RELAXATION, numericEquivalence: true };
+    // number型を経由すると両方とも9007199254740992に丸められ誤って一致してしまう桁数
+    expect(relaxedEqual('9007199254740992', '9007199254740993', options)).toBe(false);
+    expect(relaxedEqual('9007199254740993', '9007199254740993', options)).toBe(true);
+    expect(relaxedEqual('009007199254740993', '9007199254740993', options)).toBe(true);
+  });
+
   test('equivalenceGroups: 指定した文字同士を同一視する', () => {
     const options = {
       ...NO_RELAXATION,

@@ -176,6 +176,7 @@ export default {
     title: 'コンテナ設定',
     searchPlaceholder: '設定を検索',
     noResults: '設定が見つかりませんでした',
+    loadFailed: '設定の読み込みに失敗しました。',
     saveFailed: '設定の保存に失敗しました。',
     sections: {
       relational: '関係性',
@@ -337,7 +338,7 @@ export default {
       noRelations: 'リンクはありません',
       selfValue: '自身の値',
       otherValue: '相手の値',
-      verifying: '<読み込み中>',
+      verifying: '検証中...',
       emptyValue: '(空)',
       editRule: '緩和ルールを編集',
       ruleEdit: {
