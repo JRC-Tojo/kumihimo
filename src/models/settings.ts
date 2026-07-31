@@ -7,6 +7,7 @@ import {
   RelationalVerificationStyle,
   DEFAULT_RELATIONAL_VERIFICATION_STYLE,
 } from './relational/style';
+import { RelaxationOptions, DEFAULT_RELAXATION_OPTIONS } from './relational/relaxation';
 import { localeKeys } from 'src/i18n';
 import { ColorCode } from './document/pdf';
 
@@ -45,6 +46,8 @@ export const AppSettings = z.object({
   relationalVerificationStyle: RelationalVerificationStyle.default(
     DEFAULT_RELATIONAL_VERIFICATION_STYLE,
   ),
+  // 関係性の等値検証における緩和ルールの既定値（アノテーション別設定が無い場合に使われる）
+  relationalRelaxation: RelaxationOptions.default(DEFAULT_RELAXATION_OPTIONS),
   // アノテーションの自動保存トグルのオン・オフ
   autoSaveAnnotations: z.boolean().default(false),
 });

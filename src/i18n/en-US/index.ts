@@ -145,6 +145,21 @@ export default {
       strokeWidth: 'Stroke Width',
       fillOpacity: 'Fill Opacity',
     },
+    relationalRelaxation: {
+      title: 'Relational Relaxation Rules',
+      description:
+        'Default rules for how much notational variance to tolerate in "equal" relational checks. Can be overridden per annotation.',
+      ignoreCase: 'Ignore case',
+      ignoreWhitespace: 'Ignore whitespace',
+      ignoreWidth: 'Ignore full-width/half-width differences',
+      equivalenceGroups: 'Equivalent character groups',
+      equivalenceGroupsHint: 'The first character in each group is treated as the canonical one.',
+      addGroup: 'Add group',
+      removeGroup: 'Remove group',
+      addChar: 'Add character',
+      removeChar: 'Remove',
+      charPlaceholder: 'Character',
+    },
     sampleData: {
       title: 'Sample Data',
       create: 'Create Sample Documents',
@@ -220,6 +235,7 @@ export default {
         copy: 'Copy',
         applyPreset: 'Apply preset style',
         registerPreset: 'Register as preset',
+        openRelational: 'Open relational dialog',
         delete: 'Delete',
       },
       presetBar: {
@@ -311,6 +327,23 @@ export default {
       otherValue: 'Other value',
       verifying: 'Verifying...',
       emptyValue: '(empty)',
+      editRule: 'Edit relaxation rule',
+      ruleEdit: {
+        title: 'Edit Relaxation Rule',
+        overrideGlobal: 'Override app settings',
+        overrideGlobalHint:
+          'When enabled, only this pair of annotations ignores the app-wide relaxation rules and uses the settings below instead.',
+        ownFormula: 'Calculation applied to own value',
+        ownFormulaHint:
+          'Evaluated with variable x bound to the own extracted value as a number (e.g. x * 1.09). Only basic arithmetic and parentheses are supported.',
+        otherFormula: "Other side's formula (reference only)",
+        formulaPreview: 'Calculated result preview',
+        formulaInvalid:
+          'The formula is invalid, or the own value could not be parsed as a number (the raw value will be compared instead).',
+        save: 'Save',
+        cancel: 'Cancel',
+        saveFailed: 'Failed to save the relaxation rule.',
+      },
     },
     leftDrawer: {
       title: 'Thumbnails / Bookmarks',

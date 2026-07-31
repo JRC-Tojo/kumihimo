@@ -5,13 +5,24 @@ import type {
   RelationalResponce,
   RelationalWithAddress,
 } from 'src/models/relational/common';
-import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
+import type {
+  AnnotationBaseAddress,
+  AnnotationInfo,
+  RelationalRule,
+} from 'src/models/relational/fileSchema';
+import {
+  DEFAULT_RELAXATION_OPTIONS,
+  type RelaxationOptions,
+} from 'src/models/relational/relaxation';
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as docAnnotService from 'src/services/document/annotation';
 import * as relationalRepository from 'src/repositories/db/relational';
 import type { AnnotationID } from 'src/models/document/pdf';
 import { resolveCachedContainerID } from 'src/services/document/containerIdResolver';
+import { getSettings } from 'src/settings/main';
+import { relaxedEqual } from 'src/utils/text/relaxedCompare';
+import { evaluateFormula, parseNumericValue } from 'src/utils/calculation/formula';
 
 /**
  * 読み込み中の関係性情報をすべて管理するDBを定義
@@ -114,7 +125,7 @@ export async function checkRelational(
     return Failure(new Error('An annotation content is not loaded yet'));
   }
 
-  const checkedRule = validRelational(r.relational, srcContentTxt, targetContentTxt);
+  const checkedRule = await validRelational(r.relational, srcContentTxt, targetContentTxt);
 
   return Success(checkedRule);
 }
@@ -238,6 +249,21 @@ export async function resolveAnnotationFile(
 }
 
 /**
+ * アノテーションIDから、そのアノテーションが存在するページ番号を解決する
+ *
+ * 「対になるアノテーション」の文書を開く際、先頭ページではなく実際のページへ遷移させるために使う
+ */
+export async function getAnnotationPageNumber(annotID: AnnotationID): Promise<Result<number>> {
+  const address = await docAnnotService.getAnnotationAddress(annotID);
+  if (!address.ok) return address;
+
+  const info = await ensureAnnotationInfo(annotID, address.value);
+  if (!info.ok) return info;
+
+  return Success(info.value.style.pageNumber);
+}
+
+/**
  * DBに格納されている特定ファイルの関係性を保存する（＝仮フラグを撤去する）
  *
  * 保存した関係性一覧を返す
@@ -335,20 +361,58 @@ async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relationa
 }
 
 /**
- * 関係性を検証する
+ * 等値検証で使う緩和ルールを決定する
+ *
+ * アノテーション別設定（`rule.relaxation`）がある場合はアプリ設定を完全に無視して
+ * それだけを使う（合成ではなく完全上書き）。無い場合のみアプリ設定にフォールバックする
  */
-function validRelational(
+async function resolveRelaxationOptions(
+  rule: Extract<RelationalRule, { type: 'equal' }>,
+): Promise<RelaxationOptions> {
+  if (rule.relaxation !== undefined) return rule.relaxation;
+
+  const settingsRes = await getSettings();
+  return settingsRes.ok ? settingsRes.value.relationalRelaxation : DEFAULT_RELAXATION_OPTIONS;
+}
+
+/**
+ * 比較前の値に計算式を適用する（単位変換等）
+ *
+ * 抽出値が数値として解釈できない場合や式が不正な場合は、計算を行わず生値のまま比較する
+ */
+function applyFormula(rawText: string, formula: string | undefined): string {
+  if (formula === undefined) return rawText;
+
+  const x = parseNumericValue(rawText.normalize('NFKC'));
+  if (x === undefined) return rawText;
+
+  const result = evaluateFormula(formula, x);
+  return result === undefined ? rawText : String(result);
+}
+
+/**
+ * 関係性を検証する
+ *
+ * 表示用の`srcVal`/`targetVal`は緩和・計算を適用する前の生の抽出値のまま返す
+ * （画面には常に実際にOCR等で読み取った値を表示する）
+ */
+async function validRelational(
   relational: Relational,
   srcVal: string,
   targetVal: string,
-): RelationalResponce {
+): Promise<RelationalResponce> {
   let isOK = true;
   switch (relational.rule.type) {
     case 'link':
       break;
-    case 'equal':
-      isOK = srcVal === targetVal;
+    case 'equal': {
+      const rule = relational.rule;
+      const relaxation = await resolveRelaxationOptions(rule);
+      const srcComparisonVal = applyFormula(srcVal, rule.srcFormula);
+      const targetComparisonVal = applyFormula(targetVal, rule.targetFormula);
+      isOK = relaxedEqual(srcComparisonVal, targetComparisonVal, relaxation);
       break;
+    }
   }
 
   return {

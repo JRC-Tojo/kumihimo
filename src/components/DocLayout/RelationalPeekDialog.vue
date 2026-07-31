@@ -75,6 +75,16 @@
                 @update:model-value="(v: RelationalRuleType) => onChangeRuleType(edge, v)"
               />
               <q-btn
+                v-if="edge.relational.rule.type === 'equal'"
+                flat
+                round
+                dense
+                icon="tune"
+                size="sm"
+                :title="$t('pdfEditor.peek.editRule')"
+                @click="openRuleEditDialog(edge)"
+              />
+              <q-btn
                 flat
                 round
                 dense
@@ -89,6 +99,14 @@
       </q-card-section>
     </q-card>
   </q-dialog>
+
+  <RelationalRuleEditDialog
+    v-if="editingEdge"
+    v-model:open="editDialogOpen"
+    :file="prop.file"
+    :edge="editingEdge"
+    :self-annot-id="prop.annotId"
+  />
 </template>
 
 <script setup lang="ts">
@@ -106,6 +124,7 @@ import {
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
+import RelationalRuleEditDialog from 'src/components/DocLayout/RelationalRuleEditDialog.vue';
 
 interface Prop {
   annotId: AnnotationID;
@@ -129,6 +148,15 @@ const previewedAnnotId = ref<AnnotationID>();
 const edges = computed<RelationalEdge[]>(() => relationalStore.edgesForAnnotation(prop.annotId));
 
 const otherFileLabelCache = ref<Record<AnnotationID, string>>({});
+
+// アノテーション別の緩和ルール編集ダイアログの対象エッジ
+const editingEdge = ref<RelationalEdge>();
+const editDialogOpen = ref(false);
+
+function openRuleEditDialog(edge: RelationalEdge) {
+  editingEdge.value = edge;
+  editDialogOpen.value = true;
+}
 
 function otherAnnotId(edge: RelationalEdge): AnnotationID {
   return edge.relational.srcID === prop.annotId ? edge.relational.targetID : edge.relational.srcID;
@@ -219,14 +247,26 @@ async function resolveOtherFileLabels(targetEdges: RelationalEdge[]) {
 }
 
 /**
- * ダブルクリックした行の相手アノテーションが属するファイルを新規タブで開く
+ * 指定したアノテーションが属するファイルを新規タブで開き、そのアノテーションが存在する
+ * ページへ遷移する（先頭ページが開かれてしまわないよう、ページ番号をあらかじめ
+ * editorStoreの意図フラグとしてセットしてからタブを開く）
  */
-async function openOtherFile(edge: RelationalEdge) {
-  const fileRes = await api.resolveAnnotationFile(otherAnnotId(edge));
+async function focusAnnotationInNewTab(annotId: AnnotationID) {
+  const fileRes = await api.resolveAnnotationFile(annotId);
   if (!fileRes.ok) return;
+
+  const pageRes = await api.getAnnotationPageNumber(annotId);
+  if (pageRes.ok) editorStore.requestAnnotationFocus(fileRes.data, annotId, pageRes.data);
 
   editorStore.openTab(fileRes.data);
   open.value = false;
+}
+
+/**
+ * ダブルクリックした行の相手アノテーションが属するファイルを新規タブで開く
+ */
+async function openOtherFile(edge: RelationalEdge) {
+  await focusAnnotationInNewTab(otherAnnotId(edge));
 }
 
 /**
@@ -234,18 +274,19 @@ async function openOtherFile(edge: RelationalEdge) {
  */
 async function openPreviewedFile() {
   if (previewedAnnotId.value === undefined) return;
-
-  const fileRes = await api.resolveAnnotationFile(previewedAnnotId.value);
-  if (!fileRes.ok) return;
-
-  editorStore.openTab(fileRes.data);
-  open.value = false;
+  await focusAnnotationInNewTab(previewedAnnotId.value);
 }
 
-// プレビュー対象が未選択の場合、先頭の相手アノテーションを既定のプレビュー対象にする
+// プレビュー対象が未選択の場合、先頭の相手アノテーションを既定のプレビュー対象にする。
+// 関係性が0件になった場合は、前に表示していた別アノテーションのプレビューが残らないよう
+// 明示的にリセットする
 watch(
   edges,
   (newEdges) => {
+    if (newEdges.length === 0) {
+      previewedAnnotId.value = undefined;
+      return;
+    }
     if (previewedAnnotId.value !== undefined) return;
     const firstEdge = newEdges[0];
     if (firstEdge !== undefined) previewedAnnotId.value = otherAnnotId(firstEdge);
@@ -271,12 +312,25 @@ watch(
 
 watch(edges, (newEdges) => void resolveOtherFileLabels(newEdges), { immediate: true });
 
-// ダイアログを開くたびに、未選択なら先頭の相手アノテーションを既定のプレビュー対象にする
+// ダイアログを開くたびに、先頭の相手アノテーションを既定のプレビュー対象にする
+// （関係性が無い場合は明示的にundefinedへ戻し、直前に見ていた別アノテーションの
+// プレビューが残らないようにする）
 watch(open, (isOpen) => {
   if (!isOpen) return;
   const firstEdge = edges.value[0];
-  if (firstEdge !== undefined) previewedAnnotId.value = otherAnnotId(firstEdge);
+  previewedAnnotId.value = firstEdge !== undefined ? otherAnnotId(firstEdge) : undefined;
 });
+
+// ダイアログの表示中（開いた時・対象アノテーションが切り替わった時）に、移動・リサイズ直後
+// でも「自身の値」が最新化されるよう明示的に再検証を要求する。`edgesForAnnotation`は
+// リアクティブなgetterのため、再検証完了後は自動的に画面へ反映される
+watch(
+  [open, () => prop.annotId],
+  ([isOpen]) => {
+    if (isOpen) void relationalStore.refreshFile(prop.file);
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped lang="scss">

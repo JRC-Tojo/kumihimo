@@ -616,7 +616,23 @@ onMounted(async () => {
   await loadDocument();
   void relationalStore.refreshFile(prop.file);
   window.addEventListener('keydown', handleGlobalKeydown);
+  // ページ数が確定した後でないとgoToPageが正しくクランプできないため、loadDocument完了後に消費する
+  consumePendingAnnotationFocus();
 });
+
+/**
+ * 「対になるアノテーションの文書を開き、そのページへ遷移してほしい」という意図
+ * （editorStore.pendingAnnotationFocus）がこのファイル宛てであれば消費し、該当ページ・
+ * アノテーションへ遷移する
+ */
+function consumePendingAnnotationFocus() {
+  const pending = editorStore.pendingAnnotationFocus;
+  if (pending === undefined || !isSameFile(pending.file, prop.file)) return;
+
+  goToPage(pending.pageNumber);
+  selectedAnnotationIds.value = [pending.annotId];
+  editorStore.clearAnnotationFocusRequest();
+}
 
 watch(annotations, (newAnnots, oldAnnots) => {
   void handleAnnotationsChanged(newAnnots, oldAnnots);
@@ -663,6 +679,29 @@ watch(
     void annotationActions.deleteSelected().finally(() => {
       editorStore.clearDeleteRequest();
     });
+  },
+);
+// アノテーション右クリックメニューの「関係性ダイアログを開く」からの意図をここで実行する。
+// メニュー自体は選択状態を持たないため、選択状態を持つこの場所でwatchして実処理を行う
+watch(
+  () => editorStore.peekRequestedAnnotId,
+  (annotId) => {
+    if (annotId === undefined) return;
+    if (editorStore.activeSide !== prop.layoutSide) return;
+    if (!annotations.value.some((a) => a.id === annotId)) return; // 他ペインの誤反応防止
+    peekAnnotId.value = annotId;
+    peekDialogOpen.value = true;
+    editorStore.clearPeekRequest();
+  },
+);
+// 関係性ダイアログの「文書を開く」等、既にこのファイルが開かれている状態で新たに
+// ページ遷移が要求された場合（タブの再マウントが起きないケース）をここで処理する。
+// 初回ロード中はonMounted側の処理に任せる
+watch(
+  () => editorStore.pendingAnnotationFocus,
+  () => {
+    if (loading.value) return;
+    consumePendingAnnotationFocus();
   },
 );
 // アクティブなペインの表示モードを、メインツール（表示モードメニュー）用にeditorStoreへ橋渡しする

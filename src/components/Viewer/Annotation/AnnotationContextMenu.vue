@@ -104,6 +104,12 @@
 
           <q-separator />
 
+          <q-item v-close-popup clickable @click="onOpenRelational" @mouseenter="closeSubmenu">
+            <q-item-section>{{ t('pdfEditor.tools.contextMenu.openRelational') }}</q-item-section>
+          </q-item>
+
+          <q-separator />
+
           <q-item
             v-close-popup
             clickable
@@ -214,6 +220,14 @@ function onApplyPreset(preset: AnnotationTool) {
 function onRegisterPreset() {
   // 選択状態に関わらず、右クリックされた注釈1件のみを対象にする（一意なため曖昧さがない）
   void registerAnnotationPreset(t, settingsStore, annotationStyleToPresetStyle(props.annotation));
+}
+
+/**
+ * 関係性ダイアログを開く意図をeditorStoreにセットする。ダイアログを開く実処理は
+ * 選択状態を持つDocumentTabView側でこのフラグをwatchして行う
+ */
+function onOpenRelational() {
+  editorStore.requestPeek(props.annotation.id);
 }
 
 /**

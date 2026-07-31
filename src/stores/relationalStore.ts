@@ -4,7 +4,7 @@ import { useBackendApi } from 'src/apis/backendApi';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { Relational } from 'src/models/relational/common';
-import type { RelationalCheckedRule } from 'src/models/relational/fileSchema';
+import type { RelationalCheckedRule, RelationalRule } from 'src/models/relational/fileSchema';
 import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
 import { runConcurrently } from 'src/utils/promise/concurrent';
 import { fileKey } from 'src/utils/document/fileKey';
@@ -155,18 +155,18 @@ export const useRelationalStore = defineStore('relational', {
     },
 
     /**
-     * 関係性のルール種別を変更する（既存の1本を削除してから新しいルールで登録し直す）
+     * 関係性のルールを変更する（既存の1本を削除してから新しいルールで登録し直す）
      *
      * 削除と登録は別々のAPI呼び出しのため、途中で失敗すると中途半端な状態
      * （リンクが消えたままになる等）が残りうる。新ルールでの再登録に失敗した場合は
      * 元のルールで登録し直すロールバックを試みることで、データを失わないようにする。
      * 戻り値は最終的にユーザーの意図した変更（新ルールでの登録）が成功したかどうか
      */
-    async changeRelationalRuleType(
+    async updateRelationalRule(
       file: ContainerElementFile,
       edge: RelationalEdge,
       selfId: AnnotationID,
-      newType: RelationalRuleType,
+      newRule: RelationalRule,
     ): Promise<boolean> {
       const api = useBackendApi();
 
@@ -179,7 +179,7 @@ export const useRelationalStore = defineStore('relational', {
       const registRes = await api.registRelationals({
         srcID: edge.relational.srcID,
         targetID: edge.relational.targetID,
-        rule: buildRelationalRule(newType),
+        rule: newRule,
       });
 
       if (!registRes.ok) {
@@ -196,6 +196,18 @@ export const useRelationalStore = defineStore('relational', {
 
       await this.refreshEdgeBothEndpoints(file, edge, selfId);
       return true;
+    },
+
+    /**
+     * 関係性のルール種別（equal/link）を変更する（`updateRelationalRule`の薄いラッパー）
+     */
+    async changeRelationalRuleType(
+      file: ContainerElementFile,
+      edge: RelationalEdge,
+      selfId: AnnotationID,
+      newType: RelationalRuleType,
+    ): Promise<boolean> {
+      return this.updateRelationalRule(file, edge, selfId, buildRelationalRule(newType));
     },
 
     /**

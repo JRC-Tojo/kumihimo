@@ -578,6 +578,14 @@ class BackendApi {
     return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
   }
 
+  /**
+   * アノテーションIDから、そのアノテーションが存在するページ番号を解決する
+   */
+  async getAnnotationPageNumber(annotID: AnnotationID): Promise<ApiResponse<number>> {
+    const res = await relationalService.getAnnotationPageNumber(annotID);
+    return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
+  }
+
   // ============ 設定操作 ============
 
   /**

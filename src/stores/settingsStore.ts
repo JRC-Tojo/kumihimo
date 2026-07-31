@@ -5,6 +5,8 @@ import type { AnnotationTool } from 'src/models/docPage';
 import { ColorCode } from 'src/models/document/pdf';
 import { DEFAULT_RELATIONAL_VERIFICATION_STYLE } from 'src/models/relational/style';
 import type { RelationalVerificationStyle } from 'src/models/relational/style';
+import { DEFAULT_RELAXATION_OPTIONS } from 'src/models/relational/relaxation';
+import type { RelaxationOptions } from 'src/models/relational/relaxation';
 import { Dark } from 'quasar';
 import type { LocaleKey } from 'src/i18n';
 import { globalI18n } from 'src/boot/i18n';
@@ -26,6 +28,10 @@ export const useSettingsStore = defineStore('settings', {
       return (
         state.appSettings?.relationalVerificationStyle ?? DEFAULT_RELATIONAL_VERIFICATION_STYLE
       );
+    },
+
+    relationalRelaxation(state): RelaxationOptions {
+      return state.appSettings?.relationalRelaxation ?? DEFAULT_RELAXATION_OPTIONS;
     },
   },
 

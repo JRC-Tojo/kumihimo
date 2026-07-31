@@ -281,6 +281,17 @@
               "
             />
           </SettingsItemRow>
+
+          <SettingsItemRow
+            v-show="isVisible('relationalRelaxation')"
+            :title="$t('settings.relationalRelaxation.title')"
+            :description="$t('settings.relationalRelaxation.description')"
+          >
+            <RelaxationRuleEditor
+              v-model="settings.relationalRelaxation"
+              @update:model-value="(val) => updateSettings('relationalRelaxation')(val)"
+            />
+          </SettingsItemRow>
         </section>
       </template>
     </div>
@@ -298,6 +309,7 @@ import { useSettingsStore } from 'src/stores/settingsStore';
 import { useSettingsScrollTarget } from 'src/composables/useSettingsScrollTarget';
 import SettingsItemRow from 'src/components/Settings/SettingsItemRow.vue';
 import RelationalStatusStyleEditor from 'src/components/Settings/RelationalStatusStyleEditor.vue';
+import RelaxationRuleEditor from 'src/components/Settings/RelaxationRuleEditor.vue';
 import { importPresetsDialog } from 'src/components/Dialog/confirmDialog';
 import {
   parseImportedPresets,
@@ -451,6 +463,12 @@ const itemMetas = computed<SettingsItemMeta[]>(() => [
     sectionId: 'relational',
     title: $t('settings.relationalVerification.ng'),
     description: $t('settings.relationalVerification.ngDesc'),
+  },
+  {
+    id: 'relationalRelaxation',
+    sectionId: 'relational',
+    title: $t('settings.relationalRelaxation.title'),
+    description: $t('settings.relationalRelaxation.description'),
   },
   {
     id: 'sampleData',

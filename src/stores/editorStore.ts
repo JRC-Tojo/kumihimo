@@ -154,6 +154,17 @@ export const useEditorStore = defineStore('editor', {
     // 実際の処理は選択状態を持つDocumentTabView側でwatchして実行する
     deleteRequested: false,
 
+    // 関係性ダイアログを開く意図フラグ（deleteRequestedと同じパターン）。アノテーション
+    // 右クリックメニューからの要求をここに一時的にセットし、実際にダイアログを開く処理は
+    // 選択状態を持つDocumentTabView側でwatchして実行する
+    peekRequestedAnnotId: undefined as AnnotationID | undefined,
+
+    // 「対になるアノテーションの文書を開き、そのページへ遷移してほしい」という意図
+    // （layerOrderAction等と同じパターン）。DocumentTabView.vueは開く対象がこのファイルと
+    // 一致する場合にこれを消費し、該当ページへ移動する
+    pendingAnnotationFocus: undefined as
+      { file: ContainerElementFile; annotId: AnnotationID; pageNumber: number } | undefined,
+
     // アクティブなペインの表示モード（単一/連続）。表示モード自体はペインごとのローカルstateのため、
     // layerOrderAction/activeSelectionと同じ「意図・状態をeditorStoreに橋渡しする」パターンで扱う
     activeViewMode: undefined as ViewMode | undefined,
@@ -544,6 +555,39 @@ export const useEditorStore = defineStore('editor', {
      */
     clearDeleteRequest(): void {
       this.deleteRequested = false;
+    },
+
+    /**
+     * 関係性ダイアログを開く意図をセットする（アノテーション右クリックメニューの
+     * 「関係性ダイアログを開く」から使う）
+     */
+    requestPeek(annotId: AnnotationID): void {
+      this.peekRequestedAnnotId = annotId;
+    },
+
+    /**
+     * 関係性ダイアログを開く意図フラグを解除する
+     */
+    clearPeekRequest(): void {
+      this.peekRequestedAnnotId = undefined;
+    },
+
+    /**
+     * 「対になるアノテーションの文書を開き、そのページへ遷移してほしい」という意図をセットする
+     */
+    requestAnnotationFocus(
+      file: ContainerElementFile,
+      annotId: AnnotationID,
+      pageNumber: number,
+    ): void {
+      this.pendingAnnotationFocus = { file, annotId, pageNumber };
+    },
+
+    /**
+     * ページ遷移の意図フラグを解除する
+     */
+    clearAnnotationFocusRequest(): void {
+      this.pendingAnnotationFocus = undefined;
     },
 
     /**
