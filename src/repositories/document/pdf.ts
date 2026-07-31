@@ -20,6 +20,7 @@ import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 import type { FileIdentity } from 'src/utils/document/fileKey';
 import { acquirePdfDocument } from 'src/repositories/document/pdfDocumentCache';
+import { PDFJS_GET_DOCUMENT_ASSET_OPTIONS } from 'src/utils/document/pdfjsAssets';
 
 /**
  * PDF をロードして PDFDocumentProxy を返す（Result でラップ）
@@ -34,7 +35,10 @@ export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PD
   if (!data.ok) return data;
 
   try {
-    const pdf = await getDocument({ data: data.value }).promise;
+    const pdf = await getDocument({
+      data: data.value,
+      ...PDFJS_GET_DOCUMENT_ASSET_OPTIONS,
+    }).promise;
     return Success(pdf);
   } catch (e) {
     return Failure(toError(e));

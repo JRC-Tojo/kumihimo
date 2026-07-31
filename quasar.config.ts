@@ -3,6 +3,7 @@
 
 import { defineConfig } from '#q-app/wrappers';
 import { fileURLToPath } from 'node:url';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default defineConfig((ctx) => {
   const ghPagesBase = '/kumihimo/';
@@ -92,6 +93,16 @@ export default defineConfig((ctx) => {
           },
           { server: false },
         ],
+        // pdf.jsが実行時に別途フェッチするcMap/標準フォント/WASM（JBIG2・OpenJPEG等）アセットは、
+        // Viteの静的解析で解決できる`new URL(...)`形式では参照できないため、`src/repositories/document/pdf.ts`等の
+        // 呼び出し側で参照する`pdfjs/{cmaps,standard_fonts,wasm}/`へビルド出力・開発サーバーの両方でコピーする
+        viteStaticCopy({
+          targets: [
+            { src: 'node_modules/pdfjs-dist/cmaps/*', dest: 'pdfjs/cmaps' },
+            { src: 'node_modules/pdfjs-dist/standard_fonts/*', dest: 'pdfjs/standard_fonts' },
+            { src: 'node_modules/pdfjs-dist/wasm/*', dest: 'pdfjs/wasm' },
+          ],
+        }),
       ],
     },
 

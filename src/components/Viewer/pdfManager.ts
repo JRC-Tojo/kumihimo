@@ -54,6 +54,22 @@ export async function acquirePdf(
 // 「自分がそのcanvasに対する最新の呼び出しか」を確認し、古い世代の結果は反映しないようにする
 const canvasRenderGeneration = new WeakMap<HTMLCanvasElement, number>();
 
+// 同一canvas要素に対する直近のRenderTask（pdf.jsの`page.render()`が返す進行中のレンダリングタスク）。
+// 世代チェックだけでは、古い呼び出しの結果をcanvasへ反映しないようにはできても、pdf.js内部の
+// RenderTask自体はキャンセルされずに最後まで実行され続けてしまい、CPU・メモリを無駄に消費する
+// （頻繁なズーム操作・高速なページ切り替え時に顕著。巨大ページのレンダリング失敗の一因にもなり得る）。
+// 新しい呼び出しが来た時点で、同じcanvasに対する前のRenderTaskを`.cancel()`することでこれを防ぐ
+const canvasRenderTask = new WeakMap<HTMLCanvasElement, pdfjsLib.RenderTask>();
+
+/**
+ * `renderPage()`が投げるエラーが、レンダリングタスクの意図的なキャンセル
+ * （`canvasRenderTask`による前タスクの`.cancel()`、またはページ・ズーム切り替え時の重複呼び出し）に
+ * よるものかどうかを判定する。呼び出し側はこの場合、実際の失敗ではないためユーザーへの通知を抑制できる
+ */
+export function isRenderCancelledError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'RenderingCancelledException';
+}
+
 /**
  * ページをCanvasにレンダリングする。戻り値はCSS px（devicePixelRatio適用前）でのページ寸法で、
  * レイアウト計算（連続表示モードのページサイズ確保等）に利用する
@@ -67,6 +83,9 @@ export async function renderPage(
 ): Promise<PageSize> {
   const generation = (canvasRenderGeneration.get(canvas) ?? 0) + 1;
   canvasRenderGeneration.set(canvas, generation);
+
+  // 同じcanvasに対して前の呼び出しのRenderTaskがまだ進行中なら、ここでキャンセルする
+  canvasRenderTask.get(canvas)?.cancel();
 
   try {
     const page = await pdfDocument.getPage(pageNumber);
@@ -99,7 +118,9 @@ export async function renderPage(
       viewport: viewport,
       canvas: offscreen,
     };
-    await page.render(renderContext).promise;
+    const renderTask = page.render(renderContext);
+    canvasRenderTask.set(canvas, renderTask);
+    await renderTask.promise;
 
     // ここまで来て初めて表示用canvasを更新する（リサイズ→転写が同一タスク内で完結するため、
     // ブラウザが空白状態を描画する隙が生まれない）。ただし、待機中に同じcanvasへ向けた
@@ -118,6 +139,9 @@ export async function renderPage(
 
     return { width: viewport.width, height: viewport.height };
   } catch (error) {
+    // キャンセルは意図した動作のため、呼び出し側が`isRenderCancelledError`で判別できるよう
+    // 汎用Errorへ包み直さずそのまま伝搬する
+    if (isRenderCancelledError(error)) throw error;
     throw new Error(
       `ページレンダリングエラー: ${error instanceof Error ? error.message : 'Unknown'}`,
     );

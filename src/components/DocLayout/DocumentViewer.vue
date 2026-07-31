@@ -135,9 +135,9 @@ defineExpose({ getAnchorRect });
 // スクロール位置から正確に「現在ページ」を求め、そこからの相対位置で描画要否を判定する方式に改めた）
 
 /**
- * 現在ページの前後何ページ分を常に実描画（非仮想化）しておくか。
- * ビューポートの高さが低倍率ズーム等で複数ページ分に及ぶ場合は、この値を大きくすることで
- * 画面内の全ページを確実に実描画できる
+ * 現在ページの前後何ページ分を、IntersectionObserverの交差判定を待たずに常に実描画しておくか。
+ * マウント直後（初回コールバック前で`pageVisibleRatios`が空）の保険的な最小保証であり、
+ * 画面内に実際に交差しているページ数を制限するものではない（そちらは`pageVisibleRatios`で判定する）
  */
 const ADJACENT_RENDER_MARGIN = 1;
 
@@ -166,7 +166,13 @@ function setWrapperRef(idx: number, el: HTMLElement | null) {
 
 function shouldRenderPage(idx: number): boolean {
   if (prop.viewMode !== 'continuousSingle') return true;
-  return Math.abs(idx - (currentPage.value - 1)) <= ADJACENT_RENDER_MARGIN;
+  // マウント直後（IntersectionObserverの初回コールバック前）はpageVisibleRatiosが空のため、
+  // 現在ページ近傍は常に描画対象にしておく（今までと同じ挙動を保証するフォールバック）
+  if (Math.abs(idx - (currentPage.value - 1)) <= ADJACENT_RENDER_MARGIN) return true;
+  // 実際にビューポートへ交差しているページは、拡大率が低くビューポートに何ページ入るかに
+  // かかわらずすべて描画対象にする（固定マージンでは低倍率で多数ページが同時に見える場合に
+  // 一部が描画されなかった）
+  return (pageVisibleRatios.get(idx) ?? 0) > 0;
 }
 
 /** プレースホルダー・実描画のどちらでも、現在のズーム倍率に応じたレイアウトサイズを確保する */
