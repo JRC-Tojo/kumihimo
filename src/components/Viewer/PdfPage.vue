@@ -83,9 +83,19 @@ const currentPageAnnotations = computed(() => {
   return props.annotations.filter((a) => a.pageNumber === page.value);
 });
 
+// 同じPdfPageインスタンスに対してrender()が重ねて呼ばれた場合（ズームのデバウンス再描画と
+// ページ切り替えの再描画が競合するケース等）、先に呼んだ（古い）render()の完了が後から呼んだ
+// （新しい）render()より遅れることがある。世代番号を使い、自分より新しいrender()呼び出しが
+// 既に発行されていれば、古い結果でreactive state（layoutSize等）を上書きしないようにする
+let renderGeneration = 0;
+
 async function render(targetRenderScale: number) {
   if (canvas.value === null) return;
-  layoutSize.value = await props.onRender(page.value, canvas.value, targetRenderScale);
+  const generation = ++renderGeneration;
+  const result = await props.onRender(page.value, canvas.value, targetRenderScale);
+  if (generation !== renderGeneration) return;
+
+  layoutSize.value = result;
   canvasSize.value = {
     width: canvas.value.width,
     height: canvas.value.height,
