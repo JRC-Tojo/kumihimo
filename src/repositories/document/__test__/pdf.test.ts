@@ -572,7 +572,9 @@ describe('embedAnnotationsAsCommentsIntoPdf（pdf-lib、ネイティブ注釈と
     const bigStream = bigAp.lookup(PDFName.of('N'), PDFStream);
 
     // headSizeが大きいほど外観ストリームのBBoxも大きくなる（矢じりの見た目が正確に反映されている）
-    const smallBBox = smallStream.dict.lookup(PDFName.of('BBox'), PDFArray).asArray() as PDFNumber[];
+    const smallBBox = smallStream.dict
+      .lookup(PDFName.of('BBox'), PDFArray)
+      .asArray() as PDFNumber[];
     const bigBBox = bigStream.dict.lookup(PDFName.of('BBox'), PDFArray).asArray() as PDFNumber[];
     const smallHeight = smallBBox[3]!.asNumber() - smallBBox[1]!.asNumber();
     const bigHeight = bigBBox[3]!.asNumber() - bigBBox[1]!.asNumber();

@@ -53,7 +53,10 @@ function applyStrokeStyle(ctx: CanvasRenderingContext2D, annotation: AnnotationS
   ctx.setLineDash(strokeTypeToDash(annotation.strokeType, strokeWidth) ?? []);
 }
 
-function drawBox(ctx: CanvasRenderingContext2D, a: Extract<AnnotationStyle, { type: 'box' }>): void {
+function drawBox(
+  ctx: CanvasRenderingContext2D,
+  a: Extract<AnnotationStyle, { type: 'box' }>,
+): void {
   ctx.beginPath();
   ctx.rect(a.x, a.y, a.width, a.height);
   ctx.fillStyle = resolveFillCss(a);
@@ -62,7 +65,10 @@ function drawBox(ctx: CanvasRenderingContext2D, a: Extract<AnnotationStyle, { ty
   ctx.stroke();
 }
 
-function drawCircle(ctx: CanvasRenderingContext2D, a: Extract<AnnotationStyle, { type: 'circle' }>): void {
+function drawCircle(
+  ctx: CanvasRenderingContext2D,
+  a: Extract<AnnotationStyle, { type: 'circle' }>,
+): void {
   const rx = a.radiusX ?? a.radius;
   const ry = a.radiusY ?? a.radius;
   ctx.beginPath();
@@ -73,7 +79,10 @@ function drawCircle(ctx: CanvasRenderingContext2D, a: Extract<AnnotationStyle, {
   ctx.stroke();
 }
 
-function drawLine(ctx: CanvasRenderingContext2D, a: Extract<AnnotationStyle, { type: 'line' }>): void {
+function drawLine(
+  ctx: CanvasRenderingContext2D,
+  a: Extract<AnnotationStyle, { type: 'line' }>,
+): void {
   applyStrokeStyle(ctx, a);
   ctx.beginPath();
   ctx.moveTo(a.x + a.points[0]!, a.y + a.points[1]!);
@@ -81,7 +90,10 @@ function drawLine(ctx: CanvasRenderingContext2D, a: Extract<AnnotationStyle, { t
   ctx.stroke();
 }
 
-function drawPolygon(ctx: CanvasRenderingContext2D, a: Extract<AnnotationStyle, { type: 'polygon' }>): void {
+function drawPolygon(
+  ctx: CanvasRenderingContext2D,
+  a: Extract<AnnotationStyle, { type: 'polygon' }>,
+): void {
   ctx.beginPath();
   ctx.moveTo(a.x + a.points[0]!, a.y + a.points[1]!);
   for (let i = 2; i + 1 < a.points.length; i += 2) {
@@ -188,7 +200,10 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
 }
 
 /** TextBoxAnnotation.vueのrectConfig/textConfigと同じレイアウト（padding: 4, wrap: 'word', verticalAlign: 'top'） */
-function drawText(ctx: CanvasRenderingContext2D, a: Extract<AnnotationStyle, { type: 'text' }>): void {
+function drawText(
+  ctx: CanvasRenderingContext2D,
+  a: Extract<AnnotationStyle, { type: 'text' }>,
+): void {
   ctx.beginPath();
   ctx.rect(a.x, a.y, a.width, a.height);
   ctx.fillStyle = resolveFillCss(a);
