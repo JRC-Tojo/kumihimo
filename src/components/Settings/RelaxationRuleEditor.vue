@@ -37,28 +37,39 @@
         class="equivalence-group q-mb-sm"
       >
         <div class="row items-center q-gutter-xs">
-          <div v-for="(ch, cIdx) in group" :key="cIdx" class="row items-center no-wrap">
-            <q-input
-              dense
-              outlined
+          <q-badge v-for="(ch, cIdx) in group" :key="cIdx" outline color="primary">
+            <span v-if="ch !== ''" class="q-px-xs">{{ ch }}</span>
+            <input
+              v-else
               class="char-input"
-              :model-value="ch"
+              :value="ch"
               :placeholder="$t('settings.relationalRelaxation.charPlaceholder')"
-              @update:model-value="(v) => setChar(gIdx, cIdx, String(v ?? ''))"
+              @blur="
+                (e) =>
+                  setChar(gIdx, cIdx, String((e.target as HTMLInputElement | null)?.value ?? ''))
+              "
             />
-            <q-btn flat round dense icon="close" size="xs" @click="removeChar(gIdx, cIdx)" />
-          </div>
+            <q-btn
+              flat
+              round
+              dense
+              color="negative"
+              icon="close"
+              size="xs"
+              @click="removeChar(gIdx, cIdx)"
+            />
+          </q-badge>
           <q-btn flat round dense icon="add" size="sm" @click="addChar(gIdx)" />
+          <q-btn
+            flat
+            dense
+            size="sm"
+            icon="delete"
+            color="negative"
+            :label="$t('settings.relationalRelaxation.removeGroup')"
+            @click="removeGroup(gIdx)"
+          />
         </div>
-        <q-btn
-          flat
-          dense
-          size="sm"
-          icon="delete"
-          color="negative"
-          :label="$t('settings.relationalRelaxation.removeGroup')"
-          @click="removeGroup(gIdx)"
-        />
       </div>
 
       <q-btn
@@ -135,6 +146,7 @@ function removeChar(groupIndex: number, charIndex: number) {
 <style scoped lang="scss">
 .relaxation-rule-editor {
   min-width: 260px;
+  max-width: 400px;
 }
 
 .char-input {
