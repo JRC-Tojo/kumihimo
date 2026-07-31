@@ -331,8 +331,8 @@ export default {
         c_spread: '見開き連続表示',
       },
       zoom: {
-        fitPage: 'ページ全体をフィット',
-        fitWidth: '幅をフィット',
+        fitPage: 'ページに合わせる',
+        fitWidth: '幅に合わせる',
       },
     },
   },

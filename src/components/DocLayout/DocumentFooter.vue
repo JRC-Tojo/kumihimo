@@ -72,25 +72,11 @@
         @click="onFitWidth()"
       />
       <q-btn flat dense icon="zoom_out" @click="onZoomOut()" :disable="zoomLevel === MIN_ZOOM" />
-      <q-slider
-        v-model="zoomLevel"
-        @update:model-value="(newVal) => (zoomInputValue = String(newVal))"
-        :min="MIN_ZOOM"
-        :max="MAX_ZOOM"
-        :step="5"
-        class="zoom-slider"
-      />
+      <q-slider v-model="zoomLevel" :min="MIN_ZOOM" :max="MAX_ZOOM" :step="5" class="zoom-slider" />
       <q-btn flat dense icon="zoom_in" @click="onZoomIn()" :disable="zoomLevel === MAX_ZOOM" />
-      <!-- <input
-        v-model.number="zoomInputValue"
-        type="number"
-        class="zoom-input"
-        @blur="onZoomInputBlur"
-        @keyup.enter="onZoomInputEnter"
-      />
-      <span class="zoom-label">%</span> -->
       <q-input
         v-model="zoomInputValue"
+        type="number"
         dense
         borderless
         suffix="%"
@@ -150,8 +136,18 @@ function onZoomInputBlur() {
   zoomInputValue.value = String(zoomLevel.value);
 }
 
+/**
+ * ズーム数値入力の確定処理。`abc`のような非数値入力は`Number()`で`NaN`になり、
+ * そのまま`clampZoom`（`Math.max`/`Math.min`）へ渡すと結果もNaNになって
+ * ズームレベルが壊れてしまうため、有限な数値かどうかを確認してから反映する。
+ * 不正な入力は反映せず、表示だけ現在のズームレベルへ戻す
+ */
 function onZoomInputEnter() {
   const parsed = Number(zoomInputValue.value);
+  if (!Number.isFinite(parsed)) {
+    zoomInputValue.value = String(zoomLevel.value);
+    return;
+  }
   props.onSetZoom(parsed);
 }
 

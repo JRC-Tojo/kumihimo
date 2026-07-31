@@ -3,6 +3,7 @@
     <div
       v-if="onRender !== undefined"
       class="pdf-viewer-container"
+      :style="containerMarginStyle"
       @wheel="handleZoomWheel"
       ref="viewerContainer"
     >
@@ -63,6 +64,7 @@ import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { useAnnotationHistory } from './composables/useAnnotationHistory';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PageSize } from 'src/components/Viewer/pdfManager';
+import { PDF_VIEWER_CONTAINER_MARGIN_PT } from 'src/components/Viewer/zoomSteps';
 
 type RenderFunc = (
   pageNumber: number,
@@ -90,6 +92,12 @@ const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { requi
 
 // ズーム制御
 const scale = computed(() => zoomLevel.value / 100);
+
+// .pdf-viewer-containerの余白をzoomSteps.tsの共有定数から与える（フィット計算側と値がズレないように、
+// SCSS側には固定値を直書きせずCSSカスタムプロパティ経由で反映する）
+const containerMarginStyle = computed(() => ({
+  '--pdf-viewer-container-margin': `${PDF_VIEWER_CONTAINER_MARGIN_PT}pt`,
+}));
 
 // 連続表示モード用
 const pageRefs = ref<(HTMLElement | null)[]>([]);
@@ -302,7 +310,7 @@ onBeforeUnmount(() => {
 }
 
 .pdf-viewer-container {
-  margin: 10pt;
+  margin: var(--pdf-viewer-container-margin);
   background: $grey-1;
 
   &::-webkit-scrollbar {

@@ -11,6 +11,14 @@ export const MAX_ZOOM = 800;
 
 export const ZOOM_STEPS = [20, 25, 33, 50, 67, 75, 100, 133, 167, 200, 300, 400, 600, 800];
 
+/**
+ * `DocumentViewer.vue`の`.pdf-viewer-container`に設定する余白（pt単位、上下左右）。
+ * フィット計算（`useZoomControl`）が利用可能領域を求める際にも同じ値を使うことで、
+ * CSSとJSの値がズレて片方だけ更新される事態を防ぐ。`.pdf-viewer-container`側は
+ * CSSカスタムプロパティ経由でこの値を参照する
+ */
+export const PDF_VIEWER_CONTAINER_MARGIN_PT = 10;
+
 /** ズーム倍率をMIN_ZOOM〜MAX_ZOOMの範囲に丸める */
 export function clampZoom(level: number): number {
   return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, level));

@@ -106,7 +106,7 @@ import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
-import { clampZoom, nextZoomStep, prevZoomStep } from 'src/components/Viewer/zoomSteps';
+import { useZoomControl } from './composables/useZoomControl';
 
 interface Prop {
   file: ContainerElementFile;
@@ -212,7 +212,12 @@ if (observed.ok) {
 }
 
 // for footer
-const zoomLevel = ref(100);
+const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZoomControl({
+  viewer,
+  documentViewer,
+  currentPage,
+  pageSizes,
+});
 const viewMode = ref<ViewMode>('single');
 
 // for relational peek dialog
@@ -302,104 +307,6 @@ async function loadDocument() {
   );
 
   loading.value = false;
-}
-
-// ================================
-
-/**
- * ビューポート上の1点（未指定時は表示領域中央）を基準にズームレベルを変更する。
- * 基準点直下にある文書上の位置を、変更後もスクロール位置を補正して同じ画面位置に保つ
- * （連続表示モードで、左上基準のままズームすると表示中のページがズレる問題への対応）
- *
- * アンカーの基準には、スクロールコンテナ全体ではなく現在ページ自身のDOM矩形
- * （`DocumentViewer.vue`の`getAnchorRect`）を用いる。`.pages-container`/`.continuous-pages`は
- * `margin: auto`で水平方向に中央寄せされており、この余白はズーム倍率ごとに変わるうえ、
- * 連続表示モードではページ間に非スケール（固定px）のマージンも挟まるため、スクロールコンテナを
- * 単一のスケール係数で線形にモデル化できない。個々のページ矩形を前後で直接測定することで、
- * これらの非線形要素を計算に持ち込まずに済む
- */
-async function setZoomLevelAtPoint(level: number, clientX?: number, clientY?: number) {
-  const clamped = clampZoom(level);
-  const el = viewer.value;
-  if (clamped === zoomLevel.value || !el) {
-    zoomLevel.value = clamped;
-    return;
-  }
-
-  const rect = el.getBoundingClientRect();
-  const x = clientX ?? rect.left + rect.width / 2;
-  const y = clientY ?? rect.top + rect.height / 2;
-
-  const anchorBefore = documentViewer.value?.getAnchorRect();
-  if (!anchorBefore) {
-    zoomLevel.value = clamped;
-    return;
-  }
-
-  const oldScale = zoomLevel.value / 100;
-  const docX = (x - anchorBefore.left) / oldScale;
-  const docY = (y - anchorBefore.top) / oldScale;
-
-  zoomLevel.value = clamped;
-  // レイアウトサイズ（pageSizeStyle等）が新しいscaleを反映するのを待つ
-  await nextTick();
-
-  const anchorAfter = documentViewer.value?.getAnchorRect();
-  if (!anchorAfter) return;
-
-  const newScale = clamped / 100;
-  el.scrollLeft += anchorAfter.left + docX * newScale - x;
-  el.scrollTop += anchorAfter.top + docY * newScale - y;
-}
-
-/**
- * ズームレベルを設定
- */
-const setZoomLevel = (level: number): void => {
-  void setZoomLevelAtPoint(level);
-};
-
-/**
- * ズームイン（非線形なズームステップ上を1段階進める）
- */
-const zoomIn = (clientX?: number, clientY?: number): void => {
-  void setZoomLevelAtPoint(nextZoomStep(zoomLevel.value), clientX, clientY);
-};
-
-/**
- * ズームアウト（非線形なズームステップ上を1段階戻す）
- */
-const zoomOut = (clientX?: number, clientY?: number): void => {
-  void setZoomLevelAtPoint(prevZoomStep(zoomLevel.value), clientX, clientY);
-};
-
-// DocumentViewer.vue内の.pdf-viewer-containerに設定された`margin: 10pt`（左右・上下）の分、
-// ビューア表示領域よりページを収められる実際の余白は狭くなるため、フィット計算はこれを差し引く
-const PDF_VIEWER_CONTAINER_MARGIN_PX = 2 * 10 * (96 / 72);
-
-/**
- * 現在ページの幅がビューア表示領域の幅に収まるようズームレベルを設定する
- */
-function fitToWidth(): void {
-  const el = viewer.value;
-  const size = pageSizes.value[currentPage.value - 1];
-  if (!el || !size || size.width === 0) return;
-  const availableWidth = el.clientWidth - PDF_VIEWER_CONTAINER_MARGIN_PX;
-  setZoomLevel((availableWidth / size.width) * 100);
-}
-
-/**
- * 現在ページ全体がビューア表示領域に収まるようズームレベルを設定する
- */
-function fitToPage(): void {
-  const el = viewer.value;
-  const size = pageSizes.value[currentPage.value - 1];
-  if (!el || !size || size.width === 0 || size.height === 0) return;
-  const availableWidth = el.clientWidth - PDF_VIEWER_CONTAINER_MARGIN_PX;
-  const availableHeight = el.clientHeight - PDF_VIEWER_CONTAINER_MARGIN_PX;
-  const widthRatio = availableWidth / size.width;
-  const heightRatio = availableHeight / size.height;
-  setZoomLevel(Math.min(widthRatio, heightRatio) * 100);
 }
 
 // ================================
