@@ -5,13 +5,27 @@ import type {
   RelationalResponce,
   RelationalWithAddress,
 } from 'src/models/relational/common';
-import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
+import type {
+  AnnotationBaseAddress,
+  AnnotationInfo,
+  RelationalRule,
+} from 'src/models/relational/fileSchema';
+import {
+  DEFAULT_RELAXATION_OPTIONS,
+  type RelaxationOptions,
+} from 'src/models/relational/relaxation';
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as docAnnotService from 'src/services/document/annotation';
 import * as relationalRepository from 'src/repositories/db/relational';
 import type { AnnotationID } from 'src/models/document/pdf';
 import { resolveCachedContainerID } from 'src/services/document/containerIdResolver';
+import { relaxedEqual } from 'src/utils/text/relaxedCompare';
+import {
+  evaluateFormula,
+  parseNumericValue,
+  roundFormulaResult,
+} from 'src/utils/calculation/formula';
 
 /**
  * 読み込み中の関係性情報をすべて管理するDBを定義
@@ -114,7 +128,15 @@ export async function checkRelational(
     return Failure(new Error('An annotation content is not loaded yet'));
   }
 
-  const checkedRule = validRelational(r.relational, srcContentTxt, targetContentTxt);
+  // 緩和ルールのアプリ設定側フォールバックは、src側アノテーションが属するコンテナの
+  // コンテナ設定（`.kumihimo/settings.json`）を基準にする（同一コンテナを開く誰にとっても
+  // 同じ検証結果になるようにするため、ブラウザローカルなアプリ設定は使わない）
+  const checkedRule = await validRelational(
+    r.relational,
+    srcContentTxt,
+    targetContentTxt,
+    r.srcAddress.cID,
+  );
 
   return Success(checkedRule);
 }
@@ -238,6 +260,21 @@ export async function resolveAnnotationFile(
 }
 
 /**
+ * アノテーションIDから、そのアノテーションが存在するページ番号を解決する
+ *
+ * 「対になるアノテーション」の文書を開く際、先頭ページではなく実際のページへ遷移させるために使う
+ */
+export async function getAnnotationPageNumber(annotID: AnnotationID): Promise<Result<number>> {
+  const address = await docAnnotService.getAnnotationAddress(annotID);
+  if (!address.ok) return address;
+
+  const info = await ensureAnnotationInfo(annotID, address.value);
+  if (!info.ok) return info;
+
+  return Success(info.value.style.pageNumber);
+}
+
+/**
  * DBに格納されている特定ファイルの関係性を保存する（＝仮フラグを撤去する）
  *
  * 保存した関係性一覧を返す
@@ -335,20 +372,92 @@ async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relationa
 }
 
 /**
- * 関係性を検証する
+ * コンテナ単位の緩和ルールのキャッシュ
+ *
+ * 1ファイル分の関係性検証（`relationalStore.refreshFile`）は多数の`equal`ルールを
+ * まとめて検証するため、`rule.relaxation`が指定されていない全ての関係性が同じコンテナの
+ * 設定ファイルを毎回読みに行くと、無駄なファイル読み込みが繰り返されてしまう。
+ * 一度読み込んだ内容はコンテナIDごとにここへ保持し、設定が更新された際は
+ * `invalidateContainerRelaxationCache`で破棄する
  */
-function validRelational(
+const containerRelaxationCache = new Map<ContainerID, RelaxationOptions>();
+
+/**
+ * コンテナ単位の緩和ルールのキャッシュを破棄する
+ *
+ * コンテナ設定（`.kumihimo/settings.json`）を更新した直後に呼び出し、古い緩和ルールが
+ * それ以降の検証に使われ続けないようにする
+ */
+export function invalidateContainerRelaxationCache(cID: ContainerID): void {
+  containerRelaxationCache.delete(cID);
+}
+
+/**
+ * 等値検証で使う緩和ルールを決定する
+ *
+ * アノテーション別設定（`rule.relaxation`）がある場合はコンテナ設定を完全に無視して
+ * それだけを使う（合成ではなく完全上書き）。無い場合のみ、コンテナルートの設定ファイル
+ * （`.kumihimo/settings.json`）にフォールバックする。ブラウザ単位のアプリ設定
+ * （IndexedDB）は使わない——同一コンテナを開いた誰にとっても検証結果が同じになるようにするため。
+ * フォールバック先の設定はコンテナごとにキャッシュし、同一バッチ内での重複読み込みを避ける
+ */
+async function resolveRelaxationOptions(
+  rule: Extract<RelationalRule, { type: 'equal' }>,
+  cID: ContainerID,
+): Promise<RelaxationOptions> {
+  if (rule.relaxation !== undefined) return rule.relaxation;
+
+  const cached = containerRelaxationCache.get(cID);
+  if (cached !== undefined) return cached;
+
+  const settingsRes = await containerConfigService.getContainerSettingsFile(cID);
+  const relaxation = settingsRes.ok
+    ? settingsRes.value.relationalRelaxation
+    : DEFAULT_RELAXATION_OPTIONS;
+
+  if (settingsRes.ok) containerRelaxationCache.set(cID, relaxation);
+  return relaxation;
+}
+
+/**
+ * 比較前の値に計算式を適用する（単位変換等）
+ *
+ * 抽出値が数値として解釈できない場合や式が不正な場合は、計算を行わず生値のまま比較する
+ */
+function applyFormula(rawText: string, formula: string | undefined): string {
+  if (formula === undefined) return rawText;
+
+  const x = parseNumericValue(rawText.normalize('NFKC'));
+  if (x === undefined) return rawText;
+
+  const result = evaluateFormula(formula, x);
+  return result === undefined ? rawText : String(roundFormulaResult(result));
+}
+
+/**
+ * 関係性を検証する
+ *
+ * 表示用の`srcVal`/`targetVal`は緩和・計算を適用する前の生の抽出値のまま返す
+ * （画面には常に実際にOCR等で読み取った値を表示する）
+ */
+async function validRelational(
   relational: Relational,
   srcVal: string,
   targetVal: string,
-): RelationalResponce {
+  cID: ContainerID,
+): Promise<RelationalResponce> {
   let isOK = true;
   switch (relational.rule.type) {
     case 'link':
       break;
-    case 'equal':
-      isOK = srcVal === targetVal;
+    case 'equal': {
+      const rule = relational.rule;
+      const relaxation = await resolveRelaxationOptions(rule, cID);
+      const srcComparisonVal = applyFormula(srcVal, rule.srcFormula);
+      const targetComparisonVal = applyFormula(targetVal, rule.targetFormula);
+      isOK = relaxedEqual(srcComparisonVal, targetComparisonVal, relaxation);
       break;
+    }
   }
 
   return {

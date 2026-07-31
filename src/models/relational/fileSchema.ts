@@ -5,6 +5,7 @@
 import z from 'zod';
 import { AnnotationID, AnnotationStyle } from '../document/pdf';
 import { ContainerID } from '../container';
+import { RelaxationOptions } from './relaxation';
 
 /**
  * リンクのみの関係性
@@ -20,6 +21,14 @@ export const RelationalEqRule = z.object({
   type: z.literal('equal'),
   // 定数比較する際に用いるプロパティ（未指定の時にはtargetIDとの比較）
   constVal: z.string().optional(),
+  // アノテーション別の緩和ルール。未指定時はAppSettings.relationalRelaxationにフォールバックする
+  // （アプリ設定との合成ではなく完全上書き）
+  relaxation: RelaxationOptions.optional(),
+  // src側の値に適用する四則演算式（変数xにOCR抽出値を数値化したものを代入して評価する）。
+  // 数値化できない場合は計算を適用せず生値のまま比較する
+  srcFormula: z.string().optional(),
+  // target側についての同上
+  targetFormula: z.string().optional(),
 });
 export type RelationalEqRule = z.infer<typeof RelationalEqRule>;
 /**

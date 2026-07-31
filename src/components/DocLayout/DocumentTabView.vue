@@ -94,7 +94,7 @@ import { useEditorStore } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
 import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
@@ -172,7 +172,21 @@ type RenderFunc = (
   scale: number,
 ) => Promise<PageSize>;
 const onRender = ref<RenderFunc>();
-const currentPage = ref(1);
+
+// このタブ（このファイル）宛てのページ遷移要求（`editorStore.openTab(file, targetPage)`）を、
+// コンポーネント生成時点（初回描画より前）で同期的に取り出しておく。onMounted以降に
+// currentPageを書き換えると、PdfPage側が既に1ページ目で描画を始めた直後に2回目の描画が
+// 割り込むことになり、同一canvasへの並行描画により表示が崩れる（上下反転して見える等）
+// 不具合につながる。currentPageの初期値自体に反映しておけば、PdfPageは最初から目的の
+// ページで1回だけ描画される
+const initialTabFocus = (() => {
+  const pending = editorStore.pendingTabFocus;
+  if (pending === undefined || !isSameFile(pending, prop.file)) return undefined;
+  editorStore.clearPendingTabFocus();
+  return pending;
+})();
+
+const currentPage = ref(initialTabFocus?.page ?? 1);
 const pageCount = ref(0);
 const pageSizes = ref<PageSize[]>([]);
 // acquirePdfで取得したPDFの解放ハンドル。onBeforeUnmountで必ずreleaseする
@@ -407,8 +421,14 @@ async function finishRelational(targetId: AnnotationID) {
 
 /**
  * 2つのファイルがcontainerID込みで同一かどうか
+ *
+ * `a`はcontainerID・pathさえ持っていれば`ContainerElementFile`そのものでなくてもよい
+ * （`editorStore.pendingTabFocus`のような最小限のフィールドしか持たない値とも比較できるようにする）
  */
-function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
+function isSameFile(
+  a: { containerID: ContainerID; path: string },
+  b: ContainerElementFile,
+): boolean {
   return a.containerID === b.containerID && a.path === b.path;
 }
 
@@ -601,7 +621,36 @@ onMounted(async () => {
   await loadDocument();
   void relationalStore.refreshFile(prop.file);
   window.addEventListener('keydown', handleGlobalKeydown);
+
+  if (initialTabFocus !== undefined) {
+    // ページ番号自体は既にcurrentPageの初期値へ反映済み。ここではpageCount確定後の
+    // クランプ（同じ値であれば再代入しても再描画は発生しない）とアノテーション選択・
+    // スクロールのみを行う
+    goToPage(initialTabFocus.page);
+    if (initialTabFocus.annotId !== undefined) {
+      selectedAnnotationIds.value = [initialTabFocus.annotId];
+    }
+    await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+  }
 });
+
+/**
+ * `editorStore.openTab(file, targetPage)`で指定されたページ遷移情報がこのファイル宛てであれば
+ * 消費し、該当ページ・アノテーションへ遷移する
+ *
+ * このタブが既に開かれた状態（再マウントが起きないケース）専用の経路。PdfPageは既にマウント
+ * 済みで`currentPage`の監視も有効なため、そのまま`goToPage`するだけで安全に1回だけ再描画される
+ * （初回マウント時のページ遷移は`initialTabFocus`側で扱うため、ここでは処理しない）
+ */
+async function consumePendingTabFocus() {
+  const pending = editorStore.pendingTabFocus;
+  if (pending === undefined || !isSameFile(pending, prop.file)) return;
+
+  editorStore.clearPendingTabFocus();
+  goToPage(pending.page);
+  if (pending.annotId !== undefined) selectedAnnotationIds.value = [pending.annotId];
+  await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+}
 
 watch(annotations, (newAnnots, oldAnnots) => {
   void handleAnnotationsChanged(newAnnots, oldAnnots);
@@ -648,6 +697,29 @@ watch(
     void annotationActions.deleteSelected().finally(() => {
       editorStore.clearDeleteRequest();
     });
+  },
+);
+// アノテーション右クリックメニューの「関係性ダイアログを開く」からの意図をここで実行する。
+// メニュー自体は選択状態を持たないため、選択状態を持つこの場所でwatchして実処理を行う
+watch(
+  () => editorStore.peekRequestedAnnotId,
+  (annotId) => {
+    if (annotId === undefined) return;
+    if (editorStore.activeSide !== prop.layoutSide) return;
+    if (!annotations.value.some((a) => a.id === annotId)) return; // 他ペインの誤反応防止
+    peekAnnotId.value = annotId;
+    peekDialogOpen.value = true;
+    editorStore.clearPeekRequest();
+  },
+);
+// 関係性ダイアログの「文書を開く」等、既にこのファイルが開かれている状態で新たに
+// ページ遷移が要求された場合（タブの再マウントが起きないケース）をここで処理する。
+// 初回ロード中はonMounted側の処理に任せる
+watch(
+  () => editorStore.pendingTabFocus,
+  () => {
+    if (loading.value) return;
+    void consumePendingTabFocus();
   },
 );
 // アクティブなペインの表示モードを、メインツール（表示モードメニュー）用にeditorStoreへ橋渡しする

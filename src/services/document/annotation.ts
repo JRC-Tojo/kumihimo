@@ -168,11 +168,19 @@ export async function registerAnnotationStyle(
     }
   }
 
+  const geometryChanged = hasGeometryChanged(
+    previous.ok ? previous.value.style : undefined,
+    resolvedStyle,
+  );
+
   const annotationInfo: AnnotationInfo = {
     style: resolvedStyle,
     context: {
-      // 内容を再読み込みしない場合に備え、既存のOCR結果を引き継ぐ（undefinedで上書きしない）
-      text: previous.ok ? previous.value.context.text : undefined,
+      // 位置・サイズが変わった場合は内容を読み取り直すため、再読込が完了するまでは
+      // 「未読み込み」（undefined）として扱う。こうしないと、関係性検証が実際にはズレて
+      // いるかもしれない古いOCR結果のまま一時的にOK/NGを表示してしまう。
+      // 変わっていない場合のみ既存のOCR結果を引き継ぐ
+      text: geometryChanged ? undefined : previous.ok ? previous.value.context.text : undefined,
     },
   };
 
@@ -180,9 +188,13 @@ export async function registerAnnotationStyle(
   const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
   if (!saveRes.ok) return saveRes;
 
-  if (hasGeometryChanged(previous.ok ? previous.value.style : undefined, resolvedStyle)) {
-    // コンテンツの読み込みは投げっぱなし（失敗しても空文字列がコンテンツとして格納されるだけ）
-    void loadAnnotContent(file, annotationInfo);
+  if (geometryChanged) {
+    // コンテンツの読み込みは投げっぱなしにするが、失敗時はcontext.textがundefinedのまま
+    // DBに残り続けないよう、明示的に空文字列で確定させる
+    void loadAnnotContent(file, annotationInfo).then((res) => {
+      if (!res.ok)
+        void annotationRepository.updateAnnotationContentText(annotationInfo.style.id, '');
+    });
   }
 
   return Success(annotationInfo);

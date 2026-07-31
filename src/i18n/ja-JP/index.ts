@@ -145,12 +145,41 @@ export default {
       strokeWidth: '線の太さ',
       fillOpacity: '塗りの不透明度',
     },
+    relationalRelaxation: {
+      title: '関係性の緩和ルール',
+      description:
+        '関係性の「等しい」検証で、表記ゆれをどこまで許容するかの既定値です。アノテーション個別に上書きすることもできます。',
+      ignoreCase: '大文字・小文字を区別しない',
+      ignoreWhitespace: 'スペースの有無を区別しない',
+      ignoreWidth: '全角・半角を区別しない',
+      numericEquivalence: '数値として意味が同じであれば一致とみなす（例：「8」と「8.000」）',
+      equivalenceGroups: '同一視する文字グループ',
+      equivalenceGroupsHint:
+        '同じ意味で使われる記号・文字をまとめてグループにすると、検証時にその違いを無視できます。例えば掛け算を表す「×」「x」「X」「*」を1つのグループにしておくと、どの表記で入力されていても同じものとして扱われます。各グループの先頭の文字が代表（正規化後に統一される文字）になります。',
+      addGroup: 'グループを追加',
+      removeGroup: 'グループを削除',
+      addChar: '文字を追加',
+      removeChar: '削除',
+      charPlaceholder: '文字',
+    },
     sampleData: {
       title: 'サンプルデータ',
       create: 'サンプル文書を作成',
       createDesc: '動作確認用のサンプル文書をまとめて作成します。',
       clear: 'すべてのデータを削除',
       clearDesc: '保存されているすべてのデータを削除します（元に戻せません）。',
+    },
+  },
+
+  // コンテナ設定（.kumihimo/settings.json、コンテナ単位で共有される）
+  containerSettings: {
+    title: 'コンテナ設定',
+    searchPlaceholder: '設定を検索',
+    noResults: '設定が見つかりませんでした',
+    loadFailed: '設定の読み込みに失敗しました。',
+    saveFailed: '設定の保存に失敗しました。',
+    sections: {
+      relational: '関係性',
     },
   },
 
@@ -220,6 +249,7 @@ export default {
         copy: 'コピー',
         applyPreset: 'プリセットスタイルを適用',
         registerPreset: 'プリセットとして登録',
+        openRelational: '関係性ダイアログを開く',
         delete: '削除',
       },
       presetBar: {
@@ -310,6 +340,23 @@ export default {
       otherValue: '相手の値',
       verifying: '検証中...',
       emptyValue: '(空)',
+      editRule: '緩和ルールを編集',
+      ruleEdit: {
+        title: '緩和ルールの編集',
+        overrideGlobal: 'コンテナ設定を上書きする',
+        overrideGlobalHint:
+          'オンにすると、このアノテーションの組み合わせだけコンテナ全体の緩和ルールを無視して、以下の設定のみを使います。',
+        ownFormula: '自身の値に適用する計算式',
+        ownFormulaHint:
+          '変数xに自身の抽出値（数値）を代入して評価します（例: x * 1.09）。四則演算と括弧のみ使えます。',
+        otherFormula: '相手側の計算式（参考表示）',
+        formulaPreview: '計算結果プレビュー',
+        formulaInvalid:
+          '式が不正か、自身の値を数値として解釈できません（生値のまま比較されます）。',
+        save: '保存',
+        cancel: 'キャンセル',
+        saveFailed: '緩和ルールの保存に失敗しました。',
+      },
     },
     leftDrawer: {
       title: 'サムネイル / ブックマーク',
@@ -350,6 +397,7 @@ export default {
     deleteConfirmFolder: '「{name}」を配下のファイルも含めて削除しますか？',
     closeContainer: 'コンテナを閉じる',
     closeContainerConfirm: '「{name}」を閉じますか？（実データは削除されません）',
+    openContainerSettings: 'コンテナ設定を開く',
     permissionNeeded: 'このフォルダへのアクセス許可が必要です',
     reconnect: '再接続',
     changesDetected: '変更が検出されました。クリックして更新',

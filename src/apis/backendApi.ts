@@ -11,6 +11,7 @@ import {
 import { toApiResponse, type ApiResponse } from 'src/models/error/api';
 import { Failure, Success } from 'src/models/error/result';
 import * as containerService from 'src/services/container/main';
+import * as containerConfigService from 'src/services/container/config';
 import * as relationalService from 'src/services/document/relational';
 import * as pdfRepo from 'src/repositories/document/pdf';
 import * as textRepo from 'src/repositories/document/text';
@@ -34,6 +35,7 @@ import type { Relational, RelationalWithAddress } from 'src/models/relational/co
 import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import type { RelaxationOptions } from 'src/models/relational/relaxation';
 import * as annotationService from 'src/services/document/annotation';
 import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
@@ -576,6 +578,43 @@ class BackendApi {
   async resolveAnnotationFile(annotID: AnnotationID): Promise<ApiResponse<ContainerElementFile>> {
     const res = await relationalService.resolveAnnotationFile(annotID);
     return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
+  }
+
+  /**
+   * アノテーションIDから、そのアノテーションが存在するページ番号を解決する
+   */
+  async getAnnotationPageNumber(annotID: AnnotationID): Promise<ApiResponse<number>> {
+    const res = await relationalService.getAnnotationPageNumber(annotID);
+    return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
+  }
+
+  /**
+   * コンテナ単位の関係性緩和ルール（`.kumihimo/settings.json`）を取得する
+   *
+   * 同一コンテナを開いた誰にとっても検証結果が同じになるよう、ブラウザ単位のアプリ設定
+   * ではなくコンテナルートに保存されている設定を参照する
+   */
+  async getContainerRelaxationSettings(cID: ContainerID): Promise<ApiResponse<RelaxationOptions>> {
+    const res = await containerConfigService.getContainerSettingsFile(cID);
+    if (!res.ok) return toApiResponse(res, 'RELATIONAL_RELAXATION_GET_FAILED');
+    return toApiResponse(Success(res.value.relationalRelaxation));
+  }
+
+  /**
+   * コンテナ単位の関係性緩和ルールを更新する
+   *
+   * 更新後は、検証時に参照される緩和ルールのキャッシュ（`relationalService`側）を破棄し、
+   * 古い設定が使われ続けないようにする
+   */
+  async saveContainerRelaxationSettings(
+    cID: ContainerID,
+    relaxation: RelaxationOptions,
+  ): Promise<ApiResponse<void>> {
+    const res = await containerConfigService.saveContainerSettingsFile(cID, {
+      relationalRelaxation: relaxation,
+    });
+    if (res.ok) relationalService.invalidateContainerRelaxationCache(cID);
+    return toApiResponse(res, 'RELATIONAL_RELAXATION_SAVE_FAILED');
   }
 
   // ============ 設定操作 ============

@@ -10,7 +10,9 @@
       <!-- 自身の値（比較のもう一方の基準として表示） -->
       <q-card-section class="q-py-none">
         <span class="text-caption text-grey-6"> {{ $t('pdfEditor.peek.selfValue') }}: </span>
-        <span class="self-value-text">{{ selfValueDisplay }}</span>
+        <span class="self-value-text" :class="{ 'text-grey-6': isSelfValuePending }">{{
+          selfValueDisplay
+        }}</span>
       </q-card-section>
 
       <q-card-section class="preview-section">
@@ -75,6 +77,16 @@
                 @update:model-value="(v: RelationalRuleType) => onChangeRuleType(edge, v)"
               />
               <q-btn
+                v-if="edge.relational.rule.type === 'equal'"
+                flat
+                round
+                dense
+                icon="tune"
+                size="sm"
+                :title="$t('pdfEditor.peek.editRule')"
+                @click="openRuleEditDialog(edge)"
+              />
+              <q-btn
                 flat
                 round
                 dense
@@ -89,10 +101,18 @@
       </q-card-section>
     </q-card>
   </q-dialog>
+
+  <RelationalRuleEditDialog
+    v-if="editingEdge"
+    v-model:open="editDialogOpen"
+    :file="prop.file"
+    :edge="editingEdge"
+    :self-annot-id="prop.annotId"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
@@ -106,6 +126,8 @@ import {
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
+import { formatValueWithFormula } from 'src/utils/calculation/formula';
+import RelationalRuleEditDialog from 'src/components/DocLayout/RelationalRuleEditDialog.vue';
 
 interface Prop {
   annotId: AnnotationID;
@@ -130,6 +152,15 @@ const edges = computed<RelationalEdge[]>(() => relationalStore.edgesForAnnotatio
 
 const otherFileLabelCache = ref<Record<AnnotationID, string>>({});
 
+// アノテーション別の緩和ルール編集ダイアログの対象エッジ
+const editingEdge = ref<RelationalEdge>();
+const editDialogOpen = ref(false);
+
+function openRuleEditDialog(edge: RelationalEdge) {
+  editingEdge.value = edge;
+  editDialogOpen.value = true;
+}
+
 function otherAnnotId(edge: RelationalEdge): AnnotationID {
   return edge.relational.srcID === prop.annotId ? edge.relational.targetID : edge.relational.srcID;
 }
@@ -149,22 +180,42 @@ function statusColor(edge: RelationalEdge): string {
 }
 
 /**
- * 検証結果の値を表示用の文字列に変換する（検証中は明示し、空文字列は空であることが分かるようにする）
+ * 指定したアノテーションの側（src/target）に設定されている計算式を返す
+ *
+ * `equal`ルールでない場合や計算式が未設定の場合はundefined
  */
-function displayValue(rawValue: string, edge: RelationalEdge): string {
+function formulaForAnnot(edge: RelationalEdge, annotId: AnnotationID): string | undefined {
+  const rule = edge.relational.rule;
+  if (rule.type !== 'equal') return undefined;
+  return edge.relational.srcID === annotId ? rule.srcFormula : rule.targetFormula;
+}
+
+/**
+ * 検証結果の値を表示用の文字列に変換する（検証中は明示し、空文字列は空であることが分かるように
+ * したうえで、そのアノテーション側に計算式が設定されていれば式と結果も併記する）
+ */
+function displayValue(rawValue: string, edge: RelationalEdge, annotId: AnnotationID): string {
   if (edge.checkedRule === undefined) return t('pdfEditor.peek.verifying');
-  return rawValue === '' ? t('pdfEditor.peek.emptyValue') : rawValue;
+  if (rawValue === '') return t('pdfEditor.peek.emptyValue');
+  return formatValueWithFormula(rawValue, formulaForAnnot(edge, annotId));
 }
 
 // 自身の値。どのエッジも同じ自身の値を返すため先頭のエッジから取得する
 const selfValueDisplay = computed<string>(() => {
   const firstEdge = edges.value[0];
   if (firstEdge === undefined) return '';
-  return displayValue(edgeValueFor(firstEdge, prop.annotId), firstEdge);
+  return displayValue(edgeValueFor(firstEdge, prop.annotId), firstEdge, prop.annotId);
+});
+
+// 自身の値がまだ読み込み中（アノテーションの移動・リサイズ直後の再読み込み待ち等）かどうか。
+// 表示を灰色にして「値が未確定であること」が一目で分かるようにする
+const isSelfValuePending = computed<boolean>(() => {
+  const firstEdge = edges.value[0];
+  return firstEdge !== undefined && firstEdge.checkedRule === undefined;
 });
 
 function otherValueDisplay(edge: RelationalEdge): string {
-  return displayValue(otherEdgeValueFor(edge, prop.annotId), edge);
+  return displayValue(otherEdgeValueFor(edge, prop.annotId), edge, otherAnnotId(edge));
 }
 
 function otherFileLabel(edge: RelationalEdge): string {
@@ -219,14 +270,23 @@ async function resolveOtherFileLabels(targetEdges: RelationalEdge[]) {
 }
 
 /**
+ * 指定したアノテーションが属するファイルを新規タブで開き、そのアノテーションが存在する
+ * ページへ遷移する（先頭ページが開かれてしまわないよう、ページ番号をopenTabに渡す）
+ */
+async function focusAnnotationInNewTab(annotId: AnnotationID) {
+  const fileRes = await api.resolveAnnotationFile(annotId);
+  if (!fileRes.ok) return;
+
+  const pageRes = await api.getAnnotationPageNumber(annotId);
+  editorStore.openTab(fileRes.data, pageRes.ok ? pageRes.data : undefined, annotId);
+  open.value = false;
+}
+
+/**
  * ダブルクリックした行の相手アノテーションが属するファイルを新規タブで開く
  */
 async function openOtherFile(edge: RelationalEdge) {
-  const fileRes = await api.resolveAnnotationFile(otherAnnotId(edge));
-  if (!fileRes.ok) return;
-
-  editorStore.openTab(fileRes.data);
-  open.value = false;
+  await focusAnnotationInNewTab(otherAnnotId(edge));
 }
 
 /**
@@ -234,18 +294,19 @@ async function openOtherFile(edge: RelationalEdge) {
  */
 async function openPreviewedFile() {
   if (previewedAnnotId.value === undefined) return;
-
-  const fileRes = await api.resolveAnnotationFile(previewedAnnotId.value);
-  if (!fileRes.ok) return;
-
-  editorStore.openTab(fileRes.data);
-  open.value = false;
+  await focusAnnotationInNewTab(previewedAnnotId.value);
 }
 
-// プレビュー対象が未選択の場合、先頭の相手アノテーションを既定のプレビュー対象にする
+// プレビュー対象が未選択の場合、先頭の相手アノテーションを既定のプレビュー対象にする。
+// 関係性が0件になった場合は、前に表示していた別アノテーションのプレビューが残らないよう
+// 明示的にリセットする
 watch(
   edges,
   (newEdges) => {
+    if (newEdges.length === 0) {
+      previewedAnnotId.value = undefined;
+      return;
+    }
     if (previewedAnnotId.value !== undefined) return;
     const firstEdge = newEdges[0];
     if (firstEdge !== undefined) previewedAnnotId.value = otherAnnotId(firstEdge);
@@ -271,12 +332,72 @@ watch(
 
 watch(edges, (newEdges) => void resolveOtherFileLabels(newEdges), { immediate: true });
 
-// ダイアログを開くたびに、未選択なら先頭の相手アノテーションを既定のプレビュー対象にする
+// ダイアログを開くたびに、先頭の相手アノテーションを既定のプレビュー対象にする
+// （関係性が無い場合は明示的にundefinedへ戻し、直前に見ていた別アノテーションの
+// プレビューが残らないようにする）
 watch(open, (isOpen) => {
   if (!isOpen) return;
   const firstEdge = edges.value[0];
-  if (firstEdge !== undefined) previewedAnnotId.value = otherAnnotId(firstEdge);
+  previewedAnnotId.value = firstEdge !== undefined ? otherAnnotId(firstEdge) : undefined;
 });
+
+// ダイアログの表示中（開いた時・対象アノテーションが切り替わった時）に、移動・リサイズ直後
+// でも「自身の値」が最新化されるよう明示的に再検証を要求する。`edgesForAnnotation`は
+// リアクティブなgetterのため、再検証完了後は自動的に画面へ反映される
+watch(
+  [open, () => prop.annotId],
+  ([isOpen]) => {
+    if (isOpen) void relationalStore.refreshFile(prop.file);
+  },
+  { immediate: true },
+);
+
+// 「自身の値」が読み込み中（アノテーション編集直後の内容再読み込み待ち等）の間は、通常は
+// DocumentTabView.vue側のアノテーション変化監視で自動的に再検証されるはずだが、それだけに
+// 頼らず一定間隔でリトライすることで、読み込み完了を確実に取りこぼさないようにする。
+// ダイアログが閉じられた・値が確定した場合はその時点でリトライを打ち切る
+const PENDING_RETRY_INTERVAL_MS = 1000;
+const PENDING_RETRY_MAX_COUNT = 15; // 約15秒経っても解決しない場合はリトライを諦める
+let pendingRetryTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingRetryCount = 0;
+
+function clearPendingRetryTimer() {
+  if (pendingRetryTimer !== undefined) {
+    clearTimeout(pendingRetryTimer);
+    pendingRetryTimer = undefined;
+  }
+}
+
+async function runPendingRetry() {
+  pendingRetryTimer = undefined;
+  pendingRetryCount += 1;
+  if (!open.value) return;
+
+  await relationalStore.refreshFile(prop.file);
+  if (open.value && isSelfValuePending.value) schedulePendingRetry();
+}
+
+function schedulePendingRetry() {
+  clearPendingRetryTimer();
+  if (pendingRetryCount >= PENDING_RETRY_MAX_COUNT) return;
+
+  pendingRetryTimer = setTimeout(() => void runPendingRetry(), PENDING_RETRY_INTERVAL_MS);
+}
+
+watch(
+  [isSelfValuePending, open],
+  ([isPending, isOpen]) => {
+    if (!isPending || !isOpen) {
+      clearPendingRetryTimer();
+      pendingRetryCount = 0;
+      return;
+    }
+    schedulePendingRetry();
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(clearPendingRetryTimer);
 </script>
 
 <style scoped lang="scss">

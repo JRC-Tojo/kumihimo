@@ -145,12 +145,41 @@ export default {
       strokeWidth: 'Stroke Width',
       fillOpacity: 'Fill Opacity',
     },
+    relationalRelaxation: {
+      title: 'Relational Relaxation Rules',
+      description:
+        'Default rules for how much notational variance to tolerate in "equal" relational checks. Can be overridden per annotation.',
+      ignoreCase: 'Ignore case',
+      ignoreWhitespace: 'Ignore whitespace',
+      ignoreWidth: 'Ignore full-width/half-width differences',
+      numericEquivalence: 'Treat numbers with the same value as equal (e.g. "8" and "8.000")',
+      equivalenceGroups: 'Equivalent character groups',
+      equivalenceGroupsHint:
+        'Group symbols or characters that are used with the same meaning so their differences are ignored during verification. For example, put the multiplication signs "×", "x", "X", and "*" into one group so any of these notations are treated as identical. The first character in each group becomes the canonical one (the value everything else is normalized to).',
+      addGroup: 'Add group',
+      removeGroup: 'Remove group',
+      addChar: 'Add character',
+      removeChar: 'Remove',
+      charPlaceholder: 'Character',
+    },
     sampleData: {
       title: 'Sample Data',
       create: 'Create Sample Documents',
       createDesc: 'Create a batch of sample documents for testing.',
       clear: 'Clear All Data',
       clearDesc: 'Delete all stored data (cannot be undone).',
+    },
+  },
+
+  // コンテナ設定（.kumihimo/settings.json、コンテナ単位で共有）
+  containerSettings: {
+    title: 'Container Settings',
+    searchPlaceholder: 'Search settings',
+    noResults: 'No settings found',
+    loadFailed: 'Failed to load the setting.',
+    saveFailed: 'Failed to save the setting.',
+    sections: {
+      relational: 'Relational',
     },
   },
 
@@ -220,6 +249,7 @@ export default {
         copy: 'Copy',
         applyPreset: 'Apply preset style',
         registerPreset: 'Register as preset',
+        openRelational: 'Open relational dialog',
         delete: 'Delete',
       },
       presetBar: {
@@ -311,6 +341,23 @@ export default {
       otherValue: 'Other value',
       verifying: 'Verifying...',
       emptyValue: '(empty)',
+      editRule: 'Edit relaxation rule',
+      ruleEdit: {
+        title: 'Edit Relaxation Rule',
+        overrideGlobal: 'Override container settings',
+        overrideGlobalHint:
+          'When enabled, only this pair of annotations ignores the container-wide relaxation rules and uses the settings below instead.',
+        ownFormula: 'Calculation applied to own value',
+        ownFormulaHint:
+          'Evaluated with variable x bound to the own extracted value as a number (e.g. x * 1.09). Only basic arithmetic and parentheses are supported.',
+        otherFormula: "Other side's formula (reference only)",
+        formulaPreview: 'Calculated result preview',
+        formulaInvalid:
+          'The formula is invalid, or the own value could not be parsed as a number (the raw value will be compared instead).',
+        save: 'Save',
+        cancel: 'Cancel',
+        saveFailed: 'Failed to save the relaxation rule.',
+      },
     },
     leftDrawer: {
       title: 'Thumbnails / Bookmarks',
@@ -351,6 +398,7 @@ export default {
     deleteConfirmFolder: 'Delete "{name}" and everything inside it?',
     closeContainer: 'Close Container',
     closeContainerConfirm: 'Close "{name}"? (the actual data will not be deleted)',
+    openContainerSettings: 'Open Container Settings',
     permissionNeeded: 'Access permission is required for this folder',
     reconnect: 'Reconnect',
     changesDetected: 'Changes detected. Click to refresh',

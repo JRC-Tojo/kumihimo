@@ -23,6 +23,17 @@
         @close="editorStore.closePluginTab(pt.key, prop.layoutSide)"
       />
 
+      <!-- コンテナ設定タブ（開いている場合のみ、文書タブの前に固定表示） -->
+      <TabItem
+        v-for="ct in editorStore.containerSettingsTabs[prop.layoutSide]"
+        :key="ct.key"
+        icon="settings"
+        :title="ct.title"
+        :active="editorStore.activeTabPaths[prop.layoutSide] === ct.key"
+        @select="selectContainerSettingsTab(ct.key)"
+        @close="editorStore.closeContainerSettingsTab(ct.key, prop.layoutSide)"
+      />
+
       <VueDraggable
         v-model="tabs"
         :animation="0"
@@ -53,6 +64,12 @@
         :plugin-id="activePluginTab.pluginId"
         :source="activePluginTab.source"
         :key="`plugin|${activePluginTab.key}`"
+      />
+      <ContainerSettingsPage
+        v-else-if="activeContainerSettingsTab"
+        :container-id="activeContainerSettingsTab.containerID"
+        :container-name="activeContainerSettingsTab.title"
+        :key="`containerSettings|${activeContainerSettingsTab.key}`"
       />
       <DocumentTabView
         v-else-if="activeTabFile && activeDocumentKind === 'pdf'"
@@ -86,6 +103,7 @@ import PluginPanelView from 'src/components/DocLayout/PluginPanelView.vue';
 import DocTabItem from 'src/components/DocLayout/DocTabItem.vue';
 import TabItem from 'src/components/DocLayout/TabItem.vue';
 import SettingsPage from 'src/pages/SettingsPage.vue';
+import ContainerSettingsPage from 'src/pages/ContainerSettingsPage.vue';
 import type { ContainerElementFile } from 'src/models/container';
 import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
@@ -126,6 +144,11 @@ const activePluginTab = computed(() =>
     (pt) => pt.key === editorStore.activeTabPaths[prop.layoutSide],
   ),
 );
+const activeContainerSettingsTab = computed(() =>
+  editorStore.containerSettingsTabs[prop.layoutSide].find(
+    (ct) => ct.key === editorStore.activeTabPaths[prop.layoutSide],
+  ),
+);
 
 function selectSettingsTab() {
   editorStore.selectSettingsTab(prop.layoutSide, true);
@@ -133,6 +156,13 @@ function selectSettingsTab() {
 
 function selectPluginTab(key: string) {
   editorStore.selectPluginTab(key, prop.layoutSide, true);
+}
+
+/**
+ * コンテナ設定タブを選択状態にする
+ */
+function selectContainerSettingsTab(key: string) {
+  editorStore.selectContainerSettingsTab(key, prop.layoutSide, true);
 }
 
 /**
