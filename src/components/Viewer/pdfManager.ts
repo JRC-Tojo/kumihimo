@@ -15,6 +15,7 @@ import {
   renderCacheKey,
   setCachedRender,
 } from 'src/repositories/document/renderCache';
+import type { TileDescriptor } from 'src/components/Viewer/tiling';
 
 export type PdfDocument = pdfjsLib.PDFDocumentProxy;
 export type { AcquiredPdfDocument };
@@ -167,6 +168,86 @@ export async function renderPage(
   } catch (error) {
     throw new Error(
       `ページレンダリングエラー: ${error instanceof Error ? error.message : 'Unknown'}`,
+    );
+  }
+}
+
+/**
+ * ページの一部（タイル）だけをCanvasにレンダリングする。`src/components/Viewer/tiling.ts`の
+ * `shouldUseTiling`が真になるような巨大ページ×高倍率の組み合わせでのみ`PdfPage.vue`から使われ、
+ * 通常サイズのページ・通常倍率では一切呼ばれない（既存の`renderPage()`の単一canvas経路のみを使う）。
+ *
+ * `tile`はページ左上を原点とした、`scale`適用後のCSS px矩形（`tiling.ts`の`computeTiles`が返す値）。
+ * pdf.jsの`page.render()`に、ページ全体分の`viewport`と「タイル左上を原点に平行移動する」追加の
+ * `transform`行列を渡すことで、タイル分の小さいoffscreen canvasだけにその範囲を描画させる
+ * （`canvasContext`側で`dpr`スケールを適用済みのため、`transform`自体はCSS px単位の平行移動でよい）
+ */
+export async function renderPageTile(
+  pdfDocument: PdfDocument,
+  pageNumber: number,
+  canvas: HTMLCanvasElement,
+  scale: number,
+  tile: TileDescriptor,
+  fileKeyForCache?: string,
+): Promise<void> {
+  const generation = (canvasRenderGeneration.get(canvas) ?? 0) + 1;
+  canvasRenderGeneration.set(canvas, generation);
+
+  const dpr = window.devicePixelRatio || 1;
+  const pixelWidth = Math.round(tile.width * dpr);
+  const pixelHeight = Math.round(tile.height * dpr);
+  const cacheKey =
+    fileKeyForCache !== undefined
+      ? renderCacheKey({
+          fileKey: fileKeyForCache,
+          pageNumber,
+          scale,
+          devicePixelRatio: dpr,
+          tile: { col: tile.col, row: tile.row, tileSize: pixelWidth },
+        })
+      : undefined;
+
+  try {
+    if (cacheKey !== undefined) {
+      const cached = getCachedRender(cacheKey);
+      if (cached) {
+        if (canvasRenderGeneration.get(canvas) === generation) {
+          commitToCanvas(canvas, cached, cached.width, cached.height, tile.width, tile.height);
+        }
+        return;
+      }
+    }
+
+    const page = await pdfDocument.getPage(pageNumber);
+    const viewport = page.getViewport({ scale });
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = pixelWidth;
+    offscreen.height = pixelHeight;
+    const offscreenContext = offscreen.getContext('2d');
+    if (!offscreenContext) {
+      throw new Error('Canvas context not available');
+    }
+    offscreenContext.scale(dpr, dpr);
+
+    await page.render({
+      canvasContext: offscreenContext,
+      viewport,
+      canvas: offscreen,
+      transform: [1, 0, 0, 1, -tile.x, -tile.y],
+    }).promise;
+
+    if (cacheKey !== undefined) {
+      const bitmap = await createImageBitmap(offscreen);
+      setCachedRender(cacheKey, bitmap);
+    }
+
+    if (canvasRenderGeneration.get(canvas) === generation) {
+      commitToCanvas(canvas, offscreen, pixelWidth, pixelHeight, tile.width, tile.height);
+    }
+  } catch (error) {
+    throw new Error(
+      `タイルレンダリングエラー: ${error instanceof Error ? error.message : 'Unknown'}`,
     );
   }
 }

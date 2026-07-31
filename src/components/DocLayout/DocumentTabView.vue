@@ -24,7 +24,7 @@
         @mousedown="onViewerMouseDown"
       >
         <DocumentViewer
-          v-if="!loading && onRender"
+          v-if="!loading && onRender && onRenderTile"
           ref="documentViewer"
           :file="file"
           :page-count="pageCount"
@@ -32,6 +32,7 @@
           :view-mode="viewMode"
           :annotations="annotations"
           @render="onRender"
+          @render-tile="onRenderTile"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
           @scroll-to-current-page="scrollToCurrentPage"
@@ -86,9 +87,11 @@ import {
   generateThumbnail,
   getPageViewportSizes,
   renderPage,
+  renderPageTile,
   type AcquiredPdfDocument,
   type PageSize,
 } from '../Viewer/pdfManager';
+import type { TileDescriptor } from '../Viewer/tiling';
 import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
@@ -173,6 +176,13 @@ type RenderFunc = (
   scale: number,
 ) => Promise<PageSize>;
 const onRender = ref<RenderFunc>();
+type RenderTileFunc = (
+  pageNumber: number,
+  canvas: HTMLCanvasElement,
+  scale: number,
+  tile: TileDescriptor,
+) => Promise<void>;
+const onRenderTile = ref<RenderTileFunc>();
 
 // このタブ（このファイル）宛てのページ遷移要求（`editorStore.openTab(file, targetPage)`）を、
 // コンポーネント生成時点（初回描画より前）で同期的に取り出しておく。onMounted以降に
@@ -312,6 +322,14 @@ async function loadDocument() {
     scale: number,
   ): Promise<PageSize> => {
     return await renderPage(loadedDocument, pageNumber, canvas, scale, 0, fileKey(prop.file));
+  };
+  onRenderTile.value = async (
+    pageNumber: number,
+    canvas: HTMLCanvasElement,
+    scale: number,
+    tile: TileDescriptor,
+  ): Promise<void> => {
+    await renderPageTile(loadedDocument, pageNumber, canvas, scale, tile, fileKey(prop.file));
   };
 
   // サムネイルを生成

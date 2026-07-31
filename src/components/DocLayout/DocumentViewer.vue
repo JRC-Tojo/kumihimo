@@ -11,12 +11,14 @@
       <div v-if="viewMode === 'single'" class="pages-container" ref="singlePageContainer">
         <PdfPage
           :annotations="annotations"
+          :page-size1x="pageSizes[currentPage - 1]!"
           v-model:selected-annot-ids="selectedAnnotIds"
           v-model:page="currentPage"
           v-model:scale="scale"
           @register-annot="registAnnotation"
           @remove-annot="removeAnnotation"
           @render="onRender"
+          @render-tile="onRenderTile"
         />
       </div>
 
@@ -43,11 +45,13 @@
               v-if="shouldRenderPage(page - 1)"
               :page="page"
               :annotations="annotations"
+              :page-size1x="pageSizes[page - 1]!"
               v-model:selected-annot-ids="selectedAnnotIds"
               v-model:scale="scale"
               @register-annot="registAnnotation"
               @remove-annot="removeAnnotation"
               @render="onRender"
+              @render-tile="onRenderTile"
             />
           </div>
         </div>
@@ -64,6 +68,7 @@ import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { useAnnotationHistory } from './composables/useAnnotationHistory';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PageSize } from 'src/components/Viewer/pdfManager';
+import type { TileDescriptor } from 'src/components/Viewer/tiling';
 import { PDF_VIEWER_CONTAINER_MARGIN_PT } from 'src/components/Viewer/zoomSteps';
 
 type RenderFunc = (
@@ -71,6 +76,12 @@ type RenderFunc = (
   canvas: HTMLCanvasElement,
   scale: number,
 ) => Promise<PageSize>;
+type RenderTileFunc = (
+  pageNumber: number,
+  canvas: HTMLCanvasElement,
+  scale: number,
+  tile: TileDescriptor,
+) => Promise<void>;
 interface Prop {
   pageCount: number;
   pageSizes: PageSize[];
@@ -78,6 +89,7 @@ interface Prop {
   file: ContainerElementFile;
   annotations: AnnotationStyle[];
   onRender: RenderFunc;
+  onRenderTile: RenderTileFunc;
   onZoomIn: (clientX?: number, clientY?: number) => void;
   onZoomOut: (clientX?: number, clientY?: number) => void;
   onScrollToCurrentPage: (viewerContainerHeight: number) => void;
