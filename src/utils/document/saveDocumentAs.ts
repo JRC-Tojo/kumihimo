@@ -10,6 +10,9 @@ import { Notify } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { SaveDocumentNotifyMessages } from 'src/utils/document/saveDocument';
+import { useRelationalStore } from 'src/stores/relationalStore';
+import { useSettingsStore } from 'src/stores/settingsStore';
+import { applyRelationalOverrideToStyle } from 'src/components/Viewer/Annotation/relationalStyleOverride';
 
 /**
  * 別名保存時にアノテーションをどう扱うか
@@ -52,11 +55,22 @@ export async function saveDocumentAs(
       if (notifyMessages) Notify.create({ type: 'negative', message: notifyMessages.failed });
       return false;
     }
-    const styles = annotsRes.data.map((info) => info.style);
+
+    // 関係性の検証結果（OK/NG）によるスタイル上書きは、画面表示（Konva）だけでなく
+    // 書き出すPDFにも反映する。元のスタイルのまま埋め込むと、画面と異なる見た目になってしまうため
+    const relationalStore = useRelationalStore();
+    const settingsStore = useSettingsStore();
+    const styles = annotsRes.data.map((info) =>
+      applyRelationalOverrideToStyle(
+        info.style,
+        relationalStore.statusForAnnotation(info.style.id),
+        settingsStore.relationalVerificationStyle,
+      ),
+    );
 
     const packRes =
       mode === 'embedAnnotations'
-        ? await api.packAnnotationsInSource(outSrc, styles)
+        ? await api.packAnnotationsAsRasterInSource(outSrc, styles)
         : await api.packAnnotationsAsCommentsInSource(outSrc, styles);
     if (!packRes.ok) {
       if (notifyMessages) Notify.create({ type: 'negative', message: notifyMessages.failed });

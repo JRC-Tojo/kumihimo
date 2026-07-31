@@ -406,6 +406,21 @@ class BackendApi {
   }
 
   /**
+   * 文書別アノテーションを、画面表示どおりの見た目でページに焼き込んで保存（非可逆）
+   *
+   * `packAnnotationsInSource`（pdf-libの図形描画プリミティブで個別に再現）とは異なり、
+   * 画面描画（Konva）と同じロジックのCanvas 2D再描画でページ全体をラスタ化するため、
+   * 線種・矢印サイズ・テキストの装飾・ブレンドモードを含めて画面表示と一致する
+   */
+  async packAnnotationsAsRasterInSource(
+    docSrc: DocumentSource,
+    annotations: AnnotationStyle[],
+  ): Promise<ApiResponse<DocumentSource>> {
+    const packedSrc = await pdfRepo.embedAnnotationsAsRasterIntoPdf(docSrc, annotations);
+    return toApiResponse(packedSrc, 'DOC_ANNOT_EMBED_FAILED');
+  }
+
+  /**
    * 指定ファイルのアノテーション情報をDBから取得する
    */
   async getAnnotationsByFile(file: ContainerElementFile): Promise<ApiResponse<AnnotationInfo[]>> {

@@ -222,6 +222,10 @@ export default {
           },
           destination: 'Destination',
           fileName: 'File name',
+          overwriteConfirm: {
+            title: 'Confirm overwrite',
+            message: '"{name}" already exists. Do you want to overwrite it?',
+          },
         },
       },
       history: {

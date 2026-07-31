@@ -222,6 +222,10 @@ export default {
           },
           destination: '保存先',
           fileName: 'ファイル名',
+          overwriteConfirm: {
+            title: '上書きの確認',
+            message: '「{name}」は既に存在します。上書きしますか？',
+          },
         },
       },
       history: {

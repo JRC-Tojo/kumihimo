@@ -70,6 +70,7 @@ import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 import { Path } from 'src/utils/binary/path';
 import type { SaveAsMode } from 'src/utils/document/saveDocumentAs';
 import type { SaveAsDialogResult } from 'src/components/Dialog/saveAsDialog';
+import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 
 interface Prop {
   sourceFile: ContainerElementFile;
@@ -109,6 +110,8 @@ const expanded = ref<string[]>([]);
 const selectedKey = ref<string | null>(null);
 /** ツリーノードのkeyから、実際の保存先（コンテナID・フォルダパス）を引くための対応表 */
 const destByKey = new Map<string, { containerID: ContainerID; folderPath: string }>();
+/** 上書き確認用に、コンテナごとの既存要素一覧を保持する（onMountedで取得済みのデータを再利用） */
+const elementsByContainer = new Map<ContainerID, Record<string, ContainerElement>>();
 
 /** フォルダのみを対象に、コンテナ内のフォルダツリーをQTree用ノードへ再帰的に変換する */
 function buildFolderNodes(
@@ -139,6 +142,7 @@ onMounted(async () => {
     for (const skel of containersRes.data) {
       const loadedRes = await api.loadContainer(skel.id);
       if (!loadedRes.ok) continue;
+      elementsByContainer.set(skel.id, loadedRes.data.elements);
 
       const rootKey = `container::${skel.id}`;
       destByKey.set(rootKey, { containerID: skel.id, folderPath: '.' });
@@ -175,12 +179,25 @@ const canConfirm = computed(
   () => !!selectedKey.value && fileName.value.trim().length > 0 && destByKey.has(selectedKey.value),
 );
 
-function onConfirm() {
+async function onConfirm() {
   if (!selectedKey.value) return;
   const dest = destByKey.get(selectedKey.value);
   if (!dest) return;
 
   const filePath = new Path(dest.folderPath).child(`${fileName.value.trim()}${extension}`).path;
+
+  const existingElement = elementsByContainer.get(dest.containerID)?.[filePath];
+  if (existingElement?.type === 'File') {
+    const confirmed = await confirmDialog({
+      title: $t('pdfEditor.tools.save.saveAsDialog.overwriteConfirm.title'),
+      message: $t('pdfEditor.tools.save.saveAsDialog.overwriteConfirm.message', {
+        name: `${fileName.value.trim()}${extension}`,
+      }),
+      severity: 'negative',
+    });
+    if (!confirmed) return;
+  }
+
   const result: SaveAsDialogResult = {
     containerID: dest.containerID,
     filePath,
