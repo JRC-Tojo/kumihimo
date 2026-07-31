@@ -72,7 +72,14 @@
         @click="onFitWidth()"
       />
       <q-btn flat dense icon="zoom_out" @click="onZoomOut()" :disable="zoomLevel === MIN_ZOOM" />
-      <q-slider v-model="zoomLevel" :min="MIN_ZOOM" :max="MAX_ZOOM" :step="5" class="zoom-slider" />
+      <q-slider
+        :model-value="zoomLevel"
+        :min="MIN_ZOOM"
+        :max="MAX_ZOOM"
+        :step="5"
+        class="zoom-slider"
+        @update:model-value="(value) => value !== null && props.onSetZoom(value)"
+      />
       <q-btn flat dense icon="zoom_in" @click="onZoomIn()" :disable="zoomLevel === MAX_ZOOM" />
       <q-input
         v-model="zoomInputValue"

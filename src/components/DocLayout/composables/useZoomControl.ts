@@ -35,6 +35,7 @@ const PDF_VIEWER_CONTAINER_MARGIN_PX = 2 * PDF_VIEWER_CONTAINER_MARGIN_PT * (96 
 
 export function useZoomControl(deps: UseZoomControlDeps) {
   const zoomLevel = ref(100);
+  let zoomOperationId = 0;
 
   /**
    * ビューポート上の1点（未指定時は表示領域中央）を基準にズームレベルを変更する。
@@ -49,6 +50,7 @@ export function useZoomControl(deps: UseZoomControlDeps) {
    * これらの非線形要素を計算に持ち込まずに済む
    */
   async function setZoomLevelAtPoint(level: number, clientX?: number, clientY?: number) {
+    const operationId = ++zoomOperationId;
     const clamped = clampZoom(level);
     const el = deps.viewer.value;
     if (clamped === zoomLevel.value || !el) {
@@ -73,6 +75,7 @@ export function useZoomControl(deps: UseZoomControlDeps) {
     zoomLevel.value = clamped;
     // レイアウトサイズ（pageSizeStyle等）が新しいscaleを反映するのを待つ
     await nextTick();
+    if (operationId !== zoomOperationId) return; // より新しい呼び出しが既に反映済み
 
     const anchorAfter = deps.documentViewer.value?.getAnchorRect();
     if (!anchorAfter) return;
