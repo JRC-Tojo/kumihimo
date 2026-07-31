@@ -63,6 +63,28 @@ function pluginTabKey(pluginId: string, source: PluginInstallSource): string {
 }
 
 /**
+ * コンテナ設定タブのキー接頭辞（ContainerElementFileのtabKeyや設定タブ・プラグインタブとは
+ * 絶対に衝突しない形式）
+ */
+export const CONTAINER_SETTINGS_TAB_PREFIX = '__containerSettings__:';
+
+/**
+ * コンテナ設定タブの参照情報
+ *
+ * タブは`containerID`単位で1つだけ開く（pluginTabsと同じ「開く操作のたびには増えず、
+ * 既存タブへフォーカスする」パターン）
+ */
+export interface ContainerSettingsTabRef {
+  key: string;
+  containerID: ContainerID;
+  title: string;
+}
+
+function containerSettingsTabKey(containerID: ContainerID): string {
+  return `${CONTAINER_SETTINGS_TAB_PREFIX}${containerID}`;
+}
+
+/**
  * デフォルトのアノテーションスタイル
  */
 const DEFAULT_ANNOTATION_STYLE: DrawingAnnotationStyle = {
@@ -108,6 +130,8 @@ export const useEditorStore = defineStore('editor', {
     settingsOpenSides: { ul: false, ur: false, ll: false, lr: false } as Layouts<boolean>,
     // 各ペインで開かれているプラグイン所有タブ（設定タブと同じく、ContainerElementFileではないため別管理する）
     pluginTabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<PluginTabRef[]>,
+    // 各ペインで開かれているコンテナ設定タブ（pluginTabsと同じパターン。containerID単位で1つだけ開く）
+    containerSettingsTabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<ContainerSettingsTabRef[]>,
 
     // アノテーションの表示状態
     visibleAnnotations: true,
@@ -159,11 +183,12 @@ export const useEditorStore = defineStore('editor', {
     // 選択状態を持つDocumentTabView側でwatchして実行する
     peekRequestedAnnotId: undefined as AnnotationID | undefined,
 
-    // 「対になるアノテーションの文書を開き、そのページへ遷移してほしい」という意図
-    // （layerOrderAction等と同じパターン）。DocumentTabView.vueは開く対象がこのファイルと
-    // 一致する場合にこれを消費し、該当ページへ移動する
-    pendingAnnotationFocus: undefined as
-      { file: ContainerElementFile; annotId: AnnotationID; pageNumber: number } | undefined,
+    // `openTab`にページ番号を指定した際に記録される、遷移先ページの情報。
+    // DocumentTabView.vueは自分宛て（containerID・pathが一致）であればこれを消費し、
+    // 該当ページへ移動する（対象アノテーションがあれば選択状態にもする）
+    pendingTabFocus: undefined as
+      | { containerID: ContainerID; path: string; page: number; annotId: AnnotationID | undefined }
+      | undefined,
 
     // アクティブなペインの表示モード（単一/連続）。表示モード自体はペインごとのローカルstateのため、
     // layerOrderAction/activeSelectionと同じ「意図・状態をeditorStoreに橋渡しする」パターンで扱う
@@ -286,9 +311,12 @@ export const useEditorStore = defineStore('editor', {
     /**
      * 選択された文書のタブを開く
      *
-     * containerIDまで含めて同一性判定するため、別コンテナの同名パスファイルも正しく別タブとして開かれる
+     * containerIDまで含めて同一性判定するため、別コンテナの同名パスファイルも正しく別タブとして開かれる。
+     * `targetPage`を指定すると、開いた後にそのページへ遷移する（対象のDocumentTabView.vueが
+     * `pendingTabFocus`を消費して処理する。ページ遷移とタブを開く操作を1回の呼び出しにまとめることで、
+     * 呼び出し順序に依存する別々の意図フラグを個別に扱う必要をなくしている）
      */
-    openTab(elem: ContainerElement): void {
+    openTab(elem: ContainerElement, targetPage?: number, focusAnnotId?: AnnotationID): void {
       if (elem.type !== 'File') return;
 
       const isAlreadyOpened = this.tabs[this.activeSide].some(
@@ -298,6 +326,15 @@ export const useEditorStore = defineStore('editor', {
         this.tabs[this.activeSide].push(elem);
       }
       this.selectTab(elem, this.activeSide, true);
+
+      if (targetPage !== undefined) {
+        this.pendingTabFocus = {
+          containerID: elem.containerID,
+          path: elem.path,
+          page: targetPage,
+          annotId: focusAnnotId,
+        };
+      }
     },
 
     /**
@@ -573,21 +610,10 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 「対になるアノテーションの文書を開き、そのページへ遷移してほしい」という意図をセットする
+     * `openTab`で指定されたページ遷移情報を解除する
      */
-    requestAnnotationFocus(
-      file: ContainerElementFile,
-      annotId: AnnotationID,
-      pageNumber: number,
-    ): void {
-      this.pendingAnnotationFocus = { file, annotId, pageNumber };
-    },
-
-    /**
-     * ページ遷移の意図フラグを解除する
-     */
-    clearAnnotationFocusRequest(): void {
-      this.pendingAnnotationFocus = undefined;
+    clearPendingTabFocus(): void {
+      this.pendingTabFocus = undefined;
     },
 
     /**
@@ -660,6 +686,57 @@ export const useEditorStore = defineStore('editor', {
         const lastTab = this.tabs[layoutSide][this.tabs[layoutSide].length - 1];
         this.activeTabPaths[layoutSide] = lastTab ? tabKey(lastTab) : null;
       }
+    },
+
+    /**
+     * コンテナ設定タブを開く（現在アクティブなペインに、文書タブと同様の見た目で開かれる）
+     *
+     * 同じコンテナを指定した場合は既存タブをそのままアクティブにする（同一コンテナにつき常に1タブ）
+     */
+    openContainerSettingsTab(containerID: ContainerID, title: string): void {
+      const key = containerSettingsTabKey(containerID);
+      const side = this.activeSide;
+      if (!this.containerSettingsTabs[side].some((t) => t.key === key)) {
+        this.containerSettingsTabs[side].push({ key, containerID, title });
+      }
+      this.activeTabPaths[side] = key;
+    },
+
+    /**
+     * コンテナ設定タブを選択する
+     */
+    selectContainerSettingsTab(key: string, layoutSide: LayoutSide, isFocus: boolean): void {
+      this.activeTabPaths[layoutSide] = key;
+      if (isFocus) this.activeSide = layoutSide;
+    },
+
+    /**
+     * コンテナ設定タブを閉じる
+     */
+    closeContainerSettingsTab(key: string, layoutSide: LayoutSide): void {
+      const targetIdx = this.containerSettingsTabs[layoutSide].findIndex((t) => t.key === key);
+      if (targetIdx === -1) return;
+
+      this.containerSettingsTabs[layoutSide].splice(targetIdx, 1);
+
+      if (this.activeTabPaths[layoutSide] === key) {
+        const lastTab = this.tabs[layoutSide][this.tabs[layoutSide].length - 1];
+        this.activeTabPaths[layoutSide] = lastTab ? tabKey(lastTab) : null;
+      }
+    },
+
+    /**
+     * 指定コンテナのコンテナ設定タブを、開かれている全ペインから閉じる
+     *
+     * コンテナのアンロード時に呼び出し、実体を失ったコンテナの設定タブが残り続けないようにする
+     */
+    closeContainerSettingsTabsForContainer(cID: ContainerID): void {
+      const key = containerSettingsTabKey(cID);
+      sides.forEach((side) => {
+        if (this.containerSettingsTabs[side].some((t) => t.key === key)) {
+          this.closeContainerSettingsTab(key, side);
+        }
+      });
     },
   },
 });

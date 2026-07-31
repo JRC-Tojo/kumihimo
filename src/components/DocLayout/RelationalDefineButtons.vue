@@ -48,28 +48,7 @@
         {{ t('pdfEditor.tools.relational.openSettings') }}
       </q-tooltip>
     </q-btn>
-
-    <!-- コンテナ単位の緩和ルール（.kumihimo/settings.json）を編集する -->
-    <q-btn
-      v-if="!isPending && activeContainerID"
-      dense
-      flat
-      :ripple="false"
-      icon="rule_settings"
-      class="style-icon-btn"
-      @click="containerSettingsOpen = true"
-    >
-      <q-tooltip anchor="top middle" self="bottom middle">
-        {{ t('pdfEditor.tools.relational.openContainerSettings') }}
-      </q-tooltip>
-    </q-btn>
   </div>
-
-  <ContainerRelaxationSettingsDialog
-    v-if="activeContainerID"
-    v-model:open="containerSettingsOpen"
-    :container-i-d="activeContainerID"
-  />
 </template>
 
 <script setup lang="ts">
@@ -91,7 +70,7 @@
  * 末尾の1枠（設定ショートカット／キャンセル）だけが待機中かどうかで入れ替わり、
  * それ以外のボタン配置は変化しない
  */
-import { computed, ref, watch } from 'vue';
+import { computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from 'src/stores/editorStore';
 import {
@@ -100,7 +79,6 @@ import {
 } from './composables/useRelationalDefine';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
 import type { AnnotationStyle } from 'src/models/document/pdf';
-import ContainerRelaxationSettingsDialog from './ContainerRelaxationSettingsDialog.vue';
 
 const { t } = useI18n();
 const editorStore = useEditorStore();
@@ -110,10 +88,6 @@ const target = computed<AnnotationStyle | undefined>(() => {
   const annots = editorStore.activeSelection?.annotations;
   return annots?.length === 1 ? annots[0] : undefined;
 });
-
-/** コンテナ単位の緩和ルールダイアログの対象コンテナ（選択中アノテーションが属するファイルから取得） */
-const activeContainerID = computed(() => editorStore.activeSelection?.file.containerID);
-const containerSettingsOpen = ref(false);
 
 const isPending = computed(() => editorStore.relationalPendingId !== undefined);
 // 待機中は、選択が外れて`target`が無くなっても操作盤を表示し続ける（種別の確認・キャンセルのため）

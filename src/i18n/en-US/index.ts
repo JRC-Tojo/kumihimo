@@ -171,6 +171,17 @@ export default {
     },
   },
 
+  // Container settings (.kumihimo/settings.json, shared per container)
+  containerSettings: {
+    title: 'Container Settings',
+    searchPlaceholder: 'Search settings',
+    noResults: 'No settings found',
+    saveFailed: 'Failed to save the setting.',
+    sections: {
+      relational: 'Relational',
+    },
+  },
+
   // Error messages
   error: {
     documentNotFound: 'Document not found',
@@ -225,13 +236,6 @@ export default {
         registerSuccess: 'Relationship registered.',
         registerFailed: 'Failed to register the relationship.',
         changeFailed: 'Failed to change the relationship type.',
-        openContainerSettings: 'Open container relaxation rules',
-        containerSettings: {
-          title: 'Container Relational Relaxation Rules',
-          description:
-            'Relaxation rules shared by everyone who opens this same container (folder / cloud folder). Stored at .kumihimo/settings.json in the container root, so verification results are consistent regardless of who checks them.',
-          saveFailed: 'Failed to save the relaxation rules.',
-        },
       },
       layerOrder: {
         title: 'Layer Order',
@@ -389,6 +393,7 @@ export default {
     deleteConfirmFolder: 'Delete "{name}" and everything inside it?',
     closeContainer: 'Close Container',
     closeContainerConfirm: 'Close "{name}"? (the actual data will not be deleted)',
+    openContainerSettings: 'Open Container Settings',
     permissionNeeded: 'Access permission is required for this folder',
     reconnect: 'Reconnect',
     changesDetected: 'Changes detected. Click to refresh',

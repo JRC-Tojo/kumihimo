@@ -130,3 +130,21 @@ export function evaluateFormula(formula: string, x: number): number | undefined 
     return undefined;
   }
 }
+
+/**
+ * 計算式が適用された値を「元の値 計算式 = 結果」の形式に組み立てて表示用に整形する
+ * （例：抽出値が「8000」、計算式が「x / 1000」の場合「8000 / 1000 = 8」）。
+ * 計算式が無い場合、抽出値が数値化できない場合、式が不正な場合は計算前の生値をそのまま返す
+ * （実際の比較検証も、生値のまま比較にフォールバックするのと同じ挙動）
+ */
+export function formatValueWithFormula(rawValue: string, formula: string | undefined): string {
+  if (formula === undefined) return rawValue;
+
+  const x = parseNumericValue(rawValue.normalize('NFKC'));
+  if (x === undefined) return rawValue;
+
+  const result = evaluateFormula(formula, x);
+  if (result === undefined) return rawValue;
+
+  return `${formula.replaceAll('x', rawValue)} = ${roundFormulaResult(result)}`;
+}

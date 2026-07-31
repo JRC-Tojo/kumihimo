@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { evaluateFormula, parseNumericValue } from '../formula';
+import { evaluateFormula, formatValueWithFormula, parseNumericValue } from '../formula';
 
 describe('evaluateFormula', () => {
   test('四則演算と演算子の優先順位を評価できる', () => {
@@ -49,5 +49,29 @@ describe('parseNumericValue', () => {
     expect(parseNumericValue('')).toBeUndefined();
     expect(parseNumericValue('   ')).toBeUndefined();
     expect(parseNumericValue('12.')).toBeUndefined();
+  });
+});
+
+describe('formatValueWithFormula', () => {
+  test('計算式が指定されている場合、「元の値 計算式 = 結果」の形式で返す', () => {
+    expect(formatValueWithFormula('8000', 'x / 1000')).toBe('8000 / 1000 = 8');
+    expect(formatValueWithFormula('100', 'x * 1.09')).toBe('100 * 1.09 = 109');
+  });
+
+  test('計算式が未指定の場合は生値をそのまま返す', () => {
+    expect(formatValueWithFormula('8000', undefined)).toBe('8000');
+  });
+
+  test('生値が数値化できない場合は計算式を適用せず生値のまま返す', () => {
+    expect(formatValueWithFormula('N/A', 'x / 1000')).toBe('N/A');
+  });
+
+  test('式自体が不正な場合は計算式を適用せず生値のまま返す', () => {
+    expect(formatValueWithFormula('8000', 'x / 0')).toBe('8000');
+    expect(formatValueWithFormula('8000', 'x **')).toBe('8000');
+  });
+
+  test('全角数字の生値でも数値として計算できる', () => {
+    expect(formatValueWithFormula('８０００', 'x / 1000')).toBe('８０００ / 1000 = 8');
   });
 });

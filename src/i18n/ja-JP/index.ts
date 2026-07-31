@@ -171,6 +171,17 @@ export default {
     },
   },
 
+  // コンテナ設定（.kumihimo/settings.json、コンテナ単位で共有される）
+  containerSettings: {
+    title: 'コンテナ設定',
+    searchPlaceholder: '設定を検索',
+    noResults: '設定が見つかりませんでした',
+    saveFailed: '設定の保存に失敗しました。',
+    sections: {
+      relational: '関係性',
+    },
+  },
+
   // エラーメッセージ
   error: {
     documentNotFound: 'ドキュメントが見つかりません',
@@ -225,13 +236,6 @@ export default {
         registerSuccess: '関係性を登録しました。',
         registerFailed: '関係性の登録に失敗しました。',
         changeFailed: '関係性の種別変更に失敗しました。',
-        openContainerSettings: 'コンテナの緩和ルールを開く',
-        containerSettings: {
-          title: 'コンテナの関係性緩和ルール',
-          description:
-            '同一コンテナ（フォルダ・クラウドフォルダ）を開いた全員に共通で適用される緩和ルールです。コンテナルートの.kumihimo/settings.jsonに保存されるため、誰が検証しても結果が変わりません。',
-          saveFailed: '緩和ルールの保存に失敗しました。',
-        },
       },
       layerOrder: {
         title: '重ね順',
@@ -388,6 +392,7 @@ export default {
     deleteConfirmFolder: '「{name}」を配下のファイルも含めて削除しますか？',
     closeContainer: 'コンテナを閉じる',
     closeContainerConfirm: '「{name}」を閉じますか？（実データは削除されません）',
+    openContainerSettings: 'コンテナ設定を開く',
     permissionNeeded: 'このフォルダへのアクセス許可が必要です',
     reconnect: '再接続',
     changesDetected: '変更が検出されました。クリックして更新',

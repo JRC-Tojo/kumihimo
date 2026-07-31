@@ -126,6 +126,7 @@ import {
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
+import { formatValueWithFormula } from 'src/utils/calculation/formula';
 import RelationalRuleEditDialog from 'src/components/DocLayout/RelationalRuleEditDialog.vue';
 
 interface Prop {
@@ -179,18 +180,31 @@ function statusColor(edge: RelationalEdge): string {
 }
 
 /**
- * 検証結果の値を表示用の文字列に変換する（検証中は明示し、空文字列は空であることが分かるようにする）
+ * 指定したアノテーションの側（src/target）に設定されている計算式を返す
+ *
+ * `equal`ルールでない場合や計算式が未設定の場合はundefined
  */
-function displayValue(rawValue: string, edge: RelationalEdge): string {
+function formulaForAnnot(edge: RelationalEdge, annotId: AnnotationID): string | undefined {
+  const rule = edge.relational.rule;
+  if (rule.type !== 'equal') return undefined;
+  return edge.relational.srcID === annotId ? rule.srcFormula : rule.targetFormula;
+}
+
+/**
+ * 検証結果の値を表示用の文字列に変換する（検証中は明示し、空文字列は空であることが分かるように
+ * したうえで、そのアノテーション側に計算式が設定されていれば式と結果も併記する）
+ */
+function displayValue(rawValue: string, edge: RelationalEdge, annotId: AnnotationID): string {
   if (edge.checkedRule === undefined) return t('pdfEditor.peek.verifying');
-  return rawValue === '' ? t('pdfEditor.peek.emptyValue') : rawValue;
+  if (rawValue === '') return t('pdfEditor.peek.emptyValue');
+  return formatValueWithFormula(rawValue, formulaForAnnot(edge, annotId));
 }
 
 // 自身の値。どのエッジも同じ自身の値を返すため先頭のエッジから取得する
 const selfValueDisplay = computed<string>(() => {
   const firstEdge = edges.value[0];
   if (firstEdge === undefined) return '';
-  return displayValue(edgeValueFor(firstEdge, prop.annotId), firstEdge);
+  return displayValue(edgeValueFor(firstEdge, prop.annotId), firstEdge, prop.annotId);
 });
 
 // 自身の値がまだ読み込み中（アノテーションの移動・リサイズ直後の再読み込み待ち等）かどうか。
@@ -201,7 +215,7 @@ const isSelfValuePending = computed<boolean>(() => {
 });
 
 function otherValueDisplay(edge: RelationalEdge): string {
-  return displayValue(otherEdgeValueFor(edge, prop.annotId), edge);
+  return displayValue(otherEdgeValueFor(edge, prop.annotId), edge, otherAnnotId(edge));
 }
 
 function otherFileLabel(edge: RelationalEdge): string {
@@ -257,17 +271,14 @@ async function resolveOtherFileLabels(targetEdges: RelationalEdge[]) {
 
 /**
  * 指定したアノテーションが属するファイルを新規タブで開き、そのアノテーションが存在する
- * ページへ遷移する（先頭ページが開かれてしまわないよう、ページ番号をあらかじめ
- * editorStoreの意図フラグとしてセットしてからタブを開く）
+ * ページへ遷移する（先頭ページが開かれてしまわないよう、ページ番号をopenTabに渡す）
  */
 async function focusAnnotationInNewTab(annotId: AnnotationID) {
   const fileRes = await api.resolveAnnotationFile(annotId);
   if (!fileRes.ok) return;
 
   const pageRes = await api.getAnnotationPageNumber(annotId);
-  if (pageRes.ok) editorStore.requestAnnotationFocus(fileRes.data, annotId, pageRes.data);
-
-  editorStore.openTab(fileRes.data);
+  editorStore.openTab(fileRes.data, pageRes.ok ? pageRes.data : undefined, annotId);
   open.value = false;
 }
 

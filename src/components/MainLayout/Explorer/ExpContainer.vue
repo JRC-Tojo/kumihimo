@@ -34,6 +34,10 @@
             <q-item-section>{{ $t('explorer.paste') }}</q-item-section>
           </q-item>
           <q-separator />
+          <q-item v-close-popup clickable @click="onOpenContainerSettings">
+            <q-item-section>{{ $t('explorer.openContainerSettings') }}</q-item-section>
+          </q-item>
+          <q-separator />
           <q-item v-close-popup clickable @click="onUnload">
             <q-item-section>{{ $t('explorer.closeContainer') }}</q-item-section>
           </q-item>
@@ -182,6 +186,13 @@ function onReload() {
   void load(true);
 }
 
+/**
+ * コンテナ設定タブを開く（`.kumihimo/settings.json`に保存されるコンテナ単位の設定を編集する）
+ */
+function onOpenContainerSettings() {
+  editorStore.openContainerSettingsTab(prop.container.id, prop.container.name);
+}
+
 async function onReconnect() {
   const res = await api.requestContainerPermission(prop.container.id);
   if (res.ok) await load(true);
@@ -218,6 +229,9 @@ async function onUnload() {
 
     editorStore.closeTabsForContainer(prop.container.id, openFiles);
   }
+
+  // アンロードするコンテナの設定タブも、実体を失った状態で残り続けないよう閉じる
+  editorStore.closeContainerSettingsTabsForContainer(prop.container.id);
 
   await api.unloadContainer(prop.container.id, false);
   emit('closed');

@@ -91,7 +91,7 @@ import { useEditorStore } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
 import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
-import type { ContainerElementFile } from 'src/models/container';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
@@ -422,8 +422,14 @@ async function finishRelational(targetId: AnnotationID) {
 
 /**
  * 2つのファイルがcontainerID込みで同一かどうか
+ *
+ * `a`はcontainerID・pathさえ持っていれば`ContainerElementFile`そのものでなくてもよい
+ * （`editorStore.pendingTabFocus`のような最小限のフィールドしか持たない値とも比較できるようにする）
  */
-function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
+function isSameFile(
+  a: { containerID: ContainerID; path: string },
+  b: ContainerElementFile,
+): boolean {
   return a.containerID === b.containerID && a.path === b.path;
 }
 
@@ -616,30 +622,29 @@ onMounted(async () => {
   await loadDocument();
   void relationalStore.refreshFile(prop.file);
   window.addEventListener('keydown', handleGlobalKeydown);
-  // ページ数が確定した後でないとgoToPageが正しくクランプできないため、loadDocument完了後に消費する
-  consumePendingAnnotationFocus();
+  void consumePendingTabFocus();
 });
 
 /**
- * 「対になるアノテーションの文書を開き、そのページへ遷移してほしい」という意図
- * （editorStore.pendingAnnotationFocus）がこのファイル宛てであれば消費し、該当ページ・
- * アノテーションへ遷移する
+ * `editorStore.openTab(file, targetPage)`で指定されたページ遷移情報がこのファイル宛てであれば
+ * 消費し、該当ページ・アノテーションへ遷移する
  *
- * 連続表示モードでは、`currentPage`の変更を検知した`DocumentViewer`側のwatchが
- * `scrollToCurrentPage`を呼び出すことでスクロールする。しかし、このタブが今まさに
- * 初回マウントされた直後の場合は`currentPage`が最初から目的のページ番号で生成されるため、
- * 変化を検知するwatch自体が発火せずスクロールが実行されない。そのため、ここで明示的に
- * `scrollToCurrentPage`を呼び出し、単一ページ表示・連続表示のどちらでも確実に遷移させる
- * （単一ページ表示では`viewMode !== 'continuousSingle'`のガードにより何もしない）
+ * `await nextTick()`で、単一ページ表示のPdfPageコンポーネント自体が確実にマウント済みになるまで
+ * 待ってから`currentPage`を変更する。タブの初回マウント直後はこのコンポーネント自身がまだ
+ * ローディング中の表示に切り替わったばかりで、PdfPage側の`page`監視がまだ有効になっていない
+ * タイミングで`currentPage`を変更すると、値自体は更新されてもキャンバスの再描画が発火せず
+ * 先頭ページの表示のまま取り残されてしまう（PdfPage未マウント時の変更を見逃してしまうため）
  */
-function consumePendingAnnotationFocus() {
-  const pending = editorStore.pendingAnnotationFocus;
-  if (pending === undefined || !isSameFile(pending.file, prop.file)) return;
+async function consumePendingTabFocus() {
+  const pending = editorStore.pendingTabFocus;
+  if (pending === undefined || !isSameFile(pending, prop.file)) return;
 
-  goToPage(pending.pageNumber);
-  selectedAnnotationIds.value = [pending.annotId];
-  editorStore.clearAnnotationFocusRequest();
-  void scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+  editorStore.clearPendingTabFocus();
+  await nextTick();
+
+  goToPage(pending.page);
+  if (pending.annotId !== undefined) selectedAnnotationIds.value = [pending.annotId];
+  await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
 }
 
 watch(annotations, (newAnnots, oldAnnots) => {
@@ -706,10 +711,10 @@ watch(
 // ページ遷移が要求された場合（タブの再マウントが起きないケース）をここで処理する。
 // 初回ロード中はonMounted側の処理に任せる
 watch(
-  () => editorStore.pendingAnnotationFocus,
+  () => editorStore.pendingTabFocus,
   () => {
     if (loading.value) return;
-    consumePendingAnnotationFocus();
+    void consumePendingTabFocus();
   },
 );
 // アクティブなペインの表示モードを、メインツール（表示モードメニュー）用にeditorStoreへ橋渡しする
