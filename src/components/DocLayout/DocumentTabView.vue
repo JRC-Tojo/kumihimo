@@ -167,7 +167,21 @@ type RenderFunc = (
   scale: number,
 ) => Promise<PageSize>;
 const onRender = ref<RenderFunc>();
-const currentPage = ref(1);
+
+// このタブ（このファイル）宛てのページ遷移要求（`editorStore.openTab(file, targetPage)`）を、
+// コンポーネント生成時点（初回描画より前）で同期的に取り出しておく。onMounted以降に
+// currentPageを書き換えると、PdfPage側が既に1ページ目で描画を始めた直後に2回目の描画が
+// 割り込むことになり、同一canvasへの並行描画により表示が崩れる（上下反転して見える等）
+// 不具合につながる。currentPageの初期値自体に反映しておけば、PdfPageは最初から目的の
+// ページで1回だけ描画される
+const initialTabFocus = (() => {
+  const pending = editorStore.pendingTabFocus;
+  if (pending === undefined || !isSameFile(pending, prop.file)) return undefined;
+  editorStore.clearPendingTabFocus();
+  return pending;
+})();
+
+const currentPage = ref(initialTabFocus?.page ?? 1);
 const pageCount = ref(0);
 const pageSizes = ref<PageSize[]>([]);
 // acquirePdfで取得したPDFの解放ハンドル。onBeforeUnmountで必ずreleaseする
@@ -622,26 +636,32 @@ onMounted(async () => {
   await loadDocument();
   void relationalStore.refreshFile(prop.file);
   window.addEventListener('keydown', handleGlobalKeydown);
-  void consumePendingTabFocus();
+
+  if (initialTabFocus !== undefined) {
+    // ページ番号自体は既にcurrentPageの初期値へ反映済み。ここではpageCount確定後の
+    // クランプ（同じ値であれば再代入しても再描画は発生しない）とアノテーション選択・
+    // スクロールのみを行う
+    goToPage(initialTabFocus.page);
+    if (initialTabFocus.annotId !== undefined) {
+      selectedAnnotationIds.value = [initialTabFocus.annotId];
+    }
+    await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+  }
 });
 
 /**
  * `editorStore.openTab(file, targetPage)`で指定されたページ遷移情報がこのファイル宛てであれば
  * 消費し、該当ページ・アノテーションへ遷移する
  *
- * `await nextTick()`で、単一ページ表示のPdfPageコンポーネント自体が確実にマウント済みになるまで
- * 待ってから`currentPage`を変更する。タブの初回マウント直後はこのコンポーネント自身がまだ
- * ローディング中の表示に切り替わったばかりで、PdfPage側の`page`監視がまだ有効になっていない
- * タイミングで`currentPage`を変更すると、値自体は更新されてもキャンバスの再描画が発火せず
- * 先頭ページの表示のまま取り残されてしまう（PdfPage未マウント時の変更を見逃してしまうため）
+ * このタブが既に開かれた状態（再マウントが起きないケース）専用の経路。PdfPageは既にマウント
+ * 済みで`currentPage`の監視も有効なため、そのまま`goToPage`するだけで安全に1回だけ再描画される
+ * （初回マウント時のページ遷移は`initialTabFocus`側で扱うため、ここでは処理しない）
  */
 async function consumePendingTabFocus() {
   const pending = editorStore.pendingTabFocus;
   if (pending === undefined || !isSameFile(pending, prop.file)) return;
 
   editorStore.clearPendingTabFocus();
-  await nextTick();
-
   goToPage(pending.page);
   if (pending.annotId !== undefined) selectedAnnotationIds.value = [pending.annotId];
   await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);

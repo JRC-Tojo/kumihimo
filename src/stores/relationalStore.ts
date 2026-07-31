@@ -27,8 +27,17 @@ export interface RelationalEdge {
 
 export { fileKey };
 
+/**
+ * 関係性の同一性を判定するキー
+ *
+ * srcID・targetIDの組だけを使う（ruleの内容は含めない）。同じアノテーション同士の関係性は
+ * 常に1本しか存在し得ない（`removeRelationalEdge`もsrcID・targetIDのみで1本を特定する）ため、
+ * ここでruleの内容までキーに含めてしまうと、srcファイル側とtargetファイル側それぞれの
+ * `edgesByFileKey`キャッシュが更新タイミングのずれで一時的に異なるrule（例：計算式の
+ * 登録有無）を保持した場合に、同じ関係性が別物として重複表示されてしまう
+ */
 function edgeKey(r: Relational): string {
-  return `${r.srcID}|${r.targetID}|${JSON.stringify(r.rule)}`;
+  return `${r.srcID}|${r.targetID}`;
 }
 
 /**
