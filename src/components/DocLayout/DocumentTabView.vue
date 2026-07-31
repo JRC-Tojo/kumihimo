@@ -624,6 +624,13 @@ onMounted(async () => {
  * 「対になるアノテーションの文書を開き、そのページへ遷移してほしい」という意図
  * （editorStore.pendingAnnotationFocus）がこのファイル宛てであれば消費し、該当ページ・
  * アノテーションへ遷移する
+ *
+ * 連続表示モードでは、`currentPage`の変更を検知した`DocumentViewer`側のwatchが
+ * `scrollToCurrentPage`を呼び出すことでスクロールする。しかし、このタブが今まさに
+ * 初回マウントされた直後の場合は`currentPage`が最初から目的のページ番号で生成されるため、
+ * 変化を検知するwatch自体が発火せずスクロールが実行されない。そのため、ここで明示的に
+ * `scrollToCurrentPage`を呼び出し、単一ページ表示・連続表示のどちらでも確実に遷移させる
+ * （単一ページ表示では`viewMode !== 'continuousSingle'`のガードにより何もしない）
  */
 function consumePendingAnnotationFocus() {
   const pending = editorStore.pendingAnnotationFocus;
@@ -632,6 +639,7 @@ function consumePendingAnnotationFocus() {
   goToPage(pending.pageNumber);
   selectedAnnotationIds.value = [pending.annotId];
   editorStore.clearAnnotationFocusRequest();
+  void scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
 }
 
 watch(annotations, (newAnnots, oldAnnots) => {

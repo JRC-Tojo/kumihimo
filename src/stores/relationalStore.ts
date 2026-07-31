@@ -201,7 +201,7 @@ export const useRelationalStore = defineStore('relational', {
     /**
      * 関係性のルール種別（equal/link）を変更する（`updateRelationalRule`の薄いラッパー）
      */
-    async changeRelationalRuleType(
+    changeRelationalRuleType(
       file: ContainerElementFile,
       edge: RelationalEdge,
       selfId: AnnotationID,

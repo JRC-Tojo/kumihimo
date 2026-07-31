@@ -20,9 +20,12 @@ import * as docAnnotService from 'src/services/document/annotation';
 import * as relationalRepository from 'src/repositories/db/relational';
 import type { AnnotationID } from 'src/models/document/pdf';
 import { resolveCachedContainerID } from 'src/services/document/containerIdResolver';
-import { getSettings } from 'src/settings/main';
 import { relaxedEqual } from 'src/utils/text/relaxedCompare';
-import { evaluateFormula, parseNumericValue } from 'src/utils/calculation/formula';
+import {
+  evaluateFormula,
+  parseNumericValue,
+  roundFormulaResult,
+} from 'src/utils/calculation/formula';
 
 /**
  * 読み込み中の関係性情報をすべて管理するDBを定義
@@ -125,7 +128,15 @@ export async function checkRelational(
     return Failure(new Error('An annotation content is not loaded yet'));
   }
 
-  const checkedRule = await validRelational(r.relational, srcContentTxt, targetContentTxt);
+  // 緩和ルールのアプリ設定側フォールバックは、src側アノテーションが属するコンテナの
+  // コンテナ設定（`.kumihimo/settings.json`）を基準にする（同一コンテナを開く誰にとっても
+  // 同じ検証結果になるようにするため、ブラウザローカルなアプリ設定は使わない）
+  const checkedRule = await validRelational(
+    r.relational,
+    srcContentTxt,
+    targetContentTxt,
+    r.srcAddress.cID,
+  );
 
   return Success(checkedRule);
 }
@@ -361,18 +372,51 @@ async function loadCachedRelationals(c: ContainerSkel): Promise<Result<Relationa
 }
 
 /**
+ * コンテナ単位の緩和ルールのキャッシュ
+ *
+ * 1ファイル分の関係性検証（`relationalStore.refreshFile`）は多数の`equal`ルールを
+ * まとめて検証するため、`rule.relaxation`が指定されていない全ての関係性が同じコンテナの
+ * 設定ファイルを毎回読みに行くと、無駄なファイル読み込みが繰り返されてしまう。
+ * 一度読み込んだ内容はコンテナIDごとにここへ保持し、設定が更新された際は
+ * `invalidateContainerRelaxationCache`で破棄する
+ */
+const containerRelaxationCache = new Map<ContainerID, RelaxationOptions>();
+
+/**
+ * コンテナ単位の緩和ルールのキャッシュを破棄する
+ *
+ * コンテナ設定（`.kumihimo/settings.json`）を更新した直後に呼び出し、古い緩和ルールが
+ * それ以降の検証に使われ続けないようにする
+ */
+export function invalidateContainerRelaxationCache(cID: ContainerID): void {
+  containerRelaxationCache.delete(cID);
+}
+
+/**
  * 等値検証で使う緩和ルールを決定する
  *
- * アノテーション別設定（`rule.relaxation`）がある場合はアプリ設定を完全に無視して
- * それだけを使う（合成ではなく完全上書き）。無い場合のみアプリ設定にフォールバックする
+ * アノテーション別設定（`rule.relaxation`）がある場合はコンテナ設定を完全に無視して
+ * それだけを使う（合成ではなく完全上書き）。無い場合のみ、コンテナルートの設定ファイル
+ * （`.kumihimo/settings.json`）にフォールバックする。ブラウザ単位のアプリ設定
+ * （IndexedDB）は使わない——同一コンテナを開いた誰にとっても検証結果が同じになるようにするため。
+ * フォールバック先の設定はコンテナごとにキャッシュし、同一バッチ内での重複読み込みを避ける
  */
 async function resolveRelaxationOptions(
   rule: Extract<RelationalRule, { type: 'equal' }>,
+  cID: ContainerID,
 ): Promise<RelaxationOptions> {
   if (rule.relaxation !== undefined) return rule.relaxation;
 
-  const settingsRes = await getSettings();
-  return settingsRes.ok ? settingsRes.value.relationalRelaxation : DEFAULT_RELAXATION_OPTIONS;
+  const cached = containerRelaxationCache.get(cID);
+  if (cached !== undefined) return cached;
+
+  const settingsRes = await containerConfigService.getContainerSettingsFile(cID);
+  const relaxation = settingsRes.ok
+    ? settingsRes.value.relationalRelaxation
+    : DEFAULT_RELAXATION_OPTIONS;
+
+  if (settingsRes.ok) containerRelaxationCache.set(cID, relaxation);
+  return relaxation;
 }
 
 /**
@@ -387,7 +431,7 @@ function applyFormula(rawText: string, formula: string | undefined): string {
   if (x === undefined) return rawText;
 
   const result = evaluateFormula(formula, x);
-  return result === undefined ? rawText : String(result);
+  return result === undefined ? rawText : String(roundFormulaResult(result));
 }
 
 /**
@@ -400,6 +444,7 @@ async function validRelational(
   relational: Relational,
   srcVal: string,
   targetVal: string,
+  cID: ContainerID,
 ): Promise<RelationalResponce> {
   let isOK = true;
   switch (relational.rule.type) {
@@ -407,7 +452,7 @@ async function validRelational(
       break;
     case 'equal': {
       const rule = relational.rule;
-      const relaxation = await resolveRelaxationOptions(rule);
+      const relaxation = await resolveRelaxationOptions(rule, cID);
       const srcComparisonVal = applyFormula(srcVal, rule.srcFormula);
       const targetComparisonVal = applyFormula(targetVal, rule.targetFormula);
       isOK = relaxedEqual(srcComparisonVal, targetComparisonVal, relaxation);

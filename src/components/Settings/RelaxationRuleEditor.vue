@@ -16,6 +16,11 @@
         :label="$t('settings.relationalRelaxation.ignoreWidth')"
         @update:model-value="(v) => patch({ ignoreWidth: v })"
       />
+      <q-toggle
+        :model-value="model.numericEquivalence"
+        :label="$t('settings.relationalRelaxation.numericEquivalence')"
+        @update:model-value="(v) => patch({ numericEquivalence: v })"
+      />
     </div>
 
     <div class="equivalence-groups q-mt-md">
@@ -81,21 +86,33 @@ function patch(partial: Partial<RelaxationOptions>) {
   model.value = { ...model.value, ...partial };
 }
 
+/**
+ * 空の文字グループを1つ追加する（ユーザーが最初の文字を入力するまでは空のまま保持する）
+ */
 function addGroup() {
   patch({ equivalenceGroups: [...model.value.equivalenceGroups, ['']] });
 }
 
+/**
+ * 指定インデックスのグループを削除する
+ */
 function removeGroup(groupIndex: number) {
   patch({
     equivalenceGroups: model.value.equivalenceGroups.filter((_, i) => i !== groupIndex),
   });
 }
 
+/**
+ * 指定グループに空の文字を1つ追加する（入力欄が増え、ユーザーが続けて文字を入力できるようにする）
+ */
 function addChar(groupIndex: number) {
   const groups = model.value.equivalenceGroups.map((g, i) => (i === groupIndex ? [...g, ''] : g));
   patch({ equivalenceGroups: groups });
 }
 
+/**
+ * 指定グループ内の指定インデックスの文字を書き換える
+ */
 function setChar(groupIndex: number, charIndex: number, value: string) {
   const groups = model.value.equivalenceGroups.map((g, i) =>
     i === groupIndex ? g.map((c, j) => (j === charIndex ? value : c)) : g,

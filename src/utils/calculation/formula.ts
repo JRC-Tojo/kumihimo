@@ -18,6 +18,15 @@ export function parseNumericValue(raw: string): number | undefined {
 }
 
 /**
+ * 計算結果に含まれる浮動小数点演算特有の丸め誤差（例：`100 * 1.09`が`109.00000000000001`に
+ * なる等）を吸収する。小数第10位で丸め、`-0`は`0`に正規化する
+ */
+export function roundFormulaResult(value: number): number {
+  const rounded = Math.round(value * 1e10) / 1e10;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+/**
  * `+ - * / ( )` と変数`x`のみからなる数式を評価する
  *
  * 文法: expr := term (('+'|'-') term)* ; term := unary (('*'|'/') unary)* ;

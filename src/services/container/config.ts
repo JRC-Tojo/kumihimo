@@ -13,6 +13,10 @@ import type {
   RelationalInFile,
 } from 'src/models/relational/fileSchema';
 import { CachedRelationalFile, DocumentConfigFile } from 'src/models/relational/fileSchema';
+import {
+  ContainerSettingsFile,
+  DEFAULT_CONTAINER_SETTINGS_FILE,
+} from 'src/models/relational/containerSettings';
 import * as textRepository from 'src/repositories/document/text';
 import type { RelationalWithAddress } from 'src/models/relational/common';
 import { CONFIG_FILE_EXTS } from 'src/models/document/common';
@@ -37,6 +41,14 @@ export function getConfigPath(filePath: string): string {
  */
 function getRelationalFilePath(cPath: string): string {
   const path = new Path(cPath).child(CONTAINER_CONFIG_FOLDER).child('relational.json');
+  return path.path;
+}
+
+/**
+ * コンテナ単位の設定を記録しているコンテナルートのファイルパス
+ */
+function getContainerSettingsFilePath(cPath: string): string {
+  const path = new Path(cPath).child(CONTAINER_CONFIG_FOLDER).child('settings.json');
   return path.path;
 }
 
@@ -259,6 +271,55 @@ export async function remapRelationalFilePaths(
   if (!container.ok) return container;
   const relationalFilePath = getRelationalFilePath(container.value.containerPath);
   const createRes = await containerService.createFile(cID, relationalFilePath, relFileSrc.value);
+  if (!createRes.ok) return createRes;
+
+  return Success();
+}
+
+/**
+ * コンテナルートに保存されているコンテナ単位の設定ファイルを取得する
+ *
+ * ファイルがまだ存在しない場合（コンテナの初回読み込み時等）は既定値として扱う。
+ * ファイル不存在（`NotFoundError`）以外の読み込み失敗や、読み込めた内容のデコード・検証に
+ * 失敗した場合は、既存データの喪失を防ぐため本来のエラーとして返す
+ */
+export async function getContainerSettingsFile(
+  cID: ContainerID,
+): Promise<Result<ContainerSettingsFile>> {
+  const containerService = await import('./main');
+  const container = containerService.getContainer(cID);
+  if (!container.ok) return container;
+
+  const settingsFilePath = getContainerSettingsFilePath(container.value.containerPath);
+  const src = await containerService.loadFileAsDocumentSource(cID, settingsFilePath);
+  if (!src.ok) {
+    if (src.error instanceof NotFoundError) return Success(DEFAULT_CONTAINER_SETTINGS_FILE);
+    return src;
+  }
+
+  return textRepository.loadTextContents(src.value, ContainerSettingsFile);
+}
+
+/**
+ * コンテナルートのコンテナ単位の設定ファイルを更新する
+ *
+ * 同一コンテナを開いた他のユーザー・端末にも同じ内容が反映される（IndexedDBベースの
+ * アプリ設定とは異なり、ブラウザ単位ではなくコンテナ単位で共有される）
+ */
+export async function saveContainerSettingsFile(
+  cID: ContainerID,
+  settings: ContainerSettingsFile,
+): Promise<Result<void>> {
+  const containerService = await import('./main');
+  const container = containerService.getContainer(cID);
+  if (!container.ok) return container;
+
+  const settingsStr = JSON.stringify(settings, null, 2);
+  const settingsSrc = textRepository.encodeTextContents(settingsStr);
+  if (!settingsSrc.ok) return settingsSrc;
+
+  const settingsFilePath = getContainerSettingsFilePath(container.value.containerPath);
+  const createRes = await containerService.createFile(cID, settingsFilePath, settingsSrc.value);
   if (!createRes.ok) return createRes;
 
   return Success();

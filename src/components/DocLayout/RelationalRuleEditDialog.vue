@@ -62,7 +62,7 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
-import { useSettingsStore } from 'src/stores/settingsStore';
+import { useBackendApi } from 'src/apis/backendApi';
 import { useRelationalStore, edgeValueFor, type RelationalEdge } from 'src/stores/relationalStore';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
@@ -71,7 +71,12 @@ import {
   DEFAULT_RELAXATION_OPTIONS,
   type RelaxationOptions,
 } from 'src/models/relational/relaxation';
-import { evaluateFormula, parseNumericValue } from 'src/utils/calculation/formula';
+import {
+  evaluateFormula,
+  parseNumericValue,
+  roundFormulaResult,
+} from 'src/utils/calculation/formula';
+import { sanitizeRelaxationOptions } from 'src/utils/text/relaxedCompare';
 import RelaxationRuleEditor from 'src/components/Settings/RelaxationRuleEditor.vue';
 
 interface Prop {
@@ -85,7 +90,7 @@ const open = defineModel<boolean>('open', { required: true });
 
 const $q = useQuasar();
 const { t } = useI18n();
-const settingsStore = useSettingsStore();
+const api = useBackendApi();
 const relationalStore = useRelationalStore();
 
 const isSrcSelf = computed(() => prop.edge.relational.srcID === prop.selfAnnotId);
@@ -102,20 +107,32 @@ const otherFormula = computed<string | undefined>(() => {
 
 /**
  * ダイアログを開くたびに、現在の`edge`のルールから編集用のローカル状態を再構築する
+ *
+ * 上書きが無効な場合にエディタへ表示する初期値は、コンテナルートの設定ファイル
+ * （`.kumihimo/settings.json`）から取得する（同一コンテナを開いた誰にとっても
+ * 同じ既定値になる、ブラウザ単位ではないコンテナ単位の設定のため）
  */
-function resetFromEdge() {
+async function resetFromEdge() {
   const rule = prop.edge.relational.rule;
   if (rule.type !== 'equal') return;
 
   overrideEnabled.value = rule.relaxation !== undefined;
-  localRelaxation.value = rule.relaxation ?? settingsStore.relationalRelaxation;
   ownFormula.value = (isSrcSelf.value ? rule.srcFormula : rule.targetFormula) ?? '';
+
+  if (rule.relaxation !== undefined) {
+    localRelaxation.value = rule.relaxation;
+    return;
+  }
+  const containerRelaxationRes = await api.getContainerRelaxationSettings(prop.file.containerID);
+  localRelaxation.value = containerRelaxationRes.ok
+    ? containerRelaxationRes.data
+    : DEFAULT_RELAXATION_OPTIONS;
 }
 
 watch(
   open,
   (isOpen) => {
-    if (isOpen) resetFromEdge();
+    if (isOpen) void resetFromEdge();
   },
   { immediate: true },
 );
@@ -133,9 +150,14 @@ const formulaPreview = computed<string | undefined>(() => {
   if (x === undefined) return undefined;
 
   const result = evaluateFormula(ownFormula.value, x);
-  return result === undefined ? undefined : String(result);
+  return result === undefined ? undefined : String(roundFormulaResult(result));
 });
 
+/**
+ * 編集内容から新しいルールを組み立てて保存する
+ *
+ * 保存に失敗した場合は元のルールを維持したまま通知のみ行い、成功した場合はダイアログを閉じる
+ */
 async function onSave() {
   const rule = prop.edge.relational.rule;
   if (rule.type !== 'equal') return;
@@ -143,7 +165,9 @@ async function onSave() {
   const newRule: RelationalRule = {
     type: 'equal',
     constVal: rule.constVal,
-    relaxation: overrideEnabled.value ? localRelaxation.value : undefined,
+    relaxation: overrideEnabled.value
+      ? sanitizeRelaxationOptions(localRelaxation.value)
+      : undefined,
     srcFormula: isSrcSelf.value ? ownFormula.value || undefined : rule.srcFormula,
     targetFormula: isSrcSelf.value ? rule.targetFormula : ownFormula.value || undefined,
   };

@@ -1,8 +1,10 @@
 /**
- * 関係性の等値検証における緩和ルール（大文字小文字・空白・全角半角・文字置換）を適用した文字列比較
+ * 関係性の等値検証における緩和ルール（大文字小文字・空白・全角半角・文字置換・数値表記）を
+ * 適用した文字列比較
  */
 
 import type { RelaxationOptions } from 'src/models/relational/relaxation';
+import { parseNumericValue } from 'src/utils/calculation/formula';
 
 /**
  * 緩和ルールに従い、置換グループ一覧を1文字列に対して適用する
@@ -39,7 +41,35 @@ export function normalizeForComparison(value: string, options: RelaxationOptions
 
 /**
  * 緩和ルールを適用したうえで2つの文字列が一致するかどうかを判定する
+ *
+ * `numericEquivalence`が有効な場合、正規化後の両値が共に数値として解釈できれば
+ * 数値として比較する（例：「8」と「8.000」を同じ値として扱う）。どちらかが数値化できない
+ * 場合は通常の文字列比較にフォールバックする
  */
 export function relaxedEqual(a: string, b: string, options: RelaxationOptions): boolean {
-  return normalizeForComparison(a, options) === normalizeForComparison(b, options);
+  const normA = normalizeForComparison(a, options);
+  const normB = normalizeForComparison(b, options);
+
+  if (options.numericEquivalence) {
+    const numA = parseNumericValue(normA);
+    const numB = parseNumericValue(normB);
+    if (numA !== undefined && numB !== undefined) return numA === numB;
+  }
+
+  return normA === normB;
+}
+
+/**
+ * 保存前に緩和ルールを整形する
+ *
+ * 編集中の入力欄で生じる空文字の要素（`CharEquivalenceGroup`はスキーマ上空文字を許容しない）を
+ * 取り除き、結果として空になったグループ自体も削除する
+ */
+export function sanitizeRelaxationOptions(options: RelaxationOptions): RelaxationOptions {
+  return {
+    ...options,
+    equivalenceGroups: options.equivalenceGroups
+      .map((group) => group.filter((ch) => ch !== ''))
+      .filter((group) => group.length > 0),
+  };
 }

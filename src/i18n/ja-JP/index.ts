@@ -152,8 +152,10 @@ export default {
       ignoreCase: '大文字・小文字を区別しない',
       ignoreWhitespace: 'スペースの有無を区別しない',
       ignoreWidth: '全角・半角を区別しない',
+      numericEquivalence: '数値として意味が同じであれば一致とみなす（例：「8」と「8.000」）',
       equivalenceGroups: '同一視する文字グループ',
-      equivalenceGroupsHint: '各グループの先頭の文字が代表として扱われます。',
+      equivalenceGroupsHint:
+        '同じ意味で使われる記号・文字をまとめてグループにすると、検証時にその違いを無視できます。例えば掛け算を表す「×」「x」「X」「*」を1つのグループにしておくと、どの表記で入力されていても同じものとして扱われます。各グループの先頭の文字が代表（正規化後に統一される文字）になります。',
       addGroup: 'グループを追加',
       removeGroup: 'グループを削除',
       addChar: '文字を追加',
@@ -223,6 +225,13 @@ export default {
         registerSuccess: '関係性を登録しました。',
         registerFailed: '関係性の登録に失敗しました。',
         changeFailed: '関係性の種別変更に失敗しました。',
+        openContainerSettings: 'コンテナの緩和ルールを開く',
+        containerSettings: {
+          title: 'コンテナの関係性緩和ルール',
+          description:
+            '同一コンテナ（フォルダ・クラウドフォルダ）を開いた全員に共通で適用される緩和ルールです。コンテナルートの.kumihimo/settings.jsonに保存されるため、誰が検証しても結果が変わりません。',
+          saveFailed: '緩和ルールの保存に失敗しました。',
+        },
       },
       layerOrder: {
         title: '重ね順',
@@ -324,14 +333,14 @@ export default {
       noRelations: 'リンクはありません',
       selfValue: '自身の値',
       otherValue: '相手の値',
-      verifying: '検証中...',
+      verifying: '<読み込み中>',
       emptyValue: '(空)',
       editRule: '緩和ルールを編集',
       ruleEdit: {
         title: '緩和ルールの編集',
-        overrideGlobal: 'アプリ設定を上書きする',
+        overrideGlobal: 'コンテナ設定を上書きする',
         overrideGlobalHint:
-          'オンにすると、このアノテーションの組み合わせだけアプリ設定の緩和ルールを無視して、以下の設定のみを使います。',
+          'オンにすると、このアノテーションの組み合わせだけコンテナ全体の緩和ルールを無視して、以下の設定のみを使います。',
         ownFormula: '自身の値に適用する計算式',
         ownFormulaHint:
           '変数xに自身の抽出値（数値）を代入して評価します（例: x * 1.09）。四則演算と括弧のみ使えます。',

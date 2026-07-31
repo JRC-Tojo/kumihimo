@@ -152,8 +152,10 @@ export default {
       ignoreCase: 'Ignore case',
       ignoreWhitespace: 'Ignore whitespace',
       ignoreWidth: 'Ignore full-width/half-width differences',
+      numericEquivalence: 'Treat numbers with the same value as equal (e.g. "8" and "8.000")',
       equivalenceGroups: 'Equivalent character groups',
-      equivalenceGroupsHint: 'The first character in each group is treated as the canonical one.',
+      equivalenceGroupsHint:
+        'Group symbols or characters that are used with the same meaning so their differences are ignored during verification. For example, put the multiplication signs "×", "x", "X", and "*" into one group so any of these notations are treated as identical. The first character in each group becomes the canonical one (the value everything else is normalized to).',
       addGroup: 'Add group',
       removeGroup: 'Remove group',
       addChar: 'Add character',
@@ -223,6 +225,13 @@ export default {
         registerSuccess: 'Relationship registered.',
         registerFailed: 'Failed to register the relationship.',
         changeFailed: 'Failed to change the relationship type.',
+        openContainerSettings: 'Open container relaxation rules',
+        containerSettings: {
+          title: 'Container Relational Relaxation Rules',
+          description:
+            'Relaxation rules shared by everyone who opens this same container (folder / cloud folder). Stored at .kumihimo/settings.json in the container root, so verification results are consistent regardless of who checks them.',
+          saveFailed: 'Failed to save the relaxation rules.',
+        },
       },
       layerOrder: {
         title: 'Layer Order',
@@ -325,14 +334,14 @@ export default {
       noRelations: 'No relations',
       selfValue: 'Own value',
       otherValue: 'Other value',
-      verifying: 'Verifying...',
+      verifying: '<Loading>',
       emptyValue: '(empty)',
       editRule: 'Edit relaxation rule',
       ruleEdit: {
         title: 'Edit Relaxation Rule',
-        overrideGlobal: 'Override app settings',
+        overrideGlobal: 'Override container settings',
         overrideGlobalHint:
-          'When enabled, only this pair of annotations ignores the app-wide relaxation rules and uses the settings below instead.',
+          'When enabled, only this pair of annotations ignores the container-wide relaxation rules and uses the settings below instead.',
         ownFormula: 'Calculation applied to own value',
         ownFormulaHint:
           'Evaluated with variable x bound to the own extracted value as a number (e.g. x * 1.09). Only basic arithmetic and parentheses are supported.',

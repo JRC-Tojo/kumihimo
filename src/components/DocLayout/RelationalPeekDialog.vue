@@ -10,7 +10,9 @@
       <!-- 自身の値（比較のもう一方の基準として表示） -->
       <q-card-section class="q-py-none">
         <span class="text-caption text-grey-6"> {{ $t('pdfEditor.peek.selfValue') }}: </span>
-        <span class="self-value-text">{{ selfValueDisplay }}</span>
+        <span class="self-value-text" :class="{ 'text-grey-6': isSelfValuePending }">{{
+          selfValueDisplay
+        }}</span>
       </q-card-section>
 
       <q-card-section class="preview-section">
@@ -110,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
@@ -189,6 +191,13 @@ const selfValueDisplay = computed<string>(() => {
   const firstEdge = edges.value[0];
   if (firstEdge === undefined) return '';
   return displayValue(edgeValueFor(firstEdge, prop.annotId), firstEdge);
+});
+
+// 自身の値がまだ読み込み中（アノテーションの移動・リサイズ直後の再読み込み待ち等）かどうか。
+// 表示を灰色にして「値が未確定であること」が一目で分かるようにする
+const isSelfValuePending = computed<boolean>(() => {
+  const firstEdge = edges.value[0];
+  return firstEdge !== undefined && firstEdge.checkedRule === undefined;
 });
 
 function otherValueDisplay(edge: RelationalEdge): string {
@@ -331,6 +340,53 @@ watch(
   },
   { immediate: true },
 );
+
+// 「自身の値」が読み込み中（アノテーション編集直後の内容再読み込み待ち等）の間は、通常は
+// DocumentTabView.vue側のアノテーション変化監視で自動的に再検証されるはずだが、それだけに
+// 頼らず一定間隔でリトライすることで、読み込み完了を確実に取りこぼさないようにする。
+// ダイアログが閉じられた・値が確定した場合はその時点でリトライを打ち切る
+const PENDING_RETRY_INTERVAL_MS = 1000;
+const PENDING_RETRY_MAX_COUNT = 15; // 約15秒経っても解決しない場合はリトライを諦める
+let pendingRetryTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingRetryCount = 0;
+
+function clearPendingRetryTimer() {
+  if (pendingRetryTimer !== undefined) {
+    clearTimeout(pendingRetryTimer);
+    pendingRetryTimer = undefined;
+  }
+}
+
+async function runPendingRetry() {
+  pendingRetryTimer = undefined;
+  pendingRetryCount += 1;
+  if (!open.value) return;
+
+  await relationalStore.refreshFile(prop.file);
+  if (open.value && isSelfValuePending.value) schedulePendingRetry();
+}
+
+function schedulePendingRetry() {
+  clearPendingRetryTimer();
+  if (pendingRetryCount >= PENDING_RETRY_MAX_COUNT) return;
+
+  pendingRetryTimer = setTimeout(() => void runPendingRetry(), PENDING_RETRY_INTERVAL_MS);
+}
+
+watch(
+  [isSelfValuePending, open],
+  ([isPending, isOpen]) => {
+    if (!isPending || !isOpen) {
+      clearPendingRetryTimer();
+      pendingRetryCount = 0;
+      return;
+    }
+    schedulePendingRetry();
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(clearPendingRetryTimer);
 </script>
 
 <style scoped lang="scss">

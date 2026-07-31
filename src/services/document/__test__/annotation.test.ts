@@ -518,6 +518,36 @@ describe('registerAnnotationStyleにおけるコンテンツ再読み込みの�
     expect(updateAnnotationContentTextMock).toHaveBeenCalledWith(idB, '');
   });
 
+  it('ジオメトリが変化した場合、再読込が完了するまでcontext.textは未読み込み（undefined）として即座に反映される', async () => {
+    getAnnotationInfoMock.mockClear();
+    loadFileAsDocumentSourceMock.mockClear();
+    addAnnotationInfosMock.mockClear();
+
+    // 直前は既存のOCR結果を持っていたアノテーション
+    getAnnotationInfoMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        Success<AnnotationInfo>({
+          style: baseStyle(idA),
+          context: { text: '移動前の古いOCR結果' },
+        }),
+      ),
+    );
+    // 再読込自体は待たず、即座に返る戻り値だけを検証する（実際のOCR結果を待たない）
+    loadFileAsDocumentSourceMock.mockImplementationOnce(() => new Promise<never>(() => undefined));
+
+    // 位置（x）を変更＝ジオメトリ変化
+    const movedStyle = baseStyle(idA, { x: 100 });
+    const res = await registerAnnotationStyle(file, movedStyle);
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    // 古いOCR結果を引き継がず、再読込完了までは未読み込み扱いになる
+    expect(res.value.context.text).toBeUndefined();
+    // DBへ保存される内容も同様にundefinedであること
+    expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
+    expect(addAnnotationInfosMock.mock.calls[0]?.[1]?.[0]?.context.text).toBeUndefined();
+  });
+
   it('ジオメトリ（ページ番号・外接矩形）が変化していない場合、コンテンツ読み込みは発火しない', async () => {
     getAnnotationInfoMock.mockClear();
     loadFileAsDocumentSourceMock.mockClear();
