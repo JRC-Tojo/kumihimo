@@ -64,28 +64,44 @@ export async function renderPage(
       viewport = page.getViewport({ scale: maxWidth / viewport.width });
     }
 
+    // 高解像度ディスプレイ（Retina等）対応
+    const dpr = window.devicePixelRatio || 1;
+    const pixelWidth = viewport.width * dpr;
+    const pixelHeight = viewport.height * dpr;
+
+    // 画面に表示中のcanvasへ直接`width`/`height`を設定すると、その瞬間に同期的にラスタが
+    // クリアされ、非同期の`page.render()`が完了するまでの間、白紙のcanvasが一瞬見えてしまう
+    // （ズームのデバウンス再描画で顕著）。オフスクリーンのcanvasへ描画を完了させてから、
+    // 表示用canvasのリサイズと転写を同一の同期処理内でまとめて行うことで、表示用canvasが
+    // 古い内容から新しい内容へ一度に切り替わるようにし、空白フレームが表示されないようにする
+    const offscreen = document.createElement('canvas');
+    offscreen.width = pixelWidth;
+    offscreen.height = pixelHeight;
+    const offscreenContext = offscreen.getContext('2d');
+    if (!offscreenContext) {
+      throw new Error('Canvas context not available');
+    }
+    offscreenContext.scale(dpr, dpr);
+
+    const renderContext = {
+      canvasContext: offscreenContext,
+      viewport: viewport,
+      canvas: offscreen,
+    };
+    await page.render(renderContext).promise;
+
+    // ここまで来て初めて表示用canvasを更新する（リサイズ→転写が同一タスク内で完結するため、
+    // ブラウザが空白状態を描画する隙が生まれない）
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+    canvas.style.width = `${viewport.width}px`;
+    canvas.style.height = `${viewport.height}px`;
     const context = canvas.getContext('2d');
     if (!context) {
       throw new Error('Canvas context not available');
     }
+    context.drawImage(offscreen, 0, 0);
 
-    // 高解像度ディスプレイ（Retina等）対応
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = viewport.width * dpr;
-    canvas.height = viewport.height * dpr;
-    canvas.style.width = `${viewport.width}px`;
-    canvas.style.height = `${viewport.height}px`;
-
-    // レンダリングコンテキストをDPRに合わせてスケール
-    context.scale(dpr, dpr);
-
-    const renderContext = {
-      canvasContext: context,
-      viewport: viewport,
-      canvas: canvas,
-    };
-
-    await page.render(renderContext).promise;
     return { width: viewport.width, height: viewport.height };
   } catch (error) {
     throw new Error(
