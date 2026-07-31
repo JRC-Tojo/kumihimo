@@ -1063,6 +1063,21 @@ watch(
   },
   { flush: 'post', deep: true },
 );
+
+// ズームのデバウンス再描画（PdfPage.vue）でcanvasSizeが変わるとKonva Stageの
+// width/height/scaleXYが同時に更新されるが、Konva内部ではwidth/height変更時の
+// _resizeDOM()が同期的にlayer.draw()を呼ぶ一方、scaleX/scaleYの変更自体は
+// アニメーションフレームまで描画が遅延される。その結果、幅・高さだけ新しくなり
+// スケールはまだ古いままの1フレームが描画され、アノテーションが一瞬ちらつく。
+// vue-konvaがconfigをKonvaノードへ反映した直後（flush: 'post'）に同期的な
+// stage.draw()を強制することで、ブラウザに古いスケールのフレームが渡る前に描き直す
+watch(
+  canvasSize,
+  () => {
+    stageRef.value?.getNode()?.draw();
+  },
+  { flush: 'post' },
+);
 </script>
 
 <style scoped lang="scss">

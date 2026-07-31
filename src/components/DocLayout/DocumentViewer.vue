@@ -7,7 +7,7 @@
       ref="viewerContainer"
     >
       <!-- 単一ページまたは見開き表示 -->
-      <div v-if="viewMode === 'single'" class="pages-container">
+      <div v-if="viewMode === 'single'" class="pages-container" ref="singlePageContainer">
         <PdfPage
           :annotations="annotations"
           v-model:selected-annot-ids="selectedAnnotIds"
@@ -76,8 +76,8 @@ interface Prop {
   file: ContainerElementFile;
   annotations: AnnotationStyle[];
   onRender: RenderFunc;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
+  onZoomIn: (clientX?: number, clientY?: number) => void;
+  onZoomOut: (clientX?: number, clientY?: number) => void;
   onScrollToCurrentPage: (viewerContainerHeight: number) => void;
 }
 const prop = defineProps<Prop>();
@@ -94,6 +94,26 @@ const scale = computed(() => zoomLevel.value / 100);
 // 連続表示モード用
 const pageRefs = ref<(HTMLElement | null)[]>([]);
 const viewerContainer = useTemplateRef('viewerContainer');
+const singlePageContainer = useTemplateRef('singlePageContainer');
+
+/**
+ * ズームのアンカー計算用に、現在表示中のページ自体のDOM矩形を返す。
+ *
+ * `.pages-container`/`.continuous-pages`は`margin: auto` + `max-width: fit-content`で
+ * 水平方向に中央寄せされており、この余白幅はズーム倍率が変わるたびに変化する。また連続表示モードでは
+ * ページ間に`q-mb-md`という固定（スケールに連動しない）マージンが挟まるため、スクロールコンテナ全体を
+ * 単一のスケール係数で線形にモデル化することはできない。
+ * 個々のページ要素自身の矩形（内部に余白を持たず、常にscaleに比例したサイズになる）を直接測定することで、
+ * これらの非線形要素を計算に含めずにズーム前後のアンカー位置を求められるようにする
+ */
+function getAnchorRect(): DOMRect | undefined {
+  if (prop.viewMode === 'continuousSingle') {
+    return pageRefs.value[currentPage.value - 1]?.getBoundingClientRect();
+  }
+  return singlePageContainer.value?.getBoundingClientRect();
+}
+
+defineExpose({ getAnchorRect });
 
 // ============ 連続表示モードの仮想化 ============
 // 「現在表示中のページ」をスクロール位置から正確に追跡し、そのページの前後
@@ -205,15 +225,15 @@ function setupIntersectionObserver() {
 }
 
 /**
- * ズームをホイールで制御
+ * ズームをホイールで制御（カーソル位置を基準にズームするため、クリック座標を伝える）
  */
 function handleZoomWheel(event: WheelEvent) {
   if (event.ctrlKey) {
     event.preventDefault();
     if (event.deltaY < 0) {
-      prop.onZoomIn();
+      prop.onZoomIn(event.clientX, event.clientY);
     } else {
-      prop.onZoomOut();
+      prop.onZoomOut(event.clientX, event.clientY);
     }
   }
 }

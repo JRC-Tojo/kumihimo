@@ -55,7 +55,7 @@ const lastRenderedScale = ref(1);
  * ズーム中の見た目はCSS transformのみで追従させ、操作が落ち着いた時点で
  * その時点のスケールに合わせて描き直すことで、鮮明さとメモリ・描画コストを両立する
  */
-const ZOOM_RERENDER_DEBOUNCE_MS = 400;
+const ZOOM_RERENDER_DEBOUNCE_MS = 200;
 
 // ラスタライズ済みの内容を、CSS transformで現在のズーム倍率まで拡大・縮小する係数。
 // lastRenderedScaleとscaleが乖離するほど画質は劣化する（乖離が大きいほど、CSSでの拡大時はぼやけ、
