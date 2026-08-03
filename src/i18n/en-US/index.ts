@@ -290,6 +290,7 @@ export default {
         endHead: 'End Arrowhead',
         headSize: 'Arrowhead Size',
         fontFamily: 'Font',
+        fontFamilyLoadOsFonts: 'Load fonts installed on this PC',
         fontSize: 'Font Size',
         fontWeight: 'Font Weight',
         textAlign: 'Text Align',

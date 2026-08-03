@@ -10,6 +10,7 @@
 
 import { getDocument } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PageViewport } from 'pdfjs-dist';
+import fontkit from '@pdf-lib/fontkit';
 import {
   PDFDocument,
   PDFHexString,
@@ -19,19 +20,29 @@ import {
   lineTo,
   closePath,
   stroke,
+  fill,
   fillAndStroke,
   setLineWidth,
   setDashPattern,
   setStrokingRgbColor,
   setFillingRgbColor,
   appendBezierCurve,
-  degrees,
+  pushGraphicsState,
+  popGraphicsState,
+  setGraphicsState,
+  beginText,
+  endText,
+  setFontAndSize,
+  setTextMatrix,
+  moveText,
+  showText,
+  rectangle,
 } from 'pdf-lib';
-import type { PDFContext, PDFFont, PDFOperator, PDFPage } from 'pdf-lib';
+import type { PDFContext, PDFFont, PDFName, PDFOperator, PDFPage } from 'pdf-lib';
 import { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
 import { Success, Failure, toError } from 'src/models/error/result';
-import type { AnnotationStyle, ArrowHeadType, TextItemBox } from 'src/models/document/pdf';
+import type { AnnotationStyle, ArrowHeadType, BlendMode, TextItemBox } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
@@ -43,9 +54,18 @@ import {
   isFilledHead,
 } from 'src/components/Viewer/Annotation/arrowHeadGeometry';
 import { strokeTypeToDash } from 'src/utils/document/strokeDash';
+import { blendModeToPdfBlendName } from 'src/utils/document/blendMode';
+import { PDF_STANDARD_FONT_DATA_URL } from 'src/utils/document/pdfStandardFontDataUrl';
+import { getAnnotationSortKey } from 'src/utils/document/annotationOrder';
+import { wrapTextLines } from 'src/utils/document/textWrap';
 import type { FileIdentity } from 'src/utils/document/fileKey';
 import { acquirePdfDocument } from 'src/repositories/document/pdfDocumentCache';
-import { renderAnnotationsOntoCanvas } from 'src/repositories/document/annotationCanvasRenderer';
+import {
+  isLocalFontAccessSupported,
+  queryLocalFonts,
+  findBestFontMatch,
+  getFontBytes,
+} from 'src/repositories/document/localFontAccess';
 
 /**
  * PDF をロードして PDFDocumentProxy を返す（Result でラップ）
@@ -60,7 +80,13 @@ export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PD
   if (!data.ok) return data;
 
   try {
-    const pdf = await getDocument({ data: data.value }).promise;
+    // 標準14フォント（Helvetica等）はグリフの輪郭データを内蔵せず埋め込まれていないため、
+    // pdf.js自身が持つフォールバック用の輪郭データの場所を教えないと、該当フォントを
+    // 使うテキストが描画されない（プロジェクトには同梱せず、必要になった時点でCDNから取得する）
+    const pdf = await getDocument({
+      data: data.value,
+      standardFontDataUrl: PDF_STANDARD_FONT_DATA_URL,
+    }).promise;
     return Success(pdf);
   } catch (e) {
     return Failure(toError(e));
@@ -773,9 +799,15 @@ function hexToRgb(hex: string) {
  * `pageHeight - y`変換だけでは座標がずれる（横長ページ等で位置・向きがおかしくなる不具合の原因）。
  * ここでの変換はpdf.js内部の`PageViewport`が採用する回転行列と等価な計算になっている
  */
+/** ページの`/Rotate`を0/90/180/270のいずれかへ正規化する（それ以外の値は0として扱う） */
+function normalizedPageRotation(page: PDFPage): 0 | 90 | 180 | 270 {
+  const angle = ((page.getRotation().angle % 360) + 360) % 360;
+  return angle === 90 || angle === 180 || angle === 270 ? angle : 0;
+}
+
 function visualToRawPageSpace(screenX: number, screenY: number, page: PDFPage): { x: number; y: number } {
   const mediaBox = page.getMediaBox();
-  const rotation = ((page.getRotation().angle % 360) + 360) % 360;
+  const rotation = normalizedPageRotation(page);
   const mw = mediaBox.width;
   const mh = mediaBox.height;
 
@@ -906,6 +938,81 @@ function mapFontFamilyToStandardFont(fontFamily: string, fontWeight: number): St
   return bold ? StandardFonts.HelveticaBold : StandardFonts.Helvetica;
 }
 
+/** AnnotationStylePanel.vueが提供する3つの汎用CSSファミリー名かどうか（特定のOSフォント名ではない） */
+function isGenericFontFamily(fontFamily: string): boolean {
+  const family = fontFamily.toLowerCase();
+  return family === 'sans-serif' || family === 'serif' || family === 'monospace';
+}
+
+interface ResolvedTextFont {
+  font: PDFFont;
+  /** 標準14フォント（WinAnsiEncoding固定）かどうか。falseなら実フォントを埋め込み済みでUnicodeを扱える */
+  isStandard: boolean;
+}
+
+/**
+ * フォントファミリー名・太さから、実際にPDFへ埋め込むフォントを解決する。
+ *
+ * `fontFamily`が汎用名（sans-serif/serif/monospace）ではなく、かつこのブラウザがLocal Font
+ * Access APIに対応している場合、OSにインストールされている実フォントのデータを取得して
+ * fontkit経由でそのまま埋め込む（標準14フォントのWinAnsi制限を受けず、日本語等のUnicode全般を
+ * 正しく扱える）。対応していない・フォントが見つからない・埋め込みに失敗した場合は、
+ * 従来どおり標準14フォントへ近似マッピングする
+ */
+async function resolveTextFont(
+  pdfDoc: PDFDocument,
+  fontFamily: string,
+  fontWeight: number,
+): Promise<ResolvedTextFont> {
+  if (!isGenericFontFamily(fontFamily) && isLocalFontAccessSupported()) {
+    const fontsRes = await queryLocalFonts();
+    if (fontsRes.ok) {
+      const match = findBestFontMatch(fontsRes.value, fontFamily, fontWeight >= 700);
+      if (match) {
+        const bytesRes = await getFontBytes(match);
+        if (bytesRes.ok) {
+          try {
+            pdfDoc.registerFontkit(fontkit);
+            const embedded = await pdfDoc.embedFont(bytesRes.value, { subset: true });
+            return { font: embedded, isStandard: false };
+          } catch {
+            // フォント埋め込みに失敗した場合は標準14フォントへフォールバックする
+          }
+        }
+      }
+    }
+  }
+  const stdFont = mapFontFamilyToStandardFont(fontFamily, fontWeight);
+  return { font: pdfDoc.embedStandardFont(stdFont), isStandard: true };
+}
+
+/**
+ * WinAnsiEncoding（CP1252）でエンコード可能な範囲の文字だけで構成されているかどうかを判定する。
+ *
+ * pdf-libの標準14フォント（Helvetica/Times/Courier）はWinAnsiEncoding固定でグリフを持たず、
+ * 日本語等のCJK文字を渡すと`font.encodeText`/`widthOfTextAtSize`が例外を投げて保存処理全体が
+ * 失敗してしまう。`resolveTextFont`でOSフォントの実埋め込みに成功した場合はこの制限を受けない
+ * ため、標準14フォントへフォールバックした場合にのみ、この判定でテキスト描画を安全にスキップする
+ */
+function isWinAnsiEncodable(text: string): boolean {
+  const specialCodePoints = new Set([
+    0x2018, 0x2019, 0x201a, 0x201c, 0x201d, 0x201e, 0x2020, 0x2021, 0x2022, 0x2026, 0x2013, 0x2014,
+    0x02c6, 0x02dc, 0x2039, 0x203a, 0x2030, 0x20ac, 0x0152, 0x0153, 0x0160, 0x0161, 0x0178, 0x017d,
+    0x017e, 0x0192,
+  ]);
+  for (const ch of text) {
+    const codePoint = ch.codePointAt(0);
+    if (codePoint === undefined) continue;
+    if (codePoint === 0x0a || codePoint === 0x0d) continue; // 改行はwrapTextLines側で処理済み
+    const inBasicLatin = codePoint >= 0x20 && codePoint <= 0x7e;
+    const inLatin1Supplement = codePoint >= 0xa0 && codePoint <= 0xff;
+    if (!inBasicLatin && !inLatin1Supplement && !specialCodePoints.has(codePoint)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** ローカル座標(x,y)を指定角度（度）で回転し、原点(originX,originY)を加算して絶対座標を求める */
 function rotateAndTranslate(
   x: number,
@@ -921,17 +1028,22 @@ function rotateAndTranslate(
 }
 
 /** 円1つ分のPDF描画命令（4本のベジェ曲線による近似）を返す。塗り・線とも同色で描く前提 */
-function buildCircleOperators(cx: number, cy: number, r: number): PDFOperator[] {
-  const k = 0.5522847498;
+/** 楕円の外周パス（4本のベジェ曲線による近似）を構築する。塗り・線の描画命令は含まない */
+function buildEllipsePathOperators(cx: number, cy: number, rx: number, ry: number): PDFOperator[] {
+  const kx = rx * 0.5522847498;
+  const ky = ry * 0.5522847498;
   return [
-    moveTo(cx + r, cy),
-    appendBezierCurve(cx + r, cy + r * k, cx + r * k, cy + r, cx, cy + r),
-    appendBezierCurve(cx - r * k, cy + r, cx - r, cy + r * k, cx - r, cy),
-    appendBezierCurve(cx - r, cy - r * k, cx - r * k, cy - r, cx, cy - r),
-    appendBezierCurve(cx + r * k, cy - r, cx + r, cy - r * k, cx + r, cy),
+    moveTo(cx + rx, cy),
+    appendBezierCurve(cx + rx, cy + ky, cx + kx, cy + ry, cx, cy + ry),
+    appendBezierCurve(cx - kx, cy + ry, cx - rx, cy + ky, cx - rx, cy),
+    appendBezierCurve(cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry),
+    appendBezierCurve(cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy),
     closePath(),
-    fillAndStroke(),
   ];
+}
+
+function buildCircleOperators(cx: number, cy: number, r: number): PDFOperator[] {
+  return [...buildEllipsePathOperators(cx, cy, r, r), fillAndStroke()];
 }
 
 /** 矢じり1つ分の形状（PDF空間・Y上向きに変換済み）。'none'または退化した端点の場合はnull */
@@ -1065,14 +1177,14 @@ function buildArrowAppearanceStream(
     setFillingRgbColor(color.r, color.g, color.b),
     setLineWidth(strokeWidth),
   ];
-  if (dash && dash.length > 0) ops.push(setDashPattern(dash, 0));
+  ops.push(setDashPattern(dash ?? [], 0));
   ops.push(moveTo(shaftVerticesPdf[0]!.x, shaftVerticesPdf[0]!.y));
   for (let i = 1; i < shaftVerticesPdf.length; i++) {
     ops.push(lineTo(shaftVerticesPdf[i]!.x, shaftVerticesPdf[i]!.y));
   }
   ops.push(stroke());
   // 矢じり自体はKonva描画と同様、線種（dash）は適用せず常に実線で描く
-  if (dash && dash.length > 0) ops.push(setDashPattern([], 0));
+  ops.push(setDashPattern([], 0));
   if (startShape) ops.push(...headShapeToOperators(startShape));
   if (endShape) ops.push(...headShapeToOperators(endShape));
 
@@ -1093,8 +1205,9 @@ export async function embedAnnotationsAsCommentsIntoPdf(
   try {
     const pdfDoc = await PDFDocument.load(src64);
     const context = pdfDoc.context;
-    // 標準14フォントの埋め込みは注釈間で共有し、同じフォントを重複して埋め込まないようにする
-    const fontCache = new Map<StandardFonts, { font: PDFFont; resourceName: string }>();
+    // フォントの解決（OS実フォント埋め込み or 標準14フォント）は注釈間で共有し、
+    // 同じ`fontFamily`+太さの組み合わせに対して重複して埋め込み・問い合わせを行わない
+    const fontCache = new Map<string, { font: PDFFont; resourceName: string; isStandard: boolean }>();
 
     for (const a of annotations) {
       const pageIndex = a.pageNumber - 1;
@@ -1139,7 +1252,7 @@ export async function embedAnnotationsAsCommentsIntoPdf(
       } else if (a.type === 'circle') {
         const { x, y, radius, radiusX, radiusY, fillColor, fillOpacity } = a;
         // /Rotateが90/270の場合、水平・垂直の半径がスクリーン空間とPDF生空間で入れ替わる
-        const rotation = ((page.getRotation().angle % 360) + 360) % 360;
+        const rotation = normalizedPageRotation(page);
         const swapAxes = rotation === 90 || rotation === 270;
         const rawRx = swapAxes ? (radiusY ?? radius) : (radiusX ?? radius);
         const rawRy = swapAxes ? (radiusX ?? radius) : (radiusY ?? radius);
@@ -1261,13 +1374,12 @@ export async function embedAnnotationsAsCommentsIntoPdf(
         const textRgb = hexToRgb(textColor);
         const textP1 = toRaw(x, y);
         const textP2 = toRaw(x + width, y + height);
+        const rectMinX = Math.min(textP1.x, textP2.x);
+        const rectMinY = Math.min(textP1.y, textP2.y);
+        const rectMaxX = Math.max(textP1.x, textP2.x);
+        const rectMaxY = Math.max(textP1.y, textP2.y);
         dictLiteral.Subtype = 'FreeText';
-        dictLiteral.Rect = [
-          Math.min(textP1.x, textP2.x),
-          Math.min(textP1.y, textP2.y),
-          Math.max(textP1.x, textP2.x),
-          Math.max(textP1.y, textP2.y),
-        ];
+        dictLiteral.Rect = [rectMinX, rectMinY, rectMaxX, rectMaxY];
         dictLiteral.Contents = PDFHexString.fromText(text);
         dictLiteral.Q = textAlign === 'center' ? 1 : textAlign === 'right' ? 2 : 0;
         if (fillColor) {
@@ -1277,16 +1389,81 @@ export async function embedAnnotationsAsCommentsIntoPdf(
         if (fillOpacity !== undefined) dictLiteral.CA = fillOpacity;
         delete dictLiteral.C;
 
-        // フォントは標準14フォントへ近似マッピングし、注釈自身の/DRから/DAで参照する
+        // フォントは可能ならOSの実フォントを埋め込み、そうでなければ標準14フォントへ近似
+        // マッピングし、注釈自身の/DRから/DAで参照する
         // （/Helv固定だと実際のfontFamily/fontWeightがビューア既定フォントに埋もれて反映されなかった）
-        const stdFont = mapFontFamilyToStandardFont(fontFamily, fontWeight);
-        let cachedFont = fontCache.get(stdFont);
+        const fontCacheKey = `${fontFamily}|${fontWeight >= 700 ? 'bold' : 'regular'}`;
+        let cachedFont = fontCache.get(fontCacheKey);
         if (!cachedFont) {
-          cachedFont = { font: pdfDoc.embedStandardFont(stdFont), resourceName: `F${fontCache.size}` };
-          fontCache.set(stdFont, cachedFont);
+          const resolved = await resolveTextFont(pdfDoc, fontFamily, fontWeight);
+          cachedFont = {
+            font: resolved.font,
+            resourceName: `F${fontCache.size}`,
+            isStandard: resolved.isStandard,
+          };
+          fontCache.set(fontCacheKey, cachedFont);
         }
         dictLiteral.DR = { Font: { [cachedFont.resourceName]: cachedFont.font.ref } };
         dictLiteral.DA = `${textRgb.r} ${textRgb.g} ${textRgb.b} rg /${cachedFont.resourceName} ${fontSize} Tf`;
+
+        // FreeText注釈には/IC（背景色）に相当するフィールドがPDF仕様上存在せず、多くのビューアで
+        // 背景色が反映されない。背景・枠線・折り返し済み本文を独自の外観ストリーム（/AP /N）として
+        // 焼き込み、ビューアのDA自動生成に頼らず見た目（塗り含む）を再現する。
+        // ただし標準14フォントはWinAnsiEncoding固定でCJK文字のグリフを持たないため、日本語等を
+        // 含み実フォント埋め込みにも失敗している場合は、/APの構築自体を安全にスキップし、従来どおり
+        // /DAのみに委ねる（表示はビューアの自動生成に依存するため背景色は反映されないが、
+        // 保存処理自体は落ちない）
+        if (!cachedFont.isStandard || isWinAnsiEncodable(text)) {
+          try {
+            const textStrokeWidth = a.strokeWidth || 1;
+            const boxDash = a.color ? strokeTypeToDash(a.strokeType, textStrokeWidth) : undefined;
+            const boxOps: PDFOperator[] = [];
+            if (fillColor) {
+              const fc = hexToRgb(fillColor);
+              boxOps.push(setFillingRgbColor(fc.r, fc.g, fc.b));
+            }
+            if (a.color) {
+              const sc = hexToRgb(a.color);
+              boxOps.push(
+                setStrokingRgbColor(sc.r, sc.g, sc.b),
+                setLineWidth(textStrokeWidth),
+                setDashPattern(boxDash ?? [], 0),
+              );
+            }
+            if (fillColor || a.color) {
+              boxOps.push(
+                rectangle(rectMinX, rectMinY, rectMaxX - rectMinX, rectMaxY - rectMinY),
+                paintOperator(!!fillColor, !!a.color),
+              );
+            }
+
+            const padding = 4;
+            const maxWidth = Math.max(0, width - padding * 2);
+            const ascent = cachedFont.font.heightAtSize(fontSize, { descender: false });
+            const basis = textDirectionBasis(normalizedPageRotation(page));
+            const origin = toRaw(x + padding, y + padding + ascent);
+            const textOps = buildWrappedTextShowOps({
+              font: cachedFont.font,
+              fontName: cachedFont.resourceName,
+              text,
+              fontSize,
+              textAlign,
+              maxWidth,
+              origin,
+              basis,
+              textColor: textRgb,
+            });
+
+            const apStream = context.formXObject([...boxOps, ...textOps], {
+              BBox: [rectMinX, rectMinY, rectMaxX, rectMaxY],
+              Resources: { Font: { [cachedFont.resourceName]: cachedFont.font.ref } },
+            });
+            dictLiteral.AP = { N: context.register(apStream) };
+          } catch {
+            // フォントに存在しない文字等で外観ストリームの構築に失敗した場合も、
+            // 従来どおり/DAのみに委ねる（保存処理全体を失敗させない）
+          }
+        }
       } else {
         continue;
       }
@@ -1304,28 +1481,461 @@ export async function embedAnnotationsAsCommentsIntoPdf(
 }
 
 /**
- * PDFの各ページに、アノテーションを含めた「画面表示どおりの見た目」を1枚のラスタとして焼き込む
- * （非可逆）。
+ * ページ単位で、アノテーションをベクタ形状として焼き込む際に共有する描画コンテキスト
+ *
+ * ページの元の内容（背景）には一切手を加えず、そのページの既存コンテンツストリームに
+ * 直接描画命令を追記していく（`page.pushOperators`）ため、ベクタPDFはベクタのまま残る
+ */
+interface VectorPageContext {
+  pdfDoc: PDFDocument;
+  page: PDFPage;
+  context: PDFContext;
+  /** スクリーン空間（左上原点・Y下向き、pdf.jsのviewportと同じ空間）をページの生の座標空間へ変換する */
+  toRaw: (screenX: number, screenY: number) => { x: number; y: number };
+  rotation: 0 | 90 | 180 | 270;
+  /** (BM名|fillAlpha|strokeAlpha) の組み合わせごとに使い回す、このページ内のExtGStateリソース名 */
+  gsNames: Map<string, PDFName>;
+  /** フォントの解決（OS実フォント埋め込み or 標準14フォント）は文書全体で共有し、
+   * 同じ`fontFamily`+太さの組み合わせに対して重複して埋め込み・問い合わせを行わない
+   * （キーは`${fontFamily}|${bold ? 'bold' : 'regular'}`） */
+  fontCache: Map<string, ResolvedTextFont>;
+  /** フォントのページリソース名は、同じキーごとにこのページ内で使い回す */
+  pageFontNames: Map<string, PDFName>;
+}
+
+/**
+ * ブレンドモード・不透明度を、必要な場合のみ`ExtGState`（`/BM`・`/ca`・`/CA`）でラップする。
+ * どちらも既定値（Normal・不透明）ならラップせずそのまま返す
+ */
+function wrapWithGraphicsState(
+  ops: PDFOperator[],
+  params: { blendMode?: BlendMode | undefined; fillAlpha?: number | undefined; strokeAlpha?: number | undefined },
+  pc: VectorPageContext,
+): PDFOperator[] {
+  if (ops.length === 0) return ops;
+
+  const bm = blendModeToPdfBlendName(params.blendMode);
+  const fillAlpha = params.fillAlpha ?? 1;
+  const strokeAlpha = params.strokeAlpha ?? 1;
+  if (bm === 'Normal' && fillAlpha === 1 && strokeAlpha === 1) return ops;
+
+  const key = `${bm}|${fillAlpha}|${strokeAlpha}`;
+  let gsName = pc.gsNames.get(key);
+  if (!gsName) {
+    const gsDict = pc.context.obj({ Type: 'ExtGState', BM: bm, ca: fillAlpha, CA: strokeAlpha });
+    const gsRef = pc.context.register(gsDict);
+    gsName = pc.page.node.newExtGState(`GS${pc.gsNames.size}`, gsRef);
+    pc.gsNames.set(key, gsName);
+  }
+  return [pushGraphicsState(), setGraphicsState(gsName), ...ops, popGraphicsState()];
+}
+
+/** 塗り・線の両方/片方だけを描画する場合の塗りつぶし命令を選ぶ */
+function paintOperator(hasFill: boolean, hasStroke: boolean): PDFOperator {
+  if (hasFill && hasStroke) return fillAndStroke();
+  if (hasFill) return fill();
+  return stroke();
+}
+
+function pdfOpsForBox(a: Extract<AnnotationStyle, { type: 'box' }>, pc: VectorPageContext): PDFOperator[] {
+  if (!a.color && !a.fillColor) return [];
+  const p1 = pc.toRaw(a.x, a.y);
+  const p2 = pc.toRaw(a.x + a.width, a.y + a.height);
+  const x = Math.min(p1.x, p2.x);
+  const y = Math.min(p1.y, p2.y);
+  const width = Math.abs(p2.x - p1.x);
+  const height = Math.abs(p2.y - p1.y);
+  const strokeWidth = a.strokeWidth || 2;
+  const dash = a.color ? strokeTypeToDash(a.strokeType, strokeWidth) : undefined;
+
+  const ops: PDFOperator[] = [];
+  if (a.fillColor) {
+    const fc = hexToRgb(a.fillColor);
+    ops.push(setFillingRgbColor(fc.r, fc.g, fc.b));
+  }
+  if (a.color) {
+    const sc = hexToRgb(a.color);
+    ops.push(
+      setStrokingRgbColor(sc.r, sc.g, sc.b),
+      setLineWidth(strokeWidth),
+      setDashPattern(dash ?? [], 0),
+    );
+  }
+  ops.push(rectangle(x, y, width, height), paintOperator(!!a.fillColor, !!a.color));
+
+  return wrapWithGraphicsState(
+    ops,
+    {
+      blendMode: a.blendMode,
+      fillAlpha: a.fillColor ? (a.fillOpacity ?? a.opacity ?? 1) : undefined,
+      strokeAlpha: a.color ? (a.strokeOpacity ?? a.opacity ?? 1) : undefined,
+    },
+    pc,
+  );
+}
+
+function pdfOpsForCircle(
+  a: Extract<AnnotationStyle, { type: 'circle' }>,
+  pc: VectorPageContext,
+): PDFOperator[] {
+  if (!a.color && !a.fillColor) return [];
+  // /Rotateが90/270の場合、水平・垂直の半径がスクリーン空間とPDF生空間で入れ替わる
+  const swapAxes = pc.rotation === 90 || pc.rotation === 270;
+  const rx = swapAxes ? (a.radiusY ?? a.radius) : (a.radiusX ?? a.radius);
+  const ry = swapAxes ? (a.radiusX ?? a.radius) : (a.radiusY ?? a.radius);
+  const center = pc.toRaw(a.x, a.y);
+  const strokeWidth = a.strokeWidth || 2;
+  const dash = a.color ? strokeTypeToDash(a.strokeType, strokeWidth) : undefined;
+
+  const ops: PDFOperator[] = [];
+  if (a.fillColor) {
+    const fc = hexToRgb(a.fillColor);
+    ops.push(setFillingRgbColor(fc.r, fc.g, fc.b));
+  }
+  if (a.color) {
+    const sc = hexToRgb(a.color);
+    ops.push(
+      setStrokingRgbColor(sc.r, sc.g, sc.b),
+      setLineWidth(strokeWidth),
+      setDashPattern(dash ?? [], 0),
+    );
+  }
+  ops.push(...buildEllipsePathOperators(center.x, center.y, rx, ry));
+  ops.push(paintOperator(!!a.fillColor, !!a.color));
+
+  return wrapWithGraphicsState(
+    ops,
+    {
+      blendMode: a.blendMode,
+      fillAlpha: a.fillColor ? (a.fillOpacity ?? a.opacity ?? 1) : undefined,
+      strokeAlpha: a.color ? (a.strokeOpacity ?? a.opacity ?? 1) : undefined,
+    },
+    pc,
+  );
+}
+
+function pdfOpsForLine(a: Extract<AnnotationStyle, { type: 'line' }>, pc: VectorPageContext): PDFOperator[] {
+  if (!a.color) return [];
+  const [x1, y1, x2, y2] = a.points;
+  if (typeof x1 !== 'number' || typeof y1 !== 'number' || typeof x2 !== 'number' || typeof y2 !== 'number') {
+    return [];
+  }
+  const p1 = pc.toRaw(a.x + x1, a.y + y1);
+  const p2 = pc.toRaw(a.x + x2, a.y + y2);
+  const strokeWidth = a.strokeWidth || 2;
+  const dash = strokeTypeToDash(a.strokeType, strokeWidth);
+  const sc = hexToRgb(a.color);
+
+  const ops: PDFOperator[] = [
+    setStrokingRgbColor(sc.r, sc.g, sc.b),
+    setLineWidth(strokeWidth),
+    setDashPattern(dash ?? [], 0),
+  ];
+  ops.push(moveTo(p1.x, p1.y), lineTo(p2.x, p2.y), stroke());
+
+  return wrapWithGraphicsState(
+    ops,
+    { blendMode: a.blendMode, strokeAlpha: a.strokeOpacity ?? a.opacity ?? 1 },
+    pc,
+  );
+}
+
+/**
+ * 矢印/ポリラインのシャフト＋矢じりを描画する。矢じり自体はKonva描画と同様、
+ * 常に実線で描く（シャフトのdashは矢じりには適用しない）
+ */
+function pdfOpsForArrowLike(
+  a: Extract<AnnotationStyle, { type: 'arrow' | 'polyline' }>,
+  pc: VectorPageContext,
+): PDFOperator[] {
+  if (!a.color) return [];
+  const strokeWidth = a.strokeWidth || 2;
+  const dash = strokeTypeToDash(a.strokeType, strokeWidth);
+  const sc = hexToRgb(a.color);
+
+  const shaftRaw: { x: number; y: number }[] = [];
+  for (let i = 0; i + 1 < a.points.length; i += 2) {
+    shaftRaw.push(pc.toRaw(a.x + a.points[i]!, a.y + a.points[i + 1]!));
+  }
+  if (shaftRaw.length === 0) return [];
+
+  const ops: PDFOperator[] = [
+    setStrokingRgbColor(sc.r, sc.g, sc.b),
+    setFillingRgbColor(sc.r, sc.g, sc.b),
+    setLineWidth(strokeWidth),
+    setDashPattern(dash ?? [], 0),
+  ];
+  ops.push(moveTo(shaftRaw[0]!.x, shaftRaw[0]!.y));
+  for (let i = 1; i < shaftRaw.length; i++) ops.push(lineTo(shaftRaw[i]!.x, shaftRaw[i]!.y));
+  ops.push(stroke());
+  // 矢じり自体はKonva描画と同様、線種（dash）は適用せず常に実線で描く
+  ops.push(setDashPattern([], 0));
+
+  const startShape = computeHeadShape(a.startHead, a.headSize, a.points, 'start', a.x, a.y, pc.toRaw);
+  const endShape = computeHeadShape(a.endHead, a.headSize, a.points, 'end', a.x, a.y, pc.toRaw);
+  if (startShape) ops.push(...headShapeToOperators(startShape));
+  if (endShape) ops.push(...headShapeToOperators(endShape));
+
+  return wrapWithGraphicsState(
+    ops,
+    { blendMode: a.blendMode, strokeAlpha: a.strokeOpacity ?? a.opacity ?? 1 },
+    pc,
+  );
+}
+
+function pdfOpsForPolygon(
+  a: Extract<AnnotationStyle, { type: 'polygon' }>,
+  pc: VectorPageContext,
+): PDFOperator[] {
+  if (!a.color && !a.fillColor) return [];
+  const verticesRaw: { x: number; y: number }[] = [];
+  for (let i = 0; i + 1 < a.points.length; i += 2) {
+    verticesRaw.push(pc.toRaw(a.x + a.points[i]!, a.y + a.points[i + 1]!));
+  }
+  if (verticesRaw.length === 0) return [];
+
+  const strokeWidth = a.strokeWidth || 2;
+  const dash = a.color ? strokeTypeToDash(a.strokeType, strokeWidth) : undefined;
+
+  const ops: PDFOperator[] = [];
+  if (a.fillColor) {
+    const fc = hexToRgb(a.fillColor);
+    ops.push(setFillingRgbColor(fc.r, fc.g, fc.b));
+  }
+  if (a.color) {
+    const sc = hexToRgb(a.color);
+    ops.push(
+      setStrokingRgbColor(sc.r, sc.g, sc.b),
+      setLineWidth(strokeWidth),
+      setDashPattern(dash ?? [], 0),
+    );
+  }
+  ops.push(moveTo(verticesRaw[0]!.x, verticesRaw[0]!.y));
+  for (let i = 1; i < verticesRaw.length; i++) ops.push(lineTo(verticesRaw[i]!.x, verticesRaw[i]!.y));
+  ops.push(closePath(), paintOperator(!!a.fillColor, !!a.color));
+
+  return wrapWithGraphicsState(
+    ops,
+    {
+      blendMode: a.blendMode,
+      fillAlpha: a.fillColor ? (a.fillOpacity ?? a.opacity ?? 1) : undefined,
+      strokeAlpha: a.color ? (a.strokeOpacity ?? a.opacity ?? 1) : undefined,
+    },
+    pc,
+  );
+}
+
+/** ページ回転に応じた、テキスト行列の方向ベクトル（文字の進む向き・行送り方向） */
+function textDirectionBasis(rotation: 0 | 90 | 180 | 270): {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+} {
+  switch (rotation) {
+    case 90:
+      return { a: 0, b: 1, c: -1, d: 0 };
+    case 180:
+      return { a: -1, b: 0, c: 0, d: -1 };
+    case 270:
+      return { a: 0, b: -1, c: 1, d: 0 };
+    default:
+      return { a: 1, b: 0, c: 0, d: 1 };
+  }
+}
+
+/**
+ * フォントファミリー名・太さから、実際に埋め込むフォントを解決する（`resolveTextFont`）。
+ * 文書単位（実体）・ページ単位（リソース名）でキャッシュしつつ取得する
+ */
+async function getOrEmbedFont(
+  fontFamily: string,
+  fontWeight: number,
+  pc: VectorPageContext,
+): Promise<{ font: PDFFont; name: PDFName; isStandard: boolean }> {
+  const cacheKey = `${fontFamily}|${fontWeight >= 700 ? 'bold' : 'regular'}`;
+  let resolved = pc.fontCache.get(cacheKey);
+  if (!resolved) {
+    resolved = await resolveTextFont(pc.pdfDoc, fontFamily, fontWeight);
+    pc.fontCache.set(cacheKey, resolved);
+  }
+  let name = pc.pageFontNames.get(cacheKey);
+  if (!name) {
+    name = pc.page.node.newFontDictionary(`F${pc.pageFontNames.size}`, resolved.font.ref);
+    pc.pageFontNames.set(cacheKey, name);
+  }
+  return { font: resolved.font, name, isStandard: resolved.isStandard };
+}
+
+/**
+ * 折り返し済みのテキストを、`BT`〜`ET`のPDF描画命令として組み立てる（`embedAnnotationsAsVectorIntoPdf`の
+ * テキスト種別と、`embedAnnotationsAsCommentsIntoPdf`のFreeText用外観ストリームの両方で共有する）。
+ * `origin`（ベースライン開始位置）・`basis`（テキストの向き）はページの`/Rotate`を踏まえて
+ * 呼び出し側で計算済みのものを渡すこと
+ */
+function buildWrappedTextShowOps(opts: {
+  font: PDFFont;
+  fontName: string | PDFName;
+  text: string;
+  fontSize: number;
+  textAlign: 'left' | 'center' | 'right';
+  maxWidth: number;
+  origin: { x: number; y: number };
+  basis: { a: number; b: number; c: number; d: number };
+  textColor: { r: number; g: number; b: number };
+}): PDFOperator[] {
+  const { font, fontName, text, fontSize, textAlign, maxWidth, origin, basis, textColor } = opts;
+  const lines = wrapTextLines(text, maxWidth, (s) => font.widthOfTextAtSize(s, fontSize));
+  const lineHeight = fontSize;
+
+  const ops: PDFOperator[] = [
+    setFillingRgbColor(textColor.r, textColor.g, textColor.b),
+    beginText(),
+    setFontAndSize(fontName, fontSize),
+    setTextMatrix(basis.a, basis.b, basis.c, basis.d, origin.x, origin.y),
+  ];
+
+  let prevOffset = 0;
+  lines.forEach((line, i) => {
+    const lineWidth = font.widthOfTextAtSize(line, fontSize);
+    const offset =
+      textAlign === 'center' ? (maxWidth - lineWidth) / 2 : textAlign === 'right' ? maxWidth - lineWidth : 0;
+    ops.push(moveText(offset - prevOffset, i === 0 ? 0 : -lineHeight));
+    prevOffset = offset;
+    if (line !== '') ops.push(showText(font.encodeText(line)));
+  });
+  ops.push(endText());
+  return ops;
+}
+
+/**
+ * テキストボックスを描画する（背景・枠線＋本文）。背景・枠線はTextBoxAnnotation.vueの
+ * rectConfigと同じ描画順（fill→stroke）、本文はwrap:'word'・verticalAlign:'top'・padding:4と
+ * 同じレイアウトを、`wrapTextLines`（フォントの実測幅ベース）で再現する
+ */
+async function pdfOpsForText(
+  a: Extract<AnnotationStyle, { type: 'text' }>,
+  pc: VectorPageContext,
+): Promise<PDFOperator[]> {
+  const ops: PDFOperator[] = [];
+  const strokeWidth = a.strokeWidth || 1;
+
+  if (a.color || a.fillColor) {
+    const p1 = pc.toRaw(a.x, a.y);
+    const p2 = pc.toRaw(a.x + a.width, a.y + a.height);
+    const x = Math.min(p1.x, p2.x);
+    const y = Math.min(p1.y, p2.y);
+    const width = Math.abs(p2.x - p1.x);
+    const height = Math.abs(p2.y - p1.y);
+    const dash = a.color ? strokeTypeToDash(a.strokeType, strokeWidth) : undefined;
+
+    const boxOps: PDFOperator[] = [];
+    if (a.fillColor) {
+      const fc = hexToRgb(a.fillColor);
+      boxOps.push(setFillingRgbColor(fc.r, fc.g, fc.b));
+    }
+    if (a.color) {
+      const sc = hexToRgb(a.color);
+      boxOps.push(
+        setStrokingRgbColor(sc.r, sc.g, sc.b),
+        setLineWidth(strokeWidth),
+        setDashPattern(dash ?? [], 0),
+      );
+    }
+    boxOps.push(rectangle(x, y, width, height), paintOperator(!!a.fillColor, !!a.color));
+
+    ops.push(
+      ...wrapWithGraphicsState(
+        boxOps,
+        {
+          blendMode: a.blendMode,
+          fillAlpha: a.fillColor ? (a.fillOpacity ?? a.opacity ?? 1) : undefined,
+          strokeAlpha: a.color ? (a.strokeOpacity ?? a.opacity ?? 1) : undefined,
+        },
+        pc,
+      ),
+    );
+  }
+
+  if (a.text.trim() !== '') {
+    try {
+      const { font, name: fontName, isStandard } = await getOrEmbedFont(
+        a.fontFamily,
+        a.fontWeight,
+        pc,
+      );
+      // 標準14フォントはWinAnsiEncoding固定でCJK文字のグリフを持たないため、日本語等を含む
+      // 場合はクラッシュを避けるためグリフ埋め込み自体をスキップする（実フォント埋め込みに
+      // 成功している場合はこの制限を受けないため、そのまま描画を試みる）
+      if (!isStandard || isWinAnsiEncodable(a.text)) {
+        const padding = 4;
+        const maxWidth = Math.max(0, a.width - padding * 2);
+        const ascent = font.heightAtSize(a.fontSize, { descender: false });
+        const basis = textDirectionBasis(pc.rotation);
+        const origin = pc.toRaw(a.x + padding, a.y + padding + ascent);
+        const textColor = hexToRgb(a.textColor);
+
+        const textOps = buildWrappedTextShowOps({
+          font,
+          fontName,
+          text: a.text,
+          fontSize: a.fontSize,
+          textAlign: a.textAlign,
+          maxWidth,
+          origin,
+          basis,
+          textColor,
+        });
+
+        ops.push(
+          ...wrapWithGraphicsState(
+            textOps,
+            { blendMode: a.blendMode, fillAlpha: a.fillOpacity ?? a.opacity ?? 1 },
+            pc,
+          ),
+        );
+      }
+    } catch {
+      // フォントに存在しない文字等で失敗した場合も、背景・枠線は維持したまま
+      // 本文の描画のみを諦める（保存処理全体を失敗させない）
+    }
+  }
+
+  return ops;
+}
+
+async function pdfOpsForAnnotation(a: AnnotationStyle, pc: VectorPageContext): Promise<PDFOperator[]> {
+  switch (a.type) {
+    case 'box':
+      return pdfOpsForBox(a, pc);
+    case 'circle':
+      return pdfOpsForCircle(a, pc);
+    case 'line':
+      return pdfOpsForLine(a, pc);
+    case 'arrow':
+    case 'polyline':
+      return pdfOpsForArrowLike(a, pc);
+    case 'polygon':
+      return pdfOpsForPolygon(a, pc);
+    case 'text':
+      return pdfOpsForText(a, pc);
+  }
+}
+
+/**
+ * PDFの各ページに、アノテーションを画面表示どおりの見た目でベクタ形状のまま焼き込む（非可逆）。
  *
  * `embedAnnotationsIntoPdf`（pdf-libの図形描画プリミティブで個別に再現する旧実装。矢印・折れ線・
- * テキストが未対応で、線種やブレンドモードも反映されない）とは異なり、画面描画（Konva）と同じ
- * 幾何計算・スタイル解決ロジックを再利用するCanvas 2D再描画（`annotationCanvasRenderer.ts`）で
- * ページの背景（`renderPageToCanvasFromDoc`）に注釈を重ね描きしてから1枚の画像として埋め込むため、
- * 線種・矢印サイズ・テキストの装飾・ブレンドモードを含めて画面表示と一致する。
- * pdf.jsの`viewport`はページの`/Rotate`を反映した「画面表示どおりの空間」を返すため、
- * アノテーション座標系との食い違い（横長ページ等での座標のずれ）も発生しない。
- *
- * ページ全体を1枚の画像に置き換えるため、注釈のあるページは元の（選択可能な）テキストが
- * 失われる点に注意。アノテーションが無いページは元のまま変更しない
+ * テキストが未対応で、線種やブレンドモードも反映されない）とは異なり、全アノテーション種別・
+ * 線種・矢印サイズ・テキストの折り返し・ブレンドモード（`ExtGState`の`/BM`）を再現する。
+ * ページの背景はラスタ化せず、既存のコンテンツストリームへ描画命令を追記するだけのため、
+ * 元がベクタのPDFはベクタのまま維持される（アノテーション自体もベクタ形状として埋め込まれる）。
+ * ページの`/Rotate`は`visualToRawPageSpace`で吸収するため、既存の内容や向きには影響しない
  */
-export async function embedAnnotationsAsRasterIntoPdf(
+export async function embedAnnotationsAsVectorIntoPdf(
   src64: DocumentSource,
   annotations: AnnotationStyle[],
-  scale = 2,
 ): Promise<Result<DocumentSource>> {
-  const loaded = await loadPdfFromSrc64(src64);
-  if (!loaded.ok) return Failure(loaded.error);
-
   try {
     const pdfDoc = await PDFDocument.load(src64);
 
@@ -1336,44 +1946,37 @@ export async function embedAnnotationsAsRasterIntoPdf(
       annotationsByPage.set(a.pageNumber, list);
     }
 
+    const fontCache = new Map<string, ResolvedTextFont>();
+
     for (const [pageNumber, pageAnnotations] of annotationsByPage) {
       const pageIndex = pageNumber - 1;
       if (pageIndex < 0 || pageIndex >= pdfDoc.getPageCount()) continue;
-
-      const rendered = await renderPageToCanvasFromDoc(loaded.value, pageNumber, scale);
-      if (!rendered.ok) return Failure(rendered.error);
-      const canvas = rendered.value;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return Failure(new Error('Canvas 2D context is not available'));
-
-      // アノテーション座標はPDFポイント単位（scale=1相当）のため、その分をキャンバスの
-      // スケールに合わせておく
-      ctx.save();
-      ctx.scale(scale, scale);
-      renderAnnotationsOntoCanvas(ctx, pageAnnotations);
-      ctx.restore();
-
-      const pngBytesRes = base64ToUint8Array(canvas.toDataURL('image/png'));
-      if (!pngBytesRes.ok) return Failure(pngBytesRes.error);
-
-      const pngImage = await pdfDoc.embedPng(pngBytesRes.value);
       const page = pdfDoc.getPage(pageIndex);
-      const widthPt = canvas.width / scale;
-      const heightPt = canvas.height / scale;
 
-      // 画像自体は既に「画面表示どおり」の向きでラスタライズ済みのため、ページの/Rotateは
-      // 正規化してしまい、その見た目そのままのサイズをページの新しいMediaBoxとする
-      page.setRotation(degrees(0));
-      page.setSize(widthPt, heightPt);
-      page.drawImage(pngImage, { x: 0, y: 0, width: widthPt, height: heightPt });
+      const pc: VectorPageContext = {
+        pdfDoc,
+        page,
+        context: pdfDoc.context,
+        toRaw: (x, y) => visualToRawPageSpace(x, y, page),
+        rotation: normalizedPageRotation(page),
+        gsNames: new Map(),
+        fontCache,
+        pageFontNames: new Map(),
+      };
+
+      const sorted = [...pageAnnotations].sort(
+        (a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b),
+      );
+      for (const a of sorted) {
+        const ops = await pdfOpsForAnnotation(a, pc);
+        if (ops.length > 0) page.pushOperators(...ops);
+      }
     }
 
     const out = await pdfDoc.save();
     return uint8ToDocSrc(out);
   } catch (e) {
     return Failure(toError(e));
-  } finally {
-    void loaded.value.destroy();
   }
 }
 
@@ -1390,5 +1993,5 @@ export default {
   removePageFromPdf,
   embedAnnotationsIntoPdf,
   embedAnnotationsAsCommentsIntoPdf,
-  embedAnnotationsAsRasterIntoPdf,
+  embedAnnotationsAsVectorIntoPdf,
 };

@@ -289,6 +289,7 @@ export default {
         endHead: '終点の矢じり形状',
         headSize: '矢じりサイズ',
         fontFamily: 'フォント',
+        fontFamilyLoadOsFonts: 'PCにインストールされているフォントを読み込む',
         fontSize: '文字サイズ',
         fontWeight: '文字の太さ',
         textAlign: '文字揃え',

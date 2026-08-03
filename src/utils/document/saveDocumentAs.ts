@@ -70,7 +70,7 @@ export async function saveDocumentAs(
 
     const packRes =
       mode === 'embedAnnotations'
-        ? await api.packAnnotationsAsRasterInSource(outSrc, styles)
+        ? await api.packAnnotationsAsVectorInSource(outSrc, styles)
         : await api.packAnnotationsAsCommentsInSource(outSrc, styles);
     if (!packRes.ok) {
       if (notifyMessages) Notify.create({ type: 'negative', message: notifyMessages.failed });

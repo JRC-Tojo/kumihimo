@@ -1,4 +1,7 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, mock, afterEach } from 'bun:test';
+import { inflateSync } from 'zlib';
+import { readFileSync } from 'fs';
+import path from 'path';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {
   PDFDocument,
@@ -7,6 +10,7 @@ import {
   PDFName,
   PDFHexString,
   PDFStream,
+  type PDFRawStream,
   degrees,
   type PDFNumber,
 } from 'pdf-lib';
@@ -36,6 +40,7 @@ let fakeGetDocumentImpl: FakeGetDocumentImpl = () => ({
 
 void mock.module('pdfjs-dist', () => ({
   getDocument: (options: { data: Uint8Array }) => fakeGetDocumentImpl(options),
+  version: '0.0.0-test',
 }));
 
 /**
@@ -79,7 +84,7 @@ const {
   removePageFromPdf,
   embedAnnotationsIntoPdf,
   embedAnnotationsAsCommentsIntoPdf,
-  embedAnnotationsAsRasterIntoPdf,
+  embedAnnotationsAsVectorIntoPdf,
   extractImageFromRegion,
   extractAnnotationContextPreview,
 } = await import('../pdf');
@@ -209,6 +214,26 @@ async function withPageRotation(
   const b64 = uint8ArrayToBase64(bytes);
   if (!b64.ok) throw b64.error;
   return DocumentSource.parse(b64.value);
+}
+
+/** 指定ページのコンテンツストリームを、Flate圧縮を解凍したうえで文字列として取得する（テスト検証用） */
+function getPageContentString(doc: PDFDocument, pageIndex: number): string {
+  const contents = doc.getPage(pageIndex).node.Contents();
+  const decode = (s: PDFStream): string => {
+    const raw = s as unknown as PDFRawStream;
+    try {
+      return inflateSync(Buffer.from(raw.getContents())).toString('binary');
+    } catch {
+      return Buffer.from(raw.getContents()).toString('binary');
+    }
+  };
+  if (contents instanceof PDFArray) {
+    return contents
+      .asArray()
+      .map((ref) => decode(doc.context.lookup(ref, PDFStream)))
+      .join('\n');
+  }
+  return contents ? decode(contents) : '';
 }
 
 const TEST_ANNOTATION_ID = AnnotationID.parse('11111111-1111-4111-8111-111111111111');
@@ -605,6 +630,38 @@ describe('embedAnnotationsAsCommentsIntoPdf（pdf-lib、ネイティブ注釈と
     expect(dr.lookup(PDFName.of('Font'), PDFDict)).toBeDefined();
   });
 
+  it('半角英数字の本文＋fillColorの場合、背景色を反映した独自の外観ストリーム（/AP /N）を持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const latinText = {
+      ...buildTextAnnotation(1),
+      text: 'Hello World',
+      fillColor: TEST_COLOR,
+      fillOpacity: 0.4,
+    };
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [latinText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(dict.get(PDFName.of('AP'))).toBeDefined();
+  });
+
+  it('日本語の本文の場合、標準14フォントがCJK文字のグリフを持たないため外観ストリームの構築は' +
+    'スキップされるが、保存自体は失敗しない（クラッシュ回避のフォールバック）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const jpText = { ...buildTextAnnotation(1), text: 'あいうえお', fillColor: TEST_COLOR };
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [jpText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(dict.get(PDFName.of('AP'))).toBeUndefined();
+  });
+
   it('/Rotateが90のページでは、見た目どおりの座標（画面表示側の空間）から正しくRectへ変換される', async () => {
     const baseSrc = await buildTestPdfSrc(1, [200, 100]);
     const rotatedSrc = await withPageRotation(baseSrc, 0, 90);
@@ -901,52 +958,158 @@ describe('renderPageToCanvasFromDoc / renderPageToCanvas / extractImageFromRegio
   });
 });
 
-describe('embedAnnotationsAsRasterIntoPdf（Canvas依存、pdf-lib + pdfjs-distモック）', () => {
-  setupCanvasDom();
-
-  it('注釈のあるページのみラスタ化され、/Rotateが0に正規化される。注釈の無いページは変更されない', async () => {
+describe('embedAnnotationsAsVectorIntoPdf（pdf-lib、ページ背景を保持したままベクタ形状で焼き込み）', () => {
+  it('全種別をエラーなく焼き込み、ページ数・サイズ・/Rotateは変更しない（ページ背景を保持する）', async () => {
     const baseSrc = await buildTestPdfSrc(2, [300, 300]);
     const src = await withPageRotation(baseSrc, 0, 90);
 
-    fakeGetDocumentImpl = () => ({
-      promise: Promise.resolve(
-        buildFakeDoc([
-          buildFakePage({ viewport: { width: 300, height: 300 } }),
-          buildFakePage({ viewport: { width: 300, height: 300 } }),
-        ]),
-      ),
-    });
-
-    const res = await embedAnnotationsAsRasterIntoPdf(src, [buildBoxAnnotation(1)], 1);
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [
+      buildBoxAnnotation(1),
+      buildCircleAnnotation(1),
+      buildLineAnnotation(1),
+      buildArrowAnnotation(1),
+      buildPolylineAnnotation(1),
+      buildPolygonAnnotation(1),
+      buildTextAnnotation(1),
+    ]);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
     const doc = await loadTestPdf(res.value);
     expect(doc.getPageCount()).toBe(2);
-
-    const annotatedPage = doc.getPage(0);
-    expect(annotatedPage.getRotation().angle).toBe(0);
-    expect(annotatedPage.getSize()).toEqual({ width: 300, height: 300 });
-
-    // 注釈の無い2ページ目は元のまま（回転が変わっていない）
-    const untouchedPage = doc.getPage(1);
-    expect(untouchedPage.getRotation().angle).toBe(0);
+    // ページの/Rotate・MediaBoxは変更されない（ページ背景がベクタのまま保持される）
+    expect(doc.getPage(0).getRotation().angle).toBe(90);
+    expect(doc.getPage(0).getSize()).toEqual({ width: 300, height: 300 });
+    expect(doc.getPage(1).getRotation().angle).toBe(0);
   });
 
   it('存在しないページ番号を指すアノテーションは無視される（エラーにならない）', async () => {
     const src = await buildTestPdfSrc(1, [300, 300]);
-    fakeGetDocumentImpl = () => ({
-      promise: Promise.resolve(
-        buildFakeDoc([buildFakePage({ viewport: { width: 300, height: 300 } })]),
-      ),
-    });
-
-    const res = await embedAnnotationsAsRasterIntoPdf(src, [buildBoxAnnotation(99)], 1);
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [buildBoxAnnotation(99)]);
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
     const doc = await loadTestPdf(res.value);
     expect(doc.getPageCount()).toBe(1);
-    expect(doc.getPage(0).getRotation().angle).toBe(0);
+  });
+
+  it('線種（dash）は前に描画した図形から引き継がれない（solidな図形の直前で必ずリセットされる）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const dashedBox = { ...buildBoxAnnotation(1), strokeType: 'dashed' as const };
+    const solidBox = { ...buildBoxAnnotation(1), x: 100 };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [dashedBox, solidBox]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const content = getPageContentString(doc, 0);
+    const dashOps = [...content.matchAll(/(\[[^\]]*\]) 0 d/g)].map((m) => m[1]);
+    // 1つ目（dashedBox）は破線パターン、2つ目（solidBox）は明示的にリセットされた実線（[]）であること
+    expect(dashOps).toHaveLength(2);
+    expect(dashOps[0]).not.toBe('[]');
+    expect(dashOps[1]).toBe('[]');
+  });
+
+  it('半角英数字の本文は、埋め込んだフォントでBT/Tjとして描画される（テキストが表示される）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const latinText = { ...buildTextAnnotation(1), text: 'Hello World' };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [latinText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const content = getPageContentString(doc, 0);
+    expect(content).toContain('BT');
+    expect(content).toContain('Tj');
+    expect(content).toContain('ET');
+  });
+
+  it('色未設定（塗り・線とも無し）のboxは何も描画しない（エラーにならない）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const noColorBox = { ...buildBoxAnnotation(1), color: undefined };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [noColorBox]);
+    expect(res.ok).toBeTrue();
+  });
+
+  it('スペースの無い長い日本語本文でもエラーにならず埋め込める（1文字ずつの折り返し）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const longText = {
+      ...buildTextAnnotation(1),
+      text: 'あ'.repeat(80),
+      width: 100,
+      height: 200,
+      fontSize: 12,
+    };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [longText]);
+    expect(res.ok).toBeTrue();
+  });
+
+  it('文字列に日本語（サンセリフ）を指定した場合でもHelveticaへフォールバックし、失敗しない', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [buildTextAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+  });
+});
+
+describe('OSフォント（Local Font Access API）による実フォント埋め込み', () => {
+  // bunのテスト環境にはbrowserの`window`が存在しないため、queryLocalFonts差し替え用に
+  // 最小限のグローバルを用意する。他のテストへ影響しないよう、このブロック専用にafterEachで戻す
+  if (typeof globalThis.window === 'undefined') {
+    (globalThis as unknown as { window: unknown }).window = globalThis;
+  }
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'queryLocalFonts');
+  });
+
+  const LIBERATION_SANS_BYTES = readFileSync(
+    path.join(
+      __dirname,
+      '../../../../node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf',
+    ),
+  );
+
+  it('window.queryLocalFontsが一致するOSフォントを返す場合、標準14フォントではなく実フォントを埋め込む', async () => {
+    window.queryLocalFonts = () =>
+      Promise.resolve([
+        {
+          postscriptName: 'LiberationSans-Regular',
+          fullName: 'Liberation Sans',
+          family: 'Liberation Sans',
+          style: 'Regular',
+          blob: () => Promise.resolve(new Blob([LIBERATION_SANS_BYTES])),
+        },
+      ]);
+
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const osFontText = { ...buildTextAnnotation(1), text: 'Hello', fontFamily: 'Liberation Sans' };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+    expect(fontDict).toBeDefined();
+    const [fontRef] = fontDict!.values();
+    const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+    // 標準14フォント（Type1・FontFileなし）ではなく、実フォントプログラムを含む
+    // 埋め込み済みフォント（Type0/CIDFontType2、FontDescriptor経由でFontFile2を持つ）であること
+    expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).not.toBe('/Type1');
+  });
+
+  it('window.queryLocalFontsが一致するフォントを返さない場合は標準14フォントへフォールバックする', async () => {
+    window.queryLocalFonts = () => Promise.resolve([]);
+
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const osFontText = { ...buildTextAnnotation(1), text: 'Hello', fontFamily: 'Nonexistent Font' };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+    expect(fontDict).toBeDefined();
+    const [fontRef] = fontDict!.values();
+    const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+    expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type1');
   });
 });

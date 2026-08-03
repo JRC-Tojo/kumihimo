@@ -13,3 +13,16 @@ export function blendModeToComposite(blendMode: BlendMode | undefined): GlobalCo
   if (blendMode === undefined || blendMode === 'normal') return 'source-over';
   return blendMode;
 }
+
+/**
+ * 指定されたアノテーションの合成モードを、PDF仕様（ISO 32000の`ExtGState`が持つ`/BM`）の
+ * ブレンドモード名へ変換する。CSS/Canvas 2Dのケバブケース名（'color-dodge'等）に対し、
+ * PDF側はパスカルケースの名前（'ColorDodge'等）を使う点のみ異なる
+ */
+export function blendModeToPdfBlendName(blendMode: BlendMode | undefined): string {
+  if (blendMode === undefined || blendMode === 'normal') return 'Normal';
+  return blendMode
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}

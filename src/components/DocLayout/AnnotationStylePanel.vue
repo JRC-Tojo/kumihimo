@@ -259,6 +259,28 @@
             >
               <q-item-section :style="{ fontFamily: opt.value }">{{ opt.label }}</q-item-section>
             </q-item>
+
+            <template v-if="osFontsSupported">
+              <q-separator />
+              <q-item v-if="osFontFamilies === null" clickable @click="loadOsFontFamilies">
+                <q-item-section>
+                  <q-spinner v-if="osFontsLoading" size="16px" class="q-mr-xs" />
+                  {{ t('pdfEditor.tools.stylePanel.fontFamilyLoadOsFonts') }}
+                </q-item-section>
+              </q-item>
+              <template v-else>
+                <q-item
+                  v-for="family in osFontFamilies"
+                  :key="family"
+                  v-close-popup
+                  clickable
+                  :active="fontFamily === family"
+                  @click="fontFamily = family"
+                >
+                  <q-item-section :style="{ fontFamily: family }">{{ family }}</q-item-section>
+                </q-item>
+              </template>
+            </template>
           </q-list>
         </q-menu>
         <q-tooltip anchor="top middle" self="bottom middle">
@@ -346,7 +368,7 @@
  * 共通4項目（線色・線幅・線種・不透明度）に加え、種別ごとの主要項目（塗り色/矢じり形状/フォント）
  * を表示する
  */
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAnnotationStylePanel } from './composables/useAnnotationStylePanel';
 import StyleSwatchButton from './StyleSwatchButton.vue';
@@ -354,8 +376,10 @@ import StrokeTypePreview from './StrokeTypePreview.vue';
 import BlendModePreview from './BlendModePreview.vue';
 import ArrowHeadPreview from './ArrowHeadPreview.vue';
 import type { BlendMode } from 'src/models/document/pdf';
+import { useBackendApi } from 'src/apis/backendApi';
 
 const { t } = useI18n();
+const api = useBackendApi();
 
 const {
   mode,
@@ -455,8 +479,31 @@ const fontFamilyOptions = [
   { label: 'Serif', value: 'serif' },
   { label: 'Monospace', value: 'monospace' },
 ];
+// 未読み込み: null / 読み込み済み（0件含む）: string[]。OSフォント選択後に別の注釈を選んでも
+// 再度APIへ問い合わせずに済むよう、パネルの表示中は結果を保持し続ける
+const osFontFamilies = ref<string[] | null>(null);
+const osFontsLoading = ref(false);
+const osFontsSupported = computed(() => api.isLocalFontAccessSupported());
+
+/**
+ * OSにインストールされているフォント一覧を読み込む
+ *
+ * Local Font Access APIはユーザー操作のハンドラ内からの呼び出しを要求するため、
+ * マウント時ではなくこのボタンのクリックハンドラから呼ぶ
+ */
+async function loadOsFontFamilies() {
+  if (osFontsLoading.value) return;
+  osFontsLoading.value = true;
+  try {
+    const res = await api.queryLocalFontFamilies();
+    osFontFamilies.value = res.ok ? res.data : [];
+  } finally {
+    osFontsLoading.value = false;
+  }
+}
+
 const fontFamilyLabel = computed(
-  () => fontFamilyOptions.find((opt) => opt.value === fontFamily.value)?.label ?? 'Sans Serif',
+  () => fontFamilyOptions.find((opt) => opt.value === fontFamily.value)?.label ?? fontFamily.value,
 );
 
 /** テキストの文字揃えの選択肢一覧（左寄せ・中央寄せ・右寄せ） */

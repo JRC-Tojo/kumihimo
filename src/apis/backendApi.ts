@@ -14,6 +14,7 @@ import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as relationalService from 'src/services/document/relational';
 import * as pdfRepo from 'src/repositories/document/pdf';
+import * as localFontAccessRepo from 'src/repositories/document/localFontAccess';
 import * as textRepo from 'src/repositories/document/text';
 import * as documentService from 'src/services/document/config';
 import type {
@@ -406,18 +407,42 @@ class BackendApi {
   }
 
   /**
-   * 文書別アノテーションを、画面表示どおりの見た目でページに焼き込んで保存（非可逆）
+   * 文書別アノテーションを、画面表示どおりの見た目でベクタ形状のままページに焼き込んで保存（非可逆）
    *
-   * `packAnnotationsInSource`（pdf-libの図形描画プリミティブで個別に再現）とは異なり、
-   * 画面描画（Konva）と同じロジックのCanvas 2D再描画でページ全体をラスタ化するため、
-   * 線種・矢印サイズ・テキストの装飾・ブレンドモードを含めて画面表示と一致する
+   * `packAnnotationsInSource`（pdf-libの図形描画プリミティブで一部種別のみ再現する旧実装）とは
+   * 異なり、全アノテーション種別・線種・矢印サイズ・テキストの折り返し・ブレンドモードを再現する。
+   * ページの背景はラスタ化しないため、元がベクタのPDFはベクタのまま維持される
    */
-  async packAnnotationsAsRasterInSource(
+  async packAnnotationsAsVectorInSource(
     docSrc: DocumentSource,
     annotations: AnnotationStyle[],
   ): Promise<ApiResponse<DocumentSource>> {
-    const packedSrc = await pdfRepo.embedAnnotationsAsRasterIntoPdf(docSrc, annotations);
+    const packedSrc = await pdfRepo.embedAnnotationsAsVectorIntoPdf(docSrc, annotations);
     return toApiResponse(packedSrc, 'DOC_ANNOT_EMBED_FAILED');
+  }
+
+  /**
+   * このブラウザがLocal Font Access API（OSの実フォントを列挙・取得するAPI）に対応しているか
+   *
+   * Chromium系ブラウザ（Chrome/Edge/Opera）専用。非対応の場合はUIから該当機能を隠すこと
+   */
+  isLocalFontAccessSupported(): boolean {
+    return localFontAccessRepo.isLocalFontAccessSupported();
+  }
+
+  /**
+   * OSにインストールされているフォントのファミリー名一覧（重複除去・ソート済み）を取得する
+   *
+   * 初回呼び出し時にブラウザの許可プロンプトが表示されるため、必ずユーザー操作
+   * （クリック等）のイベントハンドラ内から呼ぶこと
+   */
+  async queryLocalFontFamilies(): Promise<ApiResponse<string[]>> {
+    const res = await localFontAccessRepo.queryLocalFonts();
+    if (!res.ok) return toApiResponse(res, 'LOCAL_FONT_QUERY_FAILED');
+    const families = [...new Set(res.value.map((f) => f.family))].sort((a, b) =>
+      a.localeCompare(b),
+    );
+    return toApiResponse(Success(families));
   }
 
   /**
