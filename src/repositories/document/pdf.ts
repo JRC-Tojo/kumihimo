@@ -1100,12 +1100,18 @@ function computeHeadShape(
     );
     vertices.push(toRaw(p.x, p.y));
   }
-  return { kind: 'polygon', vertices, closed: isClosedHead(headType), filled: isFilledHead(headType) };
+  return {
+    kind: 'polygon',
+    vertices,
+    closed: isClosedHead(headType),
+    filled: isFilledHead(headType),
+  };
 }
 
 /** 矢じり1つ分の形状を、PDF描画命令へ変換する（塗り・線の色・幅は呼び出し側で設定済みの前提） */
 function headShapeToOperators(shape: HeadShape): PDFOperator[] {
-  if (shape.kind === 'circle') return buildCircleOperators(shape.center!.x, shape.center!.y, shape.radius!);
+  if (shape.kind === 'circle')
+    return buildCircleOperators(shape.center!.x, shape.center!.y, shape.radius!);
 
   const vertices = shape.vertices!;
   const ops: PDFOperator[] = [moveTo(vertices[0]!.x, vertices[0]!.y)];
@@ -1152,8 +1158,24 @@ function buildArrowAppearanceStream(
   color: { r: number; g: number; b: number },
   strokeWidth: number,
 ) {
-  const startShape = computeHeadShape(startHead, headSize, pointsScreen, 'start', originX, originY, toRaw);
-  const endShape = computeHeadShape(endHead, headSize, pointsScreen, 'end', originX, originY, toRaw);
+  const startShape = computeHeadShape(
+    startHead,
+    headSize,
+    pointsScreen,
+    'start',
+    originX,
+    originY,
+    toRaw,
+  );
+  const endShape = computeHeadShape(
+    endHead,
+    headSize,
+    pointsScreen,
+    'end',
+    originX,
+    originY,
+    toRaw,
+  );
   const shaftVerticesPdf = shaftVerticesScreen.map((v) => toRaw(v.x, v.y));
 
   const halfStroke = strokeWidth / 2;
@@ -1213,7 +1235,8 @@ export async function embedAnnotationsAsCommentsIntoPdf(
       const pageIndex = a.pageNumber - 1;
       if (pageIndex < 0 || pageIndex >= pdfDoc.getPageCount()) continue;
       const page = pdfDoc.getPage(pageIndex);
-      const toRaw = (screenX: number, screenY: number) => visualToRawPageSpace(screenX, screenY, page);
+      const toRaw = (screenX: number, screenY: number) =>
+        visualToRawPageSpace(screenX, screenY, page);
 
       const color = a.color ? hexToRgb(a.color) : undefined;
       const strokeWidth = a.strokeWidth ?? 2;
@@ -1227,9 +1250,7 @@ export async function embedAnnotationsAsCommentsIntoPdf(
         F: 4, // Print フラグ（印刷・他ビューアでの表示互換のため付与）
         CA: opacity,
         ...(color ? { C: [color.r, color.g, color.b] } : {}),
-        ...(strokeWidth
-          ? { BS: { W: strokeWidth, ...(dash ? { S: 'D', D: dash } : {}) } }
-          : {}),
+        ...(strokeWidth ? { BS: { W: strokeWidth, ...(dash ? { S: 'D', D: dash } : {}) } } : {}),
         ...(a.content ? { Contents: PDFHexString.fromText(a.content) } : {}),
       };
 
@@ -1258,12 +1279,7 @@ export async function embedAnnotationsAsCommentsIntoPdf(
         const rawRy = swapAxes ? (radiusX ?? radius) : (radiusY ?? radius);
         const center = toRaw(x, y);
         dictLiteral.Subtype = 'Circle';
-        dictLiteral.Rect = [
-          center.x - rawRx,
-          center.y - rawRy,
-          center.x + rawRx,
-          center.y + rawRy,
-        ];
+        dictLiteral.Rect = [center.x - rawRx, center.y - rawRy, center.x + rawRx, center.y + rawRy];
         if (fillColor) {
           const fc = hexToRgb(fillColor);
           dictLiteral.IC = [fc.r, fc.g, fc.b];
@@ -1369,8 +1385,20 @@ export async function embedAnnotationsAsCommentsIntoPdf(
           if (a.fillOpacity !== undefined) dictLiteral.CA = a.fillOpacity;
         }
       } else if (a.type === 'text') {
-        const { x, y, width, height, text, fontSize, textColor, fontFamily, fontWeight, textAlign, fillColor, fillOpacity } =
-          a;
+        const {
+          x,
+          y,
+          width,
+          height,
+          text,
+          fontSize,
+          textColor,
+          fontFamily,
+          fontWeight,
+          textAlign,
+          fillColor,
+          fillOpacity,
+        } = a;
         const textRgb = hexToRgb(textColor);
         const textP1 = toRaw(x, y);
         const textP2 = toRaw(x + width, y + height);

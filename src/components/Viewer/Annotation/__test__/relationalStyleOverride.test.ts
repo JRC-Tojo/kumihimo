@@ -50,9 +50,9 @@ function buildLine(): LineAnnotationStyle {
 describe('applyRelationalOverrideToStyle', () => {
   it('statusがpending/undefinedの場合は元のannotationをそのまま返す', () => {
     const box = buildBox();
-    expect(applyRelationalOverrideToStyle(box, 'pending', DEFAULT_RELATIONAL_VERIFICATION_STYLE)).toBe(
-      box,
-    );
+    expect(
+      applyRelationalOverrideToStyle(box, 'pending', DEFAULT_RELATIONAL_VERIFICATION_STYLE),
+    ).toBe(box);
     expect(
       applyRelationalOverrideToStyle(box, undefined, DEFAULT_RELATIONAL_VERIFICATION_STYLE),
     ).toBe(box);
@@ -75,7 +75,11 @@ describe('applyRelationalOverrideToStyle', () => {
 
   it('statusがngの場合、fillColorを持たない型（line）はcolor/strokeWidthのみ上書きされる', () => {
     const line = buildLine();
-    const result = applyRelationalOverrideToStyle(line, 'ng', DEFAULT_RELATIONAL_VERIFICATION_STYLE);
+    const result = applyRelationalOverrideToStyle(
+      line,
+      'ng',
+      DEFAULT_RELATIONAL_VERIFICATION_STYLE,
+    );
     const ngStyle = DEFAULT_RELATIONAL_VERIFICATION_STYLE.ng;
 
     expect(result.color as string | undefined).toBe(ngStyle.strokeColor);
@@ -92,6 +96,8 @@ describe('applyRelationalOverrideToStyle', () => {
       DEFAULT_RELATIONAL_VERIFICATION_STYLE,
     );
     if (result.type !== 'box') throw new Error('expected box');
-    expect(result.fillColor as string | undefined).toBe(DEFAULT_RELATIONAL_VERIFICATION_STYLE.ok.fillColor);
+    expect(result.fillColor as string | undefined).toBe(
+      DEFAULT_RELATIONAL_VERIFICATION_STYLE.ok.fillColor,
+    );
   });
 });
