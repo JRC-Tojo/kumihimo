@@ -42,7 +42,12 @@ import type { PDFContext, PDFFont, PDFName, PDFOperator, PDFPage } from 'pdf-lib
 import { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
 import { Success, Failure, toError } from 'src/models/error/result';
-import type { AnnotationStyle, ArrowHeadType, BlendMode, TextItemBox } from 'src/models/document/pdf';
+import type {
+  AnnotationStyle,
+  ArrowHeadType,
+  BlendMode,
+  TextItemBox,
+} from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
@@ -805,7 +810,11 @@ function normalizedPageRotation(page: PDFPage): 0 | 90 | 180 | 270 {
   return angle === 90 || angle === 180 || angle === 270 ? angle : 0;
 }
 
-function visualToRawPageSpace(screenX: number, screenY: number, page: PDFPage): { x: number; y: number } {
+function visualToRawPageSpace(
+  screenX: number,
+  screenY: number,
+  page: PDFPage,
+): { x: number; y: number } {
   const mediaBox = page.getMediaBox();
   const rotation = normalizedPageRotation(page);
   const mw = mediaBox.width;
@@ -1229,7 +1238,10 @@ export async function embedAnnotationsAsCommentsIntoPdf(
     const context = pdfDoc.context;
     // フォントの解決（OS実フォント埋め込み or 標準14フォント）は注釈間で共有し、
     // 同じ`fontFamily`+太さの組み合わせに対して重複して埋め込み・問い合わせを行わない
-    const fontCache = new Map<string, { font: PDFFont; resourceName: string; isStandard: boolean }>();
+    const fontCache = new Map<
+      string,
+      { font: PDFFont; resourceName: string; isStandard: boolean }
+    >();
 
     for (const a of annotations) {
       const pageIndex = a.pageNumber - 1;
@@ -1537,7 +1549,11 @@ interface VectorPageContext {
  */
 function wrapWithGraphicsState(
   ops: PDFOperator[],
-  params: { blendMode?: BlendMode | undefined; fillAlpha?: number | undefined; strokeAlpha?: number | undefined },
+  params: {
+    blendMode?: BlendMode | undefined;
+    fillAlpha?: number | undefined;
+    strokeAlpha?: number | undefined;
+  },
   pc: VectorPageContext,
 ): PDFOperator[] {
   if (ops.length === 0) return ops;
@@ -1565,7 +1581,10 @@ function paintOperator(hasFill: boolean, hasStroke: boolean): PDFOperator {
   return stroke();
 }
 
-function pdfOpsForBox(a: Extract<AnnotationStyle, { type: 'box' }>, pc: VectorPageContext): PDFOperator[] {
+function pdfOpsForBox(
+  a: Extract<AnnotationStyle, { type: 'box' }>,
+  pc: VectorPageContext,
+): PDFOperator[] {
   if (!a.color && !a.fillColor) return [];
   const p1 = pc.toRaw(a.x, a.y);
   const p2 = pc.toRaw(a.x + a.width, a.y + a.height);
@@ -1642,10 +1661,18 @@ function pdfOpsForCircle(
   );
 }
 
-function pdfOpsForLine(a: Extract<AnnotationStyle, { type: 'line' }>, pc: VectorPageContext): PDFOperator[] {
+function pdfOpsForLine(
+  a: Extract<AnnotationStyle, { type: 'line' }>,
+  pc: VectorPageContext,
+): PDFOperator[] {
   if (!a.color) return [];
   const [x1, y1, x2, y2] = a.points;
-  if (typeof x1 !== 'number' || typeof y1 !== 'number' || typeof x2 !== 'number' || typeof y2 !== 'number') {
+  if (
+    typeof x1 !== 'number' ||
+    typeof y1 !== 'number' ||
+    typeof x2 !== 'number' ||
+    typeof y2 !== 'number'
+  ) {
     return [];
   }
   const p1 = pc.toRaw(a.x + x1, a.y + y1);
@@ -1699,7 +1726,15 @@ function pdfOpsForArrowLike(
   // 矢じり自体はKonva描画と同様、線種（dash）は適用せず常に実線で描く
   ops.push(setDashPattern([], 0));
 
-  const startShape = computeHeadShape(a.startHead, a.headSize, a.points, 'start', a.x, a.y, pc.toRaw);
+  const startShape = computeHeadShape(
+    a.startHead,
+    a.headSize,
+    a.points,
+    'start',
+    a.x,
+    a.y,
+    pc.toRaw,
+  );
   const endShape = computeHeadShape(a.endHead, a.headSize, a.points, 'end', a.x, a.y, pc.toRaw);
   if (startShape) ops.push(...headShapeToOperators(startShape));
   if (endShape) ops.push(...headShapeToOperators(endShape));
@@ -1739,7 +1774,8 @@ function pdfOpsForPolygon(
     );
   }
   ops.push(moveTo(verticesRaw[0]!.x, verticesRaw[0]!.y));
-  for (let i = 1; i < verticesRaw.length; i++) ops.push(lineTo(verticesRaw[i]!.x, verticesRaw[i]!.y));
+  for (let i = 1; i < verticesRaw.length; i++)
+    ops.push(lineTo(verticesRaw[i]!.x, verticesRaw[i]!.y));
   ops.push(closePath(), paintOperator(!!a.fillColor, !!a.color));
 
   return wrapWithGraphicsState(
@@ -1827,7 +1863,11 @@ function buildWrappedTextShowOps(opts: {
   lines.forEach((line, i) => {
     const lineWidth = font.widthOfTextAtSize(line, fontSize);
     const offset =
-      textAlign === 'center' ? (maxWidth - lineWidth) / 2 : textAlign === 'right' ? maxWidth - lineWidth : 0;
+      textAlign === 'center'
+        ? (maxWidth - lineWidth) / 2
+        : textAlign === 'right'
+          ? maxWidth - lineWidth
+          : 0;
     ops.push(moveText(offset - prevOffset, i === 0 ? 0 : -lineHeight));
     prevOffset = offset;
     if (line !== '') ops.push(showText(font.encodeText(line)));
@@ -1887,11 +1927,11 @@ async function pdfOpsForText(
 
   if (a.text.trim() !== '') {
     try {
-      const { font, name: fontName, isStandard } = await getOrEmbedFont(
-        a.fontFamily,
-        a.fontWeight,
-        pc,
-      );
+      const {
+        font,
+        name: fontName,
+        isStandard,
+      } = await getOrEmbedFont(a.fontFamily, a.fontWeight, pc);
       // 標準14フォントはWinAnsiEncoding固定でCJK文字のグリフを持たないため、日本語等を含む
       // 場合はクラッシュを避けるためグリフ埋め込み自体をスキップする（実フォント埋め込みに
       // 成功している場合はこの制限を受けないため、そのまま描画を試みる）
@@ -1932,7 +1972,10 @@ async function pdfOpsForText(
   return ops;
 }
 
-async function pdfOpsForAnnotation(a: AnnotationStyle, pc: VectorPageContext): Promise<PDFOperator[]> {
+async function pdfOpsForAnnotation(
+  a: AnnotationStyle,
+  pc: VectorPageContext,
+): Promise<PDFOperator[]> {
   switch (a.type) {
     case 'box':
       return pdfOpsForBox(a, pc);

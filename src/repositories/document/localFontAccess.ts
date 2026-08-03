@@ -46,7 +46,9 @@ export function findBestFontMatch(
   if (candidates.length === 0) return undefined;
 
   if (bold) {
-    const boldMatch = candidates.find((f) => /bold/i.test(f.style) && !/italic|oblique/i.test(f.style));
+    const boldMatch = candidates.find(
+      (f) => /bold/i.test(f.style) && !/italic|oblique/i.test(f.style),
+    );
     if (boldMatch) return boldMatch;
   }
   const regularMatch = candidates.find((f) => !/bold|italic|oblique/i.test(f.style));

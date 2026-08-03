@@ -650,19 +650,22 @@ describe('embedAnnotationsAsCommentsIntoPdf（pdf-lib、ネイティブ注釈と
     expect(dict.get(PDFName.of('AP'))).toBeDefined();
   });
 
-  it('日本語の本文の場合、標準14フォントがCJK文字のグリフを持たないため外観ストリームの構築は' +
-    'スキップされるが、保存自体は失敗しない（クラッシュ回避のフォールバック）', async () => {
-    const src = await buildTestPdfSrc(1, [300, 300]);
-    const jpText = { ...buildTextAnnotation(1), text: 'あいうえお', fillColor: TEST_COLOR };
-    const res = await embedAnnotationsAsCommentsIntoPdf(src, [jpText]);
-    expect(res.ok).toBeTrue();
-    if (!res.ok) return;
+  it(
+    '日本語の本文の場合、標準14フォントがCJK文字のグリフを持たないため外観ストリームの構築は' +
+      'スキップされるが、保存自体は失敗しない（クラッシュ回避のフォールバック）',
+    async () => {
+      const src = await buildTestPdfSrc(1, [300, 300]);
+      const jpText = { ...buildTextAnnotation(1), text: 'あいうえお', fillColor: TEST_COLOR };
+      const res = await embedAnnotationsAsCommentsIntoPdf(src, [jpText]);
+      expect(res.ok).toBeTrue();
+      if (!res.ok) return;
 
-    const [dict] = await getAnnotDicts(res.value);
-    expect(dict).toBeDefined();
-    if (!dict) return;
-    expect(dict.get(PDFName.of('AP'))).toBeUndefined();
-  });
+      const [dict] = await getAnnotDicts(res.value);
+      expect(dict).toBeDefined();
+      if (!dict) return;
+      expect(dict.get(PDFName.of('AP'))).toBeUndefined();
+    },
+  );
 
   it('/Rotateが90のページでは、見た目どおりの座標（画面表示側の空間）から正しくRectへ変換される', async () => {
     const baseSrc = await buildTestPdfSrc(1, [200, 100]);
