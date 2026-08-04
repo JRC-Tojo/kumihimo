@@ -1,15 +1,6 @@
 // app global css
 @use 'sass:color';
 
-// $primaryをrgba()で使う箇所向けに、RGB成分もカスタムプロパティとして公開する
-// （ライト/ダークモードで--q-primaryを切り替えても、rgba(var(--q-primary-rgb), n)経由なら追従する）
-:root {
-  --q-primary-rgb:
-    #{color.channel($primary, 'red', $space: rgb)},
-    #{color.channel($primary, 'green', $space: rgb)},
-    #{color.channel($primary, 'blue', $space: rgb)};
-}
-
 // リンクの共通スタイル（ブラウザ既定の青・訪問済み紫はダークモードでコントラストが低く
 // 視認性が悪いため、テーマカラーベースの配色に統一する）
 a,
@@ -26,12 +17,6 @@ a {
 
 // ダークモード共通スタイル
 .body--dark {
-  // ダークモードではPrimaryを金色に切り替える
-  --q-primary: #d9a62e;
-  --q-primary-rgb:
-    #{color.channel($primary, 'red', $space: rgb)}, #{color.channel($primary, 'green', $space: rgb)},
-    #{color.channel($primary, 'blue', $space: rgb)};
-
   a,
   a:visited {
     color: color-mix(in srgb, var(--q-primary) 80%, white);
