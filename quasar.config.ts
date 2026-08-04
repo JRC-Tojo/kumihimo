@@ -62,7 +62,45 @@ export default defineConfig((ctx) => {
       // polyfillModulePreload: true,
       // distDir
 
-      // extendViteConf (viteConf) {},
+      // pdf.jsが実行時に別途フェッチするcMap/標準フォント/WASM（JBIG2・OpenJPEG等）アセットは、
+      // Viteの静的解析で解決できる`new URL(...)`形式では参照できない（ディレクトリ参照のため）。
+      // `vitePlugins`はQuasar独自の`[モジュール指定子, options, runOptions?]`というタプル形式
+      // （Quasar側が遅延importして解決する）を要求し、既にインスタンス化された`viteStaticCopy()`の
+      // 戻り値（Plugin[]）をそのまま渡すことはできないため、Viteの生のconfigを直接操作できる
+      // `extendViteConf`側へ追加する
+      extendViteConf(viteConf) {
+        viteConf.plugins ??= [];
+        viteConf.plugins.push(
+          viteStaticCopy({
+            // srcのディレクトリ構造はdest配下にそのまま維持される仕様のため、rename: { stripBase: true }
+            // で`node_modules/pdfjs-dist/...`のプレフィックスを取り除き、destの直下へフラットにコピーする
+            // （指定し忘れると`pdfjs/wasm/node_modules/pdfjs-dist/wasm/xxx.wasm`のような二重ネストになり、
+            // コード側が参照する`pdfjs/wasm/xxx.wasm`に一致しなくなる）
+            targets: [
+              {
+                src: 'node_modules/pdfjs-dist/cmaps/*',
+                dest: 'pdfjs/cmaps',
+                rename: { stripBase: true },
+              },
+              {
+                src: 'node_modules/pdfjs-dist/standard_fonts/*',
+                dest: 'pdfjs/standard_fonts',
+                rename: { stripBase: true },
+              },
+              {
+                src: 'node_modules/pdfjs-dist/wasm/*',
+                dest: 'pdfjs/wasm',
+                rename: { stripBase: true },
+              },
+              {
+                src: 'node_modules/pdfjs-dist/iccs/*',
+                dest: 'pdfjs/iccs',
+                rename: { stripBase: true },
+              },
+            ],
+          }),
+        );
+      },
       // viteVuePluginOptions: {},
 
       vitePlugins: [
@@ -93,16 +131,6 @@ export default defineConfig((ctx) => {
           },
           { server: false },
         ],
-        // pdf.jsが実行時に別途フェッチするcMap/標準フォント/WASM（JBIG2・OpenJPEG等）アセットは、
-        // Viteの静的解析で解決できる`new URL(...)`形式では参照できないため、`src/repositories/document/pdf.ts`等の
-        // 呼び出し側で参照する`pdfjs/{cmaps,standard_fonts,wasm}/`へビルド出力・開発サーバーの両方でコピーする
-        viteStaticCopy({
-          targets: [
-            { src: 'node_modules/pdfjs-dist/cmaps/*', dest: 'pdfjs/cmaps' },
-            { src: 'node_modules/pdfjs-dist/standard_fonts/*', dest: 'pdfjs/standard_fonts' },
-            { src: 'node_modules/pdfjs-dist/wasm/*', dest: 'pdfjs/wasm' },
-          ],
-        }),
       ],
     },
 

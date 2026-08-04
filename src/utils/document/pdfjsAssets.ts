@@ -1,7 +1,8 @@
 /**
- * pdf.jsが実行時に追加でフェッチするcMap／標準フォント／WASM（JBIG2・OpenJPEG等）アセットの
- * 配信元設定。`getDocument()`呼び出し側（`src/repositories/document/pdf.ts`・
- * `src/repositories/document/pdfDocumentCache.ts`）で共通して渡す
+ * pdf.jsが実行時に追加でフェッチするcMap／標準フォント／WASM（JBIG2・OpenJPEG等）／
+ * ICCプロファイル（CMYKの色変換）アセットの配信元設定。`getDocument()`呼び出し側
+ * （`src/repositories/document/pdf.ts`・`src/repositories/document/pdfDocumentCache.ts`）で
+ * 共通して渡す
  *
  * これらはpdfjs-dist内部がファイル名を追加連結して使う「ディレクトリ」参照のため、Viteの静的解析で
  * ハッシュ付き解決される`new URL(path, import.meta.url)`形式では扱えない。`quasar.config.ts`の
@@ -17,4 +18,5 @@ export const PDFJS_GET_DOCUMENT_ASSET_OPTIONS = {
   cMapPacked: true,
   standardFontDataUrl: `${PDFJS_ASSET_BASE}standard_fonts/`,
   wasmUrl: `${PDFJS_ASSET_BASE}wasm/`,
+  iccUrl: `${PDFJS_ASSET_BASE}iccs/`,
 } as const;
