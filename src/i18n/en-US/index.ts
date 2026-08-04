@@ -345,6 +345,11 @@ export default {
         'This file has changed since its annotation data was last recorded. Update to the latest content now? (Annotation positions may shift.)',
       conflictTrackFailed:
         'Could not re-track annotation positions. Opening with the existing annotation data, which may not match the current content.',
+      conflictLowConfidence:
+        '{count} annotation(s) were tracked with low confidence — please double-check their positions.',
+      trackingProgressTitle: 'Tracking annotation positions',
+      trackingProgressMessage:
+        'Automatically adjusting annotation positions to match the updated document. This may take a moment.',
     },
     peek: {
       title: 'Relational Peek',
@@ -447,6 +452,8 @@ export default {
     invalidFileNameEmpty: 'File name cannot be empty',
     duplicateName: 'A file or folder with this name already exists',
     uploadFailed: 'Failed to upload some files/folders ({names})',
+    retrackLowConfidence:
+      'Annotation positions were auto-tracked after the document update, but {count} of them have low confidence — please double-check their positions.',
   },
 
   plugins: {

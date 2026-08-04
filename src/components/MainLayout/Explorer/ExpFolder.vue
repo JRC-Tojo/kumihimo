@@ -302,17 +302,31 @@ function triggerUpload() {
 async function onUploadSelected(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = Array.from(input.files ?? []);
+  let lowConfidenceCount = 0;
 
   for (const file of files) {
     const buffer = await file.arrayBuffer();
     const base64Res = await arrayBufferToBase64(buffer);
     if (!base64Res.ok) continue;
     const targetPath = folderPath.value.child(file.name).path;
-    await api.saveFile(prop.folder.containerID, targetPath, DocumentSource.parse(base64Res.value));
+    const saveRes = await api.saveFile(
+      prop.folder.containerID,
+      targetPath,
+      DocumentSource.parse(base64Res.value),
+    );
+    if (saveRes.ok) lowConfidenceCount += saveRes.data.retracking?.lowConfidenceCount ?? 0;
   }
 
   input.value = '';
   await ctx?.reload();
+
+  // 上書きアップロードにより自動追跡されたアノテーションのうち、精度が低いものがあれば確認を促す
+  if (lowConfidenceCount > 0) {
+    $q.notify({
+      type: 'warning',
+      message: $t('explorer.retrackLowConfidence', { count: lowConfidenceCount }),
+    });
+  }
 }
 </script>
 

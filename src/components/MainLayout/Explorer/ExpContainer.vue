@@ -87,6 +87,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useQuasar } from 'quasar';
 import type { Container, ContainerID, ContainerSkel, RenamedEntry } from 'src/models/container';
 import { useExplorerStore } from 'src/stores/explorerStore';
 import { useEditorStore } from 'src/stores/editorStore';
@@ -114,6 +115,7 @@ const prop = defineProps<Prop>();
 const emit = defineEmits<{ closed: [] }>();
 
 const { t: $t } = useI18n();
+const $q = useQuasar();
 const explorerStore = useExplorerStore();
 const editorStore = useEditorStore();
 const api = useBackendApi();
@@ -286,18 +288,32 @@ async function onUploadSelected(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = Array.from(input.files ?? []);
   const parentPath = uploadTargetPath.value;
+  let lowConfidenceCount = 0;
 
   for (const file of files) {
     const buffer = await file.arrayBuffer();
     const base64Res = await arrayBufferToBase64(buffer);
     if (!base64Res.ok) continue;
     const targetPath = parentPath ? new Path(parentPath).child(file.name).path : file.name;
-    await api.saveFile(prop.container.id, targetPath, DocumentSource.parse(base64Res.value));
+    const saveRes = await api.saveFile(
+      prop.container.id,
+      targetPath,
+      DocumentSource.parse(base64Res.value),
+    );
+    if (saveRes.ok) lowConfidenceCount += saveRes.data.retracking?.lowConfidenceCount ?? 0;
   }
 
   input.value = '';
   uploadTargetPath.value = null;
   await load(false);
+
+  // 上書きアップロードにより自動追跡されたアノテーションのうち、精度が低いものがあれば確認を促す
+  if (lowConfidenceCount > 0) {
+    $q.notify({
+      type: 'warning',
+      message: $t('explorer.retrackLowConfidence', { count: lowConfidenceCount }),
+    });
+  }
 }
 
 defineExpose({
