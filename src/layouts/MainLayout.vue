@@ -39,7 +39,7 @@
           @click="tool.onClicked"
         />
       </q-bar>
-      <div v-if="$q.dark.isActive" class="full-width bg-primary" style="height: 2pt;" />
+      <div v-if="$q.dark.isActive" class="full-width bg-primary" style="height: 2pt" />
     </q-header>
 
     <q-splitter v-model="splitModel" unit="px" emit-immediately :class="splitterClass">
@@ -187,6 +187,16 @@ const autoSaveModel = computed({
 .body--dark {
   .bar {
     background-color: $dark;
+  }
+}
+
+// 自動保存トグルはONの色(--q-primary)がヘッダー背景と同化しやすいため、
+// ON時のみ背景ピルを付けて状態を判別しやすくする
+.header-auto-save {
+  :deep(.q-toggle__inner--truthy) {
+    border-radius: 999px;
+    background-color: rgba(var(--q-primary-rgb), 0.18);
+    box-shadow: 0 0 0 1px rgba(var(--q-primary-rgb), 0.45) inset;
   }
 }
 </style>
