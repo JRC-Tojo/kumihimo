@@ -7,6 +7,31 @@
   <div class="page-outer" :style="outerStyle">
     <div class="page-wrapper" :style="innerStyle">
       <canvas ref="canvasRef" class="pdf-canvas" />
+
+      <!-- タイルレンダリング層: 巨大ページ×高倍率（tiling.tsのshouldUseTiling）でのみ有効化される。
+           backdrop（上のcanvas）とKonvaアノテーション層の間の.page-wrapper子要素として配置する。
+           以前はこれらの兄弟（.page-outer直下）としていたが、position: absolute + z-index: auto の
+           要素はDOM順で後にあるものほど手前に描画されるCSSの積み重ね順のため、後発のタイル層が
+           Konvaアノテーション層より手前に出てしまい、注釈が見えなくなる・マウス操作もタイル層に
+           奪われて描画/選択ができなくなる不具合になっていた。.page-wrapper自体は既にcssZoomFactor分の
+           transform: scaleが掛かっているため、このタイル層自身のtransformにはその分を打ち消した
+           nestedTileLayerScaleを使う -->
+      <div v-if="tilingActive" class="tile-layer" :style="tileLayerStyle">
+        <div
+          v-for="tile in tiles"
+          :key="tileKeyOf(tile)"
+          class="tile-slot"
+          :style="tileSlotStyle(tile)"
+          :ref="(el) => setTileWrapperRef(tileKeyOf(tile), el as HTMLElement | null)"
+        >
+          <canvas
+            v-if="shouldRenderTile(tile)"
+            :ref="(el) => onTileCanvasMounted(tile, el as HTMLCanvasElement | null)"
+            class="pdf-canvas tile-canvas"
+          />
+        </div>
+      </div>
+
       <!-- Konvaアノテーションレイヤー -->
       <AnnotationLayer
         v-if="canvasRendered"
@@ -18,25 +43,6 @@
         @register-annot="onRegisterAnnot"
         @remove-annot="onRemoveAnnot"
       />
-    </div>
-
-    <!-- タイルレンダリング層: 巨大ページ×高倍率（tiling.tsのshouldUseTiling）でのみ有効化される。
-         .page-wrapper（バックドロップ）とは別基準（tileGridScale）でCSS拡大縮小するため、
-         .page-outer直下の兄弟レイヤーとして独立させている -->
-    <div v-if="tilingActive" class="tile-layer" :style="tileLayerStyle">
-      <div
-        v-for="tile in tiles"
-        :key="tileKeyOf(tile)"
-        class="tile-slot"
-        :style="tileSlotStyle(tile)"
-        :ref="(el) => setTileWrapperRef(tileKeyOf(tile), el as HTMLElement | null)"
-      >
-        <canvas
-          v-if="shouldRenderTile(tile)"
-          :ref="(el) => onTileCanvasMounted(tile, el as HTMLCanvasElement | null)"
-          class="pdf-canvas tile-canvas"
-        />
-      </div>
     </div>
   </div>
 </template>
@@ -96,7 +102,7 @@ const ZOOM_RERENDER_DEBOUNCE_MS = 200;
 // lastRenderedScaleとscaleが乖離するほど画質は劣化する（乖離が大きいほど、CSSでの拡大時はぼやけ、
 // 縮小時は細い線がつぶれて薄く見える）ため、下のdebounce再描画で乖離を都度解消する。
 // タイル分割が有効な場合、backdrop（このcssZoomFactor）は常にクランプされた低解像度のプレースホルダーで
-// あり続け、実際の鮮明な表示はタイル層（tileCssZoomFactor）が担う
+// あり続け、実際の鮮明な表示はタイル層（nestedTileLayerScale）が担う
 const cssZoomFactor = computed(() => scale.value / lastRenderedScale.value);
 
 const outerStyle = computed(() => {
@@ -130,13 +136,18 @@ const tilingActive = ref(false);
 const tileGridScale = ref(1);
 const tiles = ref<TileDescriptor[]>([]);
 
-const tileCssZoomFactor = computed(() => scale.value / tileGridScale.value);
+// .tile-layerは.page-wrapperの子要素として配置されている（Konvaアノテーション層より必ず奥、
+// backdropのcanvasより必ず手前になるようにするため）。.page-wrapper自体には既に
+// cssZoomFactor（scale/lastRenderedScale）分のtransform: scale(...)が掛かっているため、
+// タイル層が最終的に到達すべき実効倍率（scale/tileGridScale）にするには、親から二重に掛かる分
+// （cssZoomFactor）を打ち消した比率（lastRenderedScale/tileGridScale）だけを自分のtransformに適用する
+const nestedTileLayerScale = computed(() => lastRenderedScale.value / tileGridScale.value);
 const tileLayerStyle = computed(() => {
   if (!tilingActive.value) return undefined;
   return {
     width: `${props.pageSize1x.width * tileGridScale.value}px`,
     height: `${props.pageSize1x.height * tileGridScale.value}px`,
-    transform: `scale(${tileCssZoomFactor.value})`,
+    transform: `scale(${nestedTileLayerScale.value})`,
     transformOrigin: 'top left',
   };
 });
@@ -170,10 +181,20 @@ function shouldRenderTile(tile: TileDescriptor): boolean {
 /**
  * タイルスロット（タイルcanvasの親div）のref登録・解除。
  * `DocumentViewer.vue`の`setWrapperRef`と同じ考え方: 旧要素があれば監視解除してから
- * 新要素を監視する
+ * 新要素を監視する。
+ *
+ * Vueの関数型`:ref`は、対象のDOM要素が変わっていなくても再描画のたびに無条件で
+ * 呼び直される仕様（`@vue/runtime-core`の`setRef`実装を確認済み。文字列ref/refオブジェクトとは
+ * 異なり、関数refには「前回と同じ参照なら呼ばない」という最適化が無い）。そのため、
+ * 先頭で「前回登録した要素と同じなら何もしない」を必ずガードする。これが無いと、
+ * 何らかの理由で本コンポーネントが再描画されるたびに同じ要素へ`observe()`し直すことになり、
+ * IntersectionObserverは登録のたびに現在の交差状態を通知するため、そのたびに
+ * `visibleTileKeys.value`が新しいSetに差し替わって再描画を誘発し、際限なく繰り返される
+ * 無限ループになっていた
  */
 function setTileWrapperRef(key: string, el: HTMLElement | null) {
   const prevEl = tileWrapperElByKey.get(key);
+  if (prevEl === el) return;
   if (prevEl) {
     tileObserver?.unobserve(prevEl);
     tileWrapperElToKey.delete(prevEl);
@@ -189,22 +210,69 @@ function setTileWrapperRef(key: string, el: HTMLElement | null) {
 }
 
 /**
+ * タイル描画の同時実行数を制限する簡易キュー。
+ *
+ * タイル化への切り替わり・大きなズーム直後など、多数のタイルが一斉に画面内へ入ると、
+ * それぞれの`renderPageTile()`呼び出しが（クリップ先はタイル分の小さな範囲でも）ページ全体分の
+ * オペレータ列を辿るコストを払うため、それが同時多発するとメインスレッド・pdf.js Worker双方が
+ * 輻輳し、かえって表示全体が重くなる。同時に走らせる件数を絞り、残りは前の完了を待って
+ * 順に処理することで、切り替わり直後の体感の重さを緩和する
+ */
+const MAX_CONCURRENT_TILE_RENDERS = 3;
+let activeTileRenderCount = 0;
+const pendingTileRenderStarts: (() => void)[] = [];
+
+function scheduleTileRender(task: () => Promise<void>): void {
+  const start = () => {
+    activeTileRenderCount++;
+    if (import.meta.env.DEV) {
+      console.debug(
+        `[tiling] タイル描画開始 (同時実行数=${activeTileRenderCount}, 待機中=${pendingTileRenderStarts.length})`,
+      );
+    }
+    void task().finally(() => {
+      activeTileRenderCount--;
+      const next = pendingTileRenderStarts.shift();
+      if (next) next();
+    });
+  };
+  if (activeTileRenderCount < MAX_CONCURRENT_TILE_RENDERS) {
+    start();
+  } else {
+    pendingTileRenderStarts.push(start);
+  }
+}
+
+/**
  * 実際にタイルcanvasへレンダリングする（`pdfManager.ts`の`renderPageTile`を`onRenderTile`経由で呼ぶ）。
- * タイル単位の失敗はページ全体を巻き込まず、ログのみに留める
+ * タイル単位の失敗はページ全体を巻き込まず、ログのみに留める。DEV環境では所要時間を
+ * コンソールに出し、同時実行数の絞り込みが効いているか・どのタイルが重いかを確認できるようにする
  */
 async function renderTile(tile: TileDescriptor, el: HTMLCanvasElement) {
+  const label = `[tiling] page=${page.value} tile=${tile.col}:${tile.row} @${tileGridScale.value.toFixed(2)}`;
+  if (import.meta.env.DEV) console.time(label);
   try {
     await props.onRenderTile(page.value, el, tileGridScale.value, tile);
   } catch (error) {
     console.error(`タイルのレンダリングに失敗しました (col=${tile.col}, row=${tile.row}):`, error);
+  } finally {
+    if (import.meta.env.DEV) console.timeEnd(label);
   }
 }
 
+/**
+ * `setTileWrapperRef`と同じ理由（Vueの関数型`:ref`は要素が変わっていなくても再描画のたびに
+ * 無条件で呼び直される）で、同じ要素に対する呼び出しは無視する。これが無いと、
+ * 本コンポーネントが再描画されるたびに、既にマウント済みの全タイルcanvasへ
+ * `renderPageTile`を呼び直すことになってしまう
+ */
 function onTileCanvasMounted(tile: TileDescriptor, el: HTMLCanvasElement | null) {
   const key = tileKeyOf(tile);
+  const prevEl = tileCanvasEls.get(key);
+  if (prevEl === el) return;
   if (el) {
     tileCanvasEls.set(key, el);
-    void renderTile(tile, el);
+    scheduleTileRender(() => renderTile(tile, el));
   } else {
     tileCanvasEls.delete(key);
   }
@@ -216,7 +284,7 @@ function onTileCanvasMounted(tile: TileDescriptor, el: HTMLCanvasElement | null)
 watch(tiles, (newTiles) => {
   for (const tile of newTiles) {
     const el = tileCanvasEls.get(tileKeyOf(tile));
-    if (el) void renderTile(tile, el);
+    if (el) scheduleTileRender(() => renderTile(tile, el));
   }
 });
 
@@ -249,6 +317,11 @@ function setupTileObserver() {
 // （新しい）render()より遅れることがある。世代番号を使い、自分より新しいrender()呼び出しが
 // 既に発行されていれば、古い結果でreactive state（layoutSize等）を上書きしないようにする
 let renderGeneration = 0;
+// backdropを最後に実際にレンダリングした時点のページ番号（下のbackdropAlreadyCurrent判定専用）。
+// lastRenderedScaleだけでは、単一表示モードでページを切り替えても倍率が変わらない場合に
+// 「描画済み」と誤判定してしまう（ページは変わったのにbackdropが古いページのままになる）ため、
+// スケールに加えページ番号も一致しているかを合わせて見る
+const lastRenderedPage = ref<number | undefined>(undefined);
 
 async function render(targetRenderScale: number) {
   if (canvas.value === null) return;
@@ -263,21 +336,39 @@ async function render(targetRenderScale: number) {
     ? clampScaleToPixelBudget(props.pageSize1x, targetRenderScale, dpr)
     : targetRenderScale;
 
-  const result = await props.onRender(page.value, canvas.value, backdropScale);
-  if (generation !== renderGeneration) return;
+  // クランプ後のbackdropScaleは予算に対して飽和するため、タイル分割中にズームを続けても
+  // 変化しないことが多い。同じページ・同じbackdropScaleで既に描画済みなら、重いpage.render()の
+  // 再実行を省略する（タイルグリッド自体は目標スケールの変化に応じて下で必ず更新する）
+  const backdropAlreadyCurrent =
+    canvasRendered.value &&
+    lastRenderedPage.value === page.value &&
+    backdropScale === lastRenderedScale.value;
 
-  layoutSize.value = result;
-  canvasSize.value = {
-    width: canvas.value.width,
-    height: canvas.value.height,
-    scaleX: backdropScale,
-    scaleY: backdropScale,
-  };
-  lastRenderedScale.value = backdropScale;
+  if (!backdropAlreadyCurrent) {
+    const label = `[tiling] page=${page.value} backdrop@${backdropScale.toFixed(2)}`;
+    if (import.meta.env.DEV) console.time(label);
+    const result = await props.onRender(page.value, canvas.value, backdropScale);
+    if (import.meta.env.DEV) console.timeEnd(label);
+    if (generation !== renderGeneration) return;
+
+    layoutSize.value = result;
+    canvasSize.value = {
+      width: canvas.value.width,
+      height: canvas.value.height,
+      scaleX: backdropScale,
+      scaleY: backdropScale,
+    };
+    lastRenderedScale.value = backdropScale;
+    lastRenderedPage.value = page.value;
+  } else if (import.meta.env.DEV) {
+    console.debug(
+      `[tiling] page=${page.value} backdrop再描画をスキップ（scale=${backdropScale.toFixed(2)}のまま変化なし）`,
+    );
+  }
 
   // タイルグリッドの再計算は、この関数が呼ばれるタイミング（マウント時・ズームデバウンス確定後・
   // ページ切り替え時）でのみ行う。ズーム操作中のライブなscale変化だけではグリッド自体は再計算しない
-  // （見た目の追従はtileCssZoomFactor側のCSS transformに任せる）
+  // （見た目の追従はnestedTileLayerScale側のCSS transformに任せる）
   tilingActive.value = useTiling;
   tileGridScale.value = targetRenderScale;
   tiles.value = useTiling ? computeTiles(props.pageSize1x, targetRenderScale, dpr) : [];
