@@ -123,10 +123,3 @@ function onCancelClick() {
   onDialogCancel();
 }
 </script>
-
-<style scoped lang="scss">
-.prompt-preview {
-  display: flex;
-  justify-content: center;
-}
-</style>
