@@ -48,7 +48,7 @@ import { computed, ref, type ComputedRef } from 'vue';
 import type Konva from 'konva';
 import type { AnnotationID, ArrowAnnotationStyle, ArrowHeadType } from 'src/models/document/pdf';
 import { useAnnotationShape } from './composables/useAnnotationShape';
-import { useTwoPointAnchors } from './composables/useTwoPointAnchors';
+import { useTwoPointAnchors } from './composables/useMultiPointAnchors';
 import {
   TRANSFORMER_ANCHOR_CORNER_RADIUS,
   TRANSFORMER_ANCHOR_FILL,
