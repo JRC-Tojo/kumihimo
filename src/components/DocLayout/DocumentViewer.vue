@@ -57,7 +57,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  useTemplateRef,
+  watch,
+} from 'vue';
 import PdfPage from 'src/components/Viewer/PdfPage.vue';
 import type { ViewMode } from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
@@ -143,8 +152,10 @@ const ADJACENT_RENDER_MARGIN = 1;
 
 const wrapperElToIndex = new Map<HTMLElement, number>();
 const wrapperRefs = ref<(HTMLElement | null)[]>([]);
-// ページ索引ごとの、実ビューポートに対する交差率（0〜1）。「現在ページ」の判定にのみ使う
-const pageVisibleRatios = new Map<number, number>();
+// ページ索引ごとの、実ビューポートに対する交差率（0〜1）。「現在ページ」の判定にのみ使う。
+// reactiveでラップすることで、IntersectionObserverによる更新がshouldRenderPageの再評価
+// （テンプレート内のv-if）を正しくトリガーするようにする
+const pageVisibleRatios = reactive(new Map<number, number>());
 let currentPageObserver: IntersectionObserver | undefined;
 // スクロール追従によるcurrentPage更新が、下の`watch(currentPage, ...)`による
 // 「ページ位置へスクロールし直す」処理を誤って引き起こさないようにするためのガード
@@ -164,6 +175,11 @@ function setWrapperRef(idx: number, el: HTMLElement | null) {
   }
 }
 
+/**
+ * 指定ページを実描画（PdfPageマウント）対象にすべきか判定する。
+ * 現在ページ近傍（`ADJACENT_RENDER_MARGIN`以内）のページと、実際にビューポートへ
+ * 交差しているページを描画対象とする
+ */
 function shouldRenderPage(idx: number): boolean {
   if (prop.viewMode !== 'continuousSingle') return true;
   // マウント直後（IntersectionObserverの初回コールバック前）はpageVisibleRatiosが空のため、

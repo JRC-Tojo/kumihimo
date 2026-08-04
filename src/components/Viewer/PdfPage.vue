@@ -123,7 +123,16 @@ async function renderSafely(targetScale: number): Promise<boolean> {
       type: 'negative',
       message: `ページのレンダリングに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`,
       position: 'top',
-      actions: [{ label: '再試行', handler: () => void renderSafely(targetScale) }],
+      actions: [
+        {
+          label: '再試行',
+          handler: () => {
+            void renderSafely(targetScale).then((rendered) => {
+              if (rendered) canvasRendered.value = true;
+            });
+          },
+        },
+      ],
     });
     return false;
   }

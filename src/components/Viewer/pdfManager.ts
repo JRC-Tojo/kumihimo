@@ -89,6 +89,16 @@ export async function renderPage(
 
   try {
     const page = await pdfDocument.getPage(pageNumber);
+
+    // getPage()の待機中により新しい呼び出しが発行されていた場合、ここでpage.render()を
+    // 開始してしまうと古い描画タスクがcanvasRenderTaskを上書きし、新しいタスクを
+    // キャンセルできなくなる（CPU・メモリを最後まで消費し続ける）ため、ここで打ち切る
+    if (canvasRenderGeneration.get(canvas) !== generation) {
+      throw Object.assign(new Error('Rendering cancelled: superseded by a newer render call'), {
+        name: 'RenderingCancelledException',
+      });
+    }
+
     let viewport = page.getViewport({ scale });
     if (maxWidth !== 0) {
       viewport = page.getViewport({ scale: maxWidth / viewport.width });
