@@ -71,6 +71,7 @@ import {
   findBestFontMatch,
   getFontBytes,
 } from 'src/repositories/document/localFontAccess';
+import { PDFJS_GET_DOCUMENT_ASSET_OPTIONS } from 'src/utils/document/pdfjsAssets';
 
 /**
  * PDF をロードして PDFDocumentProxy を返す（Result でラップ）
@@ -91,6 +92,7 @@ export async function loadPdfFromSrc64(src64: DocumentSource): Promise<Result<PD
     const pdf = await getDocument({
       data: data.value,
       standardFontDataUrl: PDF_STANDARD_FONT_DATA_URL,
+      ...PDFJS_GET_DOCUMENT_ASSET_OPTIONS,
     }).promise;
     return Success(pdf);
   } catch (e) {
