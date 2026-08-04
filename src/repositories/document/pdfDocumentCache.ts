@@ -17,7 +17,6 @@ import type { DocumentSource } from 'src/models/document/common';
 import { Failure, Success, toError, type Result } from 'src/models/error/result';
 import { base64ToUint8Array } from 'src/utils/binary/base64';
 import { fileKey, type FileIdentity } from 'src/utils/document/fileKey';
-import { PDF_STANDARD_FONT_DATA_URL } from 'src/utils/document/pdfStandardFontDataUrl';
 import { PDFJS_GET_DOCUMENT_ASSET_OPTIONS } from 'src/utils/document/pdfjsAssets';
 
 /** 参照がなくなってから実際に破棄するまでの猶予（ミリ秒） */
@@ -49,11 +48,10 @@ async function loadDocument(src64: DocumentSource): Promise<Result<PDFDocumentPr
 
   try {
     // 標準14フォント（Helvetica等）はグリフの輪郭データを内蔵せず埋め込まれていないため、
-    // pdf.js自身が持つフォールバック用の輪郭データの場所を教えないと、該当フォントを
-    // 使うテキストが描画されない（プロジェクトには同梱せず、必要になった時点でCDNから取得する）
+    // pdf.js自身が持つフォールバック用の輪郭データの場所（`PDFJS_GET_DOCUMENT_ASSET_OPTIONS`が
+    // 指す自己ホスト済みの`pdfjs/standard_fonts/`）を教えないと、該当フォントを使うテキストが描画されない
     const pdf = await pdfjsLib.getDocument({
       data: typedArray.value,
-      standardFontDataUrl: PDF_STANDARD_FONT_DATA_URL,
       ...PDFJS_GET_DOCUMENT_ASSET_OPTIONS,
     }).promise;
     return Success(pdf);

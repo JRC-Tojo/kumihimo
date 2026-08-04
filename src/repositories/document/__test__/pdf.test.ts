@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, afterEach } from 'bun:test';
+import { describe, expect, it, mock, afterEach, afterAll } from 'bun:test';
 import { inflateSync } from 'zlib';
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -1084,18 +1084,32 @@ function tryLoadLiberationSansBytes(): Uint8Array | null {
 
 const LIBERATION_SANS_BYTES = tryLoadLiberationSansBytes();
 
-describe.skipIf(LIBERATION_SANS_BYTES === null)(
-  'OSフォント（Local Font Access API）による実フォント埋め込み',
-  () => {
-    // bunのテスト環境にはbrowserの`window`が存在しないため、queryLocalFonts差し替え用に
-    // 最小限のグローバルを用意する。他のテストへ影響しないよう、このブロック専用にafterEachで戻す
-    if (typeof globalThis.window === 'undefined') {
-      (globalThis as unknown as { window: unknown }).window = globalThis;
-    }
-    afterEach(() => {
-      Reflect.deleteProperty(window, 'queryLocalFonts');
-    });
+describe('OSフォント（Local Font Access API）による実フォント埋め込み', () => {
+  // bunのテスト環境にはbrowserの`window`が存在しないため、queryLocalFonts差し替え用に
+  // 最小限のグローバルを用意する。元から存在した`window`・`queryLocalFonts`は変更しないよう、
+  // このブロックで新規作成した場合のみ、各テスト後に`queryLocalFonts`を元の状態へ戻し、
+  // スイート終了後に`window`自体を取り除く
+  const windowCreatedBySuite = typeof globalThis.window === 'undefined';
+  if (windowCreatedBySuite) {
+    (globalThis as unknown as { window: unknown }).window = globalThis;
+  }
+  const originalQueryLocalFonts = window.queryLocalFonts;
 
+  afterEach(() => {
+    if (originalQueryLocalFonts === undefined) {
+      Reflect.deleteProperty(window, 'queryLocalFonts');
+    } else {
+      window.queryLocalFonts = originalQueryLocalFonts;
+    }
+  });
+
+  afterAll(() => {
+    if (windowCreatedBySuite) {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  });
+
+  describe.skipIf(LIBERATION_SANS_BYTES === null)('実フォントが検出できる場合', () => {
     // skipIfにより、このブロックが実行される時点でLIBERATION_SANS_BYTESは非nullであることが保証されている
     const fontBytes = LIBERATION_SANS_BYTES!;
 
@@ -1107,7 +1121,7 @@ describe.skipIf(LIBERATION_SANS_BYTES === null)(
             fullName: 'Liberation Sans',
             family: 'Liberation Sans',
             style: 'Regular',
-            blob: () => Promise.resolve(new Blob([fontBytes])),
+            blob: () => Promise.resolve(new Blob([Uint8Array.from(fontBytes)])),
           },
         ]);
 
@@ -1128,28 +1142,34 @@ describe.skipIf(LIBERATION_SANS_BYTES === null)(
       const embeddedFont = doc.context.lookup(fontRef, PDFDict);
       // 標準14フォント（Type1・FontFileなし）ではなく、実フォントプログラムを含む
       // 埋め込み済みフォント（Type0/CIDFontType2、FontDescriptor経由でFontFile2を持つ）であること
-      expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).not.toBe('/Type1');
+      expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type0');
+      const [descendantRef] = embeddedFont
+        .lookup(PDFName.of('DescendantFonts'), PDFArray)
+        .asArray();
+      const descendantDict = doc.context.lookup(descendantRef, PDFDict);
+      const fontDescriptor = descendantDict.lookup(PDFName.of('FontDescriptor'), PDFDict);
+      expect(fontDescriptor.has(PDFName.of('FontFile2'))).toBeTrue();
     });
+  });
 
-    it('window.queryLocalFontsが一致するフォントを返さない場合は標準14フォントへフォールバックする', async () => {
-      window.queryLocalFonts = () => Promise.resolve([]);
+  it('window.queryLocalFontsが一致するフォントを返さない場合は標準14フォントへフォールバックする', async () => {
+    window.queryLocalFonts = () => Promise.resolve([]);
 
-      const src = await buildTestPdfSrc(1, [300, 300]);
-      const osFontText = {
-        ...buildTextAnnotation(1),
-        text: 'Hello',
-        fontFamily: 'Nonexistent Font',
-      };
-      const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
-      expect(res.ok).toBeTrue();
-      if (!res.ok) return;
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const osFontText = {
+      ...buildTextAnnotation(1),
+      text: 'Hello',
+      fontFamily: 'Nonexistent Font',
+    };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
 
-      const doc = await loadTestPdf(res.value);
-      const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
-      expect(fontDict).toBeDefined();
-      const [fontRef] = fontDict!.values();
-      const embeddedFont = doc.context.lookup(fontRef, PDFDict);
-      expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type1');
-    });
-  },
-);
+    const doc = await loadTestPdf(res.value);
+    const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+    expect(fontDict).toBeDefined();
+    const [fontRef] = fontDict!.values();
+    const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+    expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type1');
+  });
+});
