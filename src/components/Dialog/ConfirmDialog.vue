@@ -9,17 +9,16 @@
         {{ message }}
       </q-card-section>
 
-      <q-card-section v-if="variant === 'prompt'" class="q-pt-none">
-        <div v-if="previewStyle" class="prompt-preview">
-          <AnnotationPresetPreview :annotation-style="previewStyle" />
-        </div>
+      <q-card-section v-if="variant === 'prompt'" class="q-pt-none row items-center q-gutter-md">
         <q-input
           v-model="promptValue"
           dense
           autofocus
           :label="promptLabel"
           @keyup.enter="onConfirm"
+          class="col"
         />
+        <AnnotationPresetPreview v-if="previewStyle" :annotation-style="previewStyle" style="scale: 1.5;" />
       </q-card-section>
 
       <q-card-actions align="right">
@@ -125,6 +124,5 @@ function onCancelClick() {
 .prompt-preview {
   display: flex;
   justify-content: center;
-  margin-bottom: 0.75rem;
 }
 </style>
