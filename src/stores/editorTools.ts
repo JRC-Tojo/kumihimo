@@ -5,6 +5,8 @@ import { useHistoryStore } from './historyStore';
 import { useSettingsStore } from './settingsStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import { saveDocument } from 'src/utils/document/saveDocument';
+import { saveDocumentAs } from 'src/utils/document/saveDocumentAs';
+import { saveAsDialog } from 'src/components/Dialog/saveAsDialog';
 import { ANNOTATION_REGISTRY } from 'src/components/Viewer/Annotation/registry';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 import { shouldKeepSelectionMode } from 'src/utils/document/annotationToolClickMode';
@@ -47,8 +49,22 @@ function callSavingTools(t: (key: string) => string): IDocTool[] {
       icon: 'save_as',
       label: t('pdfEditor.tools.save.saveAs'),
       isActive: isFileActive,
-      onClicked: () => {
-        /** TODO: 今後実装 */
+      onClicked: async () => {
+        const activeFile = editorStore.getActiveTab(editorStore.activeSide);
+        if (!activeFile) return;
+
+        const result = await saveAsDialog({ sourceFile: activeFile });
+        if (!result) return;
+
+        void saveDocumentAs(
+          activeFile,
+          { containerID: result.containerID, filePath: result.filePath },
+          result.mode,
+          {
+            success: t('pdfEditor.tools.save.success'),
+            failed: t('pdfEditor.tools.save.failed'),
+          },
+        );
       },
     },
   ];
@@ -335,16 +351,6 @@ function callDocTools(t: (key: string) => string): IDocTool[] {
       onClicked: () => {
         // TODO: 暫定実装
         window.print();
-      },
-    },
-    {
-      id: 'download',
-      icon: 'download',
-      label: t('pdfEditor.tools.download'),
-      noMenu: true,
-      isActive: () => false,
-      onClicked: () => {
-        /** TODO: 今後実装 */
       },
     },
   ];

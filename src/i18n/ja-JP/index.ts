@@ -212,13 +212,28 @@ export default {
         auto: '自動保存',
         success: '保存しました',
         failed: '保存に失敗しました',
+        saveAsDialog: {
+          title: '名前を付けて保存',
+          mode: {
+            title: '保存内容',
+            documentOnly: '文書本体のみ',
+            embedAnnotations: 'アノテーションを埋め込んで保存',
+            annotationsAsComments: 'アノテーションをコメントとして保存',
+          },
+          destination: '保存先',
+          destinationLoadFailed: '保存先の読み込みに失敗しました',
+          fileName: 'ファイル名',
+          overwriteConfirm: {
+            title: '上書きの確認',
+            message: '「{name}」は既に存在します。上書きしますか？',
+          },
+        },
       },
       history: {
         undo: '元に戻す',
         redo: 'やり直す',
       },
       print: '印刷',
-      download: 'ダウンロード',
       viewStyle: {
         title: 'タイルモード',
         noGrid: '分割なし',
@@ -275,6 +290,7 @@ export default {
         endHead: '終点の矢じり形状',
         headSize: '矢じりサイズ',
         fontFamily: 'フォント',
+        fontFamilyLoadOsFonts: 'PCにインストールされているフォントを読み込む',
         fontSize: '文字サイズ',
         fontWeight: '文字の太さ',
         textAlign: '文字揃え',

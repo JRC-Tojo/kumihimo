@@ -47,6 +47,9 @@ async function loadDocument(src64: DocumentSource): Promise<Result<PDFDocumentPr
   if (!typedArray.ok) return typedArray;
 
   try {
+    // 標準14フォント（Helvetica等）はグリフの輪郭データを内蔵せず埋め込まれていないため、
+    // pdf.js自身が持つフォールバック用の輪郭データの場所（`PDFJS_GET_DOCUMENT_ASSET_OPTIONS`が
+    // 指す自己ホスト済みの`pdfjs/standard_fonts/`）を教えないと、該当フォントを使うテキストが描画されない
     const pdf = await pdfjsLib.getDocument({
       data: typedArray.value,
       ...PDFJS_GET_DOCUMENT_ASSET_OPTIONS,

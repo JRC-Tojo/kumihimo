@@ -212,13 +212,28 @@ export default {
         auto: 'Auto Save',
         success: 'Saved',
         failed: 'Failed to save',
+        saveAsDialog: {
+          title: 'Save As',
+          mode: {
+            title: 'What to save',
+            documentOnly: 'Document only',
+            embedAnnotations: 'Embed annotations into the document',
+            annotationsAsComments: 'Save annotations as comments',
+          },
+          destination: 'Destination',
+          destinationLoadFailed: 'Failed to load the destination list',
+          fileName: 'File name',
+          overwriteConfirm: {
+            title: 'Confirm overwrite',
+            message: '"{name}" already exists. Do you want to overwrite it?',
+          },
+        },
       },
       history: {
         undo: 'Undo',
         redo: 'Redo',
       },
       print: 'Print',
-      download: 'Download',
       viewStyle: {
         title: 'Grid View Styles',
         noGrid: 'Single View',
@@ -276,6 +291,7 @@ export default {
         endHead: 'End Arrowhead',
         headSize: 'Arrowhead Size',
         fontFamily: 'Font',
+        fontFamilyLoadOsFonts: 'Load fonts installed on this PC',
         fontSize: 'Font Size',
         fontWeight: 'Font Weight',
         textAlign: 'Text Align',

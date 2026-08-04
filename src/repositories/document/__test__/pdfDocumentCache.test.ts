@@ -33,6 +33,7 @@ const getDocumentMock = mock((_args: { data: Uint8Array }) =>
 
 void mock.module('pdfjs-dist', () => ({
   getDocument: getDocumentMock,
+  version: '0.0.0-test',
 }));
 
 const { acquirePdfDocument, invalidatePdfDocument } = await import('../pdfDocumentCache');

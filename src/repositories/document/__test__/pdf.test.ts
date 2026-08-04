@@ -1,6 +1,19 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, mock, afterEach, afterAll } from 'bun:test';
+import { inflateSync } from 'zlib';
+import { readFileSync } from 'fs';
+import path from 'path';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { PDFDocument } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFDict,
+  PDFArray,
+  PDFName,
+  PDFHexString,
+  PDFStream,
+  type PDFRawStream,
+  degrees,
+  type PDFNumber,
+} from 'pdf-lib';
 import { JSDOM } from 'jsdom';
 import { createCanvas } from 'canvas';
 import type { TextItemBox, AnnotationStyle } from 'src/models/document/pdf';
@@ -27,6 +40,7 @@ let fakeGetDocumentImpl: FakeGetDocumentImpl = () => ({
 
 void mock.module('pdfjs-dist', () => ({
   getDocument: (options: { data: Uint8Array }) => fakeGetDocumentImpl(options),
+  version: '0.0.0-test',
 }));
 
 /**
@@ -69,6 +83,8 @@ const {
   addBlankPageToPdf,
   removePageFromPdf,
   embedAnnotationsIntoPdf,
+  embedAnnotationsAsCommentsIntoPdf,
+  embedAnnotationsAsVectorIntoPdf,
   extractImageFromRegion,
   extractAnnotationContextPreview,
 } = await import('../pdf');
@@ -186,6 +202,40 @@ async function loadTestPdf(src64: DocumentSource) {
   return PDFDocument.load(bytes.value);
 }
 
+/** テスト用PDFの指定ページに`/Rotate`を設定し直したDocumentSourceを返す */
+async function withPageRotation(
+  src64: DocumentSource,
+  pageIndex: number,
+  rotationDeg: 0 | 90 | 180 | 270,
+): Promise<DocumentSource> {
+  const doc = await loadTestPdf(src64);
+  doc.getPage(pageIndex).setRotation(degrees(rotationDeg));
+  const bytes = await doc.save();
+  const b64 = uint8ArrayToBase64(bytes);
+  if (!b64.ok) throw b64.error;
+  return DocumentSource.parse(b64.value);
+}
+
+/** 指定ページのコンテンツストリームを、Flate圧縮を解凍したうえで文字列として取得する（テスト検証用） */
+function getPageContentString(doc: PDFDocument, pageIndex: number): string {
+  const contents = doc.getPage(pageIndex).node.Contents();
+  const decode = (s: PDFStream): string => {
+    const raw = s as unknown as PDFRawStream;
+    try {
+      return inflateSync(Buffer.from(raw.getContents())).toString('binary');
+    } catch {
+      return Buffer.from(raw.getContents()).toString('binary');
+    }
+  };
+  if (contents instanceof PDFArray) {
+    return contents
+      .asArray()
+      .map((ref) => decode(doc.context.lookup(ref, PDFStream)))
+      .join('\n');
+  }
+  return contents ? decode(contents) : '';
+}
+
 const TEST_ANNOTATION_ID = AnnotationID.parse('11111111-1111-4111-8111-111111111111');
 const TEST_COLOR = ColorCode.parse('#ff0000');
 
@@ -227,6 +277,53 @@ function buildLineAnnotation(pageNumber = 1): AnnotationStyle {
 
 function buildCircleAnnotation(pageNumber = 1): AnnotationStyle {
   return { ...buildAnnotationBase(pageNumber), type: 'circle', radius: 15 };
+}
+
+function buildArrowAnnotation(pageNumber = 1): AnnotationStyle {
+  return {
+    ...buildAnnotationBase(pageNumber),
+    type: 'arrow',
+    points: [0, 0, 50, 60],
+    startHead: 'none',
+    endHead: 'triangle',
+    headSize: 10,
+  };
+}
+
+function buildPolylineAnnotation(pageNumber = 1): AnnotationStyle {
+  return {
+    ...buildAnnotationBase(pageNumber),
+    type: 'polyline',
+    points: [0, 0, 20, 10, 40, 0],
+    startHead: 'none',
+    endHead: 'none',
+    headSize: 10,
+  };
+}
+
+function buildPolygonAnnotation(pageNumber = 1): AnnotationStyle {
+  return {
+    ...buildAnnotationBase(pageNumber),
+    type: 'polygon',
+    points: [0, 0, 20, 0, 10, 20],
+    fillColor: TEST_COLOR,
+    fillOpacity: 0.5,
+  };
+}
+
+function buildTextAnnotation(pageNumber = 1): AnnotationStyle {
+  return {
+    ...buildAnnotationBase(pageNumber),
+    type: 'text',
+    width: 100,
+    height: 40,
+    text: 'コメント本文',
+    fontFamily: 'sans-serif',
+    fontSize: 16,
+    fontWeight: 400,
+    textColor: TEST_COLOR,
+    textAlign: 'left',
+  };
 }
 
 describe('addBlankPageToPdf / removePageFromPdf（pdf-lib、実PDFを使用）', () => {
@@ -318,6 +415,278 @@ describe('embedAnnotationsIntoPdf（pdf-lib）', () => {
 
     const loaded = await loadTestPdf(res.value);
     expect(loaded.getPageCount()).toBe(1);
+  });
+});
+
+describe('embedAnnotationsAsCommentsIntoPdf（pdf-lib、ネイティブ注釈として埋め込み）', () => {
+  /** 保存後のPDFから、指定ページの`/Annots`をPDFDictの配列として取得する */
+  async function getAnnotDicts(src64: DocumentSource, pageIndex = 0): Promise<PDFDict[]> {
+    const doc = await loadTestPdf(src64);
+    const page = doc.getPage(pageIndex);
+    const annots = page.node.Annots();
+    if (!annots) return [];
+    return annots.asArray().map((ref) => doc.context.lookup(ref, PDFDict));
+  }
+
+  function subtypeOf(dict: PDFDict): string {
+    return dict.get(PDFName.of('Subtype'))?.toString() ?? '';
+  }
+
+  function numbersOf(dict: PDFDict, key: string): number[] {
+    const arr = dict.lookup(PDFName.of(key), PDFArray);
+    return arr.asArray().map((n) => (n as PDFNumber).asNumber());
+  }
+
+  it('box/circle/line/arrow/polyline/polygon/textの全種別をエラーなく埋め込み、Successを返す', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [
+      buildBoxAnnotation(1),
+      buildCircleAnnotation(1),
+      buildLineAnnotation(1),
+      buildArrowAnnotation(1),
+      buildPolylineAnnotation(1),
+      buildPolygonAnnotation(1),
+      buildTextAnnotation(1),
+    ]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const dicts = await getAnnotDicts(res.value);
+    expect(dicts).toHaveLength(7);
+    expect(dicts.map(subtypeOf)).toEqual([
+      '/Square',
+      '/Circle',
+      '/Line',
+      '/Line',
+      '/PolyLine',
+      '/Polygon',
+      '/FreeText',
+    ]);
+  });
+
+  it('boxはSquare注釈として、指定した位置・サイズに応じたRectを持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildBoxAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(subtypeOf(dict)).toBe('/Square');
+    // buildAnnotationBase: x=10, y=10 / buildBoxAnnotation: width=50, height=30 / ページ高さ300
+    expect(numbersOf(dict, 'Rect')).toEqual([10, 260, 60, 290]);
+  });
+
+  it('arrowはLine注釈として、start/endHeadに対応する/LEを持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildArrowAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(subtypeOf(dict)).toBe('/Line');
+    const le = dict.lookup(PDFName.of('LE'));
+    expect(le?.toString()).toBe('[ /None /ClosedArrow ]');
+  });
+
+  it('polygonはfillColor/fillOpacity指定時に/IC・/CAを持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildPolygonAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(subtypeOf(dict)).toBe('/Polygon');
+    expect(dict.get(PDFName.of('IC'))).toBeDefined();
+    expect((dict.lookup(PDFName.of('CA')) as PDFNumber).asNumber()).toBeCloseTo(0.5);
+  });
+
+  it('textはFreeText注釈として本文を保持する', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildTextAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(subtypeOf(dict)).toBe('/FreeText');
+    const contents = dict.lookup(PDFName.of('Contents'), PDFHexString);
+    expect(contents.decodeText()).toBe('コメント本文');
+  });
+
+  it('存在しないページ番号を指すアノテーションは無視される（エラーにならない）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildBoxAnnotation(99)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const dicts = await getAnnotDicts(res.value);
+    expect(dicts).toHaveLength(0);
+  });
+
+  it('strokeTypeが線種指定の場合、BSに/D（ダッシュパターン）を持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const dashedBox = { ...buildBoxAnnotation(1), strokeType: 'dashed' as const };
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [dashedBox]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    const bs = dict.lookup(PDFName.of('BS'), PDFDict);
+    expect(bs.get(PDFName.of('S'))?.toString()).toBe('/D');
+    expect(numbersOf(bs, 'D').length).toBeGreaterThan(0);
+  });
+
+  it('strokeTypeがsolidの場合はBSに/Dを持たない', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [buildBoxAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    const bs = dict.lookup(PDFName.of('BS'), PDFDict);
+    expect(bs.get(PDFName.of('D'))).toBeUndefined();
+  });
+
+  it('color未設定のarrowはAP（外観ストリーム）を持たない', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const noColorArrow = { ...buildArrowAnnotation(1), color: undefined };
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [noColorArrow]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(dict.get(PDFName.of('AP'))).toBeUndefined();
+  });
+
+  it('colorが設定されたarrowはheadSizeを反映した外観ストリーム（/AP /N）を持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    // 水平な矢印にする（矢じりの左右への広がりがシャフト自体の外接矩形からはみ出すため、
+    // headSizeの増減がBBoxの高さに直接反映され、判定しやすい）
+    const horizontalArrow = { ...buildArrowAnnotation(1), points: [0, 0, 50, 0] };
+    const smallHead = { ...horizontalArrow, headSize: 4 };
+    const bigHead = { ...horizontalArrow, headSize: 40 };
+
+    const smallRes = await embedAnnotationsAsCommentsIntoPdf(src, [smallHead]);
+    const bigRes = await embedAnnotationsAsCommentsIntoPdf(src, [bigHead]);
+    expect(smallRes.ok).toBeTrue();
+    expect(bigRes.ok).toBeTrue();
+    if (!smallRes.ok || !bigRes.ok) return;
+
+    const [smallDict] = await getAnnotDicts(smallRes.value);
+    const [bigDict] = await getAnnotDicts(bigRes.value);
+    expect(smallDict).toBeDefined();
+    expect(bigDict).toBeDefined();
+    if (!smallDict || !bigDict) return;
+
+    const smallAp = smallDict.lookup(PDFName.of('AP'), PDFDict);
+    const bigAp = bigDict.lookup(PDFName.of('AP'), PDFDict);
+    const smallStream = smallAp.lookup(PDFName.of('N'), PDFStream);
+    const bigStream = bigAp.lookup(PDFName.of('N'), PDFStream);
+
+    // headSizeが大きいほど外観ストリームのBBoxも大きくなる（矢じりの見た目が正確に反映されている）
+    const smallBBox = smallStream.dict
+      .lookup(PDFName.of('BBox'), PDFArray)
+      .asArray() as PDFNumber[];
+    const bigBBox = bigStream.dict.lookup(PDFName.of('BBox'), PDFArray).asArray() as PDFNumber[];
+    const smallHeight = smallBBox[3]!.asNumber() - smallBBox[1]!.asNumber();
+    const bigHeight = bigBBox[3]!.asNumber() - bigBBox[1]!.asNumber();
+    expect(bigHeight).toBeGreaterThan(smallHeight);
+
+    // /Rectが外観ストリームのBBoxと一致していること（矢じり分を含めないと、ビューアが
+    // 外観ストリームを狭い/Rectへ縮小フィットさせてしまい、矢印の見た目がずれる）
+    const bigRect = numbersOf(bigDict, 'Rect');
+    const bigRectHeight = bigRect[3]! - bigRect[1]!;
+    expect(bigRectHeight).toBeCloseTo(bigHeight, 5);
+  });
+
+  it('textはtextAlignを/Qへ、fillColor/fillOpacityを/IC・/CAへ変換し、/Helv固定ではない/DAを持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const styledText = {
+      ...buildTextAnnotation(1),
+      textAlign: 'center' as const,
+      fontFamily: 'Courier New',
+      fontWeight: 700,
+      fillColor: TEST_COLOR,
+      fillOpacity: 0.4,
+    };
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [styledText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect((dict.lookup(PDFName.of('Q')) as PDFNumber).asNumber()).toBe(1);
+    expect(dict.get(PDFName.of('IC'))).toBeDefined();
+    expect((dict.lookup(PDFName.of('CA')) as PDFNumber).asNumber()).toBeCloseTo(0.4);
+    const da = dict.lookup(PDFName.of('DA'))!.toString();
+    expect(da).not.toContain('/Helv ');
+    const dr = dict.lookup(PDFName.of('DR'), PDFDict);
+    expect(dr.lookup(PDFName.of('Font'), PDFDict)).toBeDefined();
+  });
+
+  it('半角英数字の本文＋fillColorの場合、背景色を反映した独自の外観ストリーム（/AP /N）を持つ', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const latinText = {
+      ...buildTextAnnotation(1),
+      text: 'Hello World',
+      fillColor: TEST_COLOR,
+      fillOpacity: 0.4,
+    };
+    const res = await embedAnnotationsAsCommentsIntoPdf(src, [latinText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    expect(dict.get(PDFName.of('AP'))).toBeDefined();
+  });
+
+  it(
+    '日本語の本文の場合、標準14フォントがCJK文字のグリフを持たないため外観ストリームの構築は' +
+      'スキップされるが、保存自体は失敗しない（クラッシュ回避のフォールバック）',
+    async () => {
+      const src = await buildTestPdfSrc(1, [300, 300]);
+      const jpText = { ...buildTextAnnotation(1), text: 'あいうえお', fillColor: TEST_COLOR };
+      const res = await embedAnnotationsAsCommentsIntoPdf(src, [jpText]);
+      expect(res.ok).toBeTrue();
+      if (!res.ok) return;
+
+      const [dict] = await getAnnotDicts(res.value);
+      expect(dict).toBeDefined();
+      if (!dict) return;
+      expect(dict.get(PDFName.of('AP'))).toBeUndefined();
+    },
+  );
+
+  it('/Rotateが90のページでは、見た目どおりの座標（画面表示側の空間）から正しくRectへ変換される', async () => {
+    const baseSrc = await buildTestPdfSrc(1, [200, 100]);
+    const rotatedSrc = await withPageRotation(baseSrc, 0, 90);
+    // 画面側の座標系（幅200×高さ100想定）でx=10,y=10,width=50,height=30のbox
+    const res = await embedAnnotationsAsCommentsIntoPdf(rotatedSrc, [buildBoxAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [dict] = await getAnnotDicts(res.value);
+    expect(dict).toBeDefined();
+    if (!dict) return;
+    // rotation=90: rawX=screenY, rawY=screenX（visualToRawPageSpaceの導出どおり）。
+    // 左上(10,10)→raw(10,10)、右下(60,40)→raw(40,60)
+    expect(numbersOf(dict, 'Rect')).toEqual([10, 10, 40, 60]);
   });
 });
 
@@ -597,5 +966,210 @@ describe('renderPageToCanvasFromDoc / renderPageToCanvas / extractImageFromRegio
     if (!res.ok) return;
     expect(res.value.startsWith('data:image/png')).toBeTrue();
     expect(releaseSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('embedAnnotationsAsVectorIntoPdf（pdf-lib、ページ背景を保持したままベクタ形状で焼き込み）', () => {
+  it('全種別をエラーなく焼き込み、ページ数・サイズ・/Rotateは変更しない（ページ背景を保持する）', async () => {
+    const baseSrc = await buildTestPdfSrc(2, [300, 300]);
+    const src = await withPageRotation(baseSrc, 0, 90);
+
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [
+      buildBoxAnnotation(1),
+      buildCircleAnnotation(1),
+      buildLineAnnotation(1),
+      buildArrowAnnotation(1),
+      buildPolylineAnnotation(1),
+      buildPolygonAnnotation(1),
+      buildTextAnnotation(1),
+    ]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    expect(doc.getPageCount()).toBe(2);
+    // ページの/Rotate・MediaBoxは変更されない（ページ背景がベクタのまま保持される）
+    expect(doc.getPage(0).getRotation().angle).toBe(90);
+    expect(doc.getPage(0).getSize()).toEqual({ width: 300, height: 300 });
+    expect(doc.getPage(1).getRotation().angle).toBe(0);
+  });
+
+  it('存在しないページ番号を指すアノテーションは無視される（エラーにならない）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [buildBoxAnnotation(99)]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    expect(doc.getPageCount()).toBe(1);
+  });
+
+  it('線種（dash）は前に描画した図形から引き継がれない（solidな図形の直前で必ずリセットされる）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const dashedBox = { ...buildBoxAnnotation(1), strokeType: 'dashed' as const };
+    const solidBox = { ...buildBoxAnnotation(1), x: 100 };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [dashedBox, solidBox]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const content = getPageContentString(doc, 0);
+    const dashOps = [...content.matchAll(/(\[[^\]]*\]) 0 d/g)].map((m) => m[1]);
+    // 1つ目（dashedBox）は破線パターン、2つ目（solidBox）は明示的にリセットされた実線（[]）であること
+    expect(dashOps).toHaveLength(2);
+    expect(dashOps[0]).not.toBe('[]');
+    expect(dashOps[1]).toBe('[]');
+  });
+
+  it('半角英数字の本文は、埋め込んだフォントでBT/Tjとして描画される（テキストが表示される）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const latinText = { ...buildTextAnnotation(1), text: 'Hello World' };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [latinText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const content = getPageContentString(doc, 0);
+    expect(content).toContain('BT');
+    expect(content).toContain('Tj');
+    expect(content).toContain('ET');
+  });
+
+  it('色未設定（塗り・線とも無し）のboxは何も描画しない（エラーにならない）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const noColorBox = { ...buildBoxAnnotation(1), color: undefined };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [noColorBox]);
+    expect(res.ok).toBeTrue();
+  });
+
+  it('スペースの無い長い日本語本文でもエラーにならず埋め込める（1文字ずつの折り返し）', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const longText = {
+      ...buildTextAnnotation(1),
+      text: 'あ'.repeat(80),
+      width: 100,
+      height: 200,
+      fontSize: 12,
+    };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [longText]);
+    expect(res.ok).toBeTrue();
+  });
+
+  it('文字列に日本語（サンセリフ）を指定した場合でもHelveticaへフォールバックし、失敗しない', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [buildTextAnnotation(1)]);
+    expect(res.ok).toBeTrue();
+  });
+});
+
+/**
+ * pdfjs-distが同梱するテスト用フォントのバイト列を取得する
+ *
+ * node_modules配下の相対パスをハードコードすると、パッケージマネージャのレイアウト
+ * （hoisting、pnpmのsymlink等）やpdfjs-distのバージョン更新で解決に失敗しうるため、
+ * パッケージ解決APIで実体を辿る。読み込みに失敗した場合はnullを返し、呼び出し側で
+ * 該当テストをスキップする
+ */
+function tryLoadLiberationSansBytes(): Uint8Array | null {
+  try {
+    const fontPath = path.join(
+      path.dirname(require.resolve('pdfjs-dist/package.json')),
+      'standard_fonts/LiberationSans-Regular.ttf',
+    );
+    return readFileSync(fontPath);
+  } catch {
+    return null;
+  }
+}
+
+const LIBERATION_SANS_BYTES = tryLoadLiberationSansBytes();
+
+describe('OSフォント（Local Font Access API）による実フォント埋め込み', () => {
+  // bunのテスト環境にはbrowserの`window`が存在しないため、queryLocalFonts差し替え用に
+  // 最小限のグローバルを用意する。元から存在した`window`・`queryLocalFonts`は変更しないよう、
+  // このブロックで新規作成した場合のみ、各テスト後に`queryLocalFonts`を元の状態へ戻し、
+  // スイート終了後に`window`自体を取り除く
+  const windowCreatedBySuite = typeof globalThis.window === 'undefined';
+  if (windowCreatedBySuite) {
+    (globalThis as unknown as { window: unknown }).window = globalThis;
+  }
+  const originalQueryLocalFonts = window.queryLocalFonts;
+
+  afterEach(() => {
+    if (originalQueryLocalFonts === undefined) {
+      Reflect.deleteProperty(window, 'queryLocalFonts');
+    } else {
+      window.queryLocalFonts = originalQueryLocalFonts;
+    }
+  });
+
+  afterAll(() => {
+    if (windowCreatedBySuite) {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  });
+
+  describe.skipIf(LIBERATION_SANS_BYTES === null)('実フォントが検出できる場合', () => {
+    // skipIfにより、このブロックが実行される時点でLIBERATION_SANS_BYTESは非nullであることが保証されている
+    const fontBytes = LIBERATION_SANS_BYTES!;
+
+    it('window.queryLocalFontsが一致するOSフォントを返す場合、標準14フォントではなく実フォントを埋め込む', async () => {
+      window.queryLocalFonts = () =>
+        Promise.resolve([
+          {
+            postscriptName: 'LiberationSans-Regular',
+            fullName: 'Liberation Sans',
+            family: 'Liberation Sans',
+            style: 'Regular',
+            blob: () => Promise.resolve(new Blob([Uint8Array.from(fontBytes)])),
+          },
+        ]);
+
+      const src = await buildTestPdfSrc(1, [300, 300]);
+      const osFontText = {
+        ...buildTextAnnotation(1),
+        text: 'Hello',
+        fontFamily: 'Liberation Sans',
+      };
+      const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
+      expect(res.ok).toBeTrue();
+      if (!res.ok) return;
+
+      const doc = await loadTestPdf(res.value);
+      const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+      expect(fontDict).toBeDefined();
+      const [fontRef] = fontDict!.values();
+      const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+      // 標準14フォント（Type1・FontFileなし）ではなく、実フォントプログラムを含む
+      // 埋め込み済みフォント（Type0/CIDFontType2、FontDescriptor経由でFontFile2を持つ）であること
+      expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type0');
+      const [descendantRef] = embeddedFont
+        .lookup(PDFName.of('DescendantFonts'), PDFArray)
+        .asArray();
+      const descendantDict = doc.context.lookup(descendantRef, PDFDict);
+      const fontDescriptor = descendantDict.lookup(PDFName.of('FontDescriptor'), PDFDict);
+      expect(fontDescriptor.has(PDFName.of('FontFile2'))).toBeTrue();
+    });
+  });
+
+  it('window.queryLocalFontsが一致するフォントを返さない場合は標準14フォントへフォールバックする', async () => {
+    window.queryLocalFonts = () => Promise.resolve([]);
+
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const osFontText = {
+      ...buildTextAnnotation(1),
+      text: 'Hello',
+      fontFamily: 'Nonexistent Font',
+    };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+    expect(fontDict).toBeDefined();
+    const [fontRef] = fontDict!.values();
+    const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+    expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type1');
   });
 });
