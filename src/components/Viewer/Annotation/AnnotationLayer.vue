@@ -309,14 +309,21 @@ const visibleAnnotations = computed(() => {
 // z順を保ったまま、隣接し合成モードが同じ注釈同士を1レイヤーへまとめる
 // （AnnotationBlendLayerのレイヤー数を抑えるため。詳細はテンプレート側のコメント参照）
 const annotationBlendGroups = computed(() => {
-  const groups: { key: AnnotationID; blendMode: AnnotationStyle['blendMode']; annotations: AnnotationStyle[] }[] =
-    [];
+  const groups: {
+    key: AnnotationID;
+    blendMode: AnnotationStyle['blendMode'];
+    annotations: AnnotationStyle[];
+  }[] = [];
   for (const annotation of visibleAnnotations.value) {
     const last = groups.at(-1);
     if (last && last.blendMode === annotation.blendMode) {
       last.annotations.push(annotation);
     } else {
-      groups.push({ key: annotation.id, blendMode: annotation.blendMode, annotations: [annotation] });
+      groups.push({
+        key: annotation.id,
+        blendMode: annotation.blendMode,
+        annotations: [annotation],
+      });
     }
   }
   return groups;

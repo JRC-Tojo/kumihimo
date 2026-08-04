@@ -79,7 +79,7 @@ function commitToCanvas(
   }
   context.drawImage(source, 0, 0);
 }
-    
+
 // 同一canvas要素に対する直近のRenderTask（pdf.jsの`page.render()`が返す進行中のレンダリングタスク）。
 // 世代チェックだけでは、古い呼び出しの結果をcanvasへ反映しないようにはできても、pdf.js内部の
 // RenderTask自体はキャンセルされずに最後まで実行され続けてしまい、CPU・メモリを無駄に消費する
@@ -121,7 +121,7 @@ export async function renderPage(
     fileKeyForCache !== undefined && maxWidth === 0
       ? renderCacheKey({ fileKey: fileKeyForCache, pageNumber, scale, devicePixelRatio: dpr })
       : undefined;
-  
+
   // 同じcanvasに対して前の呼び出しのRenderTaskがまだ進行中なら、ここでキャンセルする
   canvasRenderTask.get(canvas)?.cancel();
 
