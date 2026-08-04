@@ -44,7 +44,14 @@ import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import type { AnnotationID, LineAnnotationStyle } from 'src/models/document/pdf';
 import { useAnnotationShape } from './composables/useAnnotationShape';
-import { useTwoPointAnchors } from './composables/useTwoPointAnchors';
+import { useTwoPointAnchors } from './composables/useMultiPointAnchors';
+import {
+  TRANSFORMER_ANCHOR_CORNER_RADIUS,
+  TRANSFORMER_ANCHOR_FILL,
+  TRANSFORMER_ANCHOR_SIZE,
+  TRANSFORMER_ANCHOR_STROKE,
+  TRANSFORMER_ANCHOR_STROKE_WIDTH,
+} from './composables/anchorStyle';
 
 interface Props {
   annotation: LineAnnotationStyle;
@@ -53,6 +60,8 @@ interface Props {
   // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
   // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
   allowDrag: boolean;
+  // Konvaステージの拡大率。頂点アンカーの見た目上のサイズをズームに関わらず一定に保つために使う
+  stageScale?: number;
 }
 
 const props = defineProps<Props>();
@@ -112,6 +121,13 @@ const lineConfig = computed(() => {
   };
 });
 
+// ステージの拡大率と逆のscaleを乗せることで、頂点アンカーの見た目上のサイズをズームに
+// 関わらず一定に保つ（issue #49）。stageScaleが0以下になる異常値では逆数が発散するため1にフォールバックする
+const anchorInverseScale = computed(() => {
+  const scale = props.stageScale ?? 1;
+  return scale > 0 ? 1 / scale : 1;
+});
+
 const anchor1Config = computed(() => {
   const annotation = displayAnnotation.value;
   const points = linePoints.value;
@@ -120,15 +136,17 @@ const anchor1Config = computed(() => {
     annotationId: annotation.id,
     x: points[0],
     y: points[1],
-    width: 10,
-    height: 10,
-    offset: { x: 5, y: 5 },
+    width: TRANSFORMER_ANCHOR_SIZE,
+    height: TRANSFORMER_ANCHOR_SIZE,
+    offset: { x: TRANSFORMER_ANCHOR_SIZE / 2, y: TRANSFORMER_ANCHOR_SIZE / 2 },
+    scaleX: anchorInverseScale.value,
+    scaleY: anchorInverseScale.value,
     name: 'annotation-anchor',
-    fill: '#ffffff',
-    // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
-    stroke: annotation.color ?? '#000000',
-    strokeWidth: 2,
-    cornerRadius: 0,
+    // box/circle/textが使うKonva Transformerの頂点と見た目を揃える
+    fill: TRANSFORMER_ANCHOR_FILL,
+    stroke: TRANSFORMER_ANCHOR_STROKE,
+    strokeWidth: TRANSFORMER_ANCHOR_STROKE_WIDTH,
+    cornerRadius: TRANSFORMER_ANCHOR_CORNER_RADIUS,
     draggable: props.isEditing && !!props.isSelected,
     listening: props.isEditing && !!props.isSelected,
     cursor: props.isEditing && !!props.isSelected ? 'grab' : 'default',
@@ -143,15 +161,17 @@ const anchor2Config = computed(() => {
     annotationId: annotation.id,
     x: points[2],
     y: points[3],
-    width: 10,
-    height: 10,
-    offset: { x: 5, y: 5 },
+    width: TRANSFORMER_ANCHOR_SIZE,
+    height: TRANSFORMER_ANCHOR_SIZE,
+    offset: { x: TRANSFORMER_ANCHOR_SIZE / 2, y: TRANSFORMER_ANCHOR_SIZE / 2 },
+    scaleX: anchorInverseScale.value,
+    scaleY: anchorInverseScale.value,
     name: 'annotation-anchor',
-    fill: '#ffffff',
-    // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
-    stroke: annotation.color ?? '#000000',
-    strokeWidth: 2,
-    cornerRadius: 0,
+    // box/circle/textが使うKonva Transformerの頂点と見た目を揃える
+    fill: TRANSFORMER_ANCHOR_FILL,
+    stroke: TRANSFORMER_ANCHOR_STROKE,
+    strokeWidth: TRANSFORMER_ANCHOR_STROKE_WIDTH,
+    cornerRadius: TRANSFORMER_ANCHOR_CORNER_RADIUS,
     draggable: props.isEditing && !!props.isSelected,
     listening: props.isEditing && !!props.isSelected,
     cursor: props.isEditing && !!props.isSelected ? 'grab' : 'default',
@@ -192,6 +212,7 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
 const { onAnchorDragStart, onAnchorDrag0, onAnchorDrag1, onAnchorDragEnd } = useTwoPointAnchors({
   getShapeNode: () => lineRef.value?.getNode() ?? null,
   getGroupNode: () => groupRef.value?.getNode() ?? null,
+  getGroupDraggable: () => props.isEditing && props.allowDrag && !ctrlKey.value,
   getAnchorNode: (idx) =>
     (idx === 0 ? anchor1Ref.value?.getNode() : anchor2Ref.value?.getNode()) ?? null,
   // 頂点ドラッグ確定時: emitした内容をそのままdisplayAnnotationへ反映する。

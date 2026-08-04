@@ -6,6 +6,7 @@
  */
 import { Dialog } from 'quasar';
 import ConfirmDialog from 'src/components/Dialog/ConfirmDialog.vue';
+import type { DrawingAnnotationStyle } from 'src/models/docPage';
 
 export interface ConfirmDialogOptions {
   title: string;
@@ -37,6 +38,8 @@ export interface PromptDialogOptions {
   message?: string;
   promptLabel?: string;
   initialValue?: string;
+  /** 指定した場合、入力欄の上に新規追加スタイルのプレビューを表示する（プリセット登録画面向け） */
+  previewStyle?: DrawingAnnotationStyle;
 }
 
 /**
@@ -52,6 +55,7 @@ export function promptDialog(opts: PromptDialogOptions): Promise<string | undefi
         variant: 'prompt',
         promptLabel: opts.promptLabel ?? '',
         promptInitialValue: opts.initialValue ?? '',
+        previewStyle: opts.previewStyle,
       },
     })
       .onOk((value: string) => resolve(value))

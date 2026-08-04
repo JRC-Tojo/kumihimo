@@ -20,6 +20,9 @@ interface Props {
   // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
   // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
   allowDrag: boolean;
+  // text自体では未使用（頂点アンカーを持つline/arrow/polyline/polygon向けのprop）。
+  // AnnotationLayer.vueが全種別共通で渡すため、KonvaのscaleとFallthroughで衝突しないよう宣言だけしておく
+  stageScale?: number;
 }
 
 const props = defineProps<Props>();

@@ -48,6 +48,8 @@ interface Props {
   // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
   // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
   allowDrag: boolean;
+  // Konvaステージの拡大率。頂点アンカーの見た目上のサイズをズームに関わらず一定に保つために使う
+  stageScale?: number;
 }
 
 const props = defineProps<Props>();
@@ -99,10 +101,10 @@ const anchorConfigs = computed(() => {
   const annotation = displayAnnotation.value;
   return buildPointAnchorConfigs(
     annotation.points,
-    annotation.color,
     annotation.id,
     props.isEditing,
     !!props.isSelected,
+    props.stageScale ?? 1,
   );
 });
 
@@ -140,6 +142,7 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
 const { onAnchorDragStart, onAnchorDrag, onAnchorDragEnd } = useMultiPointAnchors({
   getShapeNode: () => shapeRef.value?.getNode() ?? null,
   getGroupNode: () => groupRef.value?.getNode() ?? null,
+  getGroupDraggable: () => props.isEditing && props.allowDrag && !ctrlKey.value,
   // 頂点ドラッグ確定時: emitした内容をそのままdisplayAnnotationへ反映する。
   // props.annotation（DB反映待ちでまだ古い）へ再同期すると、確定直後に一瞬古い座標へ巻き戻って見えるため
   onCommit: (points) => {

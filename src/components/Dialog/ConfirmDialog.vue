@@ -9,13 +9,19 @@
         {{ message }}
       </q-card-section>
 
-      <q-card-section v-if="variant === 'prompt'" class="q-pt-none">
+      <q-card-section v-if="variant === 'prompt'" class="q-pt-none row items-center q-gutter-md">
         <q-input
           v-model="promptValue"
           dense
           autofocus
           :label="promptLabel"
           @keyup.enter="onConfirm"
+          class="col"
+        />
+        <AnnotationPresetPreview
+          v-if="previewStyle"
+          :annotation-style="previewStyle"
+          style="scale: 1.5"
         />
       </q-card-section>
 
@@ -63,6 +69,8 @@
 import { ref } from 'vue';
 import { useDialogPluginComponent } from 'quasar';
 import { useI18n } from 'vue-i18n';
+import AnnotationPresetPreview from 'src/components/DocLayout/AnnotationPresetPreview.vue';
+import type { DrawingAnnotationStyle } from 'src/models/docPage';
 
 interface Prop {
   title: string;
@@ -71,6 +79,8 @@ interface Prop {
   severity?: 'normal' | 'negative';
   promptInitialValue?: string;
   promptLabel?: string;
+  /** promptバリアントのみ対象。指定した場合、入力欄の上に新規追加スタイルのプレビューを表示する */
+  previewStyle?: DrawingAnnotationStyle;
 }
 const prop = withDefaults(defineProps<Prop>(), {
   message: '',
