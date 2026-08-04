@@ -229,7 +229,7 @@ async function onAdd() {
   transition: all 0.15s ease;
 
   &:hover {
-    border-color: $primary;
+    border-color: var(--q-primary);
 
     .preset-item-actions {
       opacity: 1;
@@ -238,9 +238,9 @@ async function onAdd() {
   }
 
   &.active {
-    border-color: $primary;
+    border-color: var(--q-primary);
     border-width: 2px;
-    box-shadow: 0 0 0 2px rgba($primary, 0.15);
+    box-shadow: 0 0 0 2px rgba(var(--q-primary-rgb), 0.15);
   }
 }
 

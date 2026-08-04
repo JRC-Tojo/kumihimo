@@ -535,8 +535,8 @@ const textAlignOptions: { icon: string; value: 'left' | 'center' | 'right' }[] =
   padding: 0 0.3rem;
 
   &--active {
-    color: $primary;
-    background-color: rgba($primary, 0.12);
+    color: var(--q-primary);
+    background-color: rgba(var(--q-primary-rgb), 0.12);
   }
 }
 
@@ -565,7 +565,7 @@ const textAlignOptions: { icon: string; value: 'left' | 'center' | 'right' }[] =
   width: 76px;
 
   :deep(.q-slider) {
-    color: $primary;
+    color: var(--q-primary);
   }
 }
 

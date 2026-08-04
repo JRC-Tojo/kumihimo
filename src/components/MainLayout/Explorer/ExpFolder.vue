@@ -334,11 +334,11 @@ async function onUploadSelected(e: Event) {
   }
 
   &.selected {
-    background: rgba($primary, 0.15);
+    background: rgba(var(--q-primary-rgb), 0.15);
   }
 
   &.drag-over {
-    outline: 1px dashed $primary;
+    outline: 1px dashed var(--q-primary);
   }
 
   .folder-name {

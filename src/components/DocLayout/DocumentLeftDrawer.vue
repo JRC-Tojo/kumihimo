@@ -110,7 +110,7 @@ const bookmarks = computed<Bookmark[]>(() => []);
     h6 {
       font-weight: 600;
       font-size: 0.95rem;
-      color: $primary;
+      color: var(--q-primary);
     }
   }
 
@@ -149,15 +149,15 @@ const bookmarks = computed<Bookmark[]>(() => []);
       aspect-ratio: 3 / 4;
 
       &:hover {
-        border-color: $primary;
+        border-color: var(--q-primary);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
         transform: translateY(-2px);
       }
 
       &.active {
-        border-color: $primary;
-        background-color: color.adjust($primary, $lightness: 45%);
-        box-shadow: 0 0 0 3px rgba($primary, 0.2);
+        border-color: var(--q-primary);
+        background-color: color-mix(in srgb, var(--q-primary) 55%, white);
+        box-shadow: 0 0 0 3px rgba(var(--q-primary-rgb), 0.2);
       }
 
       img {
@@ -200,7 +200,7 @@ const bookmarks = computed<Bookmark[]>(() => []);
 
   .drawer-section {
     h6 {
-      color: $primary;
+      color: var(--q-primary);
     }
   }
 
@@ -221,14 +221,14 @@ const bookmarks = computed<Bookmark[]>(() => []);
       border-color: $grey-7;
 
       &:hover {
-        border-color: $primary;
+        border-color: var(--q-primary);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       }
 
       &.active {
-        border-color: $primary;
-        background-color: color.adjust($primary, $lightness: 25%);
-        box-shadow: 0 0 0 3px rgba($primary, 0.3);
+        border-color: var(--q-primary);
+        background-color: color-mix(in srgb, var(--q-primary) 75%, white);
+        box-shadow: 0 0 0 3px rgba(var(--q-primary-rgb), 0.3);
       }
 
       .page-number {

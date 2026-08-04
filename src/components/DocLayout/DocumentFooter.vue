@@ -203,7 +203,7 @@ watch(zoomLevel, (newZoomLevel) => {
     .status-message {
       font-size: 0.85rem;
       font-weight: 500;
-      color: $primary;
+      color: var(--q-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -212,7 +212,7 @@ watch(zoomLevel, (newZoomLevel) => {
 
   // 関係性登録モードがONの間、フッター全体の色を変えてモード状態を示す
   &.document-footer--relational {
-    background-color: rgba($primary, 0.12);
+    background-color: rgba(var(--q-primary-rgb), 0.12);
   }
 
   .footer-pagination {
@@ -234,8 +234,8 @@ watch(zoomLevel, (newZoomLevel) => {
 
       &:focus {
         outline: none;
-        border-color: $primary;
-        box-shadow: 0 0 0 2px rgba($primary, 0.1);
+        border-color: var(--q-primary);
+        box-shadow: 0 0 0 2px rgba(var(--q-primary-rgb), 0.1);
         background: white;
       }
 
@@ -273,7 +273,7 @@ watch(zoomLevel, (newZoomLevel) => {
 
         &.q-btn--active {
           background: white;
-          color: $primary;
+          color: var(--q-primary);
         }
       }
     }
@@ -294,7 +294,7 @@ watch(zoomLevel, (newZoomLevel) => {
       width: 120px;
 
       :deep(.q-slider) {
-        color: $primary;
+        color: var(--q-primary);
       }
     }
   }
@@ -306,7 +306,7 @@ watch(zoomLevel, (newZoomLevel) => {
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.3);
 
   &.document-footer--relational {
-    background-color: rgba($primary, 0.2);
+    background-color: rgba(var(--q-primary-rgb), 0.2);
   }
 
   .footer-section {
@@ -322,8 +322,8 @@ watch(zoomLevel, (newZoomLevel) => {
       color: $grey-2;
 
       &:focus {
-        border-color: $primary;
-        box-shadow: 0 0 0 2px rgba($primary, 0.2);
+        border-color: var(--q-primary);
+        box-shadow: 0 0 0 2px rgba(var(--q-primary-rgb), 0.2);
         background: color.adjust($grey-8, $lightness: -5%);
       }
     }
@@ -342,7 +342,7 @@ watch(zoomLevel, (newZoomLevel) => {
 
         &.q-btn--active {
           background: color.adjust($dark, $lightness: -3%);
-          color: $primary;
+          color: var(--q-primary);
         }
       }
     }
@@ -355,8 +355,8 @@ watch(zoomLevel, (newZoomLevel) => {
       color: $grey-2;
 
       &:focus {
-        border-color: $primary;
-        box-shadow: 0 0 0 2px rgba($primary, 0.2);
+        border-color: var(--q-primary);
+        box-shadow: 0 0 0 2px rgba(var(--q-primary-rgb), 0.2);
         background: color.adjust($grey-8, $lightness: -5%);
       }
     }
