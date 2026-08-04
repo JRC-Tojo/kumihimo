@@ -17,6 +17,7 @@ import type { DocumentSource } from 'src/models/document/common';
 import { Failure, Success, toError, type Result } from 'src/models/error/result';
 import { base64ToUint8Array } from 'src/utils/binary/base64';
 import { fileKey, type FileIdentity } from 'src/utils/document/fileKey';
+import { PDFJS_GET_DOCUMENT_ASSET_OPTIONS } from 'src/utils/document/pdfjsAssets';
 
 /** 参照がなくなってから実際に破棄するまでの猶予（ミリ秒） */
 const DISPOSE_GRACE_MS = 5000;
@@ -46,7 +47,10 @@ async function loadDocument(src64: DocumentSource): Promise<Result<PDFDocumentPr
   if (!typedArray.ok) return typedArray;
 
   try {
-    const pdf = await pdfjsLib.getDocument({ data: typedArray.value }).promise;
+    const pdf = await pdfjsLib.getDocument({
+      data: typedArray.value,
+      ...PDFJS_GET_DOCUMENT_ASSET_OPTIONS,
+    }).promise;
     return Success(pdf);
   } catch (e) {
     return Failure(toError(e));

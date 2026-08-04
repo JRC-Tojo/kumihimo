@@ -28,6 +28,7 @@ import AnnotationLayer from './Annotation/AnnotationLayer.vue';
 import { debounce, useQuasar } from 'quasar';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf.js';
 import type { PageSize } from './pdfManager';
+import { isRenderCancelledError } from './pdfManager';
 
 interface Props {
   annotations: AnnotationStyle[];
@@ -105,17 +106,40 @@ async function render(targetRenderScale: number) {
   lastRenderedScale.value = targetRenderScale;
 }
 
-onMounted(async () => {
+/**
+ * `render()`を、失敗時のユーザー通知（再試行アクション付き）まで含めて安全に呼び出す。
+ *
+ * `render()`はページ切り替え・ズームのデバウンス再描画から重ねて呼ばれ得るため、pdf.js側で
+ * 前の呼び出しが意図的にキャンセルされる（`pdfManager.ts`の`canvasRenderTask`経由）ことがある。
+ * これは実際の失敗ではないため、`isRenderCancelledError`で判別してユーザー通知は行わない
+ */
+async function renderSafely(targetScale: number): Promise<boolean> {
   try {
-    await render(scale.value);
-    canvasRendered.value = true;
+    await render(targetScale);
+    return true;
   } catch (error) {
+    if (isRenderCancelledError(error)) return false;
     $q.notify({
       type: 'negative',
       message: `ページのレンダリングに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`,
       position: 'top',
+      actions: [
+        {
+          label: '再試行',
+          handler: () => {
+            void renderSafely(targetScale).then((rendered) => {
+              if (rendered) canvasRendered.value = true;
+            });
+          },
+        },
+      ],
     });
+    return false;
   }
+}
+
+onMounted(async () => {
+  canvasRendered.value = await renderSafely(scale.value);
 });
 
 /**
@@ -126,11 +150,11 @@ onMounted(async () => {
 const debouncedRerenderForZoom = debounce(() => {
   const target = scale.value;
   if (target === lastRenderedScale.value) return;
-  void render(target);
+  void renderSafely(target);
 }, ZOOM_RERENDER_DEBOUNCE_MS);
 
 watch(scale, () => debouncedRerenderForZoom());
-watch(page, () => void render(scale.value));
+watch(page, () => void renderSafely(scale.value));
 </script>
 
 <style lang="scss" scoped>
