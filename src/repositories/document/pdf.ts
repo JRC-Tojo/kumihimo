@@ -793,6 +793,12 @@ function hexToRgb(hex: string) {
   return { r: r / 255, g: g / 255, b: b / 255 };
 }
 
+/** ページの`/Rotate`を0/90/180/270のいずれかへ正規化する（それ以外の値は0として扱う） */
+function normalizedPageRotation(page: PDFPage): 0 | 90 | 180 | 270 {
+  const angle = ((page.getRotation().angle % 360) + 360) % 360;
+  return angle === 90 || angle === 180 || angle === 270 ? angle : 0;
+}
+
 /**
  * pdf.js（画面表示・アノテーション座標の記録側）が使う「見た目どおりの空間」
  * （左上原点・Y下向き、ページの`/Rotate`を反映した幅・高さ）の座標を、pdf-libの生のページ座標空間
@@ -804,12 +810,6 @@ function hexToRgb(hex: string) {
  * `pageHeight - y`変換だけでは座標がずれる（横長ページ等で位置・向きがおかしくなる不具合の原因）。
  * ここでの変換はpdf.js内部の`PageViewport`が採用する回転行列と等価な計算になっている
  */
-/** ページの`/Rotate`を0/90/180/270のいずれかへ正規化する（それ以外の値は0として扱う） */
-function normalizedPageRotation(page: PDFPage): 0 | 90 | 180 | 270 {
-  const angle = ((page.getRotation().angle % 360) + 360) % 360;
-  return angle === 90 || angle === 180 || angle === 270 ? angle : 0;
-}
-
 function visualToRawPageSpace(
   screenX: number,
   screenY: number,
@@ -1219,8 +1219,9 @@ function buildArrowAppearanceStream(
   if (startShape) ops.push(...headShapeToOperators(startShape));
   if (endShape) ops.push(...headShapeToOperators(endShape));
 
-  const stream = context.formXObject(ops, { BBox: [minX, minY, maxX, maxY] });
-  return context.register(stream);
+  const bbox: [number, number, number, number] = [minX, minY, maxX, maxY];
+  const stream = context.formXObject(ops, { BBox: bbox });
+  return { ref: context.register(stream), bbox };
 }
 
 /**
@@ -1320,7 +1321,7 @@ export async function embedAnnotationsAsCommentsIntoPdf(
           // ネイティブの/LEにはheadSize相当のフィールドが無いため、実際に表示される見た目は
           // 独自の外観ストリームで焼き込み、headSizeをビューアに依存せず正確に反映する
           if (color) {
-            const apRef = buildArrowAppearanceStream(
+            const ap = buildArrowAppearanceStream(
               context,
               [
                 { x, y },
@@ -1337,7 +1338,9 @@ export async function embedAnnotationsAsCommentsIntoPdf(
               color,
               strokeWidth,
             );
-            dictLiteral.AP = { N: apRef };
+            dictLiteral.AP = { N: ap.ref };
+            // ビューアが外観ストリームを/Rectへフィットさせて縮小しないよう、矢じり分も含めたBBoxに合わせる
+            dictLiteral.Rect = ap.bbox;
           }
         }
       } else if (a.type === 'polyline' || a.type === 'polygon') {
@@ -1375,7 +1378,7 @@ export async function embedAnnotationsAsCommentsIntoPdf(
           ];
           // 矢印と同じ理由で、headSizeを正確に反映するための独自の外観ストリームを焼き込む
           if (color) {
-            const apRef = buildArrowAppearanceStream(
+            const ap = buildArrowAppearanceStream(
               context,
               verticesScreen,
               dash,
@@ -1389,7 +1392,9 @@ export async function embedAnnotationsAsCommentsIntoPdf(
               color,
               strokeWidth,
             );
-            dictLiteral.AP = { N: apRef };
+            dictLiteral.AP = { N: ap.ref };
+            // ビューアが外観ストリームを/Rectへフィットさせて縮小しないよう、矢じり分も含めたBBoxに合わせる
+            dictLiteral.Rect = ap.bbox;
           }
         } else if (a.fillColor) {
           const fc = hexToRgb(a.fillColor);

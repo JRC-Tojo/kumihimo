@@ -221,6 +221,7 @@ export default {
             annotationsAsComments: 'Save annotations as comments',
           },
           destination: 'Destination',
+          destinationLoadFailed: 'Failed to load the destination list',
           fileName: 'File name',
           overwriteConfirm: {
             title: 'Confirm overwrite',

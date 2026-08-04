@@ -221,6 +221,7 @@ export default {
             annotationsAsComments: 'アノテーションをコメントとして保存',
           },
           destination: '保存先',
+          destinationLoadFailed: '保存先の読み込みに失敗しました',
           fileName: 'ファイル名',
           overwriteConfirm: {
             title: '上書きの確認',

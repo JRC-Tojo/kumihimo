@@ -496,14 +496,18 @@ async function loadOsFontFamilies() {
   osFontsLoading.value = true;
   try {
     const res = await api.queryLocalFontFamilies();
-    osFontFamilies.value = res.ok ? res.data : [];
+    // 失敗時はnullのまま維持し、読み込み項目を残して再試行できるようにする
+    if (res.ok) osFontFamilies.value = res.data;
   } finally {
     osFontsLoading.value = false;
   }
 }
 
 const fontFamilyLabel = computed(
-  () => fontFamilyOptions.find((opt) => opt.value === fontFamily.value)?.label ?? fontFamily.value,
+  () =>
+    fontFamilyOptions.find((opt) => opt.value === fontFamily.value)?.label ??
+    fontFamily.value ??
+    'Sans Serif',
 );
 
 /** テキストの文字揃えの選択肢一覧（左寄せ・中央寄せ・右寄せ） */

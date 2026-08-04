@@ -604,6 +604,12 @@ describe('embedAnnotationsAsCommentsIntoPdf（pdf-lib、ネイティブ注釈と
     const smallHeight = smallBBox[3]!.asNumber() - smallBBox[1]!.asNumber();
     const bigHeight = bigBBox[3]!.asNumber() - bigBBox[1]!.asNumber();
     expect(bigHeight).toBeGreaterThan(smallHeight);
+
+    // /Rectが外観ストリームのBBoxと一致していること（矢じり分を含めないと、ビューアが
+    // 外観ストリームを狭い/Rectへ縮小フィットさせてしまい、矢印の見た目がずれる）
+    const bigRect = numbersOf(bigDict, 'Rect');
+    const bigRectHeight = bigRect[3]! - bigRect[1]!;
+    expect(bigRectHeight).toBeCloseTo(bigHeight, 5);
   });
 
   it('textはtextAlignを/Qへ、fillColor/fillOpacityを/IC・/CAへ変換し、/Helv固定ではない/DAを持つ', async () => {
@@ -1056,65 +1062,94 @@ describe('embedAnnotationsAsVectorIntoPdf（pdf-lib、ページ背景を保持�
   });
 });
 
-describe('OSフォント（Local Font Access API）による実フォント埋め込み', () => {
-  // bunのテスト環境にはbrowserの`window`が存在しないため、queryLocalFonts差し替え用に
-  // 最小限のグローバルを用意する。他のテストへ影響しないよう、このブロック専用にafterEachで戻す
-  if (typeof globalThis.window === 'undefined') {
-    (globalThis as unknown as { window: unknown }).window = globalThis;
+/**
+ * pdfjs-distが同梱するテスト用フォントのバイト列を取得する
+ *
+ * node_modules配下の相対パスをハードコードすると、パッケージマネージャのレイアウト
+ * （hoisting、pnpmのsymlink等）やpdfjs-distのバージョン更新で解決に失敗しうるため、
+ * パッケージ解決APIで実体を辿る。読み込みに失敗した場合はnullを返し、呼び出し側で
+ * 該当テストをスキップする
+ */
+function tryLoadLiberationSansBytes(): Uint8Array | null {
+  try {
+    const fontPath = path.join(
+      path.dirname(require.resolve('pdfjs-dist/package.json')),
+      'standard_fonts/LiberationSans-Regular.ttf',
+    );
+    return readFileSync(fontPath);
+  } catch {
+    return null;
   }
-  afterEach(() => {
-    Reflect.deleteProperty(window, 'queryLocalFonts');
-  });
+}
 
-  const LIBERATION_SANS_BYTES = readFileSync(
-    path.join(
-      __dirname,
-      '../../../../node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf',
-    ),
-  );
+const LIBERATION_SANS_BYTES = tryLoadLiberationSansBytes();
 
-  it('window.queryLocalFontsが一致するOSフォントを返す場合、標準14フォントではなく実フォントを埋め込む', async () => {
-    window.queryLocalFonts = () =>
-      Promise.resolve([
-        {
-          postscriptName: 'LiberationSans-Regular',
-          fullName: 'Liberation Sans',
-          family: 'Liberation Sans',
-          style: 'Regular',
-          blob: () => Promise.resolve(new Blob([LIBERATION_SANS_BYTES])),
-        },
-      ]);
+describe.skipIf(LIBERATION_SANS_BYTES === null)(
+  'OSフォント（Local Font Access API）による実フォント埋め込み',
+  () => {
+    // bunのテスト環境にはbrowserの`window`が存在しないため、queryLocalFonts差し替え用に
+    // 最小限のグローバルを用意する。他のテストへ影響しないよう、このブロック専用にafterEachで戻す
+    if (typeof globalThis.window === 'undefined') {
+      (globalThis as unknown as { window: unknown }).window = globalThis;
+    }
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'queryLocalFonts');
+    });
 
-    const src = await buildTestPdfSrc(1, [300, 300]);
-    const osFontText = { ...buildTextAnnotation(1), text: 'Hello', fontFamily: 'Liberation Sans' };
-    const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
-    expect(res.ok).toBeTrue();
-    if (!res.ok) return;
+    // skipIfにより、このブロックが実行される時点でLIBERATION_SANS_BYTESは非nullであることが保証されている
+    const fontBytes = LIBERATION_SANS_BYTES!;
 
-    const doc = await loadTestPdf(res.value);
-    const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
-    expect(fontDict).toBeDefined();
-    const [fontRef] = fontDict!.values();
-    const embeddedFont = doc.context.lookup(fontRef, PDFDict);
-    // 標準14フォント（Type1・FontFileなし）ではなく、実フォントプログラムを含む
-    // 埋め込み済みフォント（Type0/CIDFontType2、FontDescriptor経由でFontFile2を持つ）であること
-    expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).not.toBe('/Type1');
-  });
+    it('window.queryLocalFontsが一致するOSフォントを返す場合、標準14フォントではなく実フォントを埋め込む', async () => {
+      window.queryLocalFonts = () =>
+        Promise.resolve([
+          {
+            postscriptName: 'LiberationSans-Regular',
+            fullName: 'Liberation Sans',
+            family: 'Liberation Sans',
+            style: 'Regular',
+            blob: () => Promise.resolve(new Blob([fontBytes])),
+          },
+        ]);
 
-  it('window.queryLocalFontsが一致するフォントを返さない場合は標準14フォントへフォールバックする', async () => {
-    window.queryLocalFonts = () => Promise.resolve([]);
+      const src = await buildTestPdfSrc(1, [300, 300]);
+      const osFontText = {
+        ...buildTextAnnotation(1),
+        text: 'Hello',
+        fontFamily: 'Liberation Sans',
+      };
+      const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
+      expect(res.ok).toBeTrue();
+      if (!res.ok) return;
 
-    const src = await buildTestPdfSrc(1, [300, 300]);
-    const osFontText = { ...buildTextAnnotation(1), text: 'Hello', fontFamily: 'Nonexistent Font' };
-    const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
-    expect(res.ok).toBeTrue();
-    if (!res.ok) return;
+      const doc = await loadTestPdf(res.value);
+      const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+      expect(fontDict).toBeDefined();
+      const [fontRef] = fontDict!.values();
+      const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+      // 標準14フォント（Type1・FontFileなし）ではなく、実フォントプログラムを含む
+      // 埋め込み済みフォント（Type0/CIDFontType2、FontDescriptor経由でFontFile2を持つ）であること
+      expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).not.toBe('/Type1');
+    });
 
-    const doc = await loadTestPdf(res.value);
-    const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
-    expect(fontDict).toBeDefined();
-    const [fontRef] = fontDict!.values();
-    const embeddedFont = doc.context.lookup(fontRef, PDFDict);
-    expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type1');
-  });
-});
+    it('window.queryLocalFontsが一致するフォントを返さない場合は標準14フォントへフォールバックする', async () => {
+      window.queryLocalFonts = () => Promise.resolve([]);
+
+      const src = await buildTestPdfSrc(1, [300, 300]);
+      const osFontText = {
+        ...buildTextAnnotation(1),
+        text: 'Hello',
+        fontFamily: 'Nonexistent Font',
+      };
+      const res = await embedAnnotationsAsVectorIntoPdf(src, [osFontText]);
+      expect(res.ok).toBeTrue();
+      if (!res.ok) return;
+
+      const doc = await loadTestPdf(res.value);
+      const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+      expect(fontDict).toBeDefined();
+      const [fontRef] = fontDict!.values();
+      const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+      expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type1');
+    });
+  },
+);

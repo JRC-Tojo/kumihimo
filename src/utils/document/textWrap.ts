@@ -9,7 +9,8 @@
 
 const CJK_CHAR_SOURCE =
   '\\u3000-\\u303f\\u3040-\\u30ff\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff\\uff00-\\uffef';
-const TOKEN_RE = new RegExp(`[${CJK_CHAR_SOURCE}]|\\S+|\\s+`, 'gu');
+// `\S+`側からCJKを除外し、英数字とCJKが連続する場合もCJKを1文字ずつ切り出せるようにする
+const TOKEN_RE = new RegExp(`[${CJK_CHAR_SOURCE}]|[^\\s${CJK_CHAR_SOURCE}]+|\\s+`, 'gu');
 
 /** テキストを、単語（CJK文字は1文字ずつ）単位のトークン列へ分割する */
 function tokenize(text: string): string[] {

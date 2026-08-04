@@ -20,11 +20,12 @@ export function isLocalFontAccessSupported(): boolean {
  * 初回はブラウザの許可プロンプトが表示され、ユーザーが拒否した場合はFailureを返す
  */
 export async function queryLocalFonts(): Promise<Result<FontData[]>> {
-  if (!isLocalFontAccessSupported()) {
+  const query = typeof window !== 'undefined' ? window.queryLocalFonts : undefined;
+  if (typeof query !== 'function') {
     return Failure(new Error('このブラウザはLocal Font Access APIに対応していません'));
   }
   try {
-    const fonts = await window.queryLocalFonts!();
+    const fonts = await query.call(window);
     return Success(fonts);
   } catch (e) {
     return Failure(toError(e));

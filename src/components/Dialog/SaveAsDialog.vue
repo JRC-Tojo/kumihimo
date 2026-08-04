@@ -19,6 +19,9 @@
         <div v-if="loading" class="text-grey-6 text-caption q-pa-md text-center">
           {{ $t('message.loading') }}
         </div>
+        <div v-else-if="loadFailed" class="text-negative text-caption q-pa-md text-center">
+          {{ $t('pdfEditor.tools.save.saveAsDialog.destinationLoadFailed') }}
+        </div>
         <div v-else-if="nodes.length === 0" class="text-grey-6 text-caption q-pa-md text-center">
           {{ $t('explorer.emptyContainer') }}
         </div>
@@ -41,6 +44,8 @@
           outlined
           :label="$t('pdfEditor.tools.save.saveAsDialog.fileName')"
           :suffix="extension"
+          :error="!!fileNameError"
+          :error-message="fileNameError ?? undefined"
         />
       </q-card-section>
 
@@ -105,6 +110,7 @@ const modeOptions = [
 const fileName = ref(new Path(prop.sourceFile.path).stemname());
 
 const loading = ref(true);
+const loadFailed = ref(false);
 const nodes = ref<QTreeNode[]>([]);
 const expanded = ref<string[]>([]);
 const selectedKey = ref<string | null>(null);
@@ -171,16 +177,30 @@ onMounted(async () => {
       }
     }
     nodes.value = containerNodes;
+  } else {
+    loadFailed.value = true;
   }
   loading.value = false;
 });
 
+const forbiddenPathChars = /[\\/]/;
+
+/** ファイル名を検証する（空文字・"."/".."・パス区切り文字を拒否し、パス脱出を防ぐ） */
+const fileNameError = computed<string | null>(() => {
+  const trimmed = fileName.value.trim();
+  if (trimmed === '') return $t('explorer.invalidFileNameEmpty');
+  if (trimmed === '.' || trimmed === '..' || forbiddenPathChars.test(trimmed)) {
+    return $t('explorer.invalidFileName');
+  }
+  return null;
+});
+
 const canConfirm = computed(
-  () => !!selectedKey.value && fileName.value.trim().length > 0 && destByKey.has(selectedKey.value),
+  () => !!selectedKey.value && !fileNameError.value && destByKey.has(selectedKey.value),
 );
 
 async function onConfirm() {
-  if (!selectedKey.value) return;
+  if (!selectedKey.value || fileNameError.value) return;
   const dest = destByKey.get(selectedKey.value);
   if (!dest) return;
 

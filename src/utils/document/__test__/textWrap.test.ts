@@ -20,6 +20,11 @@ describe('wrapTextLines', () => {
     expect(lines).toEqual(['あいうえ', 'おかきく', 'けこ']);
   });
 
+  it('英数字とCJKが連続する文字列でも、1トークンにまとまらず折り返される', () => {
+    const lines = wrapTextLines('abcあいうえお', 4, measureByCharCount);
+    expect(lines).toEqual(['abcあ', 'いうえお']);
+  });
+
   it('明示的な改行は段落区切りとして維持される', () => {
     const lines = wrapTextLines('あいう\nかきく', 10, measureByCharCount);
     expect(lines).toEqual(['あいう', 'かきく']);
