@@ -4,7 +4,14 @@
  * PolylineAnnotation.vue / PolygonAnnotation.vue で共有する純粋関数
  */
 
-import type { AnnotationID, ColorCode } from 'src/models/document/pdf';
+import type { AnnotationID } from 'src/models/document/pdf';
+import {
+  TRANSFORMER_ANCHOR_CORNER_RADIUS,
+  TRANSFORMER_ANCHOR_FILL,
+  TRANSFORMER_ANCHOR_SIZE,
+  TRANSFORMER_ANCHOR_STROKE,
+  TRANSFORMER_ANCHOR_STROKE_WIDTH,
+} from './anchorStyle';
 
 export interface PointAnchorConfig {
   id: string;
@@ -18,7 +25,7 @@ export interface PointAnchorConfig {
   scaleY: number;
   name: string;
   fill: string;
-  stroke: ColorCode;
+  stroke: string;
   strokeWidth: number;
   cornerRadius: number;
   draggable: boolean;
@@ -28,7 +35,6 @@ export interface PointAnchorConfig {
 
 export function buildPointAnchorConfigs(
   points: readonly number[],
-  color: ColorCode | undefined,
   annotationId: AnnotationID,
   isEditing: boolean,
   isSelected: boolean,
@@ -47,17 +53,17 @@ export function buildPointAnchorConfigs(
       annotationId,
       x: points[i] ?? 0,
       y: points[i + 1] ?? 0,
-      width: 10,
-      height: 10,
-      offset: { x: 5, y: 5 },
+      width: TRANSFORMER_ANCHOR_SIZE,
+      height: TRANSFORMER_ANCHOR_SIZE,
+      offset: { x: TRANSFORMER_ANCHOR_SIZE / 2, y: TRANSFORMER_ANCHOR_SIZE / 2 },
       scaleX: inverseScale,
       scaleY: inverseScale,
       name: 'annotation-anchor',
-      fill: '#ffffff',
-      // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
-      stroke: color ?? ('#000000' as ColorCode),
-      strokeWidth: 2,
-      cornerRadius: 0,
+      // box/circle/textが使うKonva Transformerの頂点と見た目を揃える
+      fill: TRANSFORMER_ANCHOR_FILL,
+      stroke: TRANSFORMER_ANCHOR_STROKE,
+      strokeWidth: TRANSFORMER_ANCHOR_STROKE_WIDTH,
+      cornerRadius: TRANSFORMER_ANCHOR_CORNER_RADIUS,
       draggable,
       listening: draggable,
       cursor: draggable ? 'grab' : 'default',

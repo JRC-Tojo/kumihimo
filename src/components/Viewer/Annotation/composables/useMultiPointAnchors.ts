@@ -20,6 +20,15 @@ export interface UseMultiPointAnchorsOptions {
   /** ドラッグ中に無効化する親グループノードを取得する（アンカー操作と形状全体の移動が競合しないようにする） */
   getGroupNode: () => Konva.Group | null;
   /**
+   * アンカードラッグ終了時、親グループの`draggable`を戻す値を取得する（呼び出し元コンポーネントの
+   * `:config`で計算しているのと同じ式を渡すこと）。ドラッグ開始時に`getGroupNode().draggable(false)`
+   * で直接書き換えた値は、Vueの再描画では上書きされない（vue-konvaは前回の算出結果との差分でしか
+   * 属性を再設定しないため、Vue側から見て`draggable`の計算結果自体はドラッグ前後で変わっていない
+   * ＝差分なしと判定される）。ここで明示的に復元しないと、一度でも頂点をドラッグしたアノテーションは
+   * 以後ずっと本体を移動できなくなってしまう
+   */
+  getGroupDraggable: () => boolean;
+  /**
    * ドラッグ中、確定前の暫定pointsが変化するたびに呼ばれる（矢じり等、shapeNode自体は
    * 直接書き換えているため何もしなくても追従するが、矢じりのように別ノードとして描画される
    * 付随要素をVueの再描画（displayAnnotationの更新＝ドラッグ確定後）を待たずライブ追従させるため）
@@ -63,6 +72,7 @@ export function useMultiPointAnchors(options: UseMultiPointAnchorsOptions) {
    */
   function onAnchorDragEnd(e: KonvaEvent) {
     e.cancelBubble = true;
+    options.getGroupNode()?.draggable(options.getGroupDraggable());
 
     const shapeNode = options.getShapeNode();
     if (!shapeNode) return;
