@@ -10,14 +10,20 @@
       @contextmenu="handleContextMenu"
       :style="{ cursor: cursor }"
     >
-      <!-- 注釈ごとに専用レイヤー（＝専用canvas）を割り当て、合成モードが他の注釈やスタイル
-           パネルの現在値に引きずられず、注釈自身の値で文書と合成されるようにする -->
+      <!-- 合成モードが他の注釈やスタイルパネルの現在値に引きずられず注釈自身の値で文書と
+           合成されるよう、専用レイヤー（＝専用canvas）へ割り当てる。ただし1注釈1レイヤーだと
+           Konvaのレイヤー数上限警告（推奨3〜5枚）に達しやすいため、z順（visibleAnnotationsの並び順）で
+           隣接し合成モードが同じ注釈同士は同一レイヤーへまとめる（同じcanvasにまとめても
+           mix-blend-modeの適用結果は変わらないため、通常は既定の'normal'同士が大半まとまり
+           レイヤー数を数枚に抑えられる） -->
       <AnnotationBlendLayer
-        v-for="annotation in visibleAnnotations"
-        :key="annotation.id"
-        :blend-mode="annotation.blendMode"
+        v-for="group in annotationBlendGroups"
+        :key="group.key"
+        :blend-mode="group.blendMode"
       >
         <component
+          v-for="annotation in group.annotations"
+          :key="annotation.id"
           :is="ANNOTATION_REGISTRY[annotation.type].component"
           :ref="(el: unknown) => setAnnotationRef(annotation.id, el)"
           :annotation="annotation"
@@ -298,6 +304,22 @@ const visibleAnnotations = computed(() => {
     ? props.annotations.filter((a) => a.id !== editingTextId.value)
     : props.annotations;
   return [...filtered].sort((a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b));
+});
+
+// z順を保ったまま、隣接し合成モードが同じ注釈同士を1レイヤーへまとめる
+// （AnnotationBlendLayerのレイヤー数を抑えるため。詳細はテンプレート側のコメント参照）
+const annotationBlendGroups = computed(() => {
+  const groups: { key: AnnotationID; blendMode: AnnotationStyle['blendMode']; annotations: AnnotationStyle[] }[] =
+    [];
+  for (const annotation of visibleAnnotations.value) {
+    const last = groups.at(-1);
+    if (last && last.blendMode === annotation.blendMode) {
+      last.annotations.push(annotation);
+    } else {
+      groups.push({ key: annotation.id, blendMode: annotation.blendMode, annotations: [annotation] });
+    }
+  }
+  return groups;
 });
 
 const editingTextStyle = computed(() => {
