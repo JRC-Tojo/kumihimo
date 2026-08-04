@@ -18,7 +18,11 @@
           @keyup.enter="onConfirm"
           class="col"
         />
-        <AnnotationPresetPreview v-if="previewStyle" :annotation-style="previewStyle" style="scale: 1.5;" />
+        <AnnotationPresetPreview
+          v-if="previewStyle"
+          :annotation-style="previewStyle"
+          style="scale: 1.5"
+        />
       </q-card-section>
 
       <q-card-actions align="right">
