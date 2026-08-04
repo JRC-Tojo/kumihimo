@@ -157,8 +157,7 @@ function setAnnotationRef(id: AnnotationID, el: unknown) {
         id,
         bindGroupDragSync(id, node, {
           getSelectedIds: () => selectedAnnotIds.value,
-          getAnnotationType: (annotId) =>
-            props.annotations.find((a) => a.id === annotId)?.type,
+          getAnnotationType: (annotId) => props.annotations.find((a) => a.id === annotId)?.type,
           getNode: (annotId) => annotationRefs.get(annotId)?.getNode() ?? null,
         }),
       );

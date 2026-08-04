@@ -25,8 +25,8 @@ describe('shouldInheritSelectionStyle', () => {
   });
 
   it('選択が複数件の場合は型が一致してもfalseを返す', () => {
-    expect(
-      shouldInheritSelectionStyle([makeAnnotation('box'), makeAnnotation('box')], 'box'),
-    ).toBe(false);
+    expect(shouldInheritSelectionStyle([makeAnnotation('box'), makeAnnotation('box')], 'box')).toBe(
+      false,
+    );
   });
 });
