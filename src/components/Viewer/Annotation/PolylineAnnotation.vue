@@ -59,6 +59,8 @@ interface Props {
   // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
   // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
   allowDrag: boolean;
+  // Konvaステージの拡大率。頂点アンカーの見た目上のサイズをズームに関わらず一定に保つために使う
+  stageScale?: number;
 }
 
 const props = defineProps<Props>();
@@ -166,6 +168,7 @@ const anchorConfigs = computed(() => {
     annotation.id,
     props.isEditing,
     !!props.isSelected,
+    props.stageScale ?? 1,
   );
 });
 

@@ -24,6 +24,7 @@
           :is-editing="isEditing"
           :is-selected="selectedAnnotIds.includes(annotation.id)"
           :allow-drag="canDragUnselected"
+          :stage-scale="props.scale"
           @update="onRegisterAnnot"
           @delete="onRemoveAnnot"
         />
@@ -103,6 +104,7 @@ import {
   resolveContextMenuAnnotationId,
   type ContextMenuHitAttrs,
 } from './annotationContextMenuHitTest';
+import { bindGroupDragSync } from './composables/useGroupDragSync';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -137,10 +139,30 @@ const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
 // アノテーションIDごとのコンポーネントハンドル。種別ごとの配列(boxRefs等)を廃止し、単一のMapに統一する
 const annotationRefs = new Map<AnnotationID, AnnotationNodeHandle>();
+// 範囲選択での同期ドラッグ（useGroupDragSync）の登録解除関数。ノードの再生成・アンマウント時に
+// 確実に解除できるよう、annotationRefsとは別に保持する
+const groupDragSyncCleanups = new Map<AnnotationID, () => void>();
+
 function setAnnotationRef(id: AnnotationID, el: unknown) {
   const handle = el as AnnotationNodeHandle | null;
+
+  groupDragSyncCleanups.get(id)?.();
+  groupDragSyncCleanups.delete(id);
+
   if (handle) {
     annotationRefs.set(id, handle);
+    const node = handle.getNode();
+    if (node) {
+      groupDragSyncCleanups.set(
+        id,
+        bindGroupDragSync(id, node, {
+          getSelectedIds: () => selectedAnnotIds.value,
+          getAnnotationType: (annotId) =>
+            props.annotations.find((a) => a.id === annotId)?.type,
+          getNode: (annotId) => annotationRefs.get(annotId)?.getNode() ?? null,
+        }),
+      );
+    }
   } else {
     annotationRefs.delete(id);
   }

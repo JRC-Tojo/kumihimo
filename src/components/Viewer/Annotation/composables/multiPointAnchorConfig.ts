@@ -14,6 +14,8 @@ export interface PointAnchorConfig {
   width: number;
   height: number;
   offset: { x: number; y: number };
+  scaleX: number;
+  scaleY: number;
   name: string;
   fill: string;
   stroke: ColorCode;
@@ -30,8 +32,12 @@ export function buildPointAnchorConfigs(
   annotationId: AnnotationID,
   isEditing: boolean,
   isSelected: boolean,
+  stageScale: number,
 ): PointAnchorConfig[] {
   const draggable = isEditing && isSelected;
+  // ステージの拡大率と逆のscaleを乗せることで、頂点アンカーの見た目上のサイズをズームに
+  // 関わらず一定に保つ（issue #49）。stageScaleが0以下になる異常値では逆数が発散するため1にフォールバックする
+  const inverseScale = stageScale > 0 ? 1 / stageScale : 1;
   const configs: PointAnchorConfig[] = [];
 
   for (let i = 0; i + 1 < points.length; i += 2) {
@@ -44,6 +50,8 @@ export function buildPointAnchorConfigs(
       width: 10,
       height: 10,
       offset: { x: 5, y: 5 },
+      scaleX: inverseScale,
+      scaleY: inverseScale,
       name: 'annotation-anchor',
       fill: '#ffffff',
       // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする

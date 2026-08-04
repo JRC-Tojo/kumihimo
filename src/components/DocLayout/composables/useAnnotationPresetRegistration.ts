@@ -33,6 +33,7 @@ export async function registerAnnotationPreset(
     title: t('pdfEditor.tools.presetBar.add'),
     promptLabel: t('pdfEditor.tools.presetBar.nameLabel'),
     initialValue: defaultName,
+    previewStyle: style,
   });
   if (name === undefined || name.trim() === '') return false;
 

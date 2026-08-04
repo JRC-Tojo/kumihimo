@@ -64,6 +64,8 @@ interface Props {
   // pointerモード時、未選択でも即ドラッグ移動できるようにするかどうか（描画モード中はfalseにし、
   // 既存アノテーション上での曖昧開始（クリック=選択・ドラッグ=新規描画）と競合しないようにする）
   allowDrag: boolean;
+  // Konvaステージの拡大率。頂点アンカーの見た目上のサイズをズームに関わらず一定に保つために使う
+  stageScale?: number;
 }
 
 const props = defineProps<Props>();
@@ -177,6 +179,13 @@ function buildHeadInfo(end: 'start' | 'end'): ComputedRef<ArrowHeadRenderInfo | 
 const startHead = buildHeadInfo('start');
 const endHead = buildHeadInfo('end');
 
+// ステージの拡大率と逆のscaleを乗せることで、頂点アンカーの見た目上のサイズをズームに
+// 関わらず一定に保つ（issue #49）。stageScaleが0以下になる異常値では逆数が発散するため1にフォールバックする
+const anchorInverseScale = computed(() => {
+  const scale = props.stageScale ?? 1;
+  return scale > 0 ? 1 / scale : 1;
+});
+
 const anchor1Config = computed(() => {
   const annotation = displayAnnotation.value;
   const points = arrowPoints.value;
@@ -188,6 +197,8 @@ const anchor1Config = computed(() => {
     width: 10,
     height: 10,
     offset: { x: 5, y: 5 },
+    scaleX: anchorInverseScale.value,
+    scaleY: anchorInverseScale.value,
     name: 'annotation-anchor',
     fill: '#ffffff',
     // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする
@@ -211,6 +222,8 @@ const anchor2Config = computed(() => {
     width: 10,
     height: 10,
     offset: { x: 5, y: 5 },
+    scaleX: anchorInverseScale.value,
+    scaleY: anchorInverseScale.value,
     name: 'annotation-anchor',
     fill: '#ffffff',
     // アンカーは注釈本体の色とは別の編集UIのため、線色が未設定（「色なし」）でも常に見えるようにする

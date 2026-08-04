@@ -9,7 +9,8 @@ import { saveDocumentAs } from 'src/utils/document/saveDocumentAs';
 import { saveAsDialog } from 'src/components/Dialog/saveAsDialog';
 import { ANNOTATION_REGISTRY } from 'src/components/Viewer/Annotation/registry';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
-import { shouldKeepSelectionMode } from 'src/utils/document/annotationToolClickMode';
+import { shouldInheritSelectionStyle } from 'src/utils/document/annotationToolClickMode';
+import { annotationStyleToPresetStyle } from 'src/components/DocLayout/composables/useAnnotationPresets';
 
 /**
  * 指定した種別の先頭プリセット（ユーザー設定になければレジストリのデフォルト）のスタイルを取得する
@@ -176,17 +177,22 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
     label: t(`pdfEditor.tools.${type}`),
     isActive: () => editorStore.currentTools === type,
     onClicked: () => {
-      if (shouldKeepSelectionMode(editorStore.activeSelection?.annotations, type)) {
-        return;
-      }
+      const selection = editorStore.activeSelection?.annotations;
+      const inheritStyle = shouldInheritSelectionStyle(selection, type);
 
+      // 選択中かどうかに関わらず、MainToolsのクリックは常に描画モードへ切り替える（issue #58）
       editorStore.activeAnnotationType = type;
       editorStore.currentTools = type;
 
-      // 先頭プリセットを自動適用し、MainTool選択直後から即描画に移れるようにする
-      // cf) ただし，以下の条件では自動適用しない
-      //     - 選択中のタイプと同じ種別が選択されたとき
-      if (type !== editorStore.currentAnnotationStyle.type) {
+      if (inheritStyle && selection?.[0]) {
+        // 選択中アノテーションと同じ種別のツールを選んだ場合はそのスタイルを引き継ぐ
+        // （関係性登録でペアとなるアノテーションを作る際、直前の見た目のまま描けるようにする。
+        //   これによりMainTools経由のプリセット登録でも選択中だったスタイルが対象になる）
+        editorStore.currentAnnotationStyle = annotationStyleToPresetStyle(selection[0]);
+      } else if (type !== editorStore.currentAnnotationStyle.type) {
+        // 先頭プリセットを自動適用し、MainTool選択直後から即描画に移れるようにする
+        // cf) ただし，以下の条件では自動適用しない
+        //     - 選択中のタイプと同じ種別が選択されたとき
         const style = firstPresetStyleForType(type);
         if (style !== undefined) editorStore.currentAnnotationStyle = style;
       }
