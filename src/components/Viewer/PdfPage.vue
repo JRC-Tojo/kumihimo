@@ -385,7 +385,7 @@ onMounted(async () => {
       message: `ページのレンダリングに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`,
       position: 'top',
     });
-  }
+  });
 });
 
 onBeforeUnmount(() => {

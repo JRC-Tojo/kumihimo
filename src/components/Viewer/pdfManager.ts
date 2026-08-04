@@ -79,6 +79,22 @@ function commitToCanvas(
   }
   context.drawImage(source, 0, 0);
 }
+    
+// 同一canvas要素に対する直近のRenderTask（pdf.jsの`page.render()`が返す進行中のレンダリングタスク）。
+// 世代チェックだけでは、古い呼び出しの結果をcanvasへ反映しないようにはできても、pdf.js内部の
+// RenderTask自体はキャンセルされずに最後まで実行され続けてしまい、CPU・メモリを無駄に消費する
+// （頻繁なズーム操作・高速なページ切り替え時に顕著。巨大ページのレンダリング失敗の一因にもなり得る）。
+// 新しい呼び出しが来た時点で、同じcanvasに対する前のRenderTaskを`.cancel()`することでこれを防ぐ
+const canvasRenderTask = new WeakMap<HTMLCanvasElement, pdfjsLib.RenderTask>();
+
+/**
+ * `renderPage()`が投げるエラーが、レンダリングタスクの意図的なキャンセル
+ * （`canvasRenderTask`による前タスクの`.cancel()`、またはページ・ズーム切り替え時の重複呼び出し）に
+ * よるものかどうかを判定する。呼び出し側はこの場合、実際の失敗ではないためユーザーへの通知を抑制できる
+ */
+export function isRenderCancelledError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'RenderingCancelledException';
+}
 
 /**
  * ページをCanvasにレンダリングする。戻り値はCSS px（devicePixelRatio適用前）でのページ寸法で、
@@ -105,6 +121,9 @@ export async function renderPage(
     fileKeyForCache !== undefined && maxWidth === 0
       ? renderCacheKey({ fileKey: fileKeyForCache, pageNumber, scale, devicePixelRatio: dpr })
       : undefined;
+  
+  // 同じcanvasに対して前の呼び出しのRenderTaskがまだ進行中なら、ここでキャンセルする
+  canvasRenderTask.get(canvas)?.cancel();
 
   try {
     if (cacheKey !== undefined) {
@@ -120,6 +139,16 @@ export async function renderPage(
     }
 
     const page = await pdfDocument.getPage(pageNumber);
+
+    // getPage()の待機中により新しい呼び出しが発行されていた場合、ここでpage.render()を
+    // 開始してしまうと古い描画タスクがcanvasRenderTaskを上書きし、新しいタスクを
+    // キャンセルできなくなる（CPU・メモリを最後まで消費し続ける）ため、ここで打ち切る
+    if (canvasRenderGeneration.get(canvas) !== generation) {
+      throw Object.assign(new Error('Rendering cancelled: superseded by a newer render call'), {
+        name: 'RenderingCancelledException',
+      });
+    }
+
     let viewport = page.getViewport({ scale });
     if (maxWidth !== 0) {
       viewport = page.getViewport({ scale: maxWidth / viewport.width });
@@ -148,7 +177,9 @@ export async function renderPage(
       viewport: viewport,
       canvas: offscreen,
     };
-    await page.render(renderContext).promise;
+    const renderTask = page.render(renderContext);
+    canvasRenderTask.set(canvas, renderTask);
+    await renderTask.promise;
 
     // キャッシュへの登録は、以降のcanvas転写がこの呼び出しの世代であるかどうかに関わらず行う
     // （このpdf.js呼び出し自体が生成した内容はページ・倍率の組に対して常に有効なため）
@@ -166,6 +197,9 @@ export async function renderPage(
 
     return { width: viewport.width, height: viewport.height };
   } catch (error) {
+    // キャンセルは意図した動作のため、呼び出し側が`isRenderCancelledError`で判別できるよう
+    // 汎用Errorへ包み直さずそのまま伝搬する
+    if (isRenderCancelledError(error)) throw error;
     throw new Error(
       `ページレンダリングエラー: ${error instanceof Error ? error.message : 'Unknown'}`,
     );
