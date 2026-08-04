@@ -18,10 +18,10 @@
       @mouseenter="onMouseEnter"
       @mouseleave="onMouseLeave"
     />
-    <v-circle v-if="startHead?.type === 'circle'" :config="startHead.config" />
-    <v-line v-else-if="startHead" :config="startHead.config" />
-    <v-circle v-if="endHead?.type === 'circle'" :config="endHead.config" />
-    <v-line v-else-if="endHead" :config="endHead.config" />
+    <v-circle v-if="startHead?.type === 'circle'" ref="startHeadRef" :config="startHead.config" />
+    <v-line v-else-if="startHead" ref="startHeadRef" :config="startHead.config" />
+    <v-circle v-if="endHead?.type === 'circle'" ref="endHeadRef" :config="endHead.config" />
+    <v-line v-else-if="endHead" ref="endHeadRef" :config="endHead.config" />
 
     <!-- 端点アンカー: 選択されて編集中の場合のみ表示 -->
     <template v-if="props.isEditing && props.isSelected">
@@ -79,6 +79,8 @@ const groupRef = ref<{ getNode: () => Konva.Group | null } | null>(null);
 const shaftRef = ref<{ getNode: () => Konva.Line | null } | null>(null);
 const anchor1Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
 const anchor2Ref = ref<{ getNode: () => Konva.Rect | null } | null>(null);
+const startHeadRef = ref<{ getNode: () => Konva.Circle | Konva.Line | null } | null>(null);
+const endHeadRef = ref<{ getNode: () => Konva.Circle | Konva.Line | null } | null>(null);
 const isHovered = ref(false);
 
 const {
@@ -179,6 +181,29 @@ function buildHeadInfo(end: 'start' | 'end'): ComputedRef<ArrowHeadRenderInfo | 
 const startHead = buildHeadInfo('start');
 const endHead = buildHeadInfo('end');
 
+/**
+ * 端点アンカーのドラッグ中、矢じりノードの位置・角度を直接書き換えてライブ追従させる
+ *
+ * シャフト（v-line）はドラッグ中`shapeNode.points(points)`で直接書き換えられ即座に追従するが、
+ * 矢じりは別ノード（startHead/endHead）としてVueの再描画（displayAnnotationの更新＝ドラッグ確定後）
+ * を待って初めて追従する構造のため、確定前は取り残されて見えてしまう（要修正の対象バグ）。
+ * 始点・終点どちらのアンカーを動かしても両矢じりの角度は変わりうるため、常に両方を再計算する
+ */
+function updateHeadsLive(points: readonly number[]) {
+  const annotation = displayAnnotation.value;
+  (['start', 'end'] as const).forEach((end) => {
+    const headType = end === 'start' ? annotation.startHead : annotation.endHead;
+    if (headType === 'none') return;
+
+    const transform = computeHeadTransform(points, end);
+    if (!transform) return;
+
+    const node = (end === 'start' ? startHeadRef.value : endHeadRef.value)?.getNode();
+    node?.position({ x: transform.tipX, y: transform.tipY });
+    node?.rotation(transform.angleDeg);
+  });
+}
+
 // ステージの拡大率と逆のscaleを乗せることで、頂点アンカーの見た目上のサイズをズームに
 // 関わらず一定に保つ（issue #49）。stageScaleが0以下になる異常値では逆数が発散するため1にフォールバックする
 const anchorInverseScale = computed(() => {
@@ -272,6 +297,7 @@ const { onAnchorDragStart, onAnchorDrag0, onAnchorDrag1, onAnchorDragEnd } = use
   getGroupNode: () => groupRef.value?.getNode() ?? null,
   getAnchorNode: (idx) =>
     (idx === 0 ? anchor1Ref.value?.getNode() : anchor2Ref.value?.getNode()) ?? null,
+  onPointsChange: updateHeadsLive,
   // 頂点ドラッグ確定時: emitした内容をそのままdisplayAnnotationへ反映する。
   // props.annotation（DB反映待ちでまだ古い）へ再同期すると、確定直後に一瞬古い座標へ巻き戻って見えるため
   onCommit: (points) => {

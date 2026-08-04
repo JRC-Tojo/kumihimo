@@ -19,6 +19,12 @@ export interface UseMultiPointAnchorsOptions {
   getShapeNode: () => MultiPointNode | null;
   /** ドラッグ中に無効化する親グループノードを取得する（アンカー操作と形状全体の移動が競合しないようにする） */
   getGroupNode: () => Konva.Group | null;
+  /**
+   * ドラッグ中、確定前の暫定pointsが変化するたびに呼ばれる（矢じり等、shapeNode自体は
+   * 直接書き換えているため何もしなくても追従するが、矢じりのように別ノードとして描画される
+   * 付随要素をVueの再描画（displayAnnotationの更新＝ドラッグ確定後）を待たずライブ追従させるため）
+   */
+  onPointsChange?: (points: number[]) => void;
   /** アンカードラッグ終了時に、確定したpointsで呼ばれる */
   onCommit: (points: number[]) => void;
 }
@@ -43,6 +49,7 @@ export function useMultiPointAnchors(options: UseMultiPointAnchorsOptions) {
     points[index * 2] = anchor.x();
     points[index * 2 + 1] = anchor.y();
     shapeNode.points(points);
+    options.onPointsChange?.(points);
   }
 
   /**

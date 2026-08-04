@@ -25,6 +25,12 @@ export interface UseTwoPointAnchorsOptions {
   getGroupNode: () => Konva.Group | null;
   /** 反対側の端点アンカーノードを取得する（Ctrl押下時の中心対称移動で、見た目上の位置も追従させるため） */
   getAnchorNode: (idx: 0 | 1) => Konva.Rect | null;
+  /**
+   * ドラッグ中、確定前の暫定pointsが変化するたびに呼ばれる（矢じり等、shapeNode自体は
+   * 直接書き換えているため何もしなくても追従するが、矢じりのように別ノードとして描画される
+   * 付随要素をVueの再描画（displayAnnotationの更新＝ドラッグ確定後）を待たずライブ追従させるため）
+   */
+  onPointsChange?: (points: [number, number, number, number]) => void;
   /** アンカードラッグ終了時に、確定したpointsで呼ばれる */
   onCommit: (points: [number, number, number, number]) => void;
 }
@@ -98,6 +104,7 @@ export function useTwoPointAnchors(options: UseTwoPointAnchorsOptions) {
     }
 
     shapeNode.points(points);
+    options.onPointsChange?.(points);
   }
 
   /**
