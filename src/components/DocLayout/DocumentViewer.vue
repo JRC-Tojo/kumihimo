@@ -30,16 +30,12 @@
           v-for="page in pageCount"
           :key="page"
           class="q-mb-md continuous-page-wrapper"
-          :ref="(el) => setWrapperRef(page - 1, el as HTMLElement | null)"
+          :ref="wrapperRefCallback(page - 1)"
         >
           <div
             :class="['continuous-page', { active: page === currentPage }]"
             :style="pageSizeStyle(page - 1)"
-            :ref="
-              (el) => {
-                if (el) pageRefs[page - 1] = el as HTMLElement;
-              }
-            "
+            :ref="pageRefCallback(page - 1)"
           >
             <PdfPage
               v-if="shouldRenderPage(page - 1)"
@@ -71,6 +67,7 @@ import {
   useTemplateRef,
   watch,
 } from 'vue';
+import type { ComponentPublicInstance } from 'vue';
 import PdfPage from 'src/components/Viewer/PdfPage.vue';
 import type { ViewMode } from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
@@ -175,6 +172,7 @@ let isSyncingCurrentPageFromScroll = false;
 
 function setWrapperRef(idx: number, el: HTMLElement | null) {
   const prevEl = wrapperRefs.value[idx];
+  if (prevEl === el) return; // 実際に要素が変わっていない再登録は無視する（監視の張り直しによる交差率ロストを防ぐ）
   if (prevEl) {
     wrapperElToIndex.delete(prevEl);
     currentPageObserver?.unobserve(prevEl);
@@ -185,6 +183,27 @@ function setWrapperRef(idx: number, el: HTMLElement | null) {
     wrapperElToIndex.set(el, idx);
     currentPageObserver?.observe(el);
   }
+}
+
+// テンプレートの`v-for`内でrefコールバックを毎レンダー無名関数として書くと、Vueはref参照の
+// 同一性比較で「変わった」と判定し、DOM要素自体が変わっていなくても毎回setWrapperRefへ
+// null→要素の順で呼び直してしまう（Vueの既知の挙動）。これによりIntersectionObserverの
+// unobserve/observeが際限なく繰り返され、その狭間でブラウザ側の交差通知が失われるページが
+// 発生し、低倍率で多数ページが同時に見えている場合ほど「実際は見えているのに描画されない」
+// ページが増える不具合が起きていた。ページ索引ごとにコールバック自体をキャッシュし、
+// 同一関数を使い続けることでVueが不要な再登録を行わないようにする
+type ElRef = Element | ComponentPublicInstance | null;
+
+const wrapperRefCallbacks: ((el: ElRef) => void)[] = [];
+function wrapperRefCallback(idx: number): (el: ElRef) => void {
+  return (wrapperRefCallbacks[idx] ??= (el) => setWrapperRef(idx, el as HTMLElement | null));
+}
+
+const pageRefCallbacks: ((el: ElRef) => void)[] = [];
+function pageRefCallback(idx: number): (el: ElRef) => void {
+  return (pageRefCallbacks[idx] ??= (el) => {
+    if (el) pageRefs.value[idx] = el as HTMLElement;
+  });
 }
 
 /**
