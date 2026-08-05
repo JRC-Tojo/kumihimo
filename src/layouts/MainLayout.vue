@@ -7,7 +7,7 @@
           dense
           size="sm"
           :label="$t('pdfEditor.tools.save.auto')"
-          class="header-auto-save"
+          color="yellow-8"
         />
         <q-btn
           v-for="tool in editorStore.leftHeaderTools"
@@ -187,16 +187,6 @@ const autoSaveModel = computed({
 .body--dark {
   .bar {
     background-color: $dark;
-  }
-}
-
-// 自動保存トグルはONの色(--q-primary)がヘッダー背景と同化しやすいため、
-// ON時のみ背景ピルを付けて状態を判別しやすくする
-.header-auto-save {
-  :deep(.q-toggle__inner--truthy) {
-    border-radius: 999px;
-    background-color: rgba(var(--q-primary-rgb), 0.18);
-    box-shadow: 0 0 0 1px rgba(var(--q-primary-rgb), 0.45) inset;
   }
 }
 </style>
