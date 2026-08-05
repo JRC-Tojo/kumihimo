@@ -247,7 +247,7 @@ if (observed.ok) {
 }
 
 // for footer
-const viewMode = ref<ViewMode>('single');
+const viewMode = ref<ViewMode>(storedTabViewState?.viewMode ?? 'single');
 // ページ一覧モード以外で直近まで表示していた表示モード。ページ一覧のセルをクリックした際、
 // 一覧画面ではなく直前まで見ていた表示モードのそのページへ戻るために使う
 const lastContentViewMode = ref<ViewMode>('single');
@@ -262,7 +262,6 @@ const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZ
   maxZoom: zoomMax,
 });
 if (storedTabViewState !== undefined) zoomLevel.value = storedTabViewState.zoomLevel;
-const viewMode = ref<ViewMode>(storedTabViewState?.viewMode ?? 'single');
 
 // for relational peek dialog
 const peekAnnotId = ref<AnnotationID>();
