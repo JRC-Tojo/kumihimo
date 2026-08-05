@@ -347,7 +347,10 @@ export const useEditorStore = defineStore('editor', {
     /**
      * 指定タブの最終表示状態を記録する（タブの再選択・再オープン後の復元に使う）
      */
-    setTabViewState(file: { containerID: ContainerID; path: string }, viewState: TabViewState): void {
+    setTabViewState(
+      file: { containerID: ContainerID; path: string },
+      viewState: TabViewState,
+    ): void {
       this.tabViewStates[tabKey(file)] = viewState;
     },
 
