@@ -17,7 +17,7 @@ export interface IDocTool {
 /**
  * ビューモード
  */
-export type ViewMode = 'single' | 'spread' | 'continuousSingle' | 'continuousSpread';
+export type ViewMode = 'single' | 'spread' | 'continuousSingle' | 'continuousSpread' | 'pageList';
 
 /**
  * タイル表示モード

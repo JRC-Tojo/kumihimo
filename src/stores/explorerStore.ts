@@ -38,6 +38,9 @@ export const useExplorerStore = defineStore('explorer', {
     lastSelectedKey: null as string | null,
     // 切り取り/コピーで保持している要素
     clipboard: null as ExplorerClipboard | null,
+    // ブックマークパネル（ExplorerView.vue下部）の開閉状態。ExplorerView.vueは`docs`/`exts`
+    // タブの切り替えで再マウントされるため、コンポーネントローカルではなくここで保持する
+    bookmarksExpanded: false,
   }),
 
   getters: {

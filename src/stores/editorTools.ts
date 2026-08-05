@@ -176,6 +176,7 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
     icon: mod.mainToolIcon,
     label: t(`pdfEditor.tools.${type}`),
     isActive: () => editorStore.currentTools === type,
+    isDisable: () => editorStore.activeViewMode === 'pageList',
     onClicked: () => {
       const selection = editorStore.activeSelection?.annotations;
       const inheritStyle = shouldInheritSelectionStyle(selection, type);
@@ -206,6 +207,7 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
       icon: 'layers',
       label: t('pdfEditor.tools.layerOrder.title'),
       isActive: () => false,
+      isDisable: () => editorStore.activeViewMode === 'pageList',
       onClicked: () => {
         const subTools: IDocTool[] = [
           {
@@ -246,6 +248,7 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
       label: t('pdfEditor.tools.annotationToggle'),
       noMenu: true,
       isActive: () => editorStore.visibleAnnotations,
+      isDisable: () => editorStore.activeViewMode === 'pageList',
       onClicked: () => {
         editorStore.visibleAnnotations = !editorStore.visibleAnnotations;
       },
@@ -265,16 +268,6 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
 
   const tools: IDocTool[] = [
     {
-      id: 'toggle-left-drawer',
-      icon: 'menu',
-      label: t('pdfEditor.leftDrawer.title'),
-      noMenu: true,
-      isActive: () => false,
-      onClicked: () => {
-        editorStore.leftDrawerModel = !editorStore.leftDrawerModel;
-      },
-    },
-    {
       id: 'hand-mode',
       icon: 'pan_tool',
       label: t('pdfEditor.tools.handMode'),
@@ -282,6 +275,7 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
       isActive: () => {
         return editorStore.currentTools === 'hand';
       },
+      isDisable: () => editorStore.activeViewMode === 'pageList',
       onClicked: () => {
         editorStore.currentTools = 'hand';
       },
@@ -294,6 +288,7 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
       isActive: () => {
         return editorStore.currentTools === 'pointer';
       },
+      isDisable: () => editorStore.activeViewMode === 'pageList',
       onClicked: () => {
         editorStore.currentTools = 'pointer';
       },
@@ -333,6 +328,13 @@ function callViewTools(t: (key: string) => string): IDocTool[] {
             label: t('pdfEditor.footer.viewMode.c_single'),
             isActive: () => editorStore.activeViewMode === 'continuousSingle',
             onClicked: () => editorStore.requestViewMode('continuousSingle'),
+          },
+          {
+            id: 'view-mode-page-list',
+            icon: 'grid_view',
+            label: t('pdfEditor.footer.viewMode.pageList'),
+            isActive: () => editorStore.activeViewMode === 'pageList',
+            onClicked: () => editorStore.requestViewMode('pageList'),
           },
         ];
         editorStore.subTools = subTools;

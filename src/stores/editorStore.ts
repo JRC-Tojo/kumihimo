@@ -148,9 +148,6 @@ export const useEditorStore = defineStore('editor', {
     visibleAnnotations: true,
     autoSaveAnnotations: false,
 
-    // サイドパネルの表示状態
-    leftDrawerModel: false,
-
     // タブ表示のタイルモード
     tileMode: 'single' as TileMode,
 

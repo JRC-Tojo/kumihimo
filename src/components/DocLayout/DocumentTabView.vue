@@ -1,21 +1,11 @@
 <template>
   <div
-    class="document-layout row"
+    class="document-layout"
     @click="editorStore.selectTab(file, layoutSide, true)"
     @contextmenu="editorStore.selectTab(file, layoutSide, true)"
   >
-    <!-- 左Drawer：ドキュメント情報とサムネイル -->
-    <DocumentLeftDrawer
-      v-model:drawer-open="editorStore.leftDrawerModel"
-      :total-page-count="pageCount"
-      :current-page="currentPage"
-      :thumnails="thumbnails"
-      @go-to-page="goToPage"
-      class="col-1"
-    />
-
     <!-- メインコンテンツ領域 -->
-    <div class="document-main-content col">
+    <div class="document-main-content">
       <!-- タブコンテンツ：文書とアノテーション表示 -->
       <div
         ref="viewer"
@@ -24,7 +14,7 @@
         @mousedown="onViewerMouseDown"
       >
         <DocumentViewer
-          v-if="!loading && onRender && onRenderTile"
+          v-if="!loading && onRender && onRenderTile && onGenerateThumbnail"
           ref="documentViewer"
           :file="file"
           :page-count="pageCount"
@@ -33,6 +23,8 @@
           :annotations="annotations"
           @render="onRender"
           @render-tile="onRenderTile"
+          @generate-thumbnail="onGenerateThumbnail"
+          @select-page="onSelectPageFromList"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
           @scroll-to-current-page="scrollToCurrentPage"
@@ -52,6 +44,7 @@
         v-model:zoom-level="zoomLevel"
         :total-page-count="pageCount"
         :scale="zoomLevel"
+        :max-zoom="zoomMax"
         @go-to-first-page="goToFirstPage"
         @previous-page="previousPage"
         @next-page="nextPage"
@@ -76,7 +69,6 @@
 </template>
 
 <script setup lang="ts">
-import DocumentLeftDrawer from 'src/components/DocLayout/DocumentLeftDrawer.vue';
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
@@ -111,6 +103,11 @@ import { fileKey } from 'src/utils/document/fileKey';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
 import { useZoomControl } from './composables/useZoomControl';
+import {
+  MAX_ZOOM,
+  PAGE_LIST_INITIAL_ZOOM,
+  PAGE_LIST_MAX_ZOOM,
+} from 'src/components/Viewer/zoomSteps';
 
 interface Prop {
   file: ContainerElementFile;
@@ -166,9 +163,6 @@ const relationalStore = useRelationalStore();
 // TODO: PDFの読み込みに失敗した場合、Loading画面を抜けてエラーが起きた旨を通知する仕様に修正
 const loading = ref<boolean>(true);
 
-// for drawers
-const thumbnails = ref<string[]>([]);
-
 // for document
 type RenderFunc = (
   pageNumber: number,
@@ -192,6 +186,8 @@ type RenderTileFunc = (
   dpr: number,
 ) => Promise<void>;
 const onRenderTile = ref<RenderTileFunc>();
+type GenerateThumbnailFunc = (pageNumber: number, maxWidth: number) => Promise<string>;
+const onGenerateThumbnail = ref<GenerateThumbnailFunc>();
 
 // このタブ（このファイル）宛てのページ遷移要求（`editorStore.openTab(file, targetPage)`）を、
 // コンポーネント生成時点（初回描画より前）で同期的に取り出しておく。onMounted以降に
@@ -251,14 +247,21 @@ if (observed.ok) {
 }
 
 // for footer
+const viewMode = ref<ViewMode>(storedTabViewState?.viewMode ?? 'single');
+// ページ一覧モード以外で直近まで表示していた表示モード。ページ一覧のセルをクリックした際、
+// 一覧画面ではなく直前まで見ていた表示モードのそのページへ戻るために使う
+const lastContentViewMode = ref<ViewMode>('single');
+// ページ一覧モードはサムネイルの解像度が低く高倍率にする意味が無いため、拡大率上限を
+// 通常モードより低く絞る（ズームスライダー・入力・ズームインボタンすべてに反映する）
+const zoomMax = computed(() => (viewMode.value === 'pageList' ? PAGE_LIST_MAX_ZOOM : MAX_ZOOM));
 const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZoomControl({
   viewer,
   documentViewer,
   currentPage,
   pageSizes,
+  maxZoom: zoomMax,
 });
 if (storedTabViewState !== undefined) zoomLevel.value = storedTabViewState.zoomLevel;
-const viewMode = ref<ViewMode>(storedTabViewState?.viewMode ?? 'single');
 
 // for relational peek dialog
 const peekAnnotId = ref<AnnotationID>();
@@ -358,13 +361,9 @@ async function loadDocument() {
   ): Promise<void> => {
     await renderPageTile(loadedDocument, pageNumber, canvas, scale, tile, dpr, fileKey(prop.file));
   };
-
-  // サムネイルを生成
-  thumbnails.value = await Promise.all(
-    Array.from({ length: pageCount.value }, (_, idx) =>
-      generateThumbnail(loadedDocument, idx + 1, 120),
-    ),
-  );
+  onGenerateThumbnail.value = (pageNumber: number, maxWidth: number): Promise<string> => {
+    return generateThumbnail(loadedDocument, pageNumber, maxWidth);
+  };
 
   loading.value = false;
 }
@@ -390,6 +389,15 @@ const previousPage = (): void => {
  */
 const goToPage = (page: number): void => {
   currentPage.value = Math.max(1, Math.min(pageCount.value, Math.floor(page)));
+};
+
+/**
+ * ページ一覧モードのセルがクリックされた際、直前まで表示していた表示モードへ戻り、
+ * クリックされたページへ移動する
+ */
+const onSelectPageFromList = (page: number): void => {
+  viewMode.value = lastContentViewMode.value;
+  goToPage(page);
 };
 
 /**
@@ -800,6 +808,22 @@ watch(
   },
   { immediate: true },
 );
+// ページ一覧モード以外に変化するたびに記録しておく（ページ一覧のセルクリック時に戻り先として使う）
+watch(viewMode, (mode) => {
+  if (mode !== 'pageList') lastContentViewMode.value = mode;
+});
+// ページ一覧モードへ入った際は直前の拡大率を退避して規定倍率から表示し、抜けた際は元の倍率へ戻す
+// （ページ一覧は俯瞰用途のため、直前がどれだけ拡大されていても常に同じ見え方で開始したい）
+let zoomLevelBeforePageList: number | undefined;
+watch(viewMode, (mode, oldMode) => {
+  if (mode === 'pageList' && oldMode !== 'pageList') {
+    zoomLevelBeforePageList = zoomLevel.value;
+    setZoomLevel(PAGE_LIST_INITIAL_ZOOM);
+  } else if (mode !== 'pageList' && oldMode === 'pageList') {
+    if (zoomLevelBeforePageList !== undefined) setZoomLevel(zoomLevelBeforePageList);
+    zoomLevelBeforePageList = undefined;
+  }
+});
 // メインツール（表示モードメニュー）からの意図をここで実行する
 watch(
   () => editorStore.viewModeAction,
