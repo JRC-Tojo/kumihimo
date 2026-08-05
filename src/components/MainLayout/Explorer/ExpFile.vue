@@ -256,7 +256,7 @@ async function confirmDelete() {
   }
 
   &.selected {
-    background: rgba($primary, 0.15);
+    background: rgba(var(--q-primary-rgb), 0.15);
   }
 
   .file-name {

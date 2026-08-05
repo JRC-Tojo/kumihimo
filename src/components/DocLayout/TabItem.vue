@@ -103,24 +103,24 @@ const { t: $t } = useI18n();
 
   &.active {
     background: white;
-    border-top-color: $primary;
-    color: $primary;
+    border-top-color: var(--q-primary);
+    color: var(--q-primary);
     box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
 
     .tab-content {
       .tab-icon {
-        color: $primary;
+        color: var(--q-primary);
       }
 
       .tab-title {
-        color: $primary;
+        color: var(--q-primary);
         font-weight: 600;
       }
     }
 
     .tab-close-btn {
       opacity: 1;
-      color: $primary;
+      color: var(--q-primary);
     }
   }
 }
@@ -144,20 +144,20 @@ const { t: $t } = useI18n();
 
   &.active {
     background: color.adjust($dark, $lightness: -5%);
-    border-top-color: $primary;
+    border-top-color: var(--q-primary);
 
     .tab-content {
       .tab-icon {
-        color: $primary;
+        color: var(--q-primary);
       }
 
       .tab-title {
-        color: $primary;
+        color: var(--q-primary);
       }
     }
 
     .tab-close-btn {
-      color: $primary;
+      color: var(--q-primary);
     }
   }
 }

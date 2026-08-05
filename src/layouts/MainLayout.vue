@@ -1,13 +1,13 @@
 <template>
   <q-layout view="hHh LpR fFf">
     <q-header>
-      <q-bar>
+      <q-bar class="bar">
         <q-toggle
           v-model="autoSaveModel"
           dense
           size="sm"
           :label="$t('pdfEditor.tools.save.auto')"
-          class="header-auto-save"
+          color="yellow-8"
         />
         <q-btn
           v-for="tool in editorStore.leftHeaderTools"
@@ -39,6 +39,7 @@
           @click="tool.onClicked"
         />
       </q-bar>
+      <div v-if="$q.dark.isActive" class="full-width bg-primary" style="height: 2pt" />
     </q-header>
 
     <q-splitter v-model="splitModel" unit="px" emit-immediately :class="splitterClass">
@@ -180,6 +181,12 @@ const autoSaveModel = computed({
 
   .rail-tab {
     min-height: 48pt;
+  }
+}
+
+.body--dark {
+  .bar {
+    background-color: $dark;
   }
 }
 </style>

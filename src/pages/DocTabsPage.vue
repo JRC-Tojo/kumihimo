@@ -222,7 +222,7 @@ function onTabRemoved(e: DraggableEvent<ContainerElementFile>) {
   display: flex;
   align-items: center;
   background: white;
-  border-bottom: 2px solid $primary;
+  border-bottom: 2px solid var(--q-primary);
   overflow-x: auto;
   overflow-y: hidden;
   height: 48px;
@@ -248,7 +248,7 @@ function onTabRemoved(e: DraggableEvent<ContainerElementFile>) {
 
 .body--dark .tabs-bar {
   background: $dark;
-  border-bottom-color: $primary;
+  border-bottom-color: var(--q-primary);
 
   &::-webkit-scrollbar-track {
     background: $grey-8;

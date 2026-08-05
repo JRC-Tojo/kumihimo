@@ -438,8 +438,8 @@ onBeforeUnmount(clearPendingRetryTimer);
   }
 
   &.active {
-    border-color: $primary;
-    background-color: rgba($primary, 0.06);
+    border-color: var(--q-primary);
+    background-color: rgba(var(--q-primary-rgb), 0.06);
   }
 
   .relation-row-main {
@@ -476,6 +476,6 @@ onBeforeUnmount(clearPendingRetryTimer);
 }
 
 .body--dark .relation-row.active {
-  background-color: rgba($primary, 0.15);
+  background-color: rgba(var(--q-primary-rgb), 0.15);
 }
 </style>

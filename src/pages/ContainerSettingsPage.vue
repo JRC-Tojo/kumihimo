@@ -215,7 +215,7 @@ function scrollToSection(id: string): void {
 
     .settings-section-title {
       font-weight: 600;
-      color: $primary;
+      color: var(--q-primary);
       margin: 0 0 0.25rem;
     }
   }

@@ -434,7 +434,7 @@ onBeforeUnmount(() => {
   }
 
   &.drag-over {
-    outline: 1px dashed $primary;
+    outline: 1px dashed var(--q-primary);
   }
 
   .container-name {

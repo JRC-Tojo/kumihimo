@@ -174,7 +174,7 @@ function handleMainToolDoubleClick(tool: IDocTool) {
     color: $grey-9;
 
     &:hover {
-      background-color: rgba($primary, 0.12);
+      background-color: rgba(var(--q-primary-rgb), 0.12);
       transform: translateY(-2px);
     }
 
@@ -183,8 +183,8 @@ function handleMainToolDoubleClick(tool: IDocTool) {
     }
 
     &.toolbar-btn--active {
-      background-color: rgba($primary, 0.15);
-      color: $primary;
+      background-color: rgba(var(--q-primary-rgb), 0.15);
+      color: var(--q-primary);
     }
   }
 }
@@ -200,12 +200,12 @@ function handleMainToolDoubleClick(tool: IDocTool) {
     color: $grey-3;
 
     &:hover {
-      background-color: rgba($primary, 0.25);
+      background-color: rgba(var(--q-primary-rgb), 0.25);
     }
 
     &.toolbar-btn--active {
-      background-color: rgba($primary, 0.3);
-      color: $primary;
+      background-color: rgba(var(--q-primary-rgb), 0.3);
+      color: var(--q-primary);
     }
   }
 }
@@ -229,7 +229,7 @@ function handleMainToolDoubleClick(tool: IDocTool) {
     flex-shrink: 0;
 
     &:hover {
-      background-color: rgba($primary, 0.15);
+      background-color: rgba(var(--q-primary-rgb), 0.15);
       transform: translateY(-1px);
     }
 
@@ -250,7 +250,7 @@ function handleMainToolDoubleClick(tool: IDocTool) {
 
   .toolbar-btn-sub {
     &:hover {
-      background-color: rgba($primary, 0.25);
+      background-color: rgba(var(--q-primary-rgb), 0.25);
     }
   }
 }

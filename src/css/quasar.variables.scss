@@ -12,7 +12,7 @@
 // to match your app's branding.
 // Tip: Use the "Theme Builder" on Quasar's documentation website.
 
-$primary: #d9a62e;
+$primary: #6846a5;
 $secondary: #e94709;
 $accent: #9c27b0;
 
@@ -23,3 +23,8 @@ $positive: #21ba45;
 $negative: #e94709;
 $info: #31ccec;
 $warning: #d9a62e;
+
+.body--dark {
+  // ダークモードではPrimaryを金色に切り替える
+  --q-primary: #d9a62e;
+}
