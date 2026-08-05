@@ -336,7 +336,14 @@ async function loadDocument() {
     canvas: HTMLCanvasElement,
     scale: number,
   ): Promise<PageSize> => {
-    const result = await renderPage(loadedDocument, pageNumber, canvas, scale, 0, fileKey(prop.file));
+    const result = await renderPage(
+      loadedDocument,
+      pageNumber,
+      canvas,
+      scale,
+      0,
+      fileKey(prop.file),
+    );
     resolveFirstRenderReady?.();
     resolveFirstRenderReady = undefined;
     return result;
