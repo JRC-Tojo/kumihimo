@@ -375,17 +375,6 @@ export default {
         saveFailed: 'Failed to save the relaxation rule.',
       },
     },
-    leftDrawer: {
-      title: 'Thumbnails / Bookmarks',
-      thumbnail: {
-        title: 'Page Thumbnails',
-      },
-      bookmark: {
-        title: 'Bookmarks',
-        noBookmarks: 'No Bookmarks',
-        page: 'Page',
-      },
-    },
     footer: {
       viewMode: {
         title: 'View Mode',
@@ -393,6 +382,7 @@ export default {
         c_single: 'Continuous Pages',
         spread: 'Spread Pages',
         c_spread: 'Continuous Spread',
+        pageList: 'Page List',
       },
       zoom: {
         fitPage: 'Fit Page',
@@ -447,6 +437,11 @@ export default {
     invalidFileNameEmpty: 'File name cannot be empty',
     duplicateName: 'A file or folder with this name already exists',
     uploadFailed: 'Failed to upload some files/folders ({names})',
+    bookmarks: {
+      title: 'Bookmarks',
+      noBookmarks: 'No Bookmarks',
+      page: 'Page',
+    },
   },
 
   plugins: {

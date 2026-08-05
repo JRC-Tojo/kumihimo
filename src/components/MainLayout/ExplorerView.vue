@@ -60,6 +60,18 @@
       />
     </div>
 
+    <!-- ブックマーク：MainToolsと同様、開いている場合のみパネル本体を注入する -->
+    <q-separator />
+    <div class="explorer-bookmarks-section">
+      <div class="explorer-bookmarks-header q-px-sm" @click="explorerStore.bookmarksExpanded = !explorerStore.bookmarksExpanded">
+        <q-icon name="bookmark" size="xs" />
+        <span class="q-ml-sm">{{ $t('explorer.bookmarks.title') }}</span>
+        <q-space />
+        <q-icon :name="explorerStore.bookmarksExpanded ? 'expand_more' : 'chevron_right'" />
+      </div>
+      <ExplorerBookmarksPanel v-if="explorerStore.bookmarksExpanded" />
+    </div>
+
     <NewContainerDialog v-model="showNewContainerDialog" @created="loadContainers" />
   </div>
 </template>
@@ -69,6 +81,7 @@ import { useBackendApi } from 'src/apis/backendApi';
 import { ref, onMounted } from 'vue';
 import ExpContainer from './Explorer/ExpContainer.vue';
 import NewContainerDialog from './Explorer/NewContainerDialog.vue';
+import ExplorerBookmarksPanel from './Explorer/ExplorerBookmarksPanel.vue';
 import { createDemoData } from 'src/utils/appInitializer.js';
 import type { ContainerID, ContainerSkel } from 'src/models/container.js';
 import { useExplorerStore } from 'src/stores/explorerStore';
@@ -175,5 +188,25 @@ onMounted(loadContainers);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
+}
+
+.explorer-bookmarks-section {
+  flex-shrink: 0;
+}
+
+.explorer-bookmarks-header {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  cursor: pointer;
+  font-size: 0.85rem;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+}
+
+.body--dark .explorer-bookmarks-header:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 </style>

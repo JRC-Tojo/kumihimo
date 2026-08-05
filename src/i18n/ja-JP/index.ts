@@ -374,17 +374,6 @@ export default {
         saveFailed: '緩和ルールの保存に失敗しました。',
       },
     },
-    leftDrawer: {
-      title: 'サムネイル / ブックマーク',
-      thumbnail: {
-        title: 'サムネイル',
-      },
-      bookmark: {
-        title: 'ブックマーク',
-        noBookmarks: 'ブックマークなし',
-        page: 'ページ',
-      },
-    },
     footer: {
       viewMode: {
         title: '表示モード',
@@ -392,6 +381,7 @@ export default {
         c_single: '連続表示',
         spread: '見開き',
         c_spread: '見開き連続表示',
+        pageList: 'ページ一覧',
       },
       zoom: {
         fitPage: 'ページに合わせる',
@@ -446,6 +436,11 @@ export default {
     invalidFileNameEmpty: 'ファイル名を入力してください',
     duplicateName: '同じ名前のファイルまたはフォルダが既に存在します',
     uploadFailed: '一部のファイル・フォルダのアップロードに失敗しました（{names}）',
+    bookmarks: {
+      title: 'ブックマーク',
+      noBookmarks: 'ブックマークなし',
+      page: 'ページ',
+    },
   },
 
   plugins: {

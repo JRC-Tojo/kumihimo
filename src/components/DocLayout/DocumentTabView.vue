@@ -1,21 +1,11 @@
 <template>
   <div
-    class="document-layout row"
+    class="document-layout"
     @click="editorStore.selectTab(file, layoutSide, true)"
     @contextmenu="editorStore.selectTab(file, layoutSide, true)"
   >
-    <!-- 左Drawer：ドキュメント情報とサムネイル -->
-    <DocumentLeftDrawer
-      v-model:drawer-open="editorStore.leftDrawerModel"
-      :total-page-count="pageCount"
-      :current-page="currentPage"
-      :thumnails="thumbnails"
-      @go-to-page="goToPage"
-      class="col-1"
-    />
-
     <!-- メインコンテンツ領域 -->
-    <div class="document-main-content col">
+    <div class="document-main-content">
       <!-- タブコンテンツ：文書とアノテーション表示 -->
       <div
         ref="viewer"
@@ -24,7 +14,7 @@
         @mousedown="onViewerMouseDown"
       >
         <DocumentViewer
-          v-if="!loading && onRender && onRenderTile"
+          v-if="!loading && onRender && onRenderTile && onGenerateThumbnail"
           ref="documentViewer"
           :file="file"
           :page-count="pageCount"
@@ -33,6 +23,8 @@
           :annotations="annotations"
           @render="onRender"
           @render-tile="onRenderTile"
+          @generate-thumbnail="onGenerateThumbnail"
+          @select-page="onSelectPageFromList"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
           @scroll-to-current-page="scrollToCurrentPage"
@@ -76,7 +68,6 @@
 </template>
 
 <script setup lang="ts">
-import DocumentLeftDrawer from 'src/components/DocLayout/DocumentLeftDrawer.vue';
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
@@ -166,9 +157,6 @@ const relationalStore = useRelationalStore();
 // TODO: PDFの読み込みに失敗した場合、Loading画面を抜けてエラーが起きた旨を通知する仕様に修正
 const loading = ref<boolean>(true);
 
-// for drawers
-const thumbnails = ref<string[]>([]);
-
 // for document
 type RenderFunc = (
   pageNumber: number,
@@ -184,6 +172,8 @@ type RenderTileFunc = (
   dpr: number,
 ) => Promise<void>;
 const onRenderTile = ref<RenderTileFunc>();
+type GenerateThumbnailFunc = (pageNumber: number, maxWidth: number) => Promise<string>;
+const onGenerateThumbnail = ref<GenerateThumbnailFunc>();
 
 // このタブ（このファイル）宛てのページ遷移要求（`editorStore.openTab(file, targetPage)`）を、
 // コンポーネント生成時点（初回描画より前）で同期的に取り出しておく。onMounted以降に
@@ -245,6 +235,9 @@ const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZ
   pageSizes,
 });
 const viewMode = ref<ViewMode>('single');
+// ページ一覧モード以外で直近まで表示していた表示モード。ページ一覧のセルをクリックした際、
+// 一覧画面ではなく直前まで見ていた表示モードのそのページへ戻るために使う
+const lastContentViewMode = ref<ViewMode>('single');
 
 // for relational peek dialog
 const peekAnnotId = ref<AnnotationID>();
@@ -334,13 +327,9 @@ async function loadDocument() {
   ): Promise<void> => {
     await renderPageTile(loadedDocument, pageNumber, canvas, scale, tile, dpr, fileKey(prop.file));
   };
-
-  // サムネイルを生成
-  thumbnails.value = await Promise.all(
-    Array.from({ length: pageCount.value }, (_, idx) =>
-      generateThumbnail(loadedDocument, idx + 1, 120),
-    ),
-  );
+  onGenerateThumbnail.value = (pageNumber: number, maxWidth: number): Promise<string> => {
+    return generateThumbnail(loadedDocument, pageNumber, maxWidth);
+  };
 
   loading.value = false;
 }
@@ -366,6 +355,15 @@ const previousPage = (): void => {
  */
 const goToPage = (page: number): void => {
   currentPage.value = Math.max(1, Math.min(pageCount.value, Math.floor(page)));
+};
+
+/**
+ * ページ一覧モードのセルがクリックされた際、直前まで表示していた表示モードへ戻り、
+ * クリックされたページへ移動する
+ */
+const onSelectPageFromList = (page: number): void => {
+  viewMode.value = lastContentViewMode.value;
+  goToPage(page);
 };
 
 /**
@@ -754,6 +752,10 @@ watch(
   },
   { immediate: true },
 );
+// ページ一覧モード以外に変化するたびに記録しておく（ページ一覧のセルクリック時に戻り先として使う）
+watch(viewMode, (mode) => {
+  if (mode !== 'pageList') lastContentViewMode.value = mode;
+});
 // メインツール（表示モードメニュー）からの意図をここで実行する
 watch(
   () => editorStore.viewModeAction,

@@ -52,6 +52,16 @@
           </div>
         </div>
       </div>
+
+      <!-- ページ一覧表示：ドキュメント全体をサムネイルのグリッドとして俯瞰する -->
+      <DocumentPageListView
+        v-if="viewMode === 'pageList'"
+        :page-count="pageCount"
+        :page-sizes="pageSizes"
+        :current-page="currentPage"
+        @generate-thumbnail="onGenerateThumbnail"
+        @select-page="onSelectPage"
+      />
     </div>
   </div>
 </template>
@@ -69,6 +79,7 @@ import {
 } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import PdfPage from 'src/components/Viewer/PdfPage.vue';
+import DocumentPageListView from './DocumentPageListView.vue';
 import type { ViewMode } from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { useAnnotationHistory } from './composables/useAnnotationHistory';
@@ -89,6 +100,7 @@ type RenderTileFunc = (
   tile: TileDescriptor,
   dpr: number,
 ) => Promise<void>;
+type GenerateThumbnailFunc = (pageNumber: number, maxWidth: number) => Promise<string>;
 interface Prop {
   pageCount: number;
   pageSizes: PageSize[];
@@ -97,9 +109,11 @@ interface Prop {
   annotations: AnnotationStyle[];
   onRender: RenderFunc;
   onRenderTile: RenderTileFunc;
+  onGenerateThumbnail: GenerateThumbnailFunc;
   onZoomIn: (clientX?: number, clientY?: number) => void;
   onZoomOut: (clientX?: number, clientY?: number) => void;
   onScrollToCurrentPage: (viewerContainerHeight: number) => void;
+  onSelectPage: (page: number) => void;
 }
 const prop = defineProps<Prop>();
 
