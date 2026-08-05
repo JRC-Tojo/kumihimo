@@ -203,10 +203,7 @@ function updateRenderWindow(): void {
   const visibleRowCount = Math.max(1, Math.ceil(containerRect.height / rowHeight));
 
   renderRowStart.value = Math.max(0, visibleTopRow - ROWS_MARGIN);
-  renderRowEnd.value = Math.min(
-    totalRows.value,
-    visibleTopRow + visibleRowCount + ROWS_MARGIN,
-  );
+  renderRowEnd.value = Math.min(totalRows.value, visibleTopRow + visibleRowCount + ROWS_MARGIN);
 }
 
 let scrollRafId: number | undefined;
@@ -297,7 +294,10 @@ onBeforeUnmount(() => {
 // コンテナ幅の変化（リサイズ）・ズームレベルの変化のいずれによる列数変化でも、
 // 実スクロール位置を基準にウィンドウを組み直す（行の高さ・列数が変わり可視行が変化するため）
 watch(columns, () => void nextTick(updateRenderWindow));
-watch(() => prop.scale, () => void nextTick(updateRenderWindow));
+watch(
+  () => prop.scale,
+  () => void nextTick(updateRenderWindow),
+);
 
 // 実マウント範囲（renderedIndices）の変化に応じて、サムネイル生成の対象を追従させる
 watch(

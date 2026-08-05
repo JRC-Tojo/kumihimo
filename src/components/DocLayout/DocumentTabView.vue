@@ -103,7 +103,11 @@ import { fileKey } from 'src/utils/document/fileKey';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
 import { useZoomControl } from './composables/useZoomControl';
-import { MAX_ZOOM, PAGE_LIST_INITIAL_ZOOM, PAGE_LIST_MAX_ZOOM } from 'src/components/Viewer/zoomSteps';
+import {
+  MAX_ZOOM,
+  PAGE_LIST_INITIAL_ZOOM,
+  PAGE_LIST_MAX_ZOOM,
+} from 'src/components/Viewer/zoomSteps';
 
 interface Prop {
   file: ContainerElementFile;
