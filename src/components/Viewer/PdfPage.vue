@@ -281,7 +281,10 @@ async function renderTile(
     await props.onRenderTile(page.value, el, gridScale, tile, gridDpr);
   } catch (error) {
     if (!isRenderCancelledError(error)) {
-      console.error(`タイルのレンダリングに失敗しました (col=${tile.col}, row=${tile.row}):`, error);
+      console.error(
+        `タイルのレンダリングに失敗しました (col=${tile.col}, row=${tile.row}):`,
+        error,
+      );
     }
   } finally {
     if (import.meta.env.DEV) console.timeEnd(label);
