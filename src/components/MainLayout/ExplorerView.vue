@@ -63,7 +63,10 @@
     <!-- ブックマーク：MainToolsと同様、開いている場合のみパネル本体を注入する -->
     <q-separator />
     <div class="explorer-bookmarks-section">
-      <div class="explorer-bookmarks-header q-px-sm" @click="explorerStore.bookmarksExpanded = !explorerStore.bookmarksExpanded">
+      <div
+        class="explorer-bookmarks-header q-px-sm"
+        @click="explorerStore.bookmarksExpanded = !explorerStore.bookmarksExpanded"
+      >
         <q-icon name="bookmark" size="xs" />
         <span class="q-ml-sm">{{ $t('explorer.bookmarks.title') }}</span>
         <q-space />
