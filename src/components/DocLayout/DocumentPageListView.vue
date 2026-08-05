@@ -303,20 +303,20 @@ watch(
     box-sizing: border-box;
 
     &:hover {
-      border-color: $primary;
+      border-color: var(--q-primary);
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
       transform: translateY(-2px);
     }
 
     &:focus-visible {
-      outline: 2px solid $primary;
+      outline: 2px solid var(--q-primary);
       outline-offset: 2px;
     }
 
     &.active {
-      border-color: $primary;
-      background-color: color.adjust($primary, $lightness: 45%);
-      box-shadow: 0 0 0 3px rgba($primary, 0.2);
+      border-color: var(--q-primary);
+      background-color: var(--q-primary);
+      box-shadow: 0 0 0 3px rgba(var(--q-primary-rgb), 0.2);
     }
 
     img {
@@ -350,14 +350,14 @@ watch(
     background: $dark;
 
     &:hover {
-      border-color: $primary;
+      border-color: var(--q-primary);
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 
     &.active {
-      border-color: $primary;
-      background-color: color.adjust($primary, $lightness: 25%);
-      box-shadow: 0 0 0 3px rgba($primary, 0.3);
+      border-color: var(--q-primary);
+      background-color: var(--q-primary);
+      box-shadow: 0 0 0 3px rgba(var(--q-primary-rgb), 0.3);
     }
 
     img {
