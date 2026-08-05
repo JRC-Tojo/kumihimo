@@ -5,8 +5,13 @@
     :style="{ gridTemplateColumns: `repeat(${columns}, 1fr)` }"
   >
     <!-- ウィンドウより前の行の高さを確保するスペーサー。grid-column: 1/-1で行全体を占有し、
-         実描画セルを次の行から開始させる -->
-    <div ref="topSentinel" class="page-list-spacer" :style="{ height: `${topSpacerHeight}px` }" />
+         実描画セルを次の行から開始させる。非表示行が無い場合はスペーサー自体を
+         マウントしない（スペーサーもGridアイテムのため、高さ0でもgap分の余白が生まれてしまう） -->
+    <div
+      v-if="topHiddenRows > 0"
+      class="page-list-spacer"
+      :style="{ height: `${topSpacerHeight}px` }"
+    />
 
     <button
       v-for="idx in renderedIndices"
@@ -16,18 +21,20 @@
       :style="{ height: `${effectiveCellHeight}px` }"
       @click="emit('select-page', idx + 1)"
     >
-      <img
-        v-if="thumbnails.has(idx)"
-        :src="thumbnails.get(idx)"
-        :alt="$t('pdfEditor.pageList.thumbnailAlt', { page: idx + 1 })"
-      />
-      <q-spinner v-else color="primary" class="q-pa-md" />
-      <div class="page-number">{{ idx + 1 }}</div>
+      <div class="thumb-wrap">
+        <img
+          v-if="thumbnails.has(idx)"
+          :src="thumbnails.get(idx)"
+          :alt="$t('pdfEditor.pageList.thumbnailAlt', { page: idx + 1 })"
+        />
+        <q-spinner v-else color="primary" class="q-pa-md" />
+        <div class="page-number">{{ idx + 1 }}</div>
+      </div>
     </button>
 
     <!-- ウィンドウより後の行の高さを確保するスペーサー -->
     <div
-      ref="bottomSentinel"
+      v-if="bottomHiddenRows > 0"
       class="page-list-spacer"
       :style="{ height: `${bottomSpacerHeight}px` }"
     />
@@ -70,11 +77,12 @@ const BASE_MIN_CELL_WIDTH = 180;
 const GRID_GAP = 16;
 /** ズーム100%時のセルの高さ（px）。実際のページ縦横比によらず固定することで、ページ数が
  * 多い文書でもDOM上に実マウントする行数を一定に抑える仮想化（スペーサーによる行送り）の
- * 計算を簡単にする */
-const BASE_CELL_HEIGHT = 260;
-/** 同時にDOMへ実マウントする最大行数。ビューポートに収まる行数＋前後の余白として十分な値 */
+ * 計算を簡単にする。ページ番号を専用の帯ではなく画像上のバッジ表示にした分、
+ * 1画面により多くのページを表示できるよう旧値（260px）より詰めている */
+const BASE_CELL_HEIGHT = 230;
+/** マウント直後などスクロールコンテナが未確定の間だけ使う、実マウント行数の暫定値 */
 const ROWS_PER_WINDOW = 10;
-/** 上下端のスペーサーがビューポート付近に近づいた際、ウィンドウをずらす行数 */
+/** 実際にビューポートへ交差している行の前後に、実マウント範囲として余分に確保する行数 */
 const ROWS_MARGIN = 3;
 
 // ==================== 列数・行数の計算 ====================
@@ -119,32 +127,25 @@ function resetWindowAroundCurrentPage(): void {
   renderRowEnd.value = Math.min(totalRows.value, start + ROWS_PER_WINDOW);
 }
 
-/** 実マウント範囲を上方向へ広げ、下端を詰めてウィンドウ幅を保つ */
-function expandWindowUpward(): void {
-  if (renderRowStart.value === 0) return;
-  renderRowStart.value = Math.max(0, renderRowStart.value - ROWS_MARGIN);
-  renderRowEnd.value = Math.min(totalRows.value, renderRowStart.value + ROWS_PER_WINDOW);
-}
-
-/** 実マウント範囲を下方向へ広げ、上端を詰めてウィンドウ幅を保つ */
-function expandWindowDownward(): void {
-  if (renderRowEnd.value >= totalRows.value) return;
-  renderRowEnd.value = Math.min(totalRows.value, renderRowEnd.value + ROWS_MARGIN);
-  renderRowStart.value = Math.max(0, renderRowEnd.value - ROWS_PER_WINDOW);
-}
-
 const renderedIndices = computed<number[]>(() => {
   const startIdx = renderRowStart.value * columns.value;
   const endIdx = Math.min(prop.pageCount, renderRowEnd.value * columns.value);
   return Array.from({ length: Math.max(0, endIdx - startIdx) }, (_, i) => startIdx + i);
 });
 
-const topSpacerHeight = computed(
-  () => renderRowStart.value * (effectiveCellHeight.value + GRID_GAP),
-);
-const bottomSpacerHeight = computed(() =>
-  Math.max(0, (totalRows.value - renderRowEnd.value) * (effectiveCellHeight.value + GRID_GAP)),
-);
+const topHiddenRows = computed(() => renderRowStart.value);
+const bottomHiddenRows = computed(() => Math.max(0, totalRows.value - renderRowEnd.value));
+
+/** 非表示行数分のスペーサー高を求める。スペーサー自体もGridアイテムのため、行の間の
+ * gapはGridが自動で加えてくれる。ここで数えるのは非表示行「同士」の間のgapのみ
+ * （非表示行数 - 1個分）であり、スペーサーと隣接する実セルとの間のgapは含めない */
+function spacerHeight(hiddenRows: number): number {
+  if (hiddenRows <= 0) return 0;
+  return hiddenRows * effectiveCellHeight.value + (hiddenRows - 1) * GRID_GAP;
+}
+
+const topSpacerHeight = computed(() => spacerHeight(topHiddenRows.value));
+const bottomSpacerHeight = computed(() => spacerHeight(bottomHiddenRows.value));
 
 // 現在ページがウィンドウ外へ移動した場合（フッターのページ送り等）、ウィンドウを組み直す
 watch(
@@ -157,30 +158,66 @@ watch(
   },
 );
 
-// ==================== スペーサーの交差判定によるウィンドウのスクロール追従 ====================
-// root:nullとするのは、このコンポーネントが実際にスクロールしない`.pdf-viewer-container`配下に
-// マウントされ、実スクロールは親（DocumentTabView.vue側）の`.document-viewer-wrapper`で発生する
-// ため（continuousSingleモードの仮想化と同じ理由。DocumentViewer.vueのコメント参照）
+// ==================== 実スクロール位置に基づくウィンドウの追従 ====================
+// このコンポーネント自身は実際にスクロールせず、実スクロールは親（DocumentTabView.vue側）の
+// `.document-viewer-wrapper`で発生する（continuousSingleモードの仮想化と同じ理由。
+// DocumentViewer.vueのコメント参照）。
+//
+// 以前はグリッド前後のスペーサー要素をIntersectionObserverで監視し、スペーサーがビューポートへ
+// 交差した時点でウィンドウをROWS_MARGIN行ずつ広げる方式だった。この方式は「一定量スクロール
+// されるたびに交差イベントが発火する」ことを前提にしており、スクロールバーのドラッグ等で
+// スペーサーの領域を一度に飛び越えてしまうと交差イベント自体が発火せず、ウィンドウが
+// 追従しないまま（実マウントされたセルが無いスペーサー領域を表示したまま）になる不具合が
+// あった。スクロールコンテナの実スクロール位置からグリッド内の可視行範囲を都度直接計算する
+// 方式に改め、どれだけ大きくスクロール位置が飛んでも正しいウィンドウへ即座に追従できるようにする
 
-const topSentinel = useTemplateRef('topSentinel');
-const bottomSentinel = useTemplateRef('bottomSentinel');
-let sentinelObserver: IntersectionObserver | undefined;
+let scrollContainer: HTMLElement | undefined;
 
-function setupSentinelObserver(): void {
-  sentinelObserver?.disconnect();
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        if (entry.target === topSentinel.value) expandWindowUpward();
-        else if (entry.target === bottomSentinel.value) expandWindowDownward();
-      }
-    },
-    { root: null, rootMargin: '200px 0px', threshold: 0 },
+/** グリッドの最も近い実スクロール祖先要素を探す（`.document-viewer-wrapper`を名指しせず、
+ * overflow-yがscroll/autoな要素を辿ることでレイアウトの変更に対して疎結合にする） */
+function findScrollContainer(el: HTMLElement | null): HTMLElement | undefined {
+  let node = el?.parentElement;
+  while (node) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll') return node;
+    node = node.parentElement;
+  }
+  return undefined;
+}
+
+/** スクロールコンテナの実スクロール位置から、実マウントすべき行範囲を直接計算して反映する */
+function updateRenderWindow(): void {
+  if (!gridRef.value || !scrollContainer) {
+    resetWindowAroundCurrentPage();
+    return;
+  }
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const gridRect = gridRef.value.getBoundingClientRect();
+  const paddingTop = parseFloat(getComputedStyle(gridRef.value).paddingTop) || 0;
+  const rowHeight = effectiveCellHeight.value + GRID_GAP;
+
+  // グリッド先頭（パディング込み）からどれだけスクロールで隠れているか
+  const scrolledPastGridTop = Math.max(0, containerRect.top - gridRect.top - paddingTop);
+  const visibleTopRow = Math.floor(scrolledPastGridTop / rowHeight);
+  const visibleRowCount = Math.max(1, Math.ceil(containerRect.height / rowHeight));
+
+  renderRowStart.value = Math.max(0, visibleTopRow - ROWS_MARGIN);
+  renderRowEnd.value = Math.min(
+    totalRows.value,
+    visibleTopRow + visibleRowCount + ROWS_MARGIN,
   );
-  if (topSentinel.value) observer.observe(topSentinel.value);
-  if (bottomSentinel.value) observer.observe(bottomSentinel.value);
-  sentinelObserver = observer;
+}
+
+let scrollRafId: number | undefined;
+
+/** scrollイベントをrequestAnimationFrameで間引き、高頻度スクロール中の再計算負荷を抑える */
+function onScroll(): void {
+  if (scrollRafId !== undefined) return;
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = undefined;
+    updateRenderWindow();
+  });
 }
 
 // ==================== サムネイル生成・キャッシュ ====================
@@ -236,23 +273,31 @@ function scrollActiveIntoView(): void {
 onMounted(() => {
   recomputeContainerWidth();
   // 列数（containerWidthとscaleに依存するcomputed）が確定した状態で、初回のウィンドウを
-  // 現在ページを中心に組む。以降の変化はwatch(columns, ...)に任せる
+  // 現在ページを中心に組む。実スクロール位置が確定した後はupdateRenderWindowに任せる
   resetWindowAroundCurrentPage();
-  resizeObserver = new ResizeObserver(recomputeContainerWidth);
+  resizeObserver = new ResizeObserver(() => {
+    recomputeContainerWidth();
+    updateRenderWindow();
+  });
   if (gridRef.value) resizeObserver.observe(gridRef.value);
   void nextTick(() => {
-    setupSentinelObserver();
+    scrollContainer = findScrollContainer(gridRef.value);
+    scrollContainer?.addEventListener('scroll', onScroll, { passive: true });
+    if (scrollContainer) resizeObserver?.observe(scrollContainer);
     scrollActiveIntoView();
+    updateRenderWindow();
   });
 });
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
-  sentinelObserver?.disconnect();
+  scrollContainer?.removeEventListener('scroll', onScroll);
+  if (scrollRafId !== undefined) cancelAnimationFrame(scrollRafId);
 });
 
 // コンテナ幅の変化（リサイズ）・ズームレベルの変化のいずれによる列数変化でも、
-// 現在ページを中心にウィンドウを組み直す
-watch(columns, resetWindowAroundCurrentPage);
+// 実スクロール位置を基準にウィンドウを組み直す（行の高さ・列数が変わり可視行が変化するため）
+watch(columns, () => void nextTick(updateRenderWindow));
+watch(() => prop.scale, () => void nextTick(updateRenderWindow));
 
 // 実マウント範囲（renderedIndices）の変化に応じて、サムネイル生成の対象を追従させる
 watch(
@@ -319,27 +364,46 @@ watch(
       box-shadow: 0 0 0 3px rgba(var(--q-primary-rgb), 0.2);
     }
 
-    img {
-      width: 100%;
+    .thumb-wrap {
+      position: relative;
       flex: 1 1 0;
       min-height: 0;
-      object-fit: contain;
+      width: 100%;
       background: white;
     }
 
+    img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
     .q-spinner {
-      flex: 1 1 0;
+      position: absolute;
+      inset: 0;
       margin: auto;
     }
 
+    // ページ番号：画像右下に重ねる半透過の正方形バッジ。ページ数が多い文書で1画面に
+    // 表示できる件数を増やすため、以前のような専用の帯（行）は設けない
     .page-number {
-      flex-shrink: 0;
-      padding: 0.4rem;
-      text-align: center;
-      font-size: 0.75rem;
-      background-color: $grey-2;
-      color: $grey-7;
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      min-width: 1.5rem;
+      height: 1.5rem;
+      padding: 0 0.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      background-color: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      font-size: 0.7rem;
       font-weight: 600;
+      line-height: 1;
     }
   }
 }
@@ -360,13 +424,8 @@ watch(
       box-shadow: 0 0 0 3px rgba(var(--q-primary-rgb), 0.3);
     }
 
-    img {
+    .thumb-wrap {
       background: $dark;
-    }
-
-    .page-number {
-      background-color: $grey-8;
-      color: $grey-4;
     }
   }
 }

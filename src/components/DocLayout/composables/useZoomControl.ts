@@ -9,7 +9,7 @@
 
 import { nextTick, ref, type Ref } from 'vue';
 import {
-  clampZoom,
+  MIN_ZOOM,
   nextZoomStep,
   PDF_VIEWER_CONTAINER_MARGIN_PT,
   prevZoomStep,
@@ -27,6 +27,8 @@ export interface UseZoomControlDeps {
   documentViewer: Ref<ZoomAnchorSource | null>;
   currentPage: Ref<number>;
   pageSizes: Ref<PageSize[]>;
+  /** 現在の表示モードに応じた拡大率上限（%）。ページ一覧モードでは通常より低い値に絞る */
+  maxZoom: Ref<number>;
 }
 
 // pt→px変換（96dpi基準）。.pdf-viewer-containerの上下左右マージン合計を、フィット計算での
@@ -36,6 +38,11 @@ const PDF_VIEWER_CONTAINER_MARGIN_PX = 2 * PDF_VIEWER_CONTAINER_MARGIN_PT * (96 
 export function useZoomControl(deps: UseZoomControlDeps) {
   const zoomLevel = ref(100);
   let zoomOperationId = 0;
+
+  /** 表示モードごとの拡大率上限（`deps.maxZoom`）を反映してズーム値をクランプする */
+  function clampZoom(level: number): number {
+    return Math.max(MIN_ZOOM, Math.min(deps.maxZoom.value, level));
+  }
 
   /**
    * ビューポート上の1点（未指定時は表示領域中央）を基準にズームレベルを変更する。

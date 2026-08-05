@@ -11,6 +11,12 @@ export const MAX_ZOOM = 800;
 
 export const ZOOM_STEPS = [20, 25, 33, 50, 67, 75, 100, 133, 167, 200, 300, 400, 600, 800];
 
+/** ページ一覧モードでの拡大率上限（%）。サムネイル自体の生成解像度が低いため、
+ * これ以上拡大しても画像がぼやけるだけで意味がない */
+export const PAGE_LIST_MAX_ZOOM = 100;
+/** ページ一覧モードへ切り替えた際に最初に表示される倍率（%） */
+export const PAGE_LIST_INITIAL_ZOOM = 67;
+
 /**
  * `DocumentViewer.vue`の`.pdf-viewer-container`に設定する余白（pt単位、上下左右）。
  * フィット計算（`useZoomControl`）が利用可能領域を求める際にも同じ値を使うことで、

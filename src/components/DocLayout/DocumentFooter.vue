@@ -75,12 +75,12 @@
       <q-slider
         :model-value="zoomLevel"
         :min="MIN_ZOOM"
-        :max="MAX_ZOOM"
+        :max="maxZoom"
         :step="5"
         class="zoom-slider"
         @update:model-value="(value) => value !== null && props.onSetZoom(value)"
       />
-      <q-btn flat dense icon="zoom_in" @click="onZoomIn()" :disable="zoomLevel === MAX_ZOOM" />
+      <q-btn flat dense icon="zoom_in" @click="onZoomIn()" :disable="zoomLevel === maxZoom" />
       <q-input
         v-model="zoomInputValue"
         type="number"
@@ -88,7 +88,7 @@
         borderless
         suffix="%"
         :min="MIN_ZOOM"
-        :max="MAX_ZOOM"
+        :max="maxZoom"
         step="5"
         class="zoom-input"
         :input-style="{ textAlign: 'right' }"
@@ -102,13 +102,15 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useEditorStore } from 'src/stores/editorStore';
-import { MAX_ZOOM, MIN_ZOOM } from 'src/components/Viewer/zoomSteps';
+import { MIN_ZOOM } from 'src/components/Viewer/zoomSteps';
 
 const editorStore = useEditorStore();
 
 interface Prop {
   totalPageCount: number;
   scale: number;
+  /** 現在の表示モードに応じた拡大率上限（%）。ページ一覧モードでは通常より低い値になる */
+  maxZoom: number;
   onGoToFirstPage: () => void;
   onPreviousPage: () => void;
   onGoToPage: (page: number) => void;

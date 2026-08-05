@@ -44,6 +44,7 @@
         v-model:zoom-level="zoomLevel"
         :total-page-count="pageCount"
         :scale="zoomLevel"
+        :max-zoom="zoomMax"
         @go-to-first-page="goToFirstPage"
         @previous-page="previousPage"
         @next-page="nextPage"
@@ -102,6 +103,7 @@ import { fileKey } from 'src/utils/document/fileKey';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
 import { useZoomControl } from './composables/useZoomControl';
+import { MAX_ZOOM, PAGE_LIST_INITIAL_ZOOM, PAGE_LIST_MAX_ZOOM } from 'src/components/Viewer/zoomSteps';
 
 interface Prop {
   file: ContainerElementFile;
@@ -228,16 +230,20 @@ if (observed.ok) {
 }
 
 // for footer
+const viewMode = ref<ViewMode>('single');
+// ページ一覧モード以外で直近まで表示していた表示モード。ページ一覧のセルをクリックした際、
+// 一覧画面ではなく直前まで見ていた表示モードのそのページへ戻るために使う
+const lastContentViewMode = ref<ViewMode>('single');
+// ページ一覧モードはサムネイルの解像度が低く高倍率にする意味が無いため、拡大率上限を
+// 通常モードより低く絞る（ズームスライダー・入力・ズームインボタンすべてに反映する）
+const zoomMax = computed(() => (viewMode.value === 'pageList' ? PAGE_LIST_MAX_ZOOM : MAX_ZOOM));
 const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZoomControl({
   viewer,
   documentViewer,
   currentPage,
   pageSizes,
+  maxZoom: zoomMax,
 });
-const viewMode = ref<ViewMode>('single');
-// ページ一覧モード以外で直近まで表示していた表示モード。ページ一覧のセルをクリックした際、
-// 一覧画面ではなく直前まで見ていた表示モードのそのページへ戻るために使う
-const lastContentViewMode = ref<ViewMode>('single');
 
 // for relational peek dialog
 const peekAnnotId = ref<AnnotationID>();
@@ -755,6 +761,18 @@ watch(
 // ページ一覧モード以外に変化するたびに記録しておく（ページ一覧のセルクリック時に戻り先として使う）
 watch(viewMode, (mode) => {
   if (mode !== 'pageList') lastContentViewMode.value = mode;
+});
+// ページ一覧モードへ入った際は直前の拡大率を退避して規定倍率から表示し、抜けた際は元の倍率へ戻す
+// （ページ一覧は俯瞰用途のため、直前がどれだけ拡大されていても常に同じ見え方で開始したい）
+let zoomLevelBeforePageList: number | undefined;
+watch(viewMode, (mode, oldMode) => {
+  if (mode === 'pageList' && oldMode !== 'pageList') {
+    zoomLevelBeforePageList = zoomLevel.value;
+    setZoomLevel(PAGE_LIST_INITIAL_ZOOM);
+  } else if (mode !== 'pageList' && oldMode === 'pageList') {
+    if (zoomLevelBeforePageList !== undefined) setZoomLevel(zoomLevelBeforePageList);
+    zoomLevelBeforePageList = undefined;
+  }
 });
 // メインツール（表示モードメニュー）からの意図をここで実行する
 watch(
