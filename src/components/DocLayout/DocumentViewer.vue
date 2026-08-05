@@ -10,6 +10,7 @@
       <!-- 単一ページまたは見開き表示 -->
       <div v-if="viewMode === 'single'" class="pages-container" ref="singlePageContainer">
         <PdfPage
+          :file="prop.file"
           :annotations="annotations"
           :page-size1x="pageSizes[currentPage - 1]!"
           v-model:selected-annot-ids="selectedAnnotIds"
@@ -39,6 +40,7 @@
           >
             <PdfPage
               v-if="shouldRenderPage(page - 1)"
+              :file="prop.file"
               :page="page"
               :annotations="annotations"
               :page-size1x="pageSizes[page - 1]!"

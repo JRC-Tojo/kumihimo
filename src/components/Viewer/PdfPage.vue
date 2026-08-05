@@ -35,6 +35,7 @@
       <!-- Konvaアノテーションレイヤー -->
       <AnnotationLayer
         v-if="canvasRendered"
+        :file="props.file"
         :annotations="currentPageAnnotations"
         :scale="lastRenderedScale"
         v-model:selected-annot-ids="selectedAnnotIds"
@@ -52,6 +53,7 @@ import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from
 import AnnotationLayer from './Annotation/AnnotationLayer.vue';
 import { debounce, useQuasar } from 'quasar';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf.js';
+import type { ContainerElementFile } from 'src/models/container';
 import type { PageSize } from './pdfManager';
 import {
   clampScaleToPixelBudget,
@@ -62,6 +64,7 @@ import {
 import { cancelPendingRenderForCanvas, isRenderCancelledError } from './pdfManager';
 
 interface Props {
+  file: ContainerElementFile;
   annotations: AnnotationStyle[];
   /** タイル分割の要否判定・グリッド計算に使う、スケール1でのページCSS px寸法 */
   pageSize1x: PageSize;

@@ -176,6 +176,14 @@ type RenderFunc = (
   scale: number,
 ) => Promise<PageSize>;
 const onRender = ref<RenderFunc>();
+// 最初のページ描画（PdfPageのonMounted内でonRenderが呼ばれ、layoutSizeが確定する瞬間）が
+// 完了するまで解決しないPromise。単一表示モードでは、これが解決するまで`.page-outer`の
+// 実際のサイズ（outerStyle）が確定せず、viewerContainerがスクロール可能な状態にならないため、
+// 保存済みスクロール位置の復元前に必ずこれを待つ
+let resolveFirstRenderReady: (() => void) | undefined;
+const firstRenderReady = new Promise<void>((resolve) => {
+  resolveFirstRenderReady = resolve;
+});
 type RenderTileFunc = (
   pageNumber: number,
   canvas: HTMLCanvasElement,
@@ -328,7 +336,10 @@ async function loadDocument() {
     canvas: HTMLCanvasElement,
     scale: number,
   ): Promise<PageSize> => {
-    return await renderPage(loadedDocument, pageNumber, canvas, scale, 0, fileKey(prop.file));
+    const result = await renderPage(loadedDocument, pageNumber, canvas, scale, 0, fileKey(prop.file));
+    resolveFirstRenderReady?.();
+    resolveFirstRenderReady = undefined;
+    return result;
   };
   /** PDFページの指定タイルをレンダリングする。 */
   onRenderTile.value = async (
@@ -670,6 +681,12 @@ onMounted(async () => {
     // 保存しておいた実際のscrollLeft/scrollTopをそのまま復元する方が正確なため、
     // `scrollToCurrentPage`の近似スクロールは行わずこちらで直接設定する
     goToPage(storedTabViewState.lastPage);
+    // `nextTick()`はVue側のDOMパッチ完了を保証するのみで、PdfPage内で非同期に行われる
+    // 実際のページ描画（`.page-outer`の実サイズ確定）までは保証しない。単一表示モードでは
+    // それより前にscrollLeft/scrollTopを代入しても、viewerContainerがまだスクロール可能な
+    // サイズになっておらずブラウザ側で0にクランプされてしまうため、必ず先に描画完了を待つ
+    // （読み込み失敗時はonRenderが設定されずPdfPage自体が描画されないため、その場合は待たない）
+    if (onRender.value !== undefined) await firstRenderReady;
     await nextTick();
     if (viewer.value) {
       viewer.value.scrollLeft = storedTabViewState.scrollLeft;

@@ -96,18 +96,27 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     if (!anchorSource) return;
 
     const selected = resolveSelected();
-    let target: { x: number; y: number };
+    const lastPointerDocPos = editorStore.getLastPointerDocPos(deps.file);
+    let target: { page: number; x: number; y: number };
     if (selected.length > 0) {
       const base = selected[0]!;
-      target = { x: base.x + PASTE_OFFSET_STEP, y: base.y + PASTE_OFFSET_STEP };
-    } else if (editorStore.lastPointerDocPos) {
-      target = editorStore.lastPointerDocPos;
+      target = {
+        page: deps.currentPage.value,
+        x: base.x + PASTE_OFFSET_STEP,
+        y: base.y + PASTE_OFFSET_STEP,
+      };
+    } else if (lastPointerDocPos) {
+      target = lastPointerDocPos;
     } else {
-      target = { x: anchorSource.x + PASTE_OFFSET_STEP, y: anchorSource.y + PASTE_OFFSET_STEP };
+      target = {
+        page: deps.currentPage.value,
+        x: anchorSource.x + PASTE_OFFSET_STEP,
+        y: anchorSource.y + PASTE_OFFSET_STEP,
+      };
     }
     const offset = { dx: target.x - anchorSource.x, dy: target.y - anchorSource.y };
 
-    const res = await api.pasteAnnotations(deps.file, clipboard, deps.currentPage.value, offset);
+    const res = await api.pasteAnnotations(deps.file, clipboard, target.page, offset);
     if (!res.ok) return;
 
     history.recordCreatedBatch(

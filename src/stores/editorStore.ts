@@ -183,11 +183,11 @@ export const useEditorStore = defineStore('editor', {
     // アノテーションのアプリ内クリップボード（OSクリップボードは使わない。explorerStore.clipboardと同じ思想）
     annotationClipboard: null as AnnotationStyle[] | null,
 
-    // カーソルが最後にPDFページ上でホバーしていた位置（文書座標）。選択中のアノテーションが
-    // 無い状態でペーストする際、貼り付け位置の基準として使う。複数ペイン表示時も、ペースト自体は
-    // アクティブなペインでのみ反応する（handleGlobalKeydownがactiveSideを見て早期returnするため）
-    // ので、ペイン間の混同は起きない
-    lastPointerDocPos: undefined as { page: number; x: number; y: number } | undefined,
+    // タブごとに、カーソルが最後にPDFページ上でホバーしていた位置（文書座標）を記録する
+    // （tabViewStatesと同じくtabKey単位で保持する）。選択中のアノテーションが無い状態で
+    // ペーストする際、貼り付け位置の基準として使う。タブ単位で分けることで、別タブを
+    // ホバーした後にアクティブタブを切り替えてペーストしても、そのタブ自身の座標だけが使われる
+    lastPointerDocPos: {} as Record<string, { page: number; x: number; y: number }>,
 
     // 重ね順操作の意図フラグ（relationalModeと同じパターン）。
     // ツールバー（MainTools/SubTools）は選択状態を持たないため、意図だけをここにセットし、
@@ -620,10 +620,23 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * カーソルが最後にPDFページ上でホバーしていた位置（文書座標）を記録する
+     * 指定タブで、カーソルが最後にPDFページ上でホバーしていた位置（文書座標）を記録する
      */
-    setLastPointerDocPos(pos: { page: number; x: number; y: number }): void {
-      this.lastPointerDocPos = pos;
+    setLastPointerDocPos(
+      file: { containerID: ContainerID; path: string },
+      pos: { page: number; x: number; y: number },
+    ): void {
+      this.lastPointerDocPos[tabKey(file)] = pos;
+    },
+
+    /**
+     * 指定タブに記録済みの最終ポインタ位置を取得する（未記録の場合はundefined）
+     */
+    getLastPointerDocPos(file: {
+      containerID: ContainerID;
+      path: string;
+    }): { page: number; x: number; y: number } | undefined {
+      return this.lastPointerDocPos[tabKey(file)];
     },
 
     /**
