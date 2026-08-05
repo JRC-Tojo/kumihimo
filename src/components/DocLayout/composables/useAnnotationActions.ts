@@ -82,22 +82,41 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
   /**
    * アプリ内クリップボードの内容を現在のページへ貼り付ける（Ctrl+V）
    *
-   * ~~連続ペーストのたびに少しずつ位置をずらし、貼り付けた注釈群を選択状態にする~~
-   * → ひとまずは位置ずらしを行わない
+   * 貼り付け先の基準位置は次の優先順で決める。いずれの場合も、クリップボード内の
+   * 各要素には同じ移動量を適用し、複数要素をコピーしていた場合の相対的な位置関係を保つ
+   * （貼り付け後は貼り付けた注釈群のみを選択状態にする）:
+   * 1. 選択中の注釈がある場合：それから少しずらした位置
+   * 2. 選択中の注釈が無い場合：カーソルが最後にホバーしていた位置
+   * 3. カーソル位置も未取得の場合（キーボードのみの操作等）：コピー元から少しずらした位置
    */
   async function pasteClipboard(): Promise<void> {
     const clipboard = editorStore.annotationClipboard;
     if (!clipboard || clipboard.length === 0) return;
+    const anchorSource = clipboard[0];
+    if (!anchorSource) return;
 
-    // const offsetStep = PASTE_OFFSET_STEP * (editorStore.annotationClipboardPasteCount + 1);
-    const offsetStep = 0;
-    const res = await api.pasteAnnotations(
-      deps.file,
-      clipboard,
-      deps.currentPage.value,
-      offsetStep,
-    );
-    editorStore.incrementClipboardPasteCount();
+    const selected = resolveSelected();
+    const lastPointerDocPos = editorStore.getLastPointerDocPos(deps.file);
+    let target: { page: number; x: number; y: number };
+    if (selected.length > 0) {
+      const base = selected[0]!;
+      target = {
+        page: deps.currentPage.value,
+        x: base.x + PASTE_OFFSET_STEP,
+        y: base.y + PASTE_OFFSET_STEP,
+      };
+    } else if (lastPointerDocPos) {
+      target = lastPointerDocPos;
+    } else {
+      target = {
+        page: deps.currentPage.value,
+        x: anchorSource.x + PASTE_OFFSET_STEP,
+        y: anchorSource.y + PASTE_OFFSET_STEP,
+      };
+    }
+    const offset = { dx: target.x - anchorSource.x, dy: target.y - anchorSource.y };
+
+    const res = await api.pasteAnnotations(deps.file, clipboard, target.page, offset);
     if (!res.ok) return;
 
     history.recordCreatedBatch(
@@ -116,12 +135,10 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     const targets = resolveSelected();
     if (targets.length === 0) return;
 
-    const res = await api.pasteAnnotations(
-      deps.file,
-      targets,
-      deps.currentPage.value,
-      PASTE_OFFSET_STEP,
-    );
+    const res = await api.pasteAnnotations(deps.file, targets, deps.currentPage.value, {
+      dx: PASTE_OFFSET_STEP,
+      dy: PASTE_OFFSET_STEP,
+    });
     if (!res.ok) return;
 
     history.recordCreatedBatch(
