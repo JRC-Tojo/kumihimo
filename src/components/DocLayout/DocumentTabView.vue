@@ -506,9 +506,7 @@ function isRelationalPendingFile(): boolean {
 async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: AnnotationStyle[]) {
   const mode = editorStore.relationalMode;
   const oldAnnotIds = new Set(oldAnnots.map((annot) => annot.id));
-  const addedIds = newAnnots
-    .filter((annot) => !oldAnnotIds.has(annot.id))
-    .map((annot) => annot.id);
+  const addedIds = newAnnots.filter((annot) => !oldAnnotIds.has(annot.id)).map((annot) => annot.id);
 
   const decision = decideRelationalOnAnnotationsAdded(
     mode,
