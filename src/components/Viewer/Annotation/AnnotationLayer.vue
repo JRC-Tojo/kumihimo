@@ -759,6 +759,17 @@ function handleMouseDown(e: KonvaMouseEvent) {
 }
 
 function handleMouseMove(e: KonvaMouseEvent) {
+  // カーソル位置を常に記録しておく（選択が無い状態でのペースト位置の基準に使う。
+  // `editorStore.ts`の`lastPointerDocPos`を参照）
+  const currentPointerPos = e.target?.getStage()?.getPointerPosition();
+  if (currentPointerPos) {
+    editorStore.setLastPointerDocPos({
+      page: page.value,
+      x: currentPointerPos.x / props.scale,
+      y: currentPointerPos.y / props.scale,
+    });
+  }
+
   // Ctrl+クリック候補がしきい値を超えて動いたら、複製プレビューへ昇格させる
   if (ctrlDragCandidate.value && !duplicateDragSource.value) {
     const stage = e.target?.getStage();

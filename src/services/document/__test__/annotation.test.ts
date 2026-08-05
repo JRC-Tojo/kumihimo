@@ -262,7 +262,7 @@ describe('pasteAnnotations', () => {
     addAnnotationInfosMock.mockClear();
 
     const sources = [baseStyle(idA, { zIndex: 5 })];
-    const res = await pasteAnnotations(file, sources, 1, 20);
+    const res = await pasteAnnotations(file, sources, 1, { dx: 20, dy: 20 });
 
     expect(res.ok).toBeTrue();
     if (!res.ok) return;

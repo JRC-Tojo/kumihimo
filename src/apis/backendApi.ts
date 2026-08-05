@@ -527,9 +527,9 @@ class BackendApi {
     file: ContainerElementFile,
     sources: AnnotationStyle[],
     pageNumber: number,
-    offsetStep: number,
+    offset: { dx: number; dy: number },
   ): Promise<ApiResponse<AnnotationInfo[]>> {
-    const res = await annotationService.pasteAnnotations(file, sources, pageNumber, offsetStep);
+    const res = await annotationService.pasteAnnotations(file, sources, pageNumber, offset);
     return toApiResponse(res, 'DOC_ANNOT_PASTE_FAILED');
   }
 

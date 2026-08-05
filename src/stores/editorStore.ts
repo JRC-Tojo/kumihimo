@@ -163,10 +163,17 @@ export const useEditorStore = defineStore('editor', {
     // 「削除によるクローズか、通常のタブクローズか」を判別するための一時的なマーカー
     deletingTabKeys: new Set<string>(),
 
+    // タブごとの最終表示ページ・表示モード（タブキー単位で保持し、タブの再選択・再オープン後も復元する）
+    tabViewStates: {} as Record<string, { lastPage: number; viewMode: ViewMode }>,
+
     // アノテーションのアプリ内クリップボード（OSクリップボードは使わない。explorerStore.clipboardと同じ思想）
     annotationClipboard: null as AnnotationStyle[] | null,
-    // 連続ペースト時に少しずつ位置をずらすためのカウンタ。コピーのたびにリセットする
-    annotationClipboardPasteCount: 0,
+
+    // カーソルが最後にPDFページ上でホバーしていた位置（文書座標）。選択中のアノテーションが
+    // 無い状態でペーストする際、貼り付け位置の基準として使う。複数ペイン表示時も、ペースト自体は
+    // アクティブなペインでのみ反応する（handleGlobalKeydownがactiveSideを見て早期returnするため）
+    // ので、ペイン間の混同は起きない
+    lastPointerDocPos: undefined as { page: number; x: number; y: number } | undefined,
 
     // 重ね順操作の意図フラグ（relationalModeと同じパターン）。
     // ツールバー（MainTools/SubTools）は選択状態を持たないため、意図だけをここにセットし、
@@ -259,6 +266,21 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
+     * 1組の関係性登録が確定した際の後処理をまとめて行う
+     *
+     * 待機状態は常に解除する。連続定義モード（ダブルクリックで開始）が有効な場合のみ、
+     * 次のペア登録に備えてモード自体を維持する。無効な場合はここでモードごと終了しないと、
+     * 次に選択・作成したアノテーションが新たな1つ目として誤って待機開始してしまい、
+     * ユーザーが意図しない関係性の二重登録につながる
+     */
+    finishRelationalPending(): void {
+      this.cancelRelationalPending();
+      if (!this.relationalContinuous) {
+        this.relationalMode = undefined;
+      }
+    },
+
+    /**
      * アクティブなペインの選択中アノテーションをスタイルパネル用に反映する
      */
     setActiveSelection(file: ContainerElementFile, annotations: AnnotationStyle[]): void {
@@ -306,6 +328,26 @@ export const useEditorStore = defineStore('editor', {
     getTabsForContainer(cID: ContainerID): ContainerElementFile[] {
       const all = sides.flatMap((side) => this.tabs[side].filter((tab) => tab.containerID === cID));
       return Array.from(new Map(all.map((file) => [file.path, file])).values());
+    },
+
+    /**
+     * 指定タブの最終表示ページ・表示モードを記録する（タブの再選択・再オープン後の復元に使う）
+     */
+    setTabViewState(
+      file: { containerID: ContainerID; path: string },
+      viewState: { lastPage: number; viewMode: ViewMode },
+    ): void {
+      this.tabViewStates[tabKey(file)] = viewState;
+    },
+
+    /**
+     * 指定タブに記録済みの最終表示ページ・表示モードを取得する（未記録の場合はundefined）
+     */
+    getTabViewState(file: {
+      containerID: ContainerID;
+      path: string;
+    }): { lastPage: number; viewMode: ViewMode } | undefined {
+      return this.tabViewStates[tabKey(file)];
     },
 
     /**
@@ -533,6 +575,18 @@ export const useEditorStore = defineStore('editor', {
         this.pinedTabPaths[side] = remappedPinned;
       });
 
+      const remappedViewStates: Record<string, { lastPage: number; viewMode: ViewMode }> = {};
+      Object.entries(this.tabViewStates).forEach(([key, viewState]) => {
+        const prefix = `${containerID}|`;
+        const path = key.startsWith(prefix) ? key.slice(prefix.length) : undefined;
+        const newKey =
+          path !== undefined && pathMap[path] !== undefined
+            ? tabKey({ containerID, path: pathMap[path] })
+            : key;
+        remappedViewStates[newKey] = viewState;
+      });
+      this.tabViewStates = remappedViewStates;
+
       const pendingFile = this.relationalPendingFile;
       if (pendingFile !== undefined && pendingFile.containerID === containerID) {
         const newPendingPath = pathMap[pendingFile.path];
@@ -541,11 +595,10 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * アノテーションのアプリ内クリップボードにコピーする（ペースト回数カウンタもリセットする）
+     * アノテーションのアプリ内クリップボードにコピーする
      */
     setAnnotationClipboard(items: AnnotationStyle[]): void {
       this.annotationClipboard = items;
-      this.annotationClipboardPasteCount = 0;
     },
 
     /**
@@ -553,14 +606,13 @@ export const useEditorStore = defineStore('editor', {
      */
     clearAnnotationClipboard(): void {
       this.annotationClipboard = null;
-      this.annotationClipboardPasteCount = 0;
     },
 
     /**
-     * ペースト回数カウンタをインクリメントする（連続ペースト時に貼り付け位置を少しずつずらすため）
+     * カーソルが最後にPDFページ上でホバーしていた位置（文書座標）を記録する
      */
-    incrementClipboardPasteCount(): void {
-      this.annotationClipboardPasteCount += 1;
+    setLastPointerDocPos(pos: { page: number; x: number; y: number }): void {
+      this.lastPointerDocPos = pos;
     },
 
     /**

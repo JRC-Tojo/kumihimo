@@ -198,7 +198,11 @@ const initialTabFocus = (() => {
   return pending;
 })();
 
-const currentPage = ref(initialTabFocus?.page ?? 1);
+// このタブに記録済みの最終表示ページ・表示モード（タブの再選択・再オープン後の復元用）。
+// `initialTabFocus`（関係性ダイアログ等からの明示的なページ遷移要求）が優先される
+const storedTabViewState = editorStore.getTabViewState(prop.file);
+
+const currentPage = ref(initialTabFocus?.page ?? storedTabViewState?.lastPage ?? 1);
 const pageCount = ref(0);
 const pageSizes = ref<PageSize[]>([]);
 // acquirePdfで取得したPDFの解放ハンドル。onBeforeUnmountで必ずreleaseする
@@ -244,7 +248,7 @@ const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZ
   currentPage,
   pageSizes,
 });
-const viewMode = ref<ViewMode>('single');
+const viewMode = ref<ViewMode>(storedTabViewState?.viewMode ?? 'single');
 
 // for relational peek dialog
 const peekAnnotId = ref<AnnotationID>();
@@ -411,8 +415,10 @@ async function finishRelational(targetId: AnnotationID) {
   if (srcId === undefined || mode === undefined) return;
   if (srcId === targetId) return; // 自分自身との関係性は無視
 
-  // 通知や待機状態は結果を待たずに解除し、モード自体は次の登録に備えて維持する
-  editorStore.cancelRelationalPending();
+  // 通知や待機状態は結果を待たずに解除する。連続定義モードでない限りモード自体も終了し、
+  // 次に選択・作成されたアノテーションが新たな1つ目として誤って待機開始する（＝関係性の
+  // 二重登録につながる）のを防ぐ
+  editorStore.finishRelationalPending();
   // 連続定義モードが、選択され続けているだけのこの対象を新たな起点と誤認しないための目印
   editorStore.relationalLastPairedId = targetId;
 
@@ -433,10 +439,11 @@ async function finishRelational(targetId: AnnotationID) {
     void relationalStore.refreshFile(pendingFile);
   }
 
-  // 連続定義モード（関係性ボタンのダブルクリックで開始）が有効な場合でも、ここでは基準を
-  // リセットするだけに留める。次に選択されたアノテーションを新たな基準とする処理は
-  // `RelationalDefineButtons.vue`側で選択変化を監視して行う（1組確定するごとに直前の対象と
-  // 自動で連鎖させるのではなく、次の選択を独立した新しいペアの起点として扱うため）
+  // 連続定義モード（関係性ボタンのダブルクリックで開始）が有効な場合、モード自体は
+  // `finishRelationalPending`により維持される。次に選択されたアノテーションを新たな
+  // 基準とする処理は`RelationalDefineButtons.vue`側で選択変化を監視して行う
+  // （1組確定するごとに直前の対象と自動で連鎖させるのではなく、次の選択を独立した
+  // 新しいペアの起点として扱うため）
 
   scheduleAutoSave();
 }
@@ -653,6 +660,11 @@ onMounted(async () => {
       selectedAnnotationIds.value = [initialTabFocus.annotId];
     }
     await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+  } else if (storedTabViewState !== undefined) {
+    // 明示的な遷移要求がない場合、前回このタブを表示していた際のページへ復元する
+    // （pageCount確定後のクランプのみ行い、選択状態には影響しない）
+    goToPage(storedTabViewState.lastPage);
+    await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
   }
 });
 
@@ -764,6 +776,10 @@ watch(
     editorStore.clearViewModeAction();
   },
 );
+// このタブの表示ページ・表示モードをeditorStoreへ記録し、タブの再選択・再オープン後に復元できるようにする
+watch([currentPage, viewMode], ([page, mode]) => {
+  editorStore.setTabViewState(prop.file, { lastPage: page, viewMode: mode });
+});
 // 待機状態がストア側から解除された場合（キャンセル操作やモードオフなど）にステータスメッセージを取り下げる
 watch(
   () => editorStore.relationalPendingId,
