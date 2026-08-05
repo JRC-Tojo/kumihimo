@@ -59,7 +59,7 @@ import {
   shouldUseTiling,
   type TileDescriptor,
 } from './tiling';
-import { isRenderCancelledError } from './pdfManager';
+import { cancelPendingRenderForCanvas, isRenderCancelledError } from './pdfManager';
 
 interface Props {
   annotations: AnnotationStyle[];
@@ -410,17 +410,27 @@ async function render(targetRenderScale: number) {
   tileGridGeneration++;
 }
 
+/**
+ * `render()`呼び出し失敗時の共通ハンドラ。`isRenderCancelledError`が真の場合
+ * （`cancelPendingRenderForCanvas`による意図的なキャンセル、または同一canvasへの
+ * 後続呼び出しによる置き換え）は正常な動作のため、エラー通知を出さず静かに無視する
+ */
+function notifyRenderFailure(error: unknown): void {
+  if (isRenderCancelledError(error)) return;
+  $q.notify({
+    type: 'negative',
+    message: `ページのレンダリングに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    position: 'top',
+  });
+}
+
 onMounted(async () => {
   setupTileObserver();
   try {
     await render(scale.value);
     canvasRendered.value = true;
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: `ページのレンダリングに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      position: 'top',
-    });
+    notifyRenderFailure(error);
   }
 });
 
@@ -430,6 +440,11 @@ onBeforeUnmount(() => {
   // まだ開始していないタイル描画も、キューに残ったままにせず取り除く
   unmounted = true;
   pendingTileRenderStarts.length = 0;
+  // 既に開始済みの描画（backdrop・タイル）は上のフラグだけでは止まらないため、進行中の
+  // RenderTaskを直接キャンセルし、破棄済みのPdfPageのために単一のpdf.js Workerが
+  // 専有され続けないようにする
+  if (canvas.value) cancelPendingRenderForCanvas(canvas.value);
+  for (const tileEl of tileCanvasEls.values()) cancelPendingRenderForCanvas(tileEl);
 });
 
 /**
@@ -443,11 +458,11 @@ const debouncedRerenderForZoom = debounce(() => {
   // これだけで「既にこの倍率で描画済みか」を判定できる（lastRenderedScaleはタイル分割時クランプされ
   // 目標スケールと一致しなくなるため、単独では判定に使えない）
   if (target === tileGridScale.value) return;
-  void render(target);
+  render(target).catch(notifyRenderFailure);
 }, ZOOM_RERENDER_DEBOUNCE_MS);
 
 watch(scale, () => debouncedRerenderForZoom());
-watch(page, () => void render(scale.value));
+watch(page, () => render(scale.value).catch(notifyRenderFailure));
 </script>
 
 <style lang="scss" scoped>

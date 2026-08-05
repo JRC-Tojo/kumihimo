@@ -97,6 +97,18 @@ export function isRenderCancelledError(error: unknown): boolean {
 }
 
 /**
+ * 指定canvasに対する進行中のレンダリング（`renderPage()`/`renderPageTile()`が発行した`RenderTask`）を
+ * キャンセルする。連続表示モードの仮想化（`DocumentViewer.vue`のページvirtualization）では、
+ * ページがビューポートへ一瞬入っただけで`PdfPage.vue`がマウントされ即座にレンダリングが
+ * 走り出すため、高速スクロール中はもう表示されないページ・タイルの描画がキャンセルされずに残り続け、
+ * 同一PDFファイルで共有される単一のpdf.js Worker（`pdfDocumentCache.ts`）を専有してしまう。
+ * `PdfPage.vue`が破棄される時点でこれを呼び、不要な描画がWorkerキューに残らないようにする
+ */
+export function cancelPendingRenderForCanvas(canvas: HTMLCanvasElement): void {
+  canvasRenderTask.get(canvas)?.cancel();
+}
+
+/**
  * ページをCanvasにレンダリングする。戻り値はCSS px（devicePixelRatio適用前）でのページ寸法で、
  * レイアウト計算（連続表示モードのページサイズ確保等）に利用する
  *
