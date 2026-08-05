@@ -198,8 +198,9 @@ const initialTabFocus = (() => {
   return pending;
 })();
 
-// このタブに記録済みの最終表示ページ・表示モード（タブの再選択・再オープン後の復元用）。
-// `initialTabFocus`（関係性ダイアログ等からの明示的なページ遷移要求）が優先される
+// このタブに記録済みの最終表示状態（ページ・表示モード・ズーム倍率・スクロール位置。
+// タブの再選択・再オープン後の復元用）。`initialTabFocus`（関係性ダイアログ等からの
+// 明示的なページ遷移要求）が優先される
 const storedTabViewState = editorStore.getTabViewState(prop.file);
 
 const currentPage = ref(initialTabFocus?.page ?? storedTabViewState?.lastPage ?? 1);
@@ -248,6 +249,7 @@ const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZ
   currentPage,
   pageSizes,
 });
+if (storedTabViewState !== undefined) zoomLevel.value = storedTabViewState.zoomLevel;
 const viewMode = ref<ViewMode>(storedTabViewState?.viewMode ?? 'single');
 
 // for relational peek dialog
@@ -659,12 +661,20 @@ onMounted(async () => {
     if (initialTabFocus.annotId !== undefined) {
       selectedAnnotationIds.value = [initialTabFocus.annotId];
     }
-    await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+    await scrollToCurrentPage(viewer.value?.scrollHeight ?? 0);
   } else if (storedTabViewState !== undefined) {
-    // 明示的な遷移要求がない場合、前回このタブを表示していた際のページへ復元する
-    // （pageCount確定後のクランプのみ行い、選択状態には影響しない）
+    // 明示的な遷移要求がない場合、前回このタブを表示していた際の状態へ復元する
+    // （ページ番号自体は既にcurrentPageの初期値へ反映済みのため、ここではpageCount確定後の
+    // クランプのみ行う）。スクロール位置（連続表示モードではページ位置＋ページ内の閲覧領域、
+    // 単一表示モードではズーム時のパン位置に相当）は、ページ番号からの近似計算より
+    // 保存しておいた実際のscrollLeft/scrollTopをそのまま復元する方が正確なため、
+    // `scrollToCurrentPage`の近似スクロールは行わずこちらで直接設定する
     goToPage(storedTabViewState.lastPage);
-    await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+    await nextTick();
+    if (viewer.value) {
+      viewer.value.scrollLeft = storedTabViewState.scrollLeft;
+      viewer.value.scrollTop = storedTabViewState.scrollTop;
+    }
   }
 });
 
@@ -683,7 +693,7 @@ async function consumePendingTabFocus() {
   editorStore.clearPendingTabFocus();
   goToPage(pending.page);
   if (pending.annotId !== undefined) selectedAnnotationIds.value = [pending.annotId];
-  await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+  await scrollToCurrentPage(viewer.value?.scrollHeight ?? 0);
 }
 
 watch(annotations, (newAnnots, oldAnnots) => {
@@ -776,10 +786,6 @@ watch(
     editorStore.clearViewModeAction();
   },
 );
-// このタブの表示ページ・表示モードをeditorStoreへ記録し、タブの再選択・再オープン後に復元できるようにする
-watch([currentPage, viewMode], ([page, mode]) => {
-  editorStore.setTabViewState(prop.file, { lastPage: page, viewMode: mode });
-});
 // 待機状態がストア側から解除された場合（キャンセル操作やモードオフなど）にステータスメッセージを取り下げる
 watch(
   () => editorStore.relationalPendingId,
@@ -790,6 +796,19 @@ watch(
   },
 );
 onBeforeUnmount(() => {
+  // このタブの表示状態をeditorStoreへ記録し、タブの再選択・再オープン後に復元できるようにする。
+  // reactiveなwatchで都度保存するのではなく、タブを離れる（＝このコンポーネントが破棄される）
+  // 直前の状態を1回だけ保存する。scrollLeft/scrollTopは実DOM値を直接読むため、
+  // watch経由で追いかけるより確実（Vueのreactivityフラッシュ前にアンマウントされ、
+  // 最後の変化が保存されないまま失われる、といった心配が無い）
+  editorStore.setTabViewState(prop.file, {
+    lastPage: currentPage.value,
+    viewMode: viewMode.value,
+    zoomLevel: zoomLevel.value,
+    scrollLeft: viewer.value?.scrollLeft ?? 0,
+    scrollTop: viewer.value?.scrollTop ?? 0,
+  });
+
   // 非同期のPDF取得完了後にも参照を返却できるよう、先に破棄状態を記録する
   isUnmounted = true;
 

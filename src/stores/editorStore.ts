@@ -85,6 +85,17 @@ function containerSettingsTabKey(containerID: ContainerID): string {
 }
 
 /**
+ * タブごとに保持する最終表示状態（`editorStore.tabViewStates`の値）
+ */
+export interface TabViewState {
+  lastPage: number;
+  viewMode: ViewMode;
+  zoomLevel: number;
+  scrollLeft: number;
+  scrollTop: number;
+}
+
+/**
  * デフォルトのアノテーションスタイル
  */
 const DEFAULT_ANNOTATION_STYLE: DrawingAnnotationStyle = {
@@ -163,8 +174,11 @@ export const useEditorStore = defineStore('editor', {
     // 「削除によるクローズか、通常のタブクローズか」を判別するための一時的なマーカー
     deletingTabKeys: new Set<string>(),
 
-    // タブごとの最終表示ページ・表示モード（タブキー単位で保持し、タブの再選択・再オープン後も復元する）
-    tabViewStates: {} as Record<string, { lastPage: number; viewMode: ViewMode }>,
+    // タブごとの最終表示状態（タブキー単位で保持し、タブの再選択・再オープン後も復元する）。
+    // scrollLeft/scrollTopは`.document-viewer-wrapper`のスクロール位置をそのまま保持したもので、
+    // 単一表示モードではズーム時にパンしていた領域、連続表示モードではページ番号を含めた
+    // 正確な閲覧位置を表す（ページ番号ベースの近似計算より正確なため、優先して使う）
+    tabViewStates: {} as Record<string, TabViewState>,
 
     // アノテーションのアプリ内クリップボード（OSクリップボードは使わない。explorerStore.clipboardと同じ思想）
     annotationClipboard: null as AnnotationStyle[] | null,
@@ -331,22 +345,16 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 指定タブの最終表示ページ・表示モードを記録する（タブの再選択・再オープン後の復元に使う）
+     * 指定タブの最終表示状態を記録する（タブの再選択・再オープン後の復元に使う）
      */
-    setTabViewState(
-      file: { containerID: ContainerID; path: string },
-      viewState: { lastPage: number; viewMode: ViewMode },
-    ): void {
+    setTabViewState(file: { containerID: ContainerID; path: string }, viewState: TabViewState): void {
       this.tabViewStates[tabKey(file)] = viewState;
     },
 
     /**
-     * 指定タブに記録済みの最終表示ページ・表示モードを取得する（未記録の場合はundefined）
+     * 指定タブに記録済みの最終表示状態を取得する（未記録の場合はundefined）
      */
-    getTabViewState(file: {
-      containerID: ContainerID;
-      path: string;
-    }): { lastPage: number; viewMode: ViewMode } | undefined {
+    getTabViewState(file: { containerID: ContainerID; path: string }): TabViewState | undefined {
       return this.tabViewStates[tabKey(file)];
     },
 
@@ -575,7 +583,7 @@ export const useEditorStore = defineStore('editor', {
         this.pinedTabPaths[side] = remappedPinned;
       });
 
-      const remappedViewStates: Record<string, { lastPage: number; viewMode: ViewMode }> = {};
+      const remappedViewStates: Record<string, TabViewState> = {};
       Object.entries(this.tabViewStates).forEach(([key, viewState]) => {
         const prefix = `${containerID}|`;
         const path = key.startsWith(prefix) ? key.slice(prefix.length) : undefined;
