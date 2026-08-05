@@ -77,7 +77,10 @@
           <q-space />
           <q-icon :name="explorerStore.bookmarksExpanded ? 'expand_more' : 'chevron_right'" />
         </button>
-        <ExplorerBookmarksPanel v-if="explorerStore.bookmarksExpanded" id="explorer-bookmarks-panel" />
+        <ExplorerBookmarksPanel
+          v-if="explorerStore.bookmarksExpanded"
+          id="explorer-bookmarks-panel"
+        />
       </div>
     </template>
 

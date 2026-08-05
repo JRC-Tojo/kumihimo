@@ -1,12 +1,12 @@
 <template>
-  <div ref="gridRef" class="page-list-grid" :style="{ gridTemplateColumns: `repeat(${columns}, 1fr)` }">
+  <div
+    ref="gridRef"
+    class="page-list-grid"
+    :style="{ gridTemplateColumns: `repeat(${columns}, 1fr)` }"
+  >
     <!-- ウィンドウより前の行の高さを確保するスペーサー。grid-column: 1/-1で行全体を占有し、
          実描画セルを次の行から開始させる -->
-    <div
-      ref="topSentinel"
-      class="page-list-spacer"
-      :style="{ height: `${topSpacerHeight}px` }"
-    />
+    <div ref="topSentinel" class="page-list-spacer" :style="{ height: `${topSpacerHeight}px` }" />
 
     <button
       v-for="idx in renderedIndices"
