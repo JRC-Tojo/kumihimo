@@ -8,6 +8,7 @@ import {
   clampScaleToPixelBudget,
   computeTiles,
   shouldUseTiling,
+  TILE_ACTIVATION_MAX_EDGE_DEVICE_PX,
   TILE_ACTIVATION_PIXEL_BUDGET,
   TILE_SIZE_DEVICE_PX,
 } from '../tiling';
@@ -28,6 +29,14 @@ describe('shouldUseTiling', () => {
     expect(shouldUseTiling(size, 1, 1)).toBe(false);
     // ほんの少しでも超えるとtrue
     expect(shouldUseTiling({ width: 4000.1, height: 4000 }, 1, 1)).toBe(true);
+  });
+
+  it('面積は予算内でも、一辺が最大値を超える細長いページではtrueを返す', () => {
+    // 50 * 20000 = 1,000,000（予算1600万px^2の範囲内）だが、高さの辺(20000)が
+    // TILE_ACTIVATION_MAX_EDGE_DEVICE_PX(4096)を大きく超える
+    const size = { width: 50, height: 20000 };
+    expect(size.width * size.height).toBeLessThan(TILE_ACTIVATION_PIXEL_BUDGET);
+    expect(shouldUseTiling(size, 1, 1)).toBe(true);
   });
 });
 
@@ -50,6 +59,23 @@ describe('clampScaleToPixelBudget', () => {
     const size = { width: 100, height: 100 };
     const clamped = clampScaleToPixelBudget(size, 10, 1, 40_000); // 予算=40,000px^2 = 200x200相当
     expect(clamped).toBeCloseTo(2, 5); // 100*2 * 100*2 = 40,000
+  });
+
+  it('面積は予算内でも、一辺が最大値を超える細長いページでは辺の制約で縮小する', () => {
+    // 幅50は最大辺(4096)を超えないが、高さ20000*scaleは超え得る。面積は常に予算内に収まるため、
+    // 辺の制約だけがクランプ倍率を決める
+    const size = { width: 50, height: 20000 };
+    const clamped = clampScaleToPixelBudget(size, 1, 1);
+
+    expect(size.width * size.height).toBeLessThan(TILE_ACTIVATION_PIXEL_BUDGET);
+    expect(clamped).toBeLessThan(1);
+    expect(size.height * clamped).toBeCloseTo(TILE_ACTIVATION_MAX_EDGE_DEVICE_PX, 5);
+  });
+
+  it('独自の最大辺（maxEdge）を指定した場合はそちらを使う', () => {
+    const size = { width: 10, height: 1000 };
+    const clamped = clampScaleToPixelBudget(size, 1, 1, TILE_ACTIVATION_PIXEL_BUDGET, 500);
+    expect(clamped).toBeCloseTo(0.5, 5); // 1000*0.5 = 500
   });
 });
 

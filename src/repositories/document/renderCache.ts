@@ -45,9 +45,16 @@ export interface RenderCacheKeyParts {
   tile?: RenderCacheTileKey;
 }
 
-/** レンダリングキャッシュのキーを生成する */
+/**
+ * レンダリングキャッシュのキーを生成する。
+ *
+ * `scale`は丸めずそのまま使う。`Math.round(scale * 100)`のように丸めると、pdf.jsへ実際に渡される
+ * 丸め前のscale（`pdfManager.ts`の`renderPage`/`renderPageTile`が`page.getViewport`へ渡す値）が
+ * わずかに異なる複数の呼び出し（例: 1.001と1.004）が同一キーに収束してしまい、キャッシュヒット時に
+ * 別倍率でレンダリングされた画像を誤って再利用してしまう
+ */
 export function renderCacheKey(parts: RenderCacheKeyParts): string {
-  const base = `${parts.fileKey}|${parts.pageNumber}|${Math.round(parts.scale * 100)}|${parts.devicePixelRatio}`;
+  const base = `${parts.fileKey}|${parts.pageNumber}|${parts.scale}|${parts.devicePixelRatio}`;
   if (!parts.tile) return base;
   return `${base}|${parts.tile.col}:${parts.tile.row}:${parts.tile.tileSize}`;
 }

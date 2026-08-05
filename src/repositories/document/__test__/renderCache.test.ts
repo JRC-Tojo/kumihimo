@@ -21,10 +21,10 @@ function buildFakeBitmap(width: number, height: number) {
 }
 
 describe('renderCacheKey', () => {
-  it('tileを指定しない場合、fileKey|page|scale*100|dprの形式になる', () => {
+  it('tileを指定しない場合、fileKey|page|scale|dprの形式になる', () => {
     expect(
       renderCacheKey({ fileKey: 'c1|a.pdf', pageNumber: 3, scale: 1.5, devicePixelRatio: 2 }),
-    ).toBe('c1|a.pdf|3|150|2');
+    ).toBe('c1|a.pdf|3|1.5|2');
   });
 
   it('tileを指定した場合、末尾にcol:row:tileSizeが付与される', () => {
@@ -36,7 +36,23 @@ describe('renderCacheKey', () => {
         devicePixelRatio: 1,
         tile: { col: 2, row: 3, tileSize: 1024 },
       }),
-    ).toBe('c1|a.pdf|1|100|1|2:3:1024');
+    ).toBe('c1|a.pdf|1|1|1|2:3:1024');
+  });
+
+  it('丸め前の実倍率をキーへそのまま使うため、わずかに異なるscale（1.001と1.004）は別キーになる', () => {
+    const keyA = renderCacheKey({
+      fileKey: 'c1|a.pdf',
+      pageNumber: 1,
+      scale: 1.001,
+      devicePixelRatio: 1,
+    });
+    const keyB = renderCacheKey({
+      fileKey: 'c1|a.pdf',
+      pageNumber: 1,
+      scale: 1.004,
+      devicePixelRatio: 1,
+    });
+    expect(keyA).not.toBe(keyB);
   });
 });
 

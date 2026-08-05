@@ -26,16 +26,31 @@ export const TILE_SIZE_DEVICE_PX = 1024;
  */
 export const TILE_ACTIVATION_PIXEL_BUDGET = 16_000_000;
 
-/** ページ全体を単一canvasでレンダリングした場合の面積（device px^2）を計算する */
-function devicePixelArea(pageSizeCssPx: PageSizeCssPx, scale: number, dpr: number): number {
-  const deviceWidth = pageSizeCssPx.width * scale * dpr;
-  const deviceHeight = pageSizeCssPx.height * scale * dpr;
-  return deviceWidth * deviceHeight;
+/**
+ * 単一canvasの一辺として安全に扱える最大値（device px）。面積が予算内でも、細長いページは
+ * 一辺だけがブラウザのcanvas最大寸法上限に達し得るため、面積とは別にこちらも判定・クランプする
+ */
+export const TILE_ACTIVATION_MAX_EDGE_DEVICE_PX = 4096;
+
+/** ページ全体を単一canvasでレンダリングした場合の寸法（device px）を計算する */
+function devicePixelDimensions(
+  pageSizeCssPx: PageSizeCssPx,
+  scale: number,
+  dpr: number,
+): { width: number; height: number } {
+  return {
+    width: pageSizeCssPx.width * scale * dpr,
+    height: pageSizeCssPx.height * scale * dpr,
+  };
 }
 
 /** 指定のページサイズ・倍率・DPRの組み合わせで、タイル分割レンダリングを使うべきかどうか */
 export function shouldUseTiling(pageSizeCssPx: PageSizeCssPx, scale: number, dpr: number): boolean {
-  return devicePixelArea(pageSizeCssPx, scale, dpr) > TILE_ACTIVATION_PIXEL_BUDGET;
+  const { width, height } = devicePixelDimensions(pageSizeCssPx, scale, dpr);
+  if (width > TILE_ACTIVATION_MAX_EDGE_DEVICE_PX || height > TILE_ACTIVATION_MAX_EDGE_DEVICE_PX) {
+    return true;
+  }
+  return width * height > TILE_ACTIVATION_PIXEL_BUDGET;
 }
 
 /**
@@ -43,17 +58,22 @@ export function shouldUseTiling(pageSizeCssPx: PageSizeCssPx, scale: number, dpr
  * まだタイルが描画されていない領域の背景として使うための、予算内に収まるようクランプした倍率を返す。
  *
  * 面積は倍率の2乗に比例するため、`sqrt(予算 / 実際の面積)`を元の倍率に掛けることで、
- * アスペクト比を保ったまま面積が予算ちょうどになる倍率を求められる
+ * アスペクト比を保ったまま面積が予算ちょうどになる倍率を求められる。一辺の制約は倍率に比例するため、
+ * `最大辺 / 実際の辺`をそのまま倍率に掛ければ済む。3つの制約（面積・幅・高さ）のうち
+ * 最も厳しい（縮小率が最も小さい）ものを採用する
  */
 export function clampScaleToPixelBudget(
   pageSizeCssPx: PageSizeCssPx,
   scale: number,
   dpr: number,
   pixelBudget: number = TILE_ACTIVATION_PIXEL_BUDGET,
+  maxEdge: number = TILE_ACTIVATION_MAX_EDGE_DEVICE_PX,
 ): number {
-  const requestedArea = devicePixelArea(pageSizeCssPx, scale, dpr);
-  if (requestedArea <= pixelBudget) return scale;
-  return scale * Math.sqrt(pixelBudget / requestedArea);
+  const { width, height } = devicePixelDimensions(pageSizeCssPx, scale, dpr);
+  const areaRatio = width * height > pixelBudget ? Math.sqrt(pixelBudget / (width * height)) : 1;
+  const widthRatio = width > maxEdge ? maxEdge / width : 1;
+  const heightRatio = height > maxEdge ? maxEdge / height : 1;
+  return scale * Math.min(areaRatio, widthRatio, heightRatio);
 }
 
 /** タイルグリッド中の1タイル。`x`/`y`/`width`/`height`はページ左上を原点とした、scale適用後のCSS px */

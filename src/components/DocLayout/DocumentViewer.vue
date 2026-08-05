@@ -87,6 +87,7 @@ type RenderTileFunc = (
   canvas: HTMLCanvasElement,
   scale: number,
   tile: TileDescriptor,
+  dpr: number,
 ) => Promise<void>;
 interface Prop {
   pageCount: number;

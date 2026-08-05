@@ -214,7 +214,12 @@ export async function renderPage(
  * `tile`はページ左上を原点とした、`scale`適用後のCSS px矩形（`tiling.ts`の`computeTiles`が返す値）。
  * pdf.jsの`page.render()`に、ページ全体分の`viewport`と「タイル左上を原点に平行移動する」追加の
  * `transform`行列を渡すことで、タイル分の小さいoffscreen canvasだけにその範囲を描画させる
- * （`canvasContext`側で`dpr`スケールを適用済みのため、`transform`自体はCSS px単位の平行移動でよい）
+ * （`canvasContext`側で`dpr`スケールを適用済みのため、`transform`自体はCSS px単位の平行移動でよい）。
+ *
+ * `dpr`はここで`window.devicePixelRatio`を読み直すのではなく、呼び出し側（`PdfPage.vue`）が
+ * タイルグリッド計算（`computeTiles`）時に使った値をそのまま渡すこと。`tile`のCSS px寸法は
+ * その時点の`dpr`を基準に`TILE_SIZE_DEVICE_PX`へ収まるよう計算されているため、描画時に異なる
+ * `dpr`を使うと device px換算の寸法がその前提からずれてしまう
  */
 export async function renderPageTile(
   pdfDocument: PdfDocument,
@@ -222,12 +227,12 @@ export async function renderPageTile(
   canvas: HTMLCanvasElement,
   scale: number,
   tile: TileDescriptor,
+  dpr: number,
   fileKeyForCache?: string,
 ): Promise<void> {
   const generation = (canvasRenderGeneration.get(canvas) ?? 0) + 1;
   canvasRenderGeneration.set(canvas, generation);
 
-  const dpr = window.devicePixelRatio || 1;
   const pixelWidth = Math.round(tile.width * dpr);
   const pixelHeight = Math.round(tile.height * dpr);
   const cacheKey =
@@ -241,6 +246,9 @@ export async function renderPageTile(
         })
       : undefined;
 
+  // 同じcanvasに対して前の呼び出しのRenderTaskがまだ進行中なら、ここでキャンセルする
+  canvasRenderTask.get(canvas)?.cancel();
+
   try {
     if (cacheKey !== undefined) {
       const cached = getCachedRender(cacheKey);
@@ -253,6 +261,14 @@ export async function renderPageTile(
     }
 
     const page = await pdfDocument.getPage(pageNumber);
+
+    // getPage()の待機中に新しい呼び出しが発行されていた場合、ここで打ち切る
+    if (canvasRenderGeneration.get(canvas) !== generation) {
+      throw Object.assign(new Error('Rendering cancelled: superseded by a newer render call'), {
+        name: 'RenderingCancelledException',
+      });
+    }
+
     const viewport = page.getViewport({ scale });
 
     const offscreen = document.createElement('canvas');
@@ -264,12 +280,14 @@ export async function renderPageTile(
     }
     offscreenContext.scale(dpr, dpr);
 
-    await page.render({
+    const renderTask = page.render({
       canvasContext: offscreenContext,
       viewport,
       canvas: offscreen,
       transform: [1, 0, 0, 1, -tile.x, -tile.y],
-    }).promise;
+    });
+    canvasRenderTask.set(canvas, renderTask);
+    await renderTask.promise;
 
     if (cacheKey !== undefined) {
       const bitmap = await createImageBitmap(offscreen);
@@ -280,6 +298,9 @@ export async function renderPageTile(
       commitToCanvas(canvas, offscreen, pixelWidth, pixelHeight, tile.width, tile.height);
     }
   } catch (error) {
+    // キャンセルは意図した動作のため、呼び出し側が`isRenderCancelledError`で判別できるよう
+    // 汎用Errorへ包み直さずそのまま伝搬する
+    if (isRenderCancelledError(error)) throw error;
     throw new Error(
       `タイルレンダリングエラー: ${error instanceof Error ? error.message : 'Unknown'}`,
     );

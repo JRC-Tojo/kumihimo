@@ -59,6 +59,7 @@ import {
   shouldUseTiling,
   type TileDescriptor,
 } from './tiling';
+import { isRenderCancelledError } from './pdfManager';
 
 interface Props {
   annotations: AnnotationStyle[];
@@ -70,6 +71,7 @@ interface Props {
     canvas: HTMLCanvasElement,
     scale: number,
     tile: TileDescriptor,
+    dpr: number,
   ) => Promise<void>;
   onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
   onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
@@ -134,6 +136,9 @@ const currentPageAnnotations = computed(() => {
 const tilingActive = ref(false);
 /** タイルグリッドの計算・各タイルの実際のレンダリングに使った基準スケール（クランプされない目標値） */
 const tileGridScale = ref(1);
+/** タイルグリッド計算時の`devicePixelRatio`。タイルのCSS px寸法はこの値を基準に決まっているため、
+ * 描画時に`window.devicePixelRatio`を読み直さず、グリッドと対になるこの値をそのまま使う */
+const tileGridDpr = ref(1);
 const tiles = ref<TileDescriptor[]>([]);
 
 // .tile-layerは.page-wrapperの子要素として配置されている（Konvaアノテーション層より必ず奥、
@@ -221,9 +226,22 @@ function setTileWrapperRef(key: string, el: HTMLElement | null) {
 const MAX_CONCURRENT_TILE_RENDERS = 3;
 let activeTileRenderCount = 0;
 const pendingTileRenderStarts: (() => void)[] = [];
+// タイルグリッドの世代。render()でグリッド（tiles/tileGridScale/tileGridDpr）を更新するたびに
+// 加算する。キュー投入時点の世代と実行時点の世代が異なる場合、投入済みタスクは古いグリッドの
+// tile（位置・サイズ）を参照しているため、実行せず破棄する（scheduleTileRender参照）
+let tileGridGeneration = 0;
+// アンマウント後もキューが動作し続け、破棄済みのcanvasへ向けたpdf.js描画が発行されるのを防ぐ
+let unmounted = false;
 
 function scheduleTileRender(task: () => Promise<void>): void {
+  const generation = tileGridGeneration;
   const start = () => {
+    // グリッドが更新済み、またはアンマウント済みなら実行せず破棄し、キューの次を進める
+    if (generation !== tileGridGeneration || unmounted) {
+      const skipped = pendingTileRenderStarts.shift();
+      if (skipped) skipped();
+      return;
+    }
     activeTileRenderCount++;
     if (import.meta.env.DEV) {
       console.debug(
@@ -246,15 +264,25 @@ function scheduleTileRender(task: () => Promise<void>): void {
 /**
  * 実際にタイルcanvasへレンダリングする（`pdfManager.ts`の`renderPageTile`を`onRenderTile`経由で呼ぶ）。
  * タイル単位の失敗はページ全体を巻き込まず、ログのみに留める。DEV環境では所要時間を
- * コンソールに出し、同時実行数の絞り込みが効いているか・どのタイルが重いかを確認できるようにする
+ * コンソールに出し、同時実行数の絞り込みが効いているか・どのタイルが重いかを確認できるようにする。
+ * `gridScale`/`gridDpr`は呼び出し側（スケジュール時点）でキャプチャした値を受け取る。
+ * 実行時点で`tileGridScale.value`を読み直すと、キュー待機中にグリッドが更新された場合、
+ * このタスクが対象とする`tile`（旧グリッド）と新しいスケールが食い違ってしまう
  */
-async function renderTile(tile: TileDescriptor, el: HTMLCanvasElement) {
-  const label = `[tiling] page=${page.value} tile=${tile.col}:${tile.row} @${tileGridScale.value.toFixed(2)}`;
+async function renderTile(
+  tile: TileDescriptor,
+  el: HTMLCanvasElement,
+  gridScale: number,
+  gridDpr: number,
+) {
+  const label = `[tiling] page=${page.value} tile=${tile.col}:${tile.row} @${gridScale.toFixed(2)}`;
   if (import.meta.env.DEV) console.time(label);
   try {
-    await props.onRenderTile(page.value, el, tileGridScale.value, tile);
+    await props.onRenderTile(page.value, el, gridScale, tile, gridDpr);
   } catch (error) {
-    console.error(`タイルのレンダリングに失敗しました (col=${tile.col}, row=${tile.row}):`, error);
+    if (!isRenderCancelledError(error)) {
+      console.error(`タイルのレンダリングに失敗しました (col=${tile.col}, row=${tile.row}):`, error);
+    }
   } finally {
     if (import.meta.env.DEV) console.timeEnd(label);
   }
@@ -272,7 +300,9 @@ function onTileCanvasMounted(tile: TileDescriptor, el: HTMLCanvasElement | null)
   if (prevEl === el) return;
   if (el) {
     tileCanvasEls.set(key, el);
-    scheduleTileRender(() => renderTile(tile, el));
+    const gridScale = tileGridScale.value;
+    const gridDpr = tileGridDpr.value;
+    scheduleTileRender(() => renderTile(tile, el, gridScale, gridDpr));
   } else {
     tileCanvasEls.delete(key);
   }
@@ -282,9 +312,11 @@ function onTileCanvasMounted(tile: TileDescriptor, el: HTMLCanvasElement | null)
 // マウント済みのタイルcanvasはv-forのkeyが安定している（col:row）ため要素自体は再利用される。
 // 新しい基準スケールで明示的に再レンダリングし直さないと、古い倍率のまま表示され続けてしまう
 watch(tiles, (newTiles) => {
+  const gridScale = tileGridScale.value;
+  const gridDpr = tileGridDpr.value;
   for (const tile of newTiles) {
     const el = tileCanvasEls.get(tileKeyOf(tile));
-    if (el) scheduleTileRender(() => renderTile(tile, el));
+    if (el) scheduleTileRender(() => renderTile(tile, el, gridScale, gridDpr));
   }
 });
 
@@ -371,7 +403,11 @@ async function render(targetRenderScale: number) {
   // （見た目の追従はnestedTileLayerScale側のCSS transformに任せる）
   tilingActive.value = useTiling;
   tileGridScale.value = targetRenderScale;
+  tileGridDpr.value = dpr;
   tiles.value = useTiling ? computeTiles(props.pageSize1x, targetRenderScale, dpr) : [];
+  // グリッドを更新した世代を進め、この時点でキュー待機中だったタイル描画タスク
+  // （旧グリッドのtileを参照している）をscheduleTileRender側で破棄させる
+  tileGridGeneration++;
 }
 
 onMounted(async () => {
@@ -390,6 +426,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   tileObserver?.disconnect();
+  // アンマウント後もキューが動作し続け、破棄済みのcanvasへ向けたpdf.js描画が発行されるのを防ぐ。
+  // まだ開始していないタイル描画も、キューに残ったままにせず取り除く
+  unmounted = true;
+  pendingTileRenderStarts.length = 0;
 });
 
 /**

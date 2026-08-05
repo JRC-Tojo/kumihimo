@@ -181,6 +181,7 @@ type RenderTileFunc = (
   canvas: HTMLCanvasElement,
   scale: number,
   tile: TileDescriptor,
+  dpr: number,
 ) => Promise<void>;
 const onRenderTile = ref<RenderTileFunc>();
 
@@ -323,13 +324,15 @@ async function loadDocument() {
   ): Promise<PageSize> => {
     return await renderPage(loadedDocument, pageNumber, canvas, scale, 0, fileKey(prop.file));
   };
+  /** PDFページの指定タイルをレンダリングする。 */
   onRenderTile.value = async (
     pageNumber: number,
     canvas: HTMLCanvasElement,
     scale: number,
     tile: TileDescriptor,
+    dpr: number,
   ): Promise<void> => {
-    await renderPageTile(loadedDocument, pageNumber, canvas, scale, tile, fileKey(prop.file));
+    await renderPageTile(loadedDocument, pageNumber, canvas, scale, tile, dpr, fileKey(prop.file));
   };
 
   // サムネイルを生成
