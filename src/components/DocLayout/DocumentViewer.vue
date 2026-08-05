@@ -58,6 +58,7 @@
         v-if="viewMode === 'pageList'"
         :page-count="pageCount"
         :current-page="currentPage"
+        :scale="scale"
         @generate-thumbnail="onGenerateThumbnail"
         @select-page="onSelectPage"
       />

@@ -13,6 +13,7 @@
       :key="idx"
       type="button"
       :class="['page-list-cell', { active: idx + 1 === currentPage }]"
+      :style="{ height: `${effectiveCellHeight}px` }"
       @click="emit('select-page', idx + 1)"
     >
       <img
@@ -50,6 +51,9 @@ type GenerateThumbnailFunc = (pageNumber: number, maxWidth: number) => Promise<s
 interface Prop {
   pageCount: number;
   currentPage: number;
+  /** フッターのズームレベル（`zoomLevel / 100`）。1画面に表示できるページ数を拡大縮小で
+   * 増減できるよう、セルサイズをこの倍率に連動させる */
+  scale: number;
   onGenerateThumbnail: GenerateThumbnailFunc;
 }
 const prop = defineProps<Prop>();
@@ -60,13 +64,14 @@ const emit = defineEmits<{ 'select-page': [page: number] }>();
 const THUMBNAIL_MAX_WIDTH = 200;
 /** サムネイル生成の同時実行数上限。高速スクロール時に大量のcanvas描画が同時発生しないようにする */
 const MAX_CONCURRENT_GENERATION = 4;
-/** グリッドの列幅計算に使う最小セル幅（px）。旧`minmax(180px, 1fr)`と同じ値 */
-const MIN_CELL_WIDTH = 180;
+/** ズーム100%時のセル最小幅（px）。旧`minmax(180px, 1fr)`と同じ値 */
+const BASE_MIN_CELL_WIDTH = 180;
 /** グリッドの行間・列間（px、1remに相当） */
 const GRID_GAP = 16;
-/** セルの高さ（px）。実際のページ縦横比によらず固定することで、ページ数が多い文書でも
- * DOM上に実マウントする行数を一定に抑える仮想化（スペーサーによる行送り）の計算を簡単にする */
-const CELL_HEIGHT = 260;
+/** ズーム100%時のセルの高さ（px）。実際のページ縦横比によらず固定することで、ページ数が
+ * 多い文書でもDOM上に実マウントする行数を一定に抑える仮想化（スペーサーによる行送り）の
+ * 計算を簡単にする */
+const BASE_CELL_HEIGHT = 260;
 /** 同時にDOMへ実マウントする最大行数。ビューポートに収まる行数＋前後の余白として十分な値 */
 const ROWS_PER_WINDOW = 10;
 /** 上下端のスペーサーがビューポート付近に近づいた際、ウィンドウをずらす行数 */
@@ -75,14 +80,27 @@ const ROWS_MARGIN = 3;
 // ==================== 列数・行数の計算 ====================
 
 const gridRef = useTemplateRef('gridRef');
-const columns = ref(1);
+// グリッドコンテナの実幅（ResizeObserverで追従）。列数はこれとscaleの両方に依存するため、
+// 生の幅をrefとして持ち、列数自体は算出式（computed）にする
+const containerWidth = ref(0);
 let resizeObserver: ResizeObserver | undefined;
 
+// ズームレベルに応じたセルサイズ。フッターの拡大縮小操作で1画面に収まるページ数を
+// 増減できるようにする（等倍からの拡大縮小のみを反映し、縦横比は固定のまま）
+const effectiveMinCellWidth = computed(() => BASE_MIN_CELL_WIDTH * prop.scale);
+const effectiveCellHeight = computed(() => BASE_CELL_HEIGHT * prop.scale);
+
 /** グリッドコンテナの実幅から、CSS Gridの`auto-fill`相当の列数を計算する */
-function recomputeColumns(): void {
-  const width = gridRef.value?.clientWidth ?? 0;
-  columns.value = Math.max(1, Math.floor((width + GRID_GAP) / (MIN_CELL_WIDTH + GRID_GAP)));
+function recomputeContainerWidth(): void {
+  containerWidth.value = gridRef.value?.clientWidth ?? 0;
 }
+
+const columns = computed(() =>
+  Math.max(
+    1,
+    Math.floor((containerWidth.value + GRID_GAP) / (effectiveMinCellWidth.value + GRID_GAP)),
+  ),
+);
 
 const totalRows = computed(() => Math.max(1, Math.ceil(prop.pageCount / columns.value)));
 
@@ -121,9 +139,11 @@ const renderedIndices = computed<number[]>(() => {
   return Array.from({ length: Math.max(0, endIdx - startIdx) }, (_, i) => startIdx + i);
 });
 
-const topSpacerHeight = computed(() => renderRowStart.value * (CELL_HEIGHT + GRID_GAP));
+const topSpacerHeight = computed(
+  () => renderRowStart.value * (effectiveCellHeight.value + GRID_GAP),
+);
 const bottomSpacerHeight = computed(() =>
-  Math.max(0, (totalRows.value - renderRowEnd.value) * (CELL_HEIGHT + GRID_GAP)),
+  Math.max(0, (totalRows.value - renderRowEnd.value) * (effectiveCellHeight.value + GRID_GAP)),
 );
 
 // 現在ページがウィンドウ外へ移動した場合（フッターのページ送り等）、ウィンドウを組み直す
@@ -206,28 +226,33 @@ function pump(): void {
 
 // ==================== マウント・アンマウント ====================
 
-let handledInitialResize = false;
-
-/** グリッド幅から列数を再計算し、列数が変化した場合のみウィンドウを組み直す */
-function handleResize(): void {
-  const prevColumns = columns.value;
-  recomputeColumns();
-  if (!handledInitialResize || columns.value !== prevColumns) {
-    handledInitialResize = true;
-    resetWindowAroundCurrentPage();
-  }
+/** 実マウント範囲内にある現在ページのセルへ、アニメーションなしでスクロールする。
+ * ページ一覧モードへ切り替えた直後、直前まで開いていたページが見える状態から開始できるようにする */
+function scrollActiveIntoView(): void {
+  const active = gridRef.value?.querySelector('.page-list-cell.active');
+  active?.scrollIntoView({ block: 'center' });
 }
 
 onMounted(() => {
-  handleResize();
-  resizeObserver = new ResizeObserver(handleResize);
+  recomputeContainerWidth();
+  // 列数（containerWidthとscaleに依存するcomputed）が確定した状態で、初回のウィンドウを
+  // 現在ページを中心に組む。以降の変化はwatch(columns, ...)に任せる
+  resetWindowAroundCurrentPage();
+  resizeObserver = new ResizeObserver(recomputeContainerWidth);
   if (gridRef.value) resizeObserver.observe(gridRef.value);
-  void nextTick(setupSentinelObserver);
+  void nextTick(() => {
+    setupSentinelObserver();
+    scrollActiveIntoView();
+  });
 });
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   sentinelObserver?.disconnect();
 });
+
+// コンテナ幅の変化（リサイズ）・ズームレベルの変化のいずれによる列数変化でも、
+// 現在ページを中心にウィンドウを組み直す
+watch(columns, resetWindowAroundCurrentPage);
 
 // 実マウント範囲（renderedIndices）の変化に応じて、サムネイル生成の対象を追従させる
 watch(
@@ -275,7 +300,6 @@ watch(
     display: flex;
     flex-direction: column;
     background: white;
-    height: 260px;
     box-sizing: border-box;
 
     &:hover {
