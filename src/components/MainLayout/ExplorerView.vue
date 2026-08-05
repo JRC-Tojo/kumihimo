@@ -60,20 +60,26 @@
       />
     </div>
 
-    <!-- ブックマーク：MainToolsと同様、開いている場合のみパネル本体を注入する -->
-    <q-separator />
-    <div class="explorer-bookmarks-section">
-      <div
-        class="explorer-bookmarks-header q-px-sm"
-        @click="explorerStore.bookmarksExpanded = !explorerStore.bookmarksExpanded"
-      >
-        <q-icon name="bookmark" size="xs" />
-        <span class="q-ml-sm">{{ $t('explorer.bookmarks.title') }}</span>
-        <q-space />
-        <q-icon :name="explorerStore.bookmarksExpanded ? 'expand_more' : 'chevron_right'" />
+    <!-- ブックマーク：文書が選択されていない場合はMainToolsと同様ボタン自体を表示せず、
+         開いている場合のみパネル本体を注入する -->
+    <template v-if="hasActiveDocument">
+      <q-separator />
+      <div class="explorer-bookmarks-section">
+        <button
+          type="button"
+          class="explorer-bookmarks-header q-px-sm"
+          :aria-expanded="explorerStore.bookmarksExpanded"
+          aria-controls="explorer-bookmarks-panel"
+          @click="explorerStore.bookmarksExpanded = !explorerStore.bookmarksExpanded"
+        >
+          <q-icon name="bookmark" size="xs" />
+          <span class="q-ml-sm">{{ $t('explorer.bookmarks.title') }}</span>
+          <q-space />
+          <q-icon :name="explorerStore.bookmarksExpanded ? 'expand_more' : 'chevron_right'" />
+        </button>
+        <ExplorerBookmarksPanel v-if="explorerStore.bookmarksExpanded" id="explorer-bookmarks-panel" />
       </div>
-      <ExplorerBookmarksPanel v-if="explorerStore.bookmarksExpanded" />
-    </div>
+    </template>
 
     <NewContainerDialog v-model="showNewContainerDialog" @created="loadContainers" />
   </div>
@@ -81,17 +87,23 @@
 
 <script setup lang="ts">
 import { useBackendApi } from 'src/apis/backendApi';
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import ExpContainer from './Explorer/ExpContainer.vue';
 import NewContainerDialog from './Explorer/NewContainerDialog.vue';
 import ExplorerBookmarksPanel from './Explorer/ExplorerBookmarksPanel.vue';
 import { createDemoData } from 'src/utils/appInitializer.js';
 import type { ContainerID, ContainerSkel } from 'src/models/container.js';
 import { useExplorerStore } from 'src/stores/explorerStore';
+import { useEditorStore } from 'src/stores/editorStore';
 import { Path } from 'src/utils/binary/path';
 
 const api = useBackendApi();
 const explorerStore = useExplorerStore();
+const editorStore = useEditorStore();
+
+// ブックマークは開いている文書に紐づく概念のため、MainToolsと同様アクティブな文書が
+// ない場合はボタン自体を表示しない
+const hasActiveDocument = computed(() => editorStore.getActiveTab(editorStore.activeSide) !== null);
 
 const containers = ref<ContainerSkel[]>([]);
 const showNewContainerDialog = ref(false);
@@ -198,6 +210,9 @@ onMounted(loadContainers);
 }
 
 .explorer-bookmarks-header {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
   display: flex;
   align-items: center;
   height: 36px;
@@ -206,6 +221,11 @@ onMounted(loadContainers);
 
   &:hover {
     background: rgba(0, 0, 0, 0.05);
+  }
+
+  &:focus-visible {
+    outline: 2px solid $primary;
+    outline-offset: -2px;
   }
 }
 

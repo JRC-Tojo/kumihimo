@@ -374,6 +374,9 @@ export default {
         saveFailed: '緩和ルールの保存に失敗しました。',
       },
     },
+    pageList: {
+      thumbnailAlt: 'ページ {page}',
+    },
     footer: {
       viewMode: {
         title: '表示モード',

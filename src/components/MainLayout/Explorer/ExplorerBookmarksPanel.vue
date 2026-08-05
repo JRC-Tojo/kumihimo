@@ -4,7 +4,8 @@
       {{ $t('explorer.bookmarks.noBookmarks') }}
     </div>
     <q-list v-else>
-      <q-item v-for="bookmark in bookmarks" :key="bookmark.id" clickable>
+      <!-- TODO: ブックマークにファイル参照が実装されたら、該当ページへの遷移を有効にしてclickableに戻す -->
+      <q-item v-for="bookmark in bookmarks" :key="bookmark.id">
         <q-item-section avatar>
           <q-icon name="bookmark" color="amber" />
         </q-item-section>

@@ -57,7 +57,6 @@
       <DocumentPageListView
         v-if="viewMode === 'pageList'"
         :page-count="pageCount"
-        :page-sizes="pageSizes"
         :current-page="currentPage"
         @generate-thumbnail="onGenerateThumbnail"
         @select-page="onSelectPage"

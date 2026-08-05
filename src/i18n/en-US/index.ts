@@ -375,6 +375,9 @@ export default {
         saveFailed: 'Failed to save the relaxation rule.',
       },
     },
+    pageList: {
+      thumbnailAlt: 'Page {page}',
+    },
     footer: {
       viewMode: {
         title: 'View Mode',
