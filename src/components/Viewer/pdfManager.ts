@@ -10,6 +10,12 @@ import {
   acquirePdfDocument,
   type AcquiredPdfDocument,
 } from 'src/repositories/document/pdfDocumentCache';
+import {
+  getCachedRender,
+  renderCacheKey,
+  setCachedRender,
+} from 'src/repositories/document/renderCache';
+import type { TileDescriptor } from 'src/components/Viewer/tiling';
 
 export type PdfDocument = pdfjsLib.PDFDocumentProxy;
 export type { AcquiredPdfDocument };
@@ -54,6 +60,26 @@ export async function acquirePdf(
 // 「自分がそのcanvasに対する最新の呼び出しか」を確認し、古い世代の結果は反映しないようにする
 const canvasRenderGeneration = new WeakMap<HTMLCanvasElement, number>();
 
+/** 実際にcanvasへリサイズ・転写を行う（新旧どちらの経路でも同一の反映手順を共有する） */
+function commitToCanvas(
+  canvas: HTMLCanvasElement,
+  source: CanvasImageSource,
+  pixelWidth: number,
+  pixelHeight: number,
+  cssWidth: number,
+  cssHeight: number,
+): void {
+  canvas.width = pixelWidth;
+  canvas.height = pixelHeight;
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Canvas context not available');
+  }
+  context.drawImage(source, 0, 0);
+}
+
 // 同一canvas要素に対する直近のRenderTask（pdf.jsの`page.render()`が返す進行中のレンダリングタスク）。
 // 世代チェックだけでは、古い呼び出しの結果をcanvasへ反映しないようにはできても、pdf.js内部の
 // RenderTask自体はキャンセルされずに最後まで実行され続けてしまい、CPU・メモリを無駄に消費する
@@ -71,8 +97,25 @@ export function isRenderCancelledError(error: unknown): boolean {
 }
 
 /**
+ * 指定canvasに対する進行中のレンダリング（`renderPage()`/`renderPageTile()`が発行した`RenderTask`）を
+ * キャンセルする。連続表示モードの仮想化（`DocumentViewer.vue`のページvirtualization）では、
+ * ページがビューポートへ一瞬入っただけで`PdfPage.vue`がマウントされ即座にレンダリングが
+ * 走り出すため、高速スクロール中はもう表示されないページ・タイルの描画がキャンセルされずに残り続け、
+ * 同一PDFファイルで共有される単一のpdf.js Worker（`pdfDocumentCache.ts`）を専有してしまう。
+ * `PdfPage.vue`が破棄される時点でこれを呼び、不要な描画がWorkerキューに残らないようにする
+ */
+export function cancelPendingRenderForCanvas(canvas: HTMLCanvasElement): void {
+  canvasRenderTask.get(canvas)?.cancel();
+}
+
+/**
  * ページをCanvasにレンダリングする。戻り値はCSS px（devicePixelRatio適用前）でのページ寸法で、
  * レイアウト計算（連続表示モードのページサイズ確保等）に利用する
+ *
+ * `fileKeyForCache`（`src/utils/document/fileKey.ts`の`fileKey()`）を渡すと、`renderCache.ts`に
+ * ファイル・ページ・倍率単位でレンダリング結果をキャッシュし、再訪問時はpdf.js側の呼び出し自体を
+ * スキップする。`generateThumbnail`（`maxWidth`指定あり）はページごとに解像度が異なりキャッシュの
+ * 恩恵が薄いため、意図的にこの引数を渡さず対象から除外している
  */
 export async function renderPage(
   pdfDocument: PdfDocument,
@@ -80,14 +123,33 @@ export async function renderPage(
   canvas: HTMLCanvasElement,
   scale: number = 1,
   maxWidth: number = 0,
+  fileKeyForCache?: string,
 ): Promise<PageSize> {
   const generation = (canvasRenderGeneration.get(canvas) ?? 0) + 1;
   canvasRenderGeneration.set(canvas, generation);
+
+  const dpr = window.devicePixelRatio || 1;
+  const cacheKey =
+    fileKeyForCache !== undefined && maxWidth === 0
+      ? renderCacheKey({ fileKey: fileKeyForCache, pageNumber, scale, devicePixelRatio: dpr })
+      : undefined;
 
   // 同じcanvasに対して前の呼び出しのRenderTaskがまだ進行中なら、ここでキャンセルする
   canvasRenderTask.get(canvas)?.cancel();
 
   try {
+    if (cacheKey !== undefined) {
+      const cached = getCachedRender(cacheKey);
+      if (cached) {
+        const width = cached.width / dpr;
+        const height = cached.height / dpr;
+        if (canvasRenderGeneration.get(canvas) === generation) {
+          commitToCanvas(canvas, cached, cached.width, cached.height, width, height);
+        }
+        return { width, height };
+      }
+    }
+
     const page = await pdfDocument.getPage(pageNumber);
 
     // getPage()の待機中により新しい呼び出しが発行されていた場合、ここでpage.render()を
@@ -105,7 +167,6 @@ export async function renderPage(
     }
 
     // 高解像度ディスプレイ（Retina等）対応
-    const dpr = window.devicePixelRatio || 1;
     const pixelWidth = viewport.width * dpr;
     const pixelHeight = viewport.height * dpr;
 
@@ -132,19 +193,18 @@ export async function renderPage(
     canvasRenderTask.set(canvas, renderTask);
     await renderTask.promise;
 
+    // キャッシュへの登録は、以降のcanvas転写がこの呼び出しの世代であるかどうかに関わらず行う
+    // （このpdf.js呼び出し自体が生成した内容はページ・倍率の組に対して常に有効なため）
+    if (cacheKey !== undefined) {
+      const bitmap = await createImageBitmap(offscreen);
+      setCachedRender(cacheKey, bitmap);
+    }
+
     // ここまで来て初めて表示用canvasを更新する（リサイズ→転写が同一タスク内で完結するため、
     // ブラウザが空白状態を描画する隙が生まれない）。ただし、待機中に同じcanvasへ向けた
     // より新しい呼び出しが発行されていた場合、この結果はもう古いため転写しない
     if (canvasRenderGeneration.get(canvas) === generation) {
-      canvas.width = pixelWidth;
-      canvas.height = pixelHeight;
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-      const context = canvas.getContext('2d');
-      if (!context) {
-        throw new Error('Canvas context not available');
-      }
-      context.drawImage(offscreen, 0, 0);
+      commitToCanvas(canvas, offscreen, pixelWidth, pixelHeight, viewport.width, viewport.height);
     }
 
     return { width: viewport.width, height: viewport.height };
@@ -154,6 +214,107 @@ export async function renderPage(
     if (isRenderCancelledError(error)) throw error;
     throw new Error(
       `ページレンダリングエラー: ${error instanceof Error ? error.message : 'Unknown'}`,
+    );
+  }
+}
+
+/**
+ * ページの一部（タイル）だけをCanvasにレンダリングする。`src/components/Viewer/tiling.ts`の
+ * `shouldUseTiling`が真になるような巨大ページ×高倍率の組み合わせでのみ`PdfPage.vue`から使われ、
+ * 通常サイズのページ・通常倍率では一切呼ばれない（既存の`renderPage()`の単一canvas経路のみを使う）。
+ *
+ * `tile`はページ左上を原点とした、`scale`適用後のCSS px矩形（`tiling.ts`の`computeTiles`が返す値）。
+ * pdf.jsの`page.render()`に、ページ全体分の`viewport`と「タイル左上を原点に平行移動する」追加の
+ * `transform`行列を渡すことで、タイル分の小さいoffscreen canvasだけにその範囲を描画させる
+ * （`canvasContext`側で`dpr`スケールを適用済みのため、`transform`自体はCSS px単位の平行移動でよい）。
+ *
+ * `dpr`はここで`window.devicePixelRatio`を読み直すのではなく、呼び出し側（`PdfPage.vue`）が
+ * タイルグリッド計算（`computeTiles`）時に使った値をそのまま渡すこと。`tile`のCSS px寸法は
+ * その時点の`dpr`を基準に`TILE_SIZE_DEVICE_PX`へ収まるよう計算されているため、描画時に異なる
+ * `dpr`を使うと device px換算の寸法がその前提からずれてしまう
+ */
+export async function renderPageTile(
+  pdfDocument: PdfDocument,
+  pageNumber: number,
+  canvas: HTMLCanvasElement,
+  scale: number,
+  tile: TileDescriptor,
+  dpr: number,
+  fileKeyForCache?: string,
+): Promise<void> {
+  const generation = (canvasRenderGeneration.get(canvas) ?? 0) + 1;
+  canvasRenderGeneration.set(canvas, generation);
+
+  const pixelWidth = Math.round(tile.width * dpr);
+  const pixelHeight = Math.round(tile.height * dpr);
+  const cacheKey =
+    fileKeyForCache !== undefined
+      ? renderCacheKey({
+          fileKey: fileKeyForCache,
+          pageNumber,
+          scale,
+          devicePixelRatio: dpr,
+          tile: { col: tile.col, row: tile.row, tileSize: pixelWidth },
+        })
+      : undefined;
+
+  // 同じcanvasに対して前の呼び出しのRenderTaskがまだ進行中なら、ここでキャンセルする
+  canvasRenderTask.get(canvas)?.cancel();
+
+  try {
+    if (cacheKey !== undefined) {
+      const cached = getCachedRender(cacheKey);
+      if (cached) {
+        if (canvasRenderGeneration.get(canvas) === generation) {
+          commitToCanvas(canvas, cached, cached.width, cached.height, tile.width, tile.height);
+        }
+        return;
+      }
+    }
+
+    const page = await pdfDocument.getPage(pageNumber);
+
+    // getPage()の待機中に新しい呼び出しが発行されていた場合、ここで打ち切る
+    if (canvasRenderGeneration.get(canvas) !== generation) {
+      throw Object.assign(new Error('Rendering cancelled: superseded by a newer render call'), {
+        name: 'RenderingCancelledException',
+      });
+    }
+
+    const viewport = page.getViewport({ scale });
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = pixelWidth;
+    offscreen.height = pixelHeight;
+    const offscreenContext = offscreen.getContext('2d');
+    if (!offscreenContext) {
+      throw new Error('Canvas context not available');
+    }
+    offscreenContext.scale(dpr, dpr);
+
+    const renderTask = page.render({
+      canvasContext: offscreenContext,
+      viewport,
+      canvas: offscreen,
+      transform: [1, 0, 0, 1, -tile.x, -tile.y],
+    });
+    canvasRenderTask.set(canvas, renderTask);
+    await renderTask.promise;
+
+    if (cacheKey !== undefined) {
+      const bitmap = await createImageBitmap(offscreen);
+      setCachedRender(cacheKey, bitmap);
+    }
+
+    if (canvasRenderGeneration.get(canvas) === generation) {
+      commitToCanvas(canvas, offscreen, pixelWidth, pixelHeight, tile.width, tile.height);
+    }
+  } catch (error) {
+    // キャンセルは意図した動作のため、呼び出し側が`isRenderCancelledError`で判別できるよう
+    // 汎用Errorへ包み直さずそのまま伝搬する
+    if (isRenderCancelledError(error)) throw error;
+    throw new Error(
+      `タイルレンダリングエラー: ${error instanceof Error ? error.message : 'Unknown'}`,
     );
   }
 }

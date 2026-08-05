@@ -13,6 +13,8 @@ import { fromEntries } from 'src/utils/obj/obj';
 import { calcBase64Hash } from 'src/utils/binary/base64';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import { invalidatePdfDocument } from 'src/repositories/document/pdfDocumentCache';
+import { invalidateRenderCache } from 'src/repositories/document/renderCache';
+import { fileKey } from 'src/utils/document/fileKey';
 
 /**
  * `.kcfg`のハッシュ記録と実ファイルの内容が一致しない場合（＝アプリ外でファイルが更新された場合）に
@@ -93,6 +95,8 @@ export async function acceptExternalConfig(
   // 実ファイルの内容がアプリ外で更新されたことを受け入れるため、キャッシュ済みのPDFDocumentProxyが
   // あれば破棄する（次回の読み込みで新しい内容を反映させる）
   invalidatePdfDocument(file);
+  // レンダリング結果キャッシュ（`renderCache.ts`）も同様に、古い内容の画像を再利用しないよう破棄する
+  invalidateRenderCache(fileKey(file));
 
   return annotationService.registerAnnotationInfo(annotInfos, file, false);
 }

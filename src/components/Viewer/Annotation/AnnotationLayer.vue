@@ -10,14 +10,21 @@
       @contextmenu="handleContextMenu"
       :style="{ cursor: cursor }"
     >
-      <!-- 注釈ごとに専用レイヤー（＝専用canvas）を割り当て、合成モードが他の注釈やスタイル
-           パネルの現在値に引きずられず、注釈自身の値で文書と合成されるようにする -->
+      <!-- 合成モードが他の注釈やスタイルパネルの現在値に引きずられず注釈自身の値で文書と
+           合成されるよう、専用レイヤー（＝専用canvas）へ割り当てる。ただし1注釈1レイヤーだと
+           Konvaのレイヤー数上限警告（推奨3〜5枚）に達しやすいため、z順（visibleAnnotationsの並び順）で
+           隣接し合成モードが'normal'（未設定含む）の注釈同士だけを同一レイヤーへまとめる（'normal'は
+           背景と合成せず通常の重ね描きのため同一canvasにまとめても結果が変わらない）。'multiply'/'screen'
+           等の非'normal'は各注釈が個別に背景と合成される必要があるため、同一canvasにまとめると
+           結果が変わってしまい、常に1注釈1レイヤーのまま分離する -->
       <AnnotationBlendLayer
-        v-for="annotation in visibleAnnotations"
-        :key="annotation.id"
-        :blend-mode="annotation.blendMode"
+        v-for="group in annotationBlendGroups"
+        :key="group.key"
+        :blend-mode="group.blendMode"
       >
         <component
+          v-for="annotation in group.annotations"
+          :key="annotation.id"
           :is="ANNOTATION_REGISTRY[annotation.type].component"
           :ref="(el: unknown) => setAnnotationRef(annotation.id, el)"
           :annotation="annotation"
@@ -319,6 +326,34 @@ const visibleAnnotations = computed(() => {
     ? props.annotations.filter((a) => a.id !== editingTextId.value)
     : props.annotations;
   return [...filtered].sort((a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b));
+});
+
+// z順を保ったまま、隣接し合成モードが'normal'（未設定含む）の注釈同士だけを1レイヤーへまとめる。
+// 'normal'は背景と合成せず通常の重ね描きのため同一canvasにまとめても結果が変わらないが、
+// 'multiply'/'screen'等は各注釈が個別に背景と合成される必要があり、同一canvasにまとめると
+// 注釈同士が先に合成されてから背景と合成されてしまう（結果が異なる）ため、1注釈1レイヤーに分離する
+// （AnnotationBlendLayerのレイヤー数を抑えるため。詳細はテンプレート側のコメント参照）
+const annotationBlendGroups = computed(() => {
+  const groups: {
+    key: AnnotationID;
+    blendMode: AnnotationStyle['blendMode'];
+    annotations: AnnotationStyle[];
+  }[] = [];
+  const isNormal = (blendMode: AnnotationStyle['blendMode']) =>
+    blendMode === undefined || blendMode === 'normal';
+  for (const annotation of visibleAnnotations.value) {
+    const last = groups.at(-1);
+    if (last && isNormal(last.blendMode) && isNormal(annotation.blendMode)) {
+      last.annotations.push(annotation);
+    } else {
+      groups.push({
+        key: annotation.id,
+        blendMode: annotation.blendMode,
+        annotations: [annotation],
+      });
+    }
+  }
+  return groups;
 });
 
 const editingTextStyle = computed(() => {
@@ -1114,5 +1149,7 @@ watch(
   // z-index無しでも.pdf-canvasより手前に表示される点は変わらない）
   width: 100%;
   height: 100%;
+
+  image-rendering: pixelated;
 }
 </style>
