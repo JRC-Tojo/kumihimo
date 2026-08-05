@@ -262,7 +262,7 @@ describe('pasteAnnotations', () => {
     addAnnotationInfosMock.mockClear();
 
     const sources = [baseStyle(idA, { zIndex: 5 })];
-    const res = await pasteAnnotations(file, sources, 1, 20);
+    const res = await pasteAnnotations(file, sources, 1, { dx: 20, dy: 40 });
 
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
@@ -271,7 +271,7 @@ describe('pasteAnnotations', () => {
     expect(pasted?.zIndex).toBeUndefined();
     expect(pasted?.id).not.toBe(idA);
     expect(pasted?.x).toBe(sources[0]!.x + 20);
-    expect(pasted?.y).toBe(sources[0]!.y + 20);
+    expect(pasted?.y).toBe(sources[0]!.y + 40);
 
     expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
   });

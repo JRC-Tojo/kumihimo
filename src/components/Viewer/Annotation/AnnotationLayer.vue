@@ -95,6 +95,7 @@ import dayjs from 'dayjs';
 import { createAnnotationFromPoints, startDrawingAnnotation } from './annotationDrawingManager';
 import { useEditorStore } from 'src/stores/editorStore';
 import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
+import type { ContainerElementFile } from 'src/models/container';
 import {
   ANNOTATION_GEOMETRY,
   duplicateAnnotation,
@@ -117,6 +118,7 @@ type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
 
 interface Props {
+  file: ContainerElementFile;
   annotations: AnnotationStyle[];
   // Konvaステージの座標系のスケール（PdfPage側で解像度上限にクランプされた「実描画スケール」）。
   // 見た目上のズーム倍率そのものではない点に注意（PdfPage.vueのrenderScaleを参照）
@@ -759,6 +761,17 @@ function handleMouseDown(e: KonvaMouseEvent) {
 }
 
 function handleMouseMove(e: KonvaMouseEvent) {
+  // カーソル位置を常に記録しておく（選択が無い状態でのペースト位置の基準に使う。
+  // `editorStore.ts`の`lastPointerDocPos`を参照）
+  const currentPointerPos = e.target?.getStage()?.getPointerPosition();
+  if (currentPointerPos) {
+    editorStore.setLastPointerDocPos(props.file, {
+      page: page.value,
+      x: currentPointerPos.x / props.scale,
+      y: currentPointerPos.y / props.scale,
+    });
+  }
+
   // Ctrl+クリック候補がしきい値を超えて動いたら、複製プレビューへ昇格させる
   if (ctrlDragCandidate.value && !duplicateDragSource.value) {
     const stage = e.target?.getStage();

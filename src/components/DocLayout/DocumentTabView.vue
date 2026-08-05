@@ -176,6 +176,14 @@ type RenderFunc = (
   scale: number,
 ) => Promise<PageSize>;
 const onRender = ref<RenderFunc>();
+// 最初のページ描画（PdfPageのonMounted内でonRenderが呼ばれ、layoutSizeが確定する瞬間）が
+// 完了するまで解決しないPromise。単一表示モードでは、これが解決するまで`.page-outer`の
+// 実際のサイズ（outerStyle）が確定せず、viewerContainerがスクロール可能な状態にならないため、
+// 保存済みスクロール位置の復元前に必ずこれを待つ
+let resolveFirstRenderReady: (() => void) | undefined;
+const firstRenderReady = new Promise<void>((resolve) => {
+  resolveFirstRenderReady = resolve;
+});
 type RenderTileFunc = (
   pageNumber: number,
   canvas: HTMLCanvasElement,
@@ -198,7 +206,12 @@ const initialTabFocus = (() => {
   return pending;
 })();
 
-const currentPage = ref(initialTabFocus?.page ?? 1);
+// このタブに記録済みの最終表示状態（ページ・表示モード・ズーム倍率・スクロール位置。
+// タブの再選択・再オープン後の復元用）。`initialTabFocus`（関係性ダイアログ等からの
+// 明示的なページ遷移要求）が優先される
+const storedTabViewState = editorStore.getTabViewState(prop.file);
+
+const currentPage = ref(initialTabFocus?.page ?? storedTabViewState?.lastPage ?? 1);
 const pageCount = ref(0);
 const pageSizes = ref<PageSize[]>([]);
 // acquirePdfで取得したPDFの解放ハンドル。onBeforeUnmountで必ずreleaseする
@@ -244,7 +257,8 @@ const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZ
   currentPage,
   pageSizes,
 });
-const viewMode = ref<ViewMode>('single');
+if (storedTabViewState !== undefined) zoomLevel.value = storedTabViewState.zoomLevel;
+const viewMode = ref<ViewMode>(storedTabViewState?.viewMode ?? 'single');
 
 // for relational peek dialog
 const peekAnnotId = ref<AnnotationID>();
@@ -322,7 +336,17 @@ async function loadDocument() {
     canvas: HTMLCanvasElement,
     scale: number,
   ): Promise<PageSize> => {
-    return await renderPage(loadedDocument, pageNumber, canvas, scale, 0, fileKey(prop.file));
+    const result = await renderPage(
+      loadedDocument,
+      pageNumber,
+      canvas,
+      scale,
+      0,
+      fileKey(prop.file),
+    );
+    resolveFirstRenderReady?.();
+    resolveFirstRenderReady = undefined;
+    return result;
   };
   /** PDFページの指定タイルをレンダリングする。 */
   onRenderTile.value = async (
@@ -411,8 +435,10 @@ async function finishRelational(targetId: AnnotationID) {
   if (srcId === undefined || mode === undefined) return;
   if (srcId === targetId) return; // 自分自身との関係性は無視
 
-  // 通知や待機状態は結果を待たずに解除し、モード自体は次の登録に備えて維持する
-  editorStore.cancelRelationalPending();
+  // 通知や待機状態は結果を待たずに解除する。連続定義モードでない限りモード自体も終了し、
+  // 次に選択・作成されたアノテーションが新たな1つ目として誤って待機開始する（＝関係性の
+  // 二重登録につながる）のを防ぐ
+  editorStore.finishRelationalPending();
   // 連続定義モードが、選択され続けているだけのこの対象を新たな起点と誤認しないための目印
   editorStore.relationalLastPairedId = targetId;
 
@@ -433,10 +459,11 @@ async function finishRelational(targetId: AnnotationID) {
     void relationalStore.refreshFile(pendingFile);
   }
 
-  // 連続定義モード（関係性ボタンのダブルクリックで開始）が有効な場合でも、ここでは基準を
-  // リセットするだけに留める。次に選択されたアノテーションを新たな基準とする処理は
-  // `RelationalDefineButtons.vue`側で選択変化を監視して行う（1組確定するごとに直前の対象と
-  // 自動で連鎖させるのではなく、次の選択を独立した新しいペアの起点として扱うため）
+  // 連続定義モード（関係性ボタンのダブルクリックで開始）が有効な場合、モード自体は
+  // `finishRelationalPending`により維持される。次に選択されたアノテーションを新たな
+  // 基準とする処理は`RelationalDefineButtons.vue`側で選択変化を監視して行う
+  // （1組確定するごとに直前の対象と自動で連鎖させるのではなく、次の選択を独立した
+  // 新しいペアの起点として扱うため）
 
   scheduleAutoSave();
 }
@@ -652,7 +679,26 @@ onMounted(async () => {
     if (initialTabFocus.annotId !== undefined) {
       selectedAnnotationIds.value = [initialTabFocus.annotId];
     }
-    await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+    await scrollToCurrentPage(viewer.value?.scrollHeight ?? 0);
+  } else if (storedTabViewState !== undefined) {
+    // 明示的な遷移要求がない場合、前回このタブを表示していた際の状態へ復元する
+    // （ページ番号自体は既にcurrentPageの初期値へ反映済みのため、ここではpageCount確定後の
+    // クランプのみ行う）。スクロール位置（連続表示モードではページ位置＋ページ内の閲覧領域、
+    // 単一表示モードではズーム時のパン位置に相当）は、ページ番号からの近似計算より
+    // 保存しておいた実際のscrollLeft/scrollTopをそのまま復元する方が正確なため、
+    // `scrollToCurrentPage`の近似スクロールは行わずこちらで直接設定する
+    goToPage(storedTabViewState.lastPage);
+    // `nextTick()`はVue側のDOMパッチ完了を保証するのみで、PdfPage内で非同期に行われる
+    // 実際のページ描画（`.page-outer`の実サイズ確定）までは保証しない。単一表示モードでは
+    // それより前にscrollLeft/scrollTopを代入しても、viewerContainerがまだスクロール可能な
+    // サイズになっておらずブラウザ側で0にクランプされてしまうため、必ず先に描画完了を待つ
+    // （読み込み失敗時はonRenderが設定されずPdfPage自体が描画されないため、その場合は待たない）
+    if (onRender.value !== undefined) await firstRenderReady;
+    await nextTick();
+    if (viewer.value) {
+      viewer.value.scrollLeft = storedTabViewState.scrollLeft;
+      viewer.value.scrollTop = storedTabViewState.scrollTop;
+    }
   }
 });
 
@@ -671,7 +717,7 @@ async function consumePendingTabFocus() {
   editorStore.clearPendingTabFocus();
   goToPage(pending.page);
   if (pending.annotId !== undefined) selectedAnnotationIds.value = [pending.annotId];
-  await scrollToCurrentPage(viewer.value?.getBoundingClientRect().height ?? 0);
+  await scrollToCurrentPage(viewer.value?.scrollHeight ?? 0);
 }
 
 watch(annotations, (newAnnots, oldAnnots) => {
@@ -774,6 +820,19 @@ watch(
   },
 );
 onBeforeUnmount(() => {
+  // このタブの表示状態をeditorStoreへ記録し、タブの再選択・再オープン後に復元できるようにする。
+  // reactiveなwatchで都度保存するのではなく、タブを離れる（＝このコンポーネントが破棄される）
+  // 直前の状態を1回だけ保存する。scrollLeft/scrollTopは実DOM値を直接読むため、
+  // watch経由で追いかけるより確実（Vueのreactivityフラッシュ前にアンマウントされ、
+  // 最後の変化が保存されないまま失われる、といった心配が無い）
+  editorStore.setTabViewState(prop.file, {
+    lastPage: currentPage.value,
+    viewMode: viewMode.value,
+    zoomLevel: zoomLevel.value,
+    scrollLeft: viewer.value?.scrollLeft ?? 0,
+    scrollTop: viewer.value?.scrollTop ?? 0,
+  });
+
   // 非同期のPDF取得完了後にも参照を返却できるよう、先に破棄状態を記録する
   isUnmounted = true;
 

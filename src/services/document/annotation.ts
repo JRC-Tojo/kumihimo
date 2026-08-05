@@ -280,23 +280,24 @@ export async function reorderAnnotationStyle(
 /**
  * 複数の注釈を複製し、指定したページへ貼り付ける（ペースト）
  *
- * 各`sources`要素を`duplicateAnnotation`で複製し、貼り付け位置が重ならないよう
- * `offsetStep`ずつ位置をずらしながら`registerAnnotationStyle`で保存する。複製元の`zIndex`を
- * そのまま引き継ぐと重ね順キーが衝突するため、`zIndex`はリセットしcreatedAt基準に戻す
+ * 各`sources`要素を`duplicateAnnotation`で複製し、`offset`（呼び出し元が算出した文書座標系の
+ * 移動量）だけ全要素を同じ量だけずらしながら`registerAnnotationStyle`で保存する（複数選択を
+ * 一括ペーストした際の相対的な位置関係を保つため）。複製元の`zIndex`をそのまま引き継ぐと
+ * 重ね順キーが衝突するため、`zIndex`はリセットしcreatedAt基準に戻す
  */
 export async function pasteAnnotations(
   file: ContainerElementFile,
   sources: AnnotationStyle[],
   pageNumber: number,
-  offsetStep: number,
+  offset: { dx: number; dy: number },
 ): Promise<Result<AnnotationInfo[]>> {
   const results: AnnotationInfo[] = [];
   for (const source of sources) {
     const duplicated = duplicateAnnotation(
       source,
       pageNumber,
-      source.x + offsetStep,
-      source.y + offsetStep,
+      source.x + offset.dx,
+      source.y + offset.dy,
     );
     const res = await registerAnnotationStyle(file, { ...duplicated, zIndex: undefined });
     if (!res.ok) return res;
