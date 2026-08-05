@@ -64,7 +64,7 @@
  * ダブルクリック時は、MainToolsの連続描画モード（stickyDrawMode）と同様に連続定義モード
  * （`editorStore.relationalContinuous`）を有効にする。有効な間は、対になるアノテーションを
  * 選択して1組確定すると一旦待機は解除されるが（起点をリセット）、その後に選択された
- * 次のアノテーションを新たな起点として自動的に待機を再開する（`target`の変化を監視して行う。
+ * 次のアノテーションを新たな起点として自動的に待機を再開する（`targetId`の変化を監視して行う。
  * 直前の対象とそのまま連鎖させるのではなく、次の選択を独立した新しいペアの起点として扱う）。
  * ユーザーが明示的にキャンセルボタンを押すまで有効であり続ける。
  * 末尾の1枠（設定ショートカット／キャンセル）だけが待機中かどうかで入れ替わり、
@@ -76,6 +76,7 @@ import { useEditorStore } from 'src/stores/editorStore';
 import {
   startRelationalDefine,
   showRelationalWaitingNotify,
+  decideRelationalContinuousRestart,
 } from './composables/useRelationalDefine';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
 import type { AnnotationStyle } from 'src/models/document/pdf';
@@ -88,6 +89,11 @@ const target = computed<AnnotationStyle | undefined>(() => {
   const annots = editorStore.activeSelection?.annotations;
   return annots?.length === 1 ? annots[0] : undefined;
 });
+
+// 監視対象はアノテーションのIDのみとする。`target`（アノテーションオブジェクトそのもの）を
+// 直接監視すると、選択自体は変わっていなくても、他のアノテーションの内容更新（OCR結果の反映等）
+// によって参照だけが新しくなるたびに監視コールバックが再実行されてしまう
+const targetId = computed(() => target.value?.id);
 
 const isPending = computed(() => editorStore.relationalPendingId !== undefined);
 // 待機中は、選択が外れて`target`が無くなっても操作盤を表示し続ける（種別の確認・キャンセルのため）
@@ -133,25 +139,26 @@ function onDefineDouble(mode: RelationalRuleType) {
  * 連続定義モード中、1組確定して待機が解除された後に選ばれた次のアノテーションを、
  * 新たな起点として自動的に待機状態にする（クリックし直す必要をなくす）。
  *
- * 注意: ペア確定直後は「対象アノテーションが選択され続けているだけ」の状態でも`target`が
- * 変化して見えることがある（`finishRelational`が待機解除を同期的に行うのに対し、
- * `activeSelection`側の反映が別コンポーネント経由でやや遅れて届くため）。これをそのまま
- * 新たな起点にしてしまうと、直前の対象と自動で連鎖する「チェーン」的な挙動になってしまい、
- * 「対になるアノテーションが選択された後は起点をリセットしてよい」という意図に反する。
- * `editorStore.relationalLastPairedId`（ペア確定時に`finishRelational`が刻む目印）と一致する
- * 間はスキップし、実際に別のアノテーションが選択されるまで待つ
+ * 注意: ペア確定直後は「対象アノテーションが選択され続けているだけ」の状態でも、選択ID自体は
+ * 変わっていないのに`editorStore.relationalLastPairedId`（ペア確定時に`finishRelational`が
+ * 刻む目印）と一致する間はスキップする必要がある。これをそのまま新たな起点にしてしまうと、
+ * 直前の対象と自動で連鎖する「チェーン」的な挙動になってしまい、「対になるアノテーションが
+ * 選択された後は起点をリセットしてよい」という意図に反するため
  */
-watch(target, (annot) => {
-  if (editorStore.relationalLastPairedId !== undefined) {
-    if (annot?.id === editorStore.relationalLastPairedId) return;
-    editorStore.relationalLastPairedId = undefined;
-  }
+watch(targetId, (id) => {
+  const decision = decideRelationalContinuousRestart({
+    continuous: editorStore.relationalContinuous,
+    pending: isPending.value,
+    mode: editorStore.relationalMode,
+    targetId: id,
+    lastPairedId: editorStore.relationalLastPairedId,
+  });
+  if (decision.clearLastPaired) editorStore.relationalLastPairedId = undefined;
+  if (!decision.start) return;
 
-  if (!editorStore.relationalContinuous || isPending.value) return;
-  const mode = editorStore.relationalMode;
   const file = editorStore.activeSelection?.file;
-  if (!annot || mode === undefined || !file) return;
-  startRelationalDefine(editorStore, t, mode, annot.id, file);
+  if (!file) return;
+  startRelationalDefine(editorStore, t, decision.mode, decision.annotId, file);
 });
 
 /**

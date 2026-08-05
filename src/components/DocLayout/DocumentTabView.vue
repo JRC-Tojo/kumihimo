@@ -96,6 +96,8 @@ import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.
 import {
   RELATIONAL_STATUS_MESSAGE_KEY,
   startRelationalDefine,
+  decideRelationalOnAnnotationsAdded,
+  decideRelationalOnSelectionChanged,
 } from 'src/components/DocLayout/composables/useRelationalDefine';
 import { useQuasar } from 'quasar';
 import { saveDocument } from 'src/utils/document/saveDocument';
@@ -503,30 +505,37 @@ function isRelationalPendingFile(): boolean {
  */
 async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: AnnotationStyle[]) {
   const mode = editorStore.relationalMode;
-  if (mode === undefined) return;
   const oldAnnotIds = new Set(oldAnnots.map((annot) => annot.id));
-  const addedAnnots = newAnnots.filter((annot) => !oldAnnotIds.has(annot.id));
-  if (addedAnnots.length !== 1) return; // アノテーションが1つ増えたときのみ対象
-  const addedId = addedAnnots[0]?.id;
-  if (addedId === undefined) return;
+  const addedIds = newAnnots
+    .filter((annot) => !oldAnnotIds.has(annot.id))
+    .map((annot) => annot.id);
 
-  if (editorStore.relationalPendingId === undefined) {
+  const decision = decideRelationalOnAnnotationsAdded(
+    mode,
+    editorStore.relationalPendingId,
+    addedIds,
+  );
+  if (decision === undefined || mode === undefined) return;
+
+  if (decision.action === 'start') {
     // 1つ目のアノテーション：対になるアノテーションの待機モードへ移行
-    startRelationalDefine(editorStore, t, mode, addedId, prop.file);
+    startRelationalDefine(editorStore, t, mode, decision.annotId, prop.file);
     return;
   }
 
   // 2つ目のアノテーション：待機中の関係性を確定
-  await finishRelational(addedId);
+  await finishRelational(decision.annotId);
 }
 
 /**
  * アノテーションの選択を検知し、待機中の関係性を確定する
  */
 async function registRelationalBySelect(selectedIds: AnnotationID[]) {
-  if (editorStore.relationalMode === void 0) return;
-  if (editorStore.relationalPendingId === undefined) return;
-  const targetId = selectedIds.find((id) => id !== editorStore.relationalPendingId);
+  const targetId = decideRelationalOnSelectionChanged(
+    editorStore.relationalMode,
+    editorStore.relationalPendingId,
+    selectedIds,
+  );
   if (targetId === undefined) return;
 
   await finishRelational(targetId);
