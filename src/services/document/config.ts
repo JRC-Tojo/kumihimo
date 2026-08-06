@@ -222,7 +222,9 @@ export async function saveConfig(
     file,
   );
   const bookmarks = currentConfigRes.ok ? currentConfigRes.value.bookmarks : {};
-  const outlineImported = currentConfigRes.ok ? currentConfigRes.value.outlineImported ?? false : false;
+  const outlineImported = currentConfigRes.ok
+    ? (currentConfigRes.value.outlineImported ?? false)
+    : false;
 
   // 取得した情報をマージして実ファイルに保存する
   const annotSavedRes = await containerConfigService.saveDocumentConfigs(

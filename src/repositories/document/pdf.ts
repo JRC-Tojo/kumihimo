@@ -2173,9 +2173,7 @@ export async function embedBookmarksIntoPdf(
     const pageCount = pdfDoc.getPageCount();
     const annotInfoById = new Map(annotInfos.map((info) => [info.style.id, info]));
 
-    const validBookmarks = bookmarks.filter(
-      (b) => b.pageNumber >= 1 && b.pageNumber <= pageCount,
-    );
+    const validBookmarks = bookmarks.filter((b) => b.pageNumber >= 1 && b.pageNumber <= pageCount);
     const tree = buildBookmarkTree(validBookmarks);
 
     if (tree.length > 0) {

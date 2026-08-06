@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'bun:test';
-import { buildBookmarkTree, collectDescendantIds, outlineEntriesToBookmarks } from '../bookmarkTree';
+import {
+  buildBookmarkTree,
+  collectDescendantIds,
+  outlineEntriesToBookmarks,
+} from '../bookmarkTree';
 import type { BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
 import type { PdfOutlineEntry } from 'src/models/document/pdf';
 

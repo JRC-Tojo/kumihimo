@@ -29,8 +29,8 @@ function buildFile(path: string): ContainerElementFile {
 
 const DOC_SRC = 'AAAA' as DocumentSource;
 
-const loadFileAsDocumentSourceMock = mock(
-  (): Promise<Result<DocumentSource>> => Promise.resolve(Success(DOC_SRC)),
+const loadFileAsDocumentSourceMock = mock((): Promise<Result<DocumentSource>> =>
+  Promise.resolve(Success(DOC_SRC)),
 );
 void mock.module('src/services/container/main', () => ({
   loadFileAsDocumentSource: loadFileAsDocumentSourceMock,
@@ -38,13 +38,12 @@ void mock.module('src/services/container/main', () => ({
 
 // 文書設定ファイル（.kcfg）のフィクスチャ。各テストの冒頭で書き換える
 let documentConfigFileFixture: DocumentConfigFile | undefined;
-const getDocumentConfigFileMock = mock(
-  (): Promise<Result<DocumentConfigFile>> =>
-    Promise.resolve(
-      documentConfigFileFixture !== undefined
-        ? Success(documentConfigFileFixture)
-        : Failure(new NotFoundError('not found')),
-    ),
+const getDocumentConfigFileMock = mock((): Promise<Result<DocumentConfigFile>> =>
+  Promise.resolve(
+    documentConfigFileFixture !== undefined
+      ? Success(documentConfigFileFixture)
+      : Failure(new NotFoundError('not found')),
+  ),
 );
 const saveDocumentConfigFileMock = mock(
   (
@@ -81,7 +80,9 @@ void mock.module('src/repositories/document/renderCache', () => ({
 
 // PDFのしおり（アウトライン）取得のフィクスチャ。各テストの冒頭で書き換える
 let outlineFixture: Result<PdfOutlineEntry[]> = Success([]);
-const getOutlineMock = mock((): Promise<Result<PdfOutlineEntry[]>> => Promise.resolve(outlineFixture));
+const getOutlineMock = mock((): Promise<Result<PdfOutlineEntry[]>> =>
+  Promise.resolve(outlineFixture),
+);
 void mock.module('src/repositories/document/pdf', () => ({
   getOutline: getOutlineMock,
 }));
