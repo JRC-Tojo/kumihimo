@@ -529,8 +529,18 @@ async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: An
 
 /**
  * アノテーションの選択を検知し、待機中の関係性を確定する
+ *
+ * 関係性の待機状態（`relationalPendingId`等）はペイン単位ではなくeditorStoreのグローバルな
+ * 状態のため、同一ファイルを複数ペインに開いている場合、非アクティブ側のペインもこの
+ * ファイルのアノテーション変化・選択変化を検知できてしまう。ここでガードせずに両ペインが
+ * 独立して確定処理を実行すると、`api.registRelationals`が二重に呼ばれて関係性が重複登録
+ * されたり、一方が待機を解除した直後にもう一方が古い状態を見て待機を再開してしまい
+ * 「対になるアノテーションを選択しても待機状態が解除されない」ように見える不具合につながる。
+ * そのため、実際にユーザーが操作しているアクティブなペインでのみ確定処理を行う
  */
 async function registRelationalBySelect(selectedIds: AnnotationID[]) {
+  if (editorStore.activeSide !== prop.layoutSide) return;
+
   const targetId = decideRelationalOnSelectionChanged(
     editorStore.relationalMode,
     editorStore.relationalPendingId,
@@ -558,7 +568,13 @@ async function handleAnnotationsChanged(
     return;
   }
 
-  await registRelationalByAdd(newAnnots, oldAnnots);
+  // 待機開始・確定はアクティブなペインでの操作としてのみ扱う（registRelationalBySelect
+  // 上部のコメント参照）。同一ファイルを複数ペインに開いている場合、非アクティブ側の
+  // ペインもこのアノテーション追加を検知してしまい、ガードしないと両ペインが二重に
+  // 待機開始・関係性登録を行ってしまう
+  if (editorStore.activeSide === prop.layoutSide) {
+    await registRelationalByAdd(newAnnots, oldAnnots);
+  }
 
   // アノテーション内容（OCR結果）の読み込み完了時にもこのイベントが発火するため、
   // ここで再検証しておくことで「検証保留」から自動的にOK/NGへ遷移する
