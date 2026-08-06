@@ -30,14 +30,20 @@ import type {
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
-import type { AnnotationID, AnnotationStyle, ColorCode } from 'src/models/document/pdf';
+import type {
+  AnnotationID,
+  AnnotationStyle,
+  ColorCode,
+  PdfOutlineEntry,
+} from 'src/models/document/pdf';
 import type { AnnotationTool } from 'src/models/docPage';
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
-import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import type { AnnotationInfo, BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
 import type { RelaxationOptions } from 'src/models/relational/relaxation';
 import * as annotationService from 'src/services/document/annotation';
+import * as bookmarkService from 'src/services/document/bookmark';
 import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import type { Observable } from 'dexie';
@@ -365,6 +371,62 @@ class BackendApi {
   async peekContainerElements(id: ContainerID): Promise<ApiResponse<Container>> {
     const res = await containerService.peekContainerElements(id);
     return toApiResponse(res, 'CONTAINER_LOAD_FAILED');
+  }
+
+  /**
+   * PDFに埋め込まれたしおり（アウトライン）一覧を取得する
+   *
+   * 本システムが独自に管理するブックマーク（`listBookmarks`等）とは別物で、こちらは
+   * 文書自体が持つ読み取り専用の目次情報
+   */
+  async getPdfOutline(file: ContainerElementFile): Promise<ApiResponse<PdfOutlineEntry[]>> {
+    const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+    if (!docSrc.ok) return toApiResponse(docSrc, 'INVALID_DOCUMENT');
+    const outlineRes = await pdfRepo.getOutline(docSrc.value);
+    return toApiResponse(outlineRes, 'DOC_OUTLINE_LOAD_FAILED');
+  }
+
+  /**
+   * 指定文書に登録されているブックマーク一覧を取得する（ページ番号の昇順）
+   */
+  async listBookmarks(file: ContainerElementFile): Promise<ApiResponse<BookmarkInfo[]>> {
+    const res = await bookmarkService.listBookmarks(file);
+    return toApiResponse(res, 'BOOKMARK_LOAD_FAILED');
+  }
+
+  /**
+   * ブックマークを新規登録する
+   */
+  async addBookmark(
+    file: ContainerElementFile,
+    title: string,
+    pageNumber: number,
+  ): Promise<ApiResponse<BookmarkInfo>> {
+    const res = await bookmarkService.addBookmark(file, title, pageNumber);
+    return toApiResponse(res, 'BOOKMARK_SAVE_FAILED');
+  }
+
+  /**
+   * ブックマークを削除する
+   */
+  async removeBookmark(
+    file: ContainerElementFile,
+    bookmarkId: BookmarkID,
+  ): Promise<ApiResponse<void>> {
+    const res = await bookmarkService.removeBookmark(file, bookmarkId);
+    return toApiResponse(res, 'BOOKMARK_SAVE_FAILED');
+  }
+
+  /**
+   * ブックマークの名称を変更する
+   */
+  async renameBookmark(
+    file: ContainerElementFile,
+    bookmarkId: BookmarkID,
+    newTitle: string,
+  ): Promise<ApiResponse<void>> {
+    const res = await bookmarkService.renameBookmark(file, bookmarkId, newTitle);
+    return toApiResponse(res, 'BOOKMARK_SAVE_FAILED');
   }
 
   // ============ アノテーション操作 ============

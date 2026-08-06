@@ -46,6 +46,7 @@ import type {
   AnnotationStyle,
   ArrowHeadType,
   BlendMode,
+  PdfOutlineEntry,
   TextItemBox,
 } from 'src/models/document/pdf';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
@@ -141,6 +142,77 @@ export async function getNumPages(src64: DocumentSource): Promise<Result<number>
     return Success(loaded.value.numPages);
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    void loaded.value.destroy();
+  }
+}
+
+/**
+ * アウトライン項目の宛先(`dest`)を1始まりのページ番号へ解決する
+ *
+ * 名前付き宛先（文字列）の場合は`getDestination`で実体の配列を取得してから解決する。
+ * 外部URLへのリンクや、ページ参照を含まない不正な宛先の場合は解決できずundefinedを返す
+ * （呼び出し側の保存処理全体を失敗させないため、例外は投げない）
+ */
+async function resolveOutlineDestPageNumber(
+  pdf: PDFDocumentProxy,
+  dest: string | unknown[] | null,
+): Promise<number | undefined> {
+  if (dest === null) return undefined;
+
+  try {
+    const destArray = typeof dest === 'string' ? await pdf.getDestination(dest) : dest;
+    if (!Array.isArray(destArray) || destArray.length === 0) return undefined;
+
+    const pageIndex = await pdf.getPageIndex(destArray[0]);
+    return pageIndex + 1;
+  } catch {
+    return undefined;
+  }
+}
+
+interface RawOutlineNode {
+  title: string;
+  dest: string | unknown[] | null;
+  items: RawOutlineNode[];
+}
+
+/** 階層構造のアウトラインを、階層の深さ(`level`)を保持したまま平坦な配列に変換する */
+function flattenOutlineNodes(
+  nodes: RawOutlineNode[],
+  level: number,
+): { title: string; level: number; dest: string | unknown[] | null }[] {
+  return nodes.flatMap((node) => [
+    { title: node.title, level, dest: node.dest },
+    ...flattenOutlineNodes(node.items, level + 1),
+  ]);
+}
+
+/** 既に取得済みのPDFDocumentProxyから、埋め込まれたしおり（アウトライン）一覧を取得する */
+export async function getOutlineFromDoc(pdf: PDFDocumentProxy): Promise<Result<PdfOutlineEntry[]>> {
+  try {
+    const outline = ((await pdf.getOutline()) ?? []) as RawOutlineNode[];
+    const flattened = flattenOutlineNodes(outline, 0);
+
+    const entries = await Promise.all(
+      flattened.map(async (node) => ({
+        title: node.title,
+        level: node.level,
+        pageNumber: await resolveOutlineDestPageNumber(pdf, node.dest),
+      })),
+    );
+    return Success(entries);
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
+/** PDFに埋め込まれたしおり（アウトライン）一覧を取得する */
+export async function getOutline(src64: DocumentSource): Promise<Result<PdfOutlineEntry[]>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+  try {
+    return await getOutlineFromDoc(loaded.value);
   } finally {
     void loaded.value.destroy();
   }

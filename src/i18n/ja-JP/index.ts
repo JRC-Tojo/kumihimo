@@ -443,6 +443,7 @@ export default {
       title: 'ブックマーク',
       noBookmarks: 'ブックマークなし',
       page: 'ページ',
+      add: '現在のページをブックマーク',
     },
   },
 

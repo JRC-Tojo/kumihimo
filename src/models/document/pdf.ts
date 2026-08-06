@@ -207,3 +207,16 @@ export const TextItemBox = z.object({
   height: z.number(),
 });
 export type TextItemBox = z.infer<typeof TextItemBox>;
+
+/**
+ * PDF自体に埋め込まれたしおり（アウトライン）の1項目
+ *
+ * `level`は階層の深さ（先頭階層は0）。`pageNumber`は宛先を1始まりのページ番号として
+ * 解決できた場合のみ設定され、外部URLへのリンク等で解決できない項目はundefinedになる
+ */
+export const PdfOutlineEntry = z.object({
+  title: z.string(),
+  level: z.number().int().nonnegative(),
+  pageNumber: z.number().int().positive().optional(),
+});
+export type PdfOutlineEntry = z.infer<typeof PdfOutlineEntry>;

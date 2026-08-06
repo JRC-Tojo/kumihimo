@@ -51,7 +51,7 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
   if (configFileRes.ok) {
     configFile = configFileRes.value;
   } else if (configFileRes.error instanceof NotFoundError) {
-    configFile = { fileHash: fileHash.value, annots: {} };
+    configFile = { fileHash: fileHash.value, annots: {}, bookmarks: {} };
   } else {
     return configFileRes;
   }
@@ -89,6 +89,7 @@ export async function acceptExternalConfig(
     file.path,
     annotInfos,
     config.fileHash,
+    config.bookmarks,
   );
   if (!saveRes.ok) return saveRes;
 
@@ -167,6 +168,14 @@ export async function saveConfig(
   const rsWithAdrs = await relationalService.getRelationalsInvolvingFile(file);
   if (!rsWithAdrs.ok) return rsWithAdrs;
 
+  // ブックマークはアノテーションと異なりDB経由の差分管理を行わないため、上書きで消えないよう
+  // 保存直前の`.kcfg`から現在有効な内容をそのまま読み直して引き継ぐ
+  const currentConfigRes = await containerConfigService.getDocumentConfigFile(
+    file.containerID,
+    file,
+  );
+  const bookmarks = currentConfigRes.ok ? currentConfigRes.value.bookmarks : {};
+
   // 取得した情報をマージして実ファイルに保存する
   const annotSavedRes = await containerConfigService.saveDocumentConfigs(
     file.containerID,
@@ -174,6 +183,7 @@ export async function saveConfig(
     oldSrc,
     newSrc,
     annotInfos.value,
+    bookmarks,
   );
   if (!annotSavedRes.ok) return annotSavedRes;
   const relationalSavedRes = await containerConfigService.updateRelationalFile(

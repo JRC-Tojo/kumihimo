@@ -87,6 +87,7 @@ const {
   embedAnnotationsAsVectorIntoPdf,
   extractImageFromRegion,
   extractAnnotationContextPreview,
+  getOutline,
 } = await import('../pdf');
 
 /**
@@ -698,11 +699,23 @@ describe('embedAnnotationsAsCommentsIntoPdf（pdf-lib、ネイティブ注釈と
 const DUMMY_SRC = DocumentSource.parse(btoa('dummy-pdf-bytes'));
 
 /** pdfjs-distの`getDocument`モックが返す、テストごとに最小限のメソッドだけを実装したフェイクのPDFDocumentProxy */
-function buildFakeDoc(pages: unknown[]): PDFDocumentProxy {
+interface FakeDocOptions {
+  outline?: unknown[] | null;
+  destinations?: Record<string, unknown[]>;
+  pageIndexByRef?: (ref: unknown) => number;
+}
+
+function buildFakeDoc(pages: unknown[], opts: FakeDocOptions = {}): PDFDocumentProxy {
   return {
     numPages: pages.length,
     getPage: (n: number) => Promise.resolve(pages[n - 1]),
     destroy: () => Promise.resolve(),
+    getOutline: () => Promise.resolve(opts.outline ?? null),
+    getDestination: (id: string) => Promise.resolve(opts.destinations?.[id] ?? null),
+    getPageIndex: (ref: unknown) =>
+      opts.pageIndexByRef
+        ? Promise.resolve(opts.pageIndexByRef(ref))
+        : Promise.reject(new Error('getPageIndex is not configured for this test')),
   } as unknown as PDFDocumentProxy;
 }
 
@@ -792,6 +805,78 @@ describe('getPageSize / getNumPages / extractTextByPage / extractAllText（pdfjs
     expect(res.ok).toBeFalse();
     if (res.ok) return;
     expect(res.error.message).toBe('parse failed');
+  });
+});
+
+describe('getOutline（pdfjs-distモック）', () => {
+  it('階層構造のアウトラインを、階層の深さを保持したまま平坦な配列に変換する', async () => {
+    fakeGetDocumentImpl = () => ({
+      promise: Promise.resolve(
+        buildFakeDoc([buildFakePage(), buildFakePage(), buildFakePage()], {
+          outline: [
+            {
+              title: '第1章',
+              dest: [{ num: 0 }],
+              items: [{ title: '1.1節', dest: [{ num: 1 }], items: [] }],
+            },
+            { title: '第2章', dest: [{ num: 2 }], items: [] },
+          ],
+          pageIndexByRef: (ref) => (ref as { num: number }).num,
+        }),
+      ),
+    });
+
+    const res = await getOutline(DUMMY_SRC);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toEqual([
+      { title: '第1章', level: 0, pageNumber: 1 },
+      { title: '1.1節', level: 1, pageNumber: 2 },
+      { title: '第2章', level: 0, pageNumber: 3 },
+    ]);
+  });
+
+  it('名前付き宛先（文字列のdest）はgetDestinationで実体を解決してからページ番号にする', async () => {
+    fakeGetDocumentImpl = () => ({
+      promise: Promise.resolve(
+        buildFakeDoc([buildFakePage(), buildFakePage()], {
+          outline: [{ title: '目次', dest: 'namedDest1', items: [] }],
+          destinations: { namedDest1: [{ num: 1 }] },
+          pageIndexByRef: (ref) => (ref as { num: number }).num,
+        }),
+      ),
+    });
+
+    const res = await getOutline(DUMMY_SRC);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toEqual([{ title: '目次', level: 0, pageNumber: 2 }]);
+  });
+
+  it('外部URLへのリンク等、ページ参照を解決できない項目はpageNumberがundefinedになる（失敗にはしない）', async () => {
+    fakeGetDocumentImpl = () => ({
+      promise: Promise.resolve(
+        buildFakeDoc([buildFakePage()], {
+          outline: [{ title: '外部リンク', dest: null, items: [] }],
+        }),
+      ),
+    });
+
+    const res = await getOutline(DUMMY_SRC);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toEqual([{ title: '外部リンク', level: 0, pageNumber: undefined }]);
+  });
+
+  it('アウトラインが存在しない（getOutlineがnullを返す）場合は空配列を返す', async () => {
+    fakeGetDocumentImpl = () => ({
+      promise: Promise.resolve(buildFakeDoc([buildFakePage()], { outline: null })),
+    });
+
+    const res = await getOutline(DUMMY_SRC);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toEqual([]);
   });
 });
 

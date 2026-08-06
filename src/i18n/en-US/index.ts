@@ -444,6 +444,7 @@ export default {
       title: 'Bookmarks',
       noBookmarks: 'No Bookmarks',
       page: 'Page',
+      add: 'Bookmark current page',
     },
   },
 

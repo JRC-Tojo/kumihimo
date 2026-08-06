@@ -742,6 +742,12 @@ watch(annotations, (newAnnots, oldAnnots) => {
 watch(selectedAnnotationIds, (selectedIds) => {
   void registRelationalBySelect(selectedIds);
 });
+// 現在表示中のページ番号を、Explorerのブックマークパネル等このコンポーネントの外側からも
+// 参照できるようeditorStoreへ橋渡しする（「現在のページをブックマーク」の既定ページに使う）
+watch(currentPage, (page) => editorStore.setActiveTabCurrentPage(prop.layoutSide, page), {
+  immediate: true,
+});
+
 // アクティブなペインの選択状態を、スタイルパネル（MainTools/SubTools行）用にeditorStoreへ橋渡しする。
 // 選択状態自体はペインごとのこのコンポーネントが持つため、layerOrderAction等と同じ
 // 「意図・状態をeditorStoreに反映する」パターンを踏襲する

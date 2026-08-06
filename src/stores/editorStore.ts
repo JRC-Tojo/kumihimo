@@ -214,6 +214,13 @@ export const useEditorStore = defineStore('editor', {
     // メインツールから表示モード変更を要求する意図フラグ。実際の適用はアクティブなペインが行う
     viewModeAction: undefined as ViewMode | undefined,
 
+    // ペインごとに現在表示中のページ番号（DocumentTabView.vueが自身のcurrentPageの変化を
+    // ここへ橋渡しする）。Explorerのブックマークパネル等、DocumentTabViewの外側から
+    // 「現在表示中のページ」を参照したい場合に使う
+    activeTabCurrentPage: { ul: undefined, ur: undefined, ll: undefined, lr: undefined } as Layouts<
+      number | undefined
+    >,
+
     // フッター左側に表示するステータスメッセージ。投稿元ごとにキーで管理し、
     // 複数の操作（関係性モードの待機、今後追加されうる他の操作等）が互いのメッセージを
     // 上書きしないようにする
@@ -694,6 +701,14 @@ export const useEditorStore = defineStore('editor', {
      */
     setActiveViewMode(mode: ViewMode): void {
       this.activeViewMode = mode;
+    },
+
+    /**
+     * 指定ペインが現在表示しているページ番号を記録する（DocumentTabView.vueが
+     * 自身のcurrentPageの変化のたびに呼ぶ）
+     */
+    setActiveTabCurrentPage(layoutSide: LayoutSide, page: number): void {
+      this.activeTabCurrentPage[layoutSide] = page;
     },
 
     /**
