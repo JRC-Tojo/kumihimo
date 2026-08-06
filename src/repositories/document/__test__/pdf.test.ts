@@ -11,6 +11,7 @@ import {
   PDFHexString,
   PDFStream,
   type PDFRawStream,
+  type PDFRef,
   degrees,
   type PDFNumber,
 } from 'pdf-lib';
@@ -18,6 +19,7 @@ import { JSDOM } from 'jsdom';
 import { createCanvas } from 'canvas';
 import type { TextItemBox, AnnotationStyle } from 'src/models/document/pdf';
 import { AnnotationID, ColorCode } from 'src/models/document/pdf';
+import type { BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
 import { DocumentSource } from 'src/models/document/common';
 import type { FileIdentity } from 'src/utils/document/fileKey';
 import { ContainerID } from 'src/models/container';
@@ -85,6 +87,7 @@ const {
   embedAnnotationsIntoPdf,
   embedAnnotationsAsCommentsIntoPdf,
   embedAnnotationsAsVectorIntoPdf,
+  embedBookmarksIntoPdf,
   extractImageFromRegion,
   extractAnnotationContextPreview,
   getOutline,
@@ -1144,6 +1147,117 @@ describe('embedAnnotationsAsVectorIntoPdf（pdf-lib、ページ背景を保持�
     const src = await buildTestPdfSrc(1, [300, 300]);
     const res = await embedAnnotationsAsVectorIntoPdf(src, [buildTextAnnotation(1)]);
     expect(res.ok).toBeTrue();
+  });
+});
+
+describe('embedBookmarksIntoPdf（pdf-lib、ネイティブしおり(Outline)として書き込み）', () => {
+  interface OutlineNode {
+    title: string;
+    dest: unknown[];
+    children: OutlineNode[];
+  }
+
+  /** 保存後のPDFから、/Root/Outlines配下の階層をJSの木構造として読み戻す（テスト検証用） */
+  async function readOutlineTree(src64: DocumentSource): Promise<OutlineNode[]> {
+    const doc = await loadTestPdf(src64);
+    const outlinesRef = doc.catalog.get(PDFName.of('Outlines')) as PDFRef | undefined;
+    if (!outlinesRef) return [];
+    const outlines = doc.context.lookup(outlinesRef, PDFDict);
+
+    const readSiblings = (firstRef: PDFRef | undefined): OutlineNode[] => {
+      const nodes: OutlineNode[] = [];
+      let currentRef = firstRef;
+      while (currentRef) {
+        const dict = doc.context.lookup(currentRef, PDFDict);
+        const title = dict.lookup(PDFName.of('Title'), PDFHexString).decodeText();
+        const dest = dict.lookup(PDFName.of('Dest'), PDFArray).asArray();
+        const firstChildRef = dict.get(PDFName.of('First')) as PDFRef | undefined;
+        nodes.push({
+          title,
+          dest,
+          children: firstChildRef ? readSiblings(firstChildRef) : [],
+        });
+        currentRef = dict.get(PDFName.of('Next')) as PDFRef | undefined;
+      }
+      return nodes;
+    };
+
+    return readSiblings(outlines.get(PDFName.of('First')) as PDFRef | undefined);
+  }
+
+  function bm(id: string, title: string, pageNumber: number, extra: Partial<BookmarkInfo> = {}): BookmarkInfo {
+    return { id: id as BookmarkID, title, pageNumber, ...extra };
+  }
+
+  it('親子関係をOutlineの階層（First/Next/Parent）に反映する', async () => {
+    const src = await buildTestPdfSrc(2, [300, 300]);
+    const parentId = 'parent';
+    const res = await embedBookmarksIntoPdf(
+      src,
+      [
+        bm(parentId, '第1章', 1),
+        bm('child-1', '1.1', 1, { parentId: parentId as BookmarkID }),
+        bm('child-2', '1.2', 2, { parentId: parentId as BookmarkID }),
+        bm('root-2', '第2章', 2),
+      ],
+      [],
+    );
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const tree = await readOutlineTree(res.value);
+    expect(tree.map((n) => n.title)).toEqual(['第1章', '第2章']);
+    expect(tree[0]!.children.map((n) => n.title)).toEqual(['1.1', '1.2']);
+    expect(tree[1]!.children).toEqual([]);
+  });
+
+  it('annotationIdが無いブックマークは/Fitでページ全体を指す', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedBookmarksIntoPdf(src, [bm('a', 'ページ1', 1)], []);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [node] = await readOutlineTree(res.value);
+    expect(node?.dest[1]?.toString()).toBe('/Fit');
+  });
+
+  it('annotationIdを持つブックマークは、アノテーションの左上を/XYZで指す', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const annotInfo = { style: buildBoxAnnotation(1), context: {} };
+    const res = await embedBookmarksIntoPdf(
+      src,
+      [bm('a', '注釈', 1, { annotationId: TEST_ANNOTATION_ID })],
+      [annotInfo],
+    );
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [node] = await readOutlineTree(res.value);
+    expect(node?.dest[1]?.toString()).toBe('/XYZ');
+    // boundingBox()はBOUNDING_BOX_PADDING(=2)分だけ広げた矩形を返すため、
+    // x=10,y=10,width=50,height=30 → (8,8)-(62,42) / ページ高さ300 → 左上 = (8, 292)
+    expect((node?.dest[2] as PDFNumber).asNumber()).toBe(8);
+    expect((node?.dest[3] as PDFNumber).asNumber()).toBe(292);
+  });
+
+  it('ページ範囲外を指すブックマークは書き込み対象から除外される', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedBookmarksIntoPdf(src, [bm('a', '範囲外', 99)], []);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const tree = await readOutlineTree(res.value);
+    expect(tree).toEqual([]);
+  });
+
+  it('ブックマークが0件の場合は/Outlinesを作成しない', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedBookmarksIntoPdf(src, [], []);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    expect(doc.catalog.get(PDFName.of('Outlines'))).toBeUndefined();
   });
 });
 

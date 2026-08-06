@@ -208,6 +208,12 @@ export const useEditorStore = defineStore('editor', {
       | { containerID: ContainerID; path: string; page: number; annotId: AnnotationID | undefined }
       | undefined,
 
+    // ファイル単位のブックマーク更新リビジョン。アノテーション右クリックメニューからの
+    // ブックマーク登録のように、ブックマークパネル（activeFileのwatchのみで再読込する）自身が
+    // 直接検知できない変更が起きた際に`touchBookmarks`で加算し、パネル側にこれもwatchさせることで
+    // 再読込を促す（tabKey単位で管理する点、値そのものに意味は無い点はtabViewStatesと同様）
+    bookmarksRevision: {} as Record<string, number>,
+
     // アクティブなペインの表示モード（単一/連続）。表示モード自体はペインごとのローカルstateのため、
     // layerOrderAction/activeSelectionと同じ「意図・状態をeditorStoreに橋渡しする」パターンで扱う
     activeViewMode: undefined as ViewMode | undefined,
@@ -694,6 +700,24 @@ export const useEditorStore = defineStore('editor', {
      */
     clearPendingTabFocus(): void {
       this.pendingTabFocus = undefined;
+    },
+
+    /**
+     * 指定ファイルのブックマークが（自身の操作ではなく）外部から更新されたことを通知する。
+     * アノテーション右クリックメニューからのブックマーク登録など、ブックマークパネル自身が
+     * 直接検知できない変更の後に呼ぶことで、パネル側の再読込を促す
+     */
+    touchBookmarks(file: { containerID: ContainerID; path: string }): void {
+      const key = tabKey(file);
+      this.bookmarksRevision[key] = (this.bookmarksRevision[key] ?? 0) + 1;
+    },
+
+    /**
+     * 指定ファイルの現在のブックマークリビジョンを取得する（`touchBookmarks`の対にして
+     * `watch`対象に使う。値そのものに意味は無く、変化したことだけを検知するために使う）
+     */
+    getBookmarksRevision(file: { containerID: ContainerID; path: string }): number | undefined {
+      return this.bookmarksRevision[tabKey(file)];
     },
 
     /**

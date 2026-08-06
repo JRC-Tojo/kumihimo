@@ -363,8 +363,8 @@ export async function getDocumentConfigFile(
 /**
  * 文書設定ファイルを保存する
  *
- * `bookmarks`はアノテーションと異なりDB経由の差分管理を行わないため、呼び出し側が
- * 現在有効な全件（読み込み直後の内容に対する変更後の状態）をそのまま渡すこと
+ * `bookmarks`・`outlineImported`はアノテーションと異なりDB経由の差分管理を行わないため、
+ * 呼び出し側が現在有効な値（読み込み直後の内容に対する変更後の状態）をそのまま渡すこと
  */
 export async function saveDocumentConfigFile(
   cID: ContainerID,
@@ -372,12 +372,14 @@ export async function saveDocumentConfigFile(
   annotInfos: AnnotationInfo[],
   fileHash: string,
   bookmarks: Record<BookmarkID, BookmarkInfo>,
+  outlineImported: boolean,
 ): Promise<Result<void>> {
   // 書き込む情報を構築する
   const docConf: DocumentConfigFile = {
     fileHash,
     annots: fromEntries(annotInfos.map((aInfo) => [aInfo.style.id, aInfo])),
     bookmarks,
+    outlineImported,
   };
   const docConfStr = JSON.stringify(docConf, null, 2);
   const docConfSrc = textRepository.encodeTextContents(docConfStr);
@@ -442,6 +444,7 @@ export async function saveDocumentConfigs(
   newSrc: DocumentSource,
   annotInfos: AnnotationInfo[],
   bookmarks: Record<BookmarkID, BookmarkInfo>,
+  outlineImported: boolean,
 ): Promise<Result<void>> {
   // 新ファイルのハッシュ値を取得
   const newSrcHash = await calcBase64Hash(newSrc);
@@ -458,6 +461,7 @@ export async function saveDocumentConfigs(
     annotInfos,
     newSrcHash.value,
     bookmarks,
+    outlineImported,
   );
   if (!docConfRes.ok) return docConfRes;
 

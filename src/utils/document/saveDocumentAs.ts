@@ -13,6 +13,7 @@ import type { SaveDocumentNotifyMessages } from 'src/utils/document/saveDocument
 import { useRelationalStore } from 'src/stores/relationalStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import { applyRelationalOverrideToStyle } from 'src/components/Viewer/Annotation/relationalStyleOverride';
+import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 
 /**
  * 別名保存時にアノテーションをどう扱うか
@@ -77,6 +78,17 @@ export async function saveDocumentAs(
       return false;
     }
     outSrc = packRes.data;
+  }
+
+  // 登録済みブックマークは、アノテーションの埋め込みモードに関わらずPDFのネイティブしおり
+  // （Outline）として書き出す（別名保存後のファイルを外部ビューアで開いても参照できるようにする）
+  if (getSupportedDocumentKind(file.path) === 'pdf') {
+    const bookmarkPackRes = await api.packBookmarksInSource(outSrc, file);
+    if (!bookmarkPackRes.ok) {
+      if (notifyMessages) Notify.create({ type: 'negative', message: notifyMessages.failed });
+      return false;
+    }
+    outSrc = bookmarkPackRes.data;
   }
 
   const saveRes = await api.saveFile(destination.containerID, destination.filePath, outSrc);

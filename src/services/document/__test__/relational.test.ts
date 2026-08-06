@@ -569,6 +569,7 @@ describe('getAnnotationPageNumber', () => {
         [idTarget]: { style: baseStyle(idTarget, { pageNumber: 3 }), context: { text: 'X' } },
       },
       bookmarks: {},
+      outlineImported: false,
     };
 
     const res = await getAnnotationPageNumber(idTarget);

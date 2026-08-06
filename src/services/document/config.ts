@@ -3,10 +3,12 @@ import type { DocumentSource } from 'src/models/document/common';
 import { CONFIG_FILE_EXTS } from 'src/models/document/common';
 import { Failure, NotFoundError, Success, type Result } from 'src/models/error/result';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
+import { BookmarkID as BookmarkIDSchema } from 'src/models/relational/fileSchema';
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as relationalService from 'src/services/document/relational';
 import * as annotationService from 'src/services/document/annotation';
+import * as pdfRepo from 'src/repositories/document/pdf';
 import { Path } from 'src/utils/binary/path';
 import { trackPdfAnnotation } from 'src/utils/tracker/trackPdfAnnot';
 import { fromEntries } from 'src/utils/obj/obj';
@@ -15,6 +17,8 @@ import type { AnnotationStyle } from 'src/models/document/pdf';
 import { invalidatePdfDocument } from 'src/repositories/document/pdfDocumentCache';
 import { invalidateRenderCache } from 'src/repositories/document/renderCache';
 import { fileKey } from 'src/utils/document/fileKey';
+import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
+import { outlineEntriesToBookmarks } from 'src/utils/document/bookmarkTree';
 
 /**
  * `.kcfg`のハッシュ記録と実ファイルの内容が一致しない場合（＝アプリ外でファイルが更新された場合）に
@@ -51,7 +55,7 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
   if (configFileRes.ok) {
     configFile = configFileRes.value;
   } else if (configFileRes.error instanceof NotFoundError) {
-    configFile = { fileHash: fileHash.value, annots: {}, bookmarks: {} };
+    configFile = { fileHash: fileHash.value, annots: {}, bookmarks: {}, outlineImported: false };
   } else {
     return configFileRes;
   }
@@ -59,6 +63,12 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
   // 設定ファイルが存在していた場合のみ、ファイル内容が更新されていないか確認する
   if (configFileRes.ok && configFile.fileHash !== fileHash.value) {
     return Failure(new DocumentConfigConflictError());
+  }
+
+  // PDFに元々埋め込まれているしおり（アウトライン）を、初回読み込み時のみ自動でブックマークに
+  // 取り込む。取り込み済みフラグを永続化することで、以降は同じ文書を開いても重複登録しない
+  if (!configFile.outlineImported && getSupportedDocumentKind(file.path) === 'pdf') {
+    configFile = await importOutlineOnce(file, configFile, fileSrc.value);
   }
 
   // 返す前にConfigから読み取ったAnnotation情報をAnnotDBに保存する
@@ -69,6 +79,42 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
 
   // 更新版情報を返す
   return Success(configFile);
+}
+
+/**
+ * PDFのしおり（アウトライン）を一度だけブックマークへ取り込む
+ *
+ * アウトラインの取得に失敗した場合（破損・パスワード付き等）は`outlineImported`を立てず
+ * ベストエフォートで諦める（次回の`loadConfig`で再試行できるようにする）。
+ * アウトラインが0件の場合も「確認済み」として`outlineImported`を立て、以降のPDF解析を省く
+ */
+async function importOutlineOnce(
+  file: ContainerElementFile,
+  configFile: DocumentConfigFile,
+  fileSrc: DocumentSource,
+): Promise<DocumentConfigFile> {
+  const outlineRes = await pdfRepo.getOutline(fileSrc);
+  if (!outlineRes.ok) return configFile;
+
+  const importedBookmarks = outlineEntriesToBookmarks(outlineRes.value, () =>
+    BookmarkIDSchema.parse(crypto.randomUUID()),
+  );
+  const mergedBookmarks = {
+    ...configFile.bookmarks,
+    ...fromEntries(importedBookmarks.map((b) => [b.id, b])),
+  };
+
+  const saveRes = await containerConfigService.saveDocumentConfigFile(
+    file.containerID,
+    file.path,
+    Object.values(configFile.annots),
+    configFile.fileHash,
+    mergedBookmarks,
+    true,
+  );
+  if (!saveRes.ok) return configFile;
+
+  return { ...configFile, bookmarks: mergedBookmarks, outlineImported: true };
 }
 
 /**
@@ -90,6 +136,7 @@ export async function acceptExternalConfig(
     annotInfos,
     config.fileHash,
     config.bookmarks,
+    config.outlineImported ?? false,
   );
   if (!saveRes.ok) return saveRes;
 
@@ -168,13 +215,14 @@ export async function saveConfig(
   const rsWithAdrs = await relationalService.getRelationalsInvolvingFile(file);
   if (!rsWithAdrs.ok) return rsWithAdrs;
 
-  // ブックマークはアノテーションと異なりDB経由の差分管理を行わないため、上書きで消えないよう
-  // 保存直前の`.kcfg`から現在有効な内容をそのまま読み直して引き継ぐ
+  // ブックマーク・しおり取り込み済みフラグはアノテーションと異なりDB経由の差分管理を行わないため、
+  // 上書きで消えないよう保存直前の`.kcfg`から現在有効な内容をそのまま読み直して引き継ぐ
   const currentConfigRes = await containerConfigService.getDocumentConfigFile(
     file.containerID,
     file,
   );
   const bookmarks = currentConfigRes.ok ? currentConfigRes.value.bookmarks : {};
+  const outlineImported = currentConfigRes.ok ? currentConfigRes.value.outlineImported ?? false : false;
 
   // 取得した情報をマージして実ファイルに保存する
   const annotSavedRes = await containerConfigService.saveDocumentConfigs(
@@ -184,6 +232,7 @@ export async function saveConfig(
     newSrc,
     annotInfos.value,
     bookmarks,
+    outlineImported,
   );
   if (!annotSavedRes.ok) return annotSavedRes;
   const relationalSavedRes = await containerConfigService.updateRelationalFile(

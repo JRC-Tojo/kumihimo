@@ -30,12 +30,7 @@ import type {
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
-import type {
-  AnnotationID,
-  AnnotationStyle,
-  ColorCode,
-  PdfOutlineEntry,
-} from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle, ColorCode } from 'src/models/document/pdf';
 import type { AnnotationTool } from 'src/models/docPage';
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
@@ -374,20 +369,10 @@ class BackendApi {
   }
 
   /**
-   * PDFに埋め込まれたしおり（アウトライン）一覧を取得する
-   *
-   * 本システムが独自に管理するブックマーク（`listBookmarks`等）とは別物で、こちらは
-   * 文書自体が持つ読み取り専用の目次情報
-   */
-  async getPdfOutline(file: ContainerElementFile): Promise<ApiResponse<PdfOutlineEntry[]>> {
-    const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
-    if (!docSrc.ok) return toApiResponse(docSrc, 'INVALID_DOCUMENT');
-    const outlineRes = await pdfRepo.getOutline(docSrc.value);
-    return toApiResponse(outlineRes, 'DOC_OUTLINE_LOAD_FAILED');
-  }
-
-  /**
    * 指定文書に登録されているブックマーク一覧を取得する（ページ番号の昇順）
+   *
+   * PDFに元々埋め込まれているしおり（アウトライン）は`loadDocumentConfig`初回呼び出し時に
+   * 自動でここに取り込まれるため、呼び出し側はブックマークの起源を区別する必要はない
    */
   async listBookmarks(file: ContainerElementFile): Promise<ApiResponse<BookmarkInfo[]>> {
     const res = await bookmarkService.listBookmarks(file);
@@ -396,18 +381,23 @@ class BackendApi {
 
   /**
    * ブックマークを新規登録する
+   *
+   * `options.parentId`を指定すると、既存のブックマークの子要素として登録される。
+   * `options.annotationId`を指定すると、ページ番号だけでなくアノテーション位置も記録し、
+   * ジャンプ時にその位置へ遷移できるようにする
    */
   async addBookmark(
     file: ContainerElementFile,
     title: string,
     pageNumber: number,
+    options?: bookmarkService.AddBookmarkOptions,
   ): Promise<ApiResponse<BookmarkInfo>> {
-    const res = await bookmarkService.addBookmark(file, title, pageNumber);
+    const res = await bookmarkService.addBookmark(file, title, pageNumber, options);
     return toApiResponse(res, 'BOOKMARK_SAVE_FAILED');
   }
 
   /**
-   * ブックマークを削除する
+   * ブックマークを削除する（子要素が存在する場合はまとめて削除される）
    */
   async removeBookmark(
     file: ContainerElementFile,
@@ -427,6 +417,31 @@ class BackendApi {
   ): Promise<ApiResponse<void>> {
     const res = await bookmarkService.renameBookmark(file, bookmarkId, newTitle);
     return toApiResponse(res, 'BOOKMARK_SAVE_FAILED');
+  }
+
+  /**
+   * 登録済みブックマークを、PDFのネイティブしおり（Outline）として文書データへ書き込む
+   *
+   * 「名前を付けて保存」（`saveDocumentAs`）でPDFを別名保存する際に使う。ブックマークが
+   * 存在しない場合は`docSrc`をそのまま返す（Outline未設定のPDFへ余計な変更を加えない）
+   */
+  async packBookmarksInSource(
+    docSrc: DocumentSource,
+    file: ContainerElementFile,
+  ): Promise<ApiResponse<DocumentSource>> {
+    const bookmarksRes = await bookmarkService.listBookmarks(file);
+    if (!bookmarksRes.ok) return toApiResponse(bookmarksRes, 'BOOKMARK_LOAD_FAILED');
+    if (bookmarksRes.value.length === 0) return toApiResponse(Success(docSrc));
+
+    const annotInfosRes = await annotationService.getAnnotationsByFile(file);
+    if (!annotInfosRes.ok) return toApiResponse(annotInfosRes, 'DOC_ANNOT_LOAD_FAILED');
+
+    const packedRes = await pdfRepo.embedBookmarksIntoPdf(
+      docSrc,
+      bookmarksRes.value,
+      annotInfosRes.value,
+    );
+    return toApiResponse(packedRes, 'BOOKMARK_EMBED_FAILED');
   }
 
   // ============ アノテーション操作 ============

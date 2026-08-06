@@ -81,6 +81,10 @@ export const BookmarkInfo = z.object({
   id: BookmarkID,
   title: z.string(),
   pageNumber: z.number().int().positive(),
+  // 親ブックマークのID（ルート要素はundefined）。親子関係の登録に使う
+  parentId: BookmarkID.optional(),
+  // アノテーションの右クリックから登録された場合のみ設定される、ジャンプ先のアノテーション
+  annotationId: AnnotationID.optional(),
 });
 export type BookmarkInfo = z.infer<typeof BookmarkInfo>;
 
@@ -94,6 +98,9 @@ export const DocumentConfigFile = z.object({
   annots: z.record(AnnotationID, AnnotationInfo),
   // 既存の.kcfgにはこのフィールドが無いため、読み込み時は空のオブジェクトを既定値とする
   bookmarks: z.record(BookmarkID, BookmarkInfo).optional().default({}),
+  // PDFのしおり（アウトライン）をブックマークとして自動取り込み済みかどうか。
+  // 一度取り込んだ後に再度取り込んで重複登録しないためのフラグ
+  outlineImported: z.boolean().optional().default(false),
 });
 export type DocumentConfigFile = z.infer<typeof DocumentConfigFile>;
 

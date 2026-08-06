@@ -265,6 +265,7 @@ export default {
         applyPreset: 'プリセットスタイルを適用',
         registerPreset: 'プリセットとして登録',
         openRelational: '関係性ダイアログを開く',
+        addBookmark: 'ブックマークに登録',
         delete: '削除',
       },
       presetBar: {
@@ -444,6 +445,8 @@ export default {
       noBookmarks: 'ブックマークなし',
       page: 'ページ',
       add: '現在のページをブックマーク',
+      addChild: '子要素として登録',
+      deleteConfirmWithChildren: '子要素もまとめて削除されます。削除しますか？',
     },
   },
 

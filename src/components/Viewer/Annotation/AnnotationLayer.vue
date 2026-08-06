@@ -82,6 +82,7 @@
     <AnnotationContextMenu
       v-if="contextMenuAnnotation"
       :annotation="contextMenuAnnotation"
+      :file="props.file"
       :client-pos="contextMenuPos"
       @close="contextMenuAnnotation = null"
     />

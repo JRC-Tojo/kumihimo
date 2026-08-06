@@ -265,6 +265,7 @@ export default {
         applyPreset: 'Apply preset style',
         registerPreset: 'Register as preset',
         openRelational: 'Open relational dialog',
+        addBookmark: 'Add bookmark',
         delete: 'Delete',
       },
       presetBar: {
@@ -445,6 +446,8 @@ export default {
       noBookmarks: 'No Bookmarks',
       page: 'Page',
       add: 'Bookmark current page',
+      addChild: 'Add as child',
+      deleteConfirmWithChildren: 'This will also delete its child bookmarks. Delete anyway?',
     },
   },
 
