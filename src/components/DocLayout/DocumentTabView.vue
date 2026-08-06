@@ -538,8 +538,10 @@ async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: An
  * 「対になるアノテーションを選択しても待機状態が解除されない」ように見える不具合につながる。
  * そのため、実際にユーザーが操作しているアクティブなペインでのみ確定処理を行う
  */
-async function registRelationalBySelect(selectedIds: AnnotationID[]) {
-  if (editorStore.activeSide !== prop.layoutSide) return;
+async function registRelationalBySelect(selectedIds: AnnotationID[], originSide: LayoutSide) {
+  // ガードは選択変更が発生した時点のペイン（originSide）に紐づける。
+  // originSide がこのコンポーネントの layoutSide と一致しない場合、発生元が別ペインであるため処理を行わない
+  if (originSide !== prop.layoutSide) return;
 
   const targetId = decideRelationalOnSelectionChanged(
     editorStore.relationalMode,
@@ -557,6 +559,7 @@ async function registRelationalBySelect(selectedIds: AnnotationID[]) {
 async function handleAnnotationsChanged(
   newAnnots: AnnotationStyle[],
   oldAnnots: AnnotationStyle[],
+  originSide: LayoutSide,
 ) {
   // 待機中の基準アノテーションが（このファイル内で）削除された場合は待機を解除する
   if (
@@ -568,11 +571,9 @@ async function handleAnnotationsChanged(
     return;
   }
 
-  // 待機開始・確定はアクティブなペインでの操作としてのみ扱う（registRelationalBySelect
-  // 上部のコメント参照）。同一ファイルを複数ペインに開いている場合、非アクティブ側の
-  // ペインもこのアノテーション追加を検知してしまい、ガードしないと両ペインが二重に
-  // 待機開始・関係性登録を行ってしまう
-  if (editorStore.activeSide === prop.layoutSide) {
+  // 待機開始・確定は、アノテーション変更が発生した時点で操作していたペイン（originSide）でのみ扱う
+  // originSide を渡すことで、非同期処理の間に activeSide が変化しても発生元のペインだけが処理を行う
+  if (originSide === prop.layoutSide) {
     await registRelationalByAdd(newAnnots, oldAnnots);
   }
 
@@ -754,10 +755,16 @@ async function consumePendingTabFocus() {
 }
 
 watch(annotations, (newAnnots, oldAnnots) => {
-  void handleAnnotationsChanged(newAnnots, oldAnnots);
+  // ガードはイベント発生時点のアクティブペインに紐づけて扱う
+  // （非同期処理の間に editorStore.activeSide が変化しても、発生元のペインでのみ
+  //  処理が実行されるようにする）
+  const originSide = editorStore.activeSide;
+  void handleAnnotationsChanged(newAnnots, oldAnnots, originSide);
 });
 watch(selectedAnnotationIds, (selectedIds) => {
-  void registRelationalBySelect(selectedIds);
+  // 選択変更発生時点のアクティブペインを発生元として渡す
+  const originSide = editorStore.activeSide;
+  void registRelationalBySelect(selectedIds, originSide);
 });
 // アクティブなペインの選択状態を、スタイルパネル（MainTools/SubTools行）用にeditorStoreへ橋渡しする。
 // 選択状態自体はペインごとのこのコンポーネントが持つため、layerOrderAction等と同じ

@@ -143,6 +143,11 @@ const otherSides = computed<LayoutSide[]>(() =>
   ALL_SIDES.filter((side) => side !== prop.layoutSide),
 );
 
+/**
+ * 指定ペインの表示ラベルを返す
+ * @param side ラベルを取得したいレイアウトサイド
+ * @returns 表示用のローカライズ文字列
+ */
 function paneLabel(side: LayoutSide): string {
   return $t(PANE_LABEL_KEYS[side]);
 }
@@ -181,6 +186,9 @@ const HOVER_OPEN_DELAY_MS = 400;
 const activeSubmenu = ref<SubmenuKey | null>(null);
 let hoverOpenTimer: ReturnType<typeof setTimeout> | undefined;
 
+/**
+ * サブメニューのホバーオープン用タイマーをクリアする
+ */
 function clearHoverOpenTimer() {
   if (hoverOpenTimer !== undefined) {
     clearTimeout(hoverOpenTimer);
@@ -188,6 +196,12 @@ function clearHoverOpenTimer() {
   }
 }
 
+/**
+ * サブメニューをホバーで開く際の遅延処理をスケジュールする
+ *
+ * 連続的なマウス移動で不用意にサブメニューが開かないよう遅延を設ける。既に同一キーが
+ * 開いている場合は何もしない。別のサブメニューが開いている場合は一旦閉じてからスケジュールする
+ */
 function scheduleOpenSubmenu(key: SubmenuKey) {
   clearHoverOpenTimer();
   if (activeSubmenu.value === key) return;
@@ -197,23 +211,37 @@ function scheduleOpenSubmenu(key: SubmenuKey) {
   }, HOVER_OPEN_DELAY_MS);
 }
 
+/**
+ * 予定されているホバーによる開閉処理をキャンセルする
+ */
 function cancelScheduledOpen() {
   clearHoverOpenTimer();
 }
 
-/** サブメニューを持たない項目にマウスが乗った時、開いているサブメニューを即座に閉じる */
+/**
+ * サブメニューを持たない項目にマウスが乗った時、開いているサブメニューを即座に閉じる
+ */
 function closeSubmenu() {
   clearHoverOpenTimer();
   activeSubmenu.value = null;
 }
 
-/** サブメニュー自体が外側クリック等で閉じられた場合にも状態を同期する */
+/**
+ * 親 <q-menu> の model-value が外部操作で変化した際にローカル状態を同期する
+ * @param isOpen メニューが開いているかどうか
+ */
 function onSubmenuModelUpdate(isOpen: boolean) {
   if (!isOpen) activeSubmenu.value = null;
 }
 
 onBeforeUnmount(clearHoverOpenTimer);
 
+/**
+ * 現在のタブのピン状態を切り替える
+ *
+ * - ピンされている場合は unPinTab を呼ぶ
+ * - ピンされていない場合は pinTab を呼ぶ
+ */
 function onTogglePin() {
   if (pinned.value) {
     editorStore.unPinTab(prop.file, prop.layoutSide);
@@ -222,7 +250,13 @@ function onTogglePin() {
   }
 }
 
-/** 自身と同じタブを別ペインに複製する（既に開いていれば選択するだけ、無ければ新規に開く） */
+/**
+ * 自身と同じタブを別ペインに複製する（既に開いていれば選択するだけ、無ければ新規に開く）
+ *
+ * 流れ:
+ * 1. 複製先ペインが表示されるようタイルモードを必要に応じて切り替える
+ * 2. 指定ペインで同じファイルを openTabAt する
+ */
 function onDuplicateTo(targetSide: LayoutSide) {
   ensurePaneVisible(targetSide);
   editorStore.openTabAt(prop.file, targetSide);
@@ -241,13 +275,24 @@ function onMoveTo(targetSide: LayoutSide) {
   editorStore.closeTab(prop.file, prop.layoutSide, true);
 }
 
-/** 相対パスをクリップボードへコピーする */
+/**
+ * 相対パスをクリップボードへコピーする
+ * (Path を使って正規化したパス文字列をコピーする)
+ */
 async function onCopyRelativePath() {
   await navigator.clipboard.writeText(new Path(prop.file.path).path);
   $q.notify({ type: 'positive', message: $t('explorer.pathCopied') });
 }
 
-/** コンテナ基準の絶対パスをクリップボードへコピーする */
+/**
+ * コンテナ基準の絶対パスをクリップボードへコピーする
+ *
+ * 流れ:
+ * 1. 全コンテナを取得してファイルの属するコンテナを探す
+ * 2. 見つからなければ '.' を使用
+ * 3. Path.child を使ってコンテナ名とファイルパスを結合して絶対パス形式の文字列を生成
+ * 4. クリップボードへ書き出す
+ */
 async function onCopyAbsolutePath() {
   const containersRes = await api.getAllContainers();
   const container = containersRes.ok
@@ -259,14 +304,23 @@ async function onCopyAbsolutePath() {
   $q.notify({ type: 'positive', message: $t('explorer.pathCopied') });
 }
 
+/**
+ * 指定タブ以外を全て閉じる（右クリックメニューの "Close others"）
+ */
 function onCloseOthers() {
   void closeOtherTabs(prop.layoutSide, prop.file);
 }
 
+/**
+ * 指定タブの右側にあるタブを全て閉じる（右クリックメニューの "Close to right"）
+ */
 function onCloseToRight() {
   void closeTabsToRight(prop.layoutSide, prop.file);
 }
 
+/**
+ * 保存済みタブのみをまとめて閉じる（右クリックメニューの "Close saved"）
+ */
 function onCloseSaved() {
   void closeSavedTabs(prop.layoutSide);
 }

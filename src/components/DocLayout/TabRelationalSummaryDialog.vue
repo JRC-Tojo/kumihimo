@@ -147,35 +147,62 @@ const edges = computed<RelationalEdge[]>(
   () => relationalStore.edgesByFileKey[fileKey(prop.file)] ?? [],
 );
 
+/**
+ * エッジ（関係性）の一意キーを生成する
+ * @param edge 関係性エッジ
+ * @returns `${srcID}|${targetID}` 形式のキー
+ */
 function edgeKey(edge: RelationalEdge): string {
   return `${edge.relational.srcID}|${edge.relational.targetID}`;
 }
 
+/**
+ * 関係性の検証ステータスに応じたアイコン名を返す
+ * - 未検証: hourglass_empty
+ * - 成功: check_circle
+ * - 失敗: cancel
+ */
 function statusIcon(edge: RelationalEdge): string {
   if (edge.checkedRule === undefined) return 'hourglass_empty';
   return edge.checkedRule.isOK ? 'check_circle' : 'cancel';
 }
 
+/**
+ * 検証ステータスに応じた色表現を返す（Quasarのカラー名）
+ */
 function statusColor(edge: RelationalEdge): string {
   if (edge.checkedRule === undefined) return 'grey-6';
   return edge.checkedRule.isOK ? 'positive' : 'negative';
 }
 
+/**
+ * キャッシュからアノテーションの属するファイル名ラベルを取得する
+ * 未解決の場合は '...' を返す
+ */
 function endpointLabel(annotId: AnnotationID): string {
   return endpointLabelCache.value[annotId] ?? '...';
 }
 
+/**
+ * エッジの関係性種別をローカライズされた文字列で返す
+ */
 function ruleTypeLabel(edge: RelationalEdge): string {
   return edge.relational.rule.type === 'equal'
     ? $t('pdfEditor.tools.relational.equal')
     : $t('pdfEditor.tools.relational.link');
 }
 
+/**
+ * src 側に適用される計算式を返す（equal のみ）
+ */
 function srcFormula(edge: RelationalEdge): string | undefined {
   const rule = edge.relational.rule;
   return rule.type === 'equal' ? rule.srcFormula : undefined;
 }
 
+/**
+ * target 側に適用される計算式を返す（equal のみ）
+ */
 function targetFormula(edge: RelationalEdge): string | undefined {
   const rule = edge.relational.rule;
   return rule.type === 'equal' ? rule.targetFormula : undefined;
@@ -191,14 +218,21 @@ function valueDisplay(edge: RelationalEdge, rawValue: string, formula: string | 
   return formatValueWithFormula(rawValue, formula);
 }
 
-/** 各エッジの両端アノテーションについて、属するファイル名を解決してキャッシュする */
+/**
+ * 各エッジの両端アノテーションについて、属するファイル名を解決してキャッシュする
+ *
+ * 流れ:
+ * 1. 指定されたエッジ群から全アノテーションIDを収集
+ * 2. 未解決のアノテーションIDについて api.resolveAnnotationFile を呼び出す
+ * 3. 取得できたファイルパスから Path.basename を使ってファイル名を抽出してキャッシュへ保存
+ */
 async function resolveEndpointLabels(targetEdges: RelationalEdge[]) {
   const ids = targetEdges.flatMap((edge) => [edge.relational.srcID, edge.relational.targetID]);
   for (const id of ids) {
     if (endpointLabelCache.value[id] !== undefined) continue;
     const fileRes = await api.resolveAnnotationFile(id);
     endpointLabelCache.value[id] = fileRes.ok
-      ? (fileRes.data.path.split('/').pop() ?? fileRes.data.path)
+      ? new Path(fileRes.data.path).basename()
       : '?';
   }
 }
@@ -210,15 +244,29 @@ const expandedKeys = ref<Set<string>>(new Set());
 const previewCache = ref<Record<AnnotationID, string | null>>({});
 const previewLoadingIds = ref<Set<AnnotationID>>(new Set());
 
+/**
+ * プレビューキャッシュから画像URLを取得する（未取得なら undefined）
+ */
 function previewSrc(annotId: AnnotationID): string | undefined {
   return previewCache.value[annotId] ?? undefined;
 }
 
+/**
+ * 指定アノテーションのプレビューがロード中かを返す
+ */
 function isPreviewLoading(annotId: AnnotationID): boolean {
   return previewLoadingIds.value.has(annotId);
 }
 
-/** 指定アノテーションのプレビュー画像を、未取得の場合のみ取得してキャッシュする */
+/**
+ * 指定アノテーションのプレビュー画像を、未取得の場合のみ取得してキャッシュする
+ *
+ * 流れ:
+ * 1. 既にキャッシュが存在するかロード中であれば何もしない
+ * 2. ロード状態を追加し、APIから画像を取得
+ * 3. 成功すればプレビューキャッシュに格納、失敗なら null を格納
+ * 4. ロード状態から削除する
+ */
 async function ensurePreview(annotId: AnnotationID) {
   if (previewCache.value[annotId] !== undefined || previewLoadingIds.value.has(annotId)) return;
 
@@ -228,6 +276,12 @@ async function ensurePreview(annotId: AnnotationID) {
   previewLoadingIds.value.delete(annotId);
 }
 
+/**
+ * エッジの展開／折りたたみが切り替わった時の処理
+ *
+ * - 展開した場合は両端のプレビュー取得を開始する
+ * - 折りたたんだ場合は展開キーを除去する（プレビューはキャッシュとして残す）
+ */
 function onToggleExpand(edge: RelationalEdge, isOpen: boolean) {
   const key = edgeKey(edge);
   if (isOpen) {
@@ -239,7 +293,14 @@ function onToggleExpand(edge: RelationalEdge, isOpen: boolean) {
   }
 }
 
-/** クリックされたアノテーションが属するファイルを新規タブで開き、そのページへ遷移する */
+/**
+ * クリックされたアノテーションが属するファイルを新規タブで開き、そのページへ遷移する
+ *
+ * 流れ:
+ * 1. api.resolveAnnotationFile でアノテーションの所属ファイルを解決
+ * 2. api.getAnnotationPageNumber でページ番号を取得（無ければ undefined）
+ * 3. editorStore.openTab で新規タブを開き、選択状態を設定してダイアログを閉じる
+ */
 async function openAnnotation(annotId: AnnotationID) {
   const fileRes = await api.resolveAnnotationFile(annotId);
   if (!fileRes.ok) return;
