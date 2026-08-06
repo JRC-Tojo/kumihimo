@@ -565,13 +565,11 @@ function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<
 /**
  * 描画完了後、選択モードへ自動的に戻す（プリセットのダブルクリックでstickyDrawModeが
  * 有効な場合は戻さず、同じツール・スタイルのまま連続して描き続けられるようにする）
- * @returns 実際にポインタモードへ切り替えたかどうか
  */
-function returnToPointerModeUnlessSticky(): boolean {
-  if (editorStore.stickyDrawMode) return false;
+function returnToPointerModeUnlessSticky(): void {
+  if (editorStore.stickyDrawMode) return;
   editorStore.activeAnnotationType = undefined;
   editorStore.currentTools = 'pointer';
-  return true;
 }
 
 /**
@@ -591,11 +589,13 @@ function finishClickPointsDrawing() {
     const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
     void props.onRegisterAnnot(annotation).then(() => {
       // 描き終えたら選択モードへ自動的に戻る（テキストは直後にインライン編集へ入るため対象外。
-      // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）
-      const switchedToPointer = returnToPointerModeUnlessSticky();
+      // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）。
+      // 選択状態自体は連続描画モードかどうかに関わらず常に描いたアノテーションへ移す
+      // （関係性登録ボタンの表示・関係性の起点判定がこの選択に依存しているため）
+      returnToPointerModeUnlessSticky();
       if (shouldStartTextEdit && annotation.type === 'text') {
         startTextEdit(annotation);
-      } else if (switchedToPointer) {
+      } else {
         selectedAnnotIds.value = [annotation.id];
       }
     });
@@ -994,11 +994,13 @@ function handleMouseUp(e: KonvaMouseEvent) {
         const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
         void props.onRegisterAnnot(annotation).then(() => {
           // 描き終えたら選択モードへ自動的に戻る（テキストは直後にインライン編集へ入るため対象外。
-          // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）
-          const switchedToPointer = returnToPointerModeUnlessSticky();
+          // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）。
+          // 選択状態自体は連続描画モードかどうかに関わらず常に描いたアノテーションへ移す
+          // （関係性登録ボタンの表示・関係性の起点判定がこの選択に依存しているため）
+          returnToPointerModeUnlessSticky();
           if (shouldStartTextEdit && annotation.type === 'text') {
             startTextEdit(annotation);
-          } else if (switchedToPointer) {
+          } else {
             selectedAnnotIds.value = [annotation.id];
           }
         });

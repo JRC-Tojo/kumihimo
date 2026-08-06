@@ -56,3 +56,88 @@ export function startRelationalDefine(
   editorStore.startRelationalPending(annotId, file);
   showRelationalWaitingNotify(editorStore, t, mode);
 }
+
+/** `decideRelationalOnAnnotationsAdded`が返す判定結果 */
+export type RelationalAddDecision =
+  | { action: 'start'; annotId: AnnotationID }
+  | { action: 'finish'; annotId: AnnotationID }
+  | undefined;
+
+/**
+ * アノテーション一覧に新たに追加された1件をもとに、関係性登録の待機状態をどう
+ * 遷移すべきか判定する（`DocumentTabView.vue`がアノテーション一覧の変化を監視する際に使う）
+ *
+ * 判定は基本的にID差分（新たに追加されたアノテーションのID）のみに基づき、選択状態には
+ * 依存しない。これにより、連続描画モードで選択状態の更新が遅れる／伴わない場合でも、
+ * 「1つ目の作成で待機開始、2つ目の作成で確定」という連続登録の一連の流れを常に正しく判定できる。
+ *
+ * ただし`lastPairedId`（直前に確定したペアの対象アノテーションID）だけは例外的に参照する。
+ * アノテーション一覧への反映（バックエンド経由の非同期通知）は、選択状態の反映（描画完了時に
+ * 直接代入）より遅れて届くことがあるため、2つ目のアノテーションの確定が選択変化側
+ * （`decideRelationalOnSelectionChanged`）で先に処理されてしまうケースがある。その場合、
+ * この関数が同じアノテーションの追加を検知する時点では待機は既に解除済みで「1つ目の追加」に
+ * 見えてしまうが、実際には新しい起点ではなく確定処理の後追い検知にすぎない。これを誤って
+ * 新たな起点にしてしまうと、直後に描いた次のアノテーションと即座に関係性が結ばれてしまう
+ */
+export function decideRelationalOnAnnotationsAdded(
+  mode: RelationalRuleType | undefined,
+  pendingId: AnnotationID | undefined,
+  addedAnnotIds: AnnotationID[],
+  lastPairedId: AnnotationID | undefined,
+): RelationalAddDecision {
+  if (mode === undefined) return undefined;
+  if (addedAnnotIds.length !== 1) return undefined; // 1件増えたときのみ対象
+  const addedId = addedAnnotIds[0];
+  if (addedId === undefined) return undefined;
+  if (pendingId !== undefined) return { action: 'finish', annotId: addedId };
+  if (addedId === lastPairedId) return undefined; // 確定処理の後追い検知は無視する
+  return { action: 'start', annotId: addedId };
+}
+
+/**
+ * 選択中アノテーションの変化をもとに、待機中の関係性を確定すべきかどうか判定する
+ * （`DocumentTabView.vue`が選択状態の変化を監視する際に使う。既存の別アノテーションを
+ * 対になる相手として選んだ場合の確定はこちらが担う）
+ */
+export function decideRelationalOnSelectionChanged(
+  mode: RelationalRuleType | undefined,
+  pendingId: AnnotationID | undefined,
+  selectedIds: AnnotationID[],
+): AnnotationID | undefined {
+  if (mode === undefined || pendingId === undefined) return undefined;
+  const targetIds = selectedIds.filter((id) => id !== pendingId);
+  return targetIds.length === 1 ? targetIds[0] : undefined;
+}
+
+/** `decideRelationalContinuousRestart`が返す判定結果 */
+export type RelationalContinuousRestartDecision =
+  | { start: false; clearLastPaired: boolean }
+  | { start: true; clearLastPaired: boolean; annotId: AnnotationID; mode: RelationalRuleType };
+
+/**
+ * 連続定義モード中、選択中アノテーションのIDが変化した際に、それを新たな起点として
+ * 待機状態を自動的に開始すべきかどうか判定する（`RelationalDefineButtons.vue`が
+ * 選択IDの変化を監視する際に使う）
+ *
+ * `lastPairedId`（直前に確定したペアの対象アノテーションID）と一致する間は、
+ * 「対になるアノテーションが選択され続けているだけ」とみなしてスキップする。
+ * 呼び出し側は`targetId`にアノテーションオブジェクトそのものではなくIDを渡すこと
+ * （アノテーション一覧の更新に伴い参照だけが変化してこの判定が意図せず再実行されるのを防ぐため）
+ */
+export function decideRelationalContinuousRestart(params: {
+  continuous: boolean;
+  pending: boolean;
+  mode: RelationalRuleType | undefined;
+  targetId: AnnotationID | undefined;
+  lastPairedId: AnnotationID | undefined;
+}): RelationalContinuousRestartDecision {
+  const { continuous, pending, mode, targetId, lastPairedId } = params;
+  if (lastPairedId !== undefined && targetId === lastPairedId) {
+    return { start: false, clearLastPaired: false };
+  }
+  const clearLastPaired = lastPairedId !== undefined;
+  if (!continuous || pending || targetId === undefined || mode === undefined) {
+    return { start: false, clearLastPaired };
+  }
+  return { start: true, clearLastPaired, annotId: targetId, mode };
+}
