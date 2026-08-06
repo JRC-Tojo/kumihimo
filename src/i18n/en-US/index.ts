@@ -244,6 +244,7 @@ export default {
         equal: 'Equal',
         link: 'Linked',
         cancel: 'Cancel',
+        cancelContinuous: 'End continuous defining mode',
         defineequal: 'Define relationship as "Equal"',
         definelink: 'Define relationship as "Linked"',
         openSettings: 'Open relational verification style settings',

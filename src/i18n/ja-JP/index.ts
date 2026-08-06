@@ -244,6 +244,7 @@ export default {
         equal: '等しい',
         link: 'リンク',
         cancel: 'キャンセル',
+        cancelContinuous: '連続定義モードを終了',
         defineequal: '「等しい」として関係性を定義',
         definelink: '「リンク」として関係性を定義',
         openSettings: '関係性検証スタイルの設定を開く',
