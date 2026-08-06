@@ -378,6 +378,7 @@ export default {
       pin: 'ピン留め',
       unpin: 'ピン留めを解除',
       duplicateTo: '別のペインに複製',
+      moveTo: '別のペインに移動',
       paneNames: {
         ul: '左上のペイン',
         ur: '右上のペイン',

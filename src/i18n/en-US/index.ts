@@ -379,6 +379,7 @@ export default {
       pin: 'Pin',
       unpin: 'Unpin',
       duplicateTo: 'Duplicate to another pane',
+      moveTo: 'Move to another pane',
       paneNames: {
         ul: 'Top-left pane',
         ur: 'Top-right pane',
