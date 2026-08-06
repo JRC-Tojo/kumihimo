@@ -105,7 +105,8 @@ export function decideRelationalOnSelectionChanged(
   selectedIds: AnnotationID[],
 ): AnnotationID | undefined {
   if (mode === undefined || pendingId === undefined) return undefined;
-  return selectedIds.find((id) => id !== pendingId);
+  const targetIds = selectedIds.filter((id) => id !== pendingId);
+  return targetIds.length === 1 ? targetIds[0] : undefined;
 }
 
 /** `decideRelationalContinuousRestart`が返す判定結果 */
