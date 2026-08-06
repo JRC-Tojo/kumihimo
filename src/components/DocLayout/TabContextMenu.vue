@@ -1,16 +1,26 @@
 <template>
   <q-list dense style="min-width: 220px">
-    <q-item v-close-popup clickable @click="onTogglePin">
+    <q-item v-close-popup clickable @click="onTogglePin" @mouseenter="closeDuplicateSubmenu">
       <q-item-section>{{
         pinned ? $t('pdfEditor.tabs.unpin') : $t('pdfEditor.tabs.pin')
       }}</q-item-section>
     </q-item>
-    <q-item clickable>
+    <q-item
+      clickable
+      @click="duplicateSubmenuOpen = true"
+      @mouseenter="scheduleOpenDuplicateSubmenu"
+      @mouseleave="cancelScheduledOpen"
+    >
       <q-item-section>{{ $t('pdfEditor.tabs.duplicateTo') }}</q-item-section>
       <q-item-section side>
         <q-icon name="keyboard_arrow_right" />
       </q-item-section>
-      <q-menu anchor="top end" self="top start">
+      <q-menu
+        :model-value="duplicateSubmenuOpen"
+        anchor="top end"
+        self="top start"
+        @update:model-value="(v: boolean) => (duplicateSubmenuOpen = v)"
+      >
         <q-list dense style="min-width: 150px">
           <q-item
             v-for="side in otherVisibleSides"
@@ -25,34 +35,45 @@
       </q-menu>
     </q-item>
     <q-separator />
-    <q-item v-close-popup clickable @click="onCopyRelativePath">
+    <q-item v-close-popup clickable @click="onCopyRelativePath" @mouseenter="closeDuplicateSubmenu">
       <q-item-section>{{ $t('explorer.copyRelativePath') }}</q-item-section>
     </q-item>
-    <q-item v-close-popup clickable @click="onCopyAbsolutePath">
+    <q-item v-close-popup clickable @click="onCopyAbsolutePath" @mouseenter="closeDuplicateSubmenu">
       <q-item-section>{{ $t('explorer.copyAbsolutePath') }}</q-item-section>
     </q-item>
     <q-separator />
-    <q-item v-close-popup clickable @click="emit('showRelationalSummary')">
+    <q-item
+      v-close-popup
+      clickable
+      @click="emit('showRelationalSummary')"
+      @mouseenter="closeDuplicateSubmenu"
+    >
       <q-item-section>{{ $t('pdfEditor.tabs.showRelationalSummary') }}</q-item-section>
     </q-item>
     <q-separator />
-    <q-item v-close-popup clickable @click="onCloseOthers">
+    <q-item v-close-popup clickable @click="onCloseOthers" @mouseenter="closeDuplicateSubmenu">
       <q-item-section>{{ $t('pdfEditor.tabs.closeOthers') }}</q-item-section>
     </q-item>
-    <q-item v-close-popup clickable @click="onCloseToRight">
+    <q-item v-close-popup clickable @click="onCloseToRight" @mouseenter="closeDuplicateSubmenu">
       <q-item-section>{{ $t('pdfEditor.tabs.closeToRight') }}</q-item-section>
     </q-item>
-    <q-item v-close-popup clickable @click="onCloseSaved">
+    <q-item v-close-popup clickable @click="onCloseSaved" @mouseenter="closeDuplicateSubmenu">
       <q-item-section>{{ $t('pdfEditor.tabs.closeSaved') }}</q-item-section>
     </q-item>
-    <q-item v-close-popup clickable @click="emit('close')">
-      <q-item-section class="text-negative">{{ $t('pdfEditor.tabs.close') }}</q-item-section>
+    <q-item
+      v-close-popup
+      clickable
+      class="text-negative"
+      @click="emit('close')"
+      @mouseenter="closeDuplicateSubmenu"
+    >
+      <q-item-section>{{ $t('pdfEditor.tabs.close') }}</q-item-section>
     </q-item>
   </q-list>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import type { ContainerElementFile } from 'src/models/container';
@@ -96,6 +117,41 @@ const otherVisibleSides = computed<LayoutSide[]>(() =>
 function paneLabel(side: LayoutSide): string {
   return $t(PANE_LABEL_KEYS[side]);
 }
+
+// 「別のペインに複製」のサブメニュー。AnnotationContextMenu.vueと同じパターンで、単純に
+// <q-menu>を親項目の子として置くだけではクリック・ホバーいずれでも開かないため、
+// 開閉状態を明示的に持ち`model-value`で制御する。素早く通り過ぎただけで開いてしまわない
+// よう、ホバーはやや長めの遅延を経てから開く（クリックは即座に開く）
+const DUPLICATE_SUBMENU_HOVER_DELAY_MS = 400;
+const duplicateSubmenuOpen = ref(false);
+let hoverOpenTimer: ReturnType<typeof setTimeout> | undefined;
+
+function clearHoverOpenTimer() {
+  if (hoverOpenTimer !== undefined) {
+    clearTimeout(hoverOpenTimer);
+    hoverOpenTimer = undefined;
+  }
+}
+
+function scheduleOpenDuplicateSubmenu() {
+  clearHoverOpenTimer();
+  if (duplicateSubmenuOpen.value) return;
+  hoverOpenTimer = setTimeout(() => {
+    duplicateSubmenuOpen.value = true;
+  }, DUPLICATE_SUBMENU_HOVER_DELAY_MS);
+}
+
+function cancelScheduledOpen() {
+  clearHoverOpenTimer();
+}
+
+/** サブメニューを持たない項目にマウスが乗った時、開いているサブメニューを即座に閉じる */
+function closeDuplicateSubmenu() {
+  clearHoverOpenTimer();
+  duplicateSubmenuOpen.value = false;
+}
+
+onBeforeUnmount(clearHoverOpenTimer);
 
 function onTogglePin() {
   if (pinned.value) {
