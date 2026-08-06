@@ -393,6 +393,9 @@ export default {
       relationalSummary: {
         title: 'Relational Verification Results',
         noRelations: 'No relations involve this file',
+        srcValue: 'Source value',
+        targetValue: 'Target value',
+        ruleLabel: 'Rule type',
       },
     },
     pageList: {

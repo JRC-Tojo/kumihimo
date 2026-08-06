@@ -392,6 +392,9 @@ export default {
       relationalSummary: {
         title: 'このファイルの関係性検証結果',
         noRelations: 'このファイルに関わる関係性はありません',
+        srcValue: '基点の値',
+        targetValue: '対象の値',
+        ruleLabel: '関係性の種別',
       },
     },
     pageList: {

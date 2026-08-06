@@ -12,23 +12,106 @@
         <p v-else-if="edges.length === 0" class="text-caption text-grey-6 q-mb-none">
           {{ $t('pdfEditor.tabs.relationalSummary.noRelations') }}
         </p>
-        <q-list v-else separator>
-          <q-item v-for="edge in edges" :key="edgeKey(edge)">
-            <q-item-section avatar>
-              <q-icon :name="statusIcon(edge)" :color="statusColor(edge)" size="1.2rem" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>
-                <a class="endpoint-link" @click="openAnnotation(edge.relational.srcID)">{{
-                  endpointLabel(edge.relational.srcID)
-                }}</a>
-                <q-icon name="sync_alt" size="1rem" class="q-mx-xs" />
-                <a class="endpoint-link" @click="openAnnotation(edge.relational.targetID)">{{
-                  endpointLabel(edge.relational.targetID)
-                }}</a>
-              </q-item-label>
-            </q-item-section>
-          </q-item>
+        <q-list v-else bordered separator class="rounded-borders">
+          <!-- 既定では折りたたみ、開いた項目のみ両端のプレビュー・登録内容・検証結果を読み込む -->
+          <q-expansion-item
+            v-for="edge in edges"
+            :key="edgeKey(edge)"
+            dense-toggle
+            :model-value="expandedKeys.has(edgeKey(edge))"
+            @update:model-value="(v: boolean) => onToggleExpand(edge, v)"
+          >
+            <template #header>
+              <q-item-section avatar>
+                <q-icon :name="statusIcon(edge)" :color="statusColor(edge)" size="1.2rem" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>
+                  {{ endpointLabel(edge.relational.srcID) }}
+                  <q-icon name="sync_alt" size="1rem" class="q-mx-xs" />
+                  {{ endpointLabel(edge.relational.targetID) }}
+                </q-item-label>
+              </q-item-section>
+            </template>
+
+            <q-card flat class="detail-card q-pa-sm">
+              <div class="row q-col-gutter-sm">
+                <div class="col-6 endpoint-detail">
+                  <div class="text-caption text-grey-6 ellipsis">
+                    {{ endpointLabel(edge.relational.srcID) }}
+                  </div>
+                  <div class="preview-box">
+                    <q-spinner
+                      v-if="isPreviewLoading(edge.relational.srcID)"
+                      color="primary"
+                      size="1.5em"
+                    />
+                    <q-img
+                      v-else-if="previewSrc(edge.relational.srcID)"
+                      :src="previewSrc(edge.relational.srcID)!"
+                      fit="contain"
+                      class="preview-image"
+                    />
+                    <span v-else class="text-caption text-grey-6">
+                      {{ $t('pdfEditor.peek.previewUnavailable') }}
+                    </span>
+                  </div>
+                  <div class="text-caption q-mt-xs value-line">
+                    {{ $t('pdfEditor.tabs.relationalSummary.srcValue') }}:
+                    {{ valueDisplay(edge, edge.srcVal, srcFormula(edge)) }}
+                  </div>
+                  <q-btn
+                    flat
+                    dense
+                    size="sm"
+                    icon="open_in_new"
+                    :label="$t('pdfEditor.peek.openDocument')"
+                    @click="openAnnotation(edge.relational.srcID)"
+                  />
+                </div>
+                <div class="col-6 endpoint-detail">
+                  <div class="text-caption text-grey-6 ellipsis">
+                    {{ endpointLabel(edge.relational.targetID) }}
+                  </div>
+                  <div class="preview-box">
+                    <q-spinner
+                      v-if="isPreviewLoading(edge.relational.targetID)"
+                      color="primary"
+                      size="1.5em"
+                    />
+                    <q-img
+                      v-else-if="previewSrc(edge.relational.targetID)"
+                      :src="previewSrc(edge.relational.targetID)!"
+                      fit="contain"
+                      class="preview-image"
+                    />
+                    <span v-else class="text-caption text-grey-6">
+                      {{ $t('pdfEditor.peek.previewUnavailable') }}
+                    </span>
+                  </div>
+                  <div class="text-caption q-mt-xs value-line">
+                    {{ $t('pdfEditor.tabs.relationalSummary.targetValue') }}:
+                    {{ valueDisplay(edge, edge.targetVal, targetFormula(edge)) }}
+                  </div>
+                  <q-btn
+                    flat
+                    dense
+                    size="sm"
+                    icon="open_in_new"
+                    :label="$t('pdfEditor.peek.openDocument')"
+                    @click="openAnnotation(edge.relational.targetID)"
+                  />
+                </div>
+              </div>
+
+              <q-separator class="q-my-sm" />
+
+              <div class="text-caption">
+                {{ $t('pdfEditor.tabs.relationalSummary.ruleLabel') }}:
+                {{ ruleTypeLabel(edge) }}
+              </div>
+            </q-card>
+          </q-expansion-item>
         </q-list>
       </q-card-section>
     </q-card>
@@ -43,6 +126,7 @@ import { useEditorStore } from 'src/stores/editorStore';
 import { useRelationalStore, fileKey, type RelationalEdge } from 'src/stores/relationalStore';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
+import { formatValueWithFormula } from 'src/utils/calculation/formula';
 
 interface Prop {
   file: ContainerElementFile;
@@ -81,6 +165,32 @@ function endpointLabel(annotId: AnnotationID): string {
   return endpointLabelCache.value[annotId] ?? '...';
 }
 
+function ruleTypeLabel(edge: RelationalEdge): string {
+  return edge.relational.rule.type === 'equal'
+    ? $t('pdfEditor.tools.relational.equal')
+    : $t('pdfEditor.tools.relational.link');
+}
+
+function srcFormula(edge: RelationalEdge): string | undefined {
+  const rule = edge.relational.rule;
+  return rule.type === 'equal' ? rule.srcFormula : undefined;
+}
+
+function targetFormula(edge: RelationalEdge): string | undefined {
+  const rule = edge.relational.rule;
+  return rule.type === 'equal' ? rule.targetFormula : undefined;
+}
+
+/**
+ * 検証結果の値を表示用の文字列に変換する（検証中は明示し、空文字列は空であることが分かるように
+ * したうえで、計算式が設定されていれば式と結果も併記する）。RelationalPeekDialog.vueと同じ表示規約
+ */
+function valueDisplay(edge: RelationalEdge, rawValue: string, formula: string | undefined): string {
+  if (edge.checkedRule === undefined) return $t('pdfEditor.peek.verifying');
+  if (rawValue === '') return $t('pdfEditor.peek.emptyValue');
+  return formatValueWithFormula(rawValue, formula);
+}
+
 /** 各エッジの両端アノテーションについて、属するファイル名を解決してキャッシュする */
 async function resolveEndpointLabels(targetEdges: RelationalEdge[]) {
   const ids = targetEdges.flatMap((edge) => [edge.relational.srcID, edge.relational.targetID]);
@@ -90,6 +200,42 @@ async function resolveEndpointLabels(targetEdges: RelationalEdge[]) {
     endpointLabelCache.value[id] = fileRes.ok
       ? (fileRes.data.path.split('/').pop() ?? fileRes.data.path)
       : '?';
+  }
+}
+
+// 展開中の項目（edgeKey）。展開時のみ両端のプレビューを取得する（一覧表示だけで全件分の
+// プレビューを先読みすると、関係性が多いファイルで無駄なAPI呼び出しが増えるため）
+const expandedKeys = ref<Set<string>>(new Set());
+// アノテーションIDごとのプレビュー画像。undefined=未取得、null=取得済みだが利用不可
+const previewCache = ref<Record<AnnotationID, string | null>>({});
+const previewLoadingIds = ref<Set<AnnotationID>>(new Set());
+
+function previewSrc(annotId: AnnotationID): string | undefined {
+  return previewCache.value[annotId] ?? undefined;
+}
+
+function isPreviewLoading(annotId: AnnotationID): boolean {
+  return previewLoadingIds.value.has(annotId);
+}
+
+/** 指定アノテーションのプレビュー画像を、未取得の場合のみ取得してキャッシュする */
+async function ensurePreview(annotId: AnnotationID) {
+  if (previewCache.value[annotId] !== undefined || previewLoadingIds.value.has(annotId)) return;
+
+  previewLoadingIds.value.add(annotId);
+  const res = await api.getAnnotationPreviewImage(annotId);
+  previewCache.value[annotId] = res.ok ? res.data : null;
+  previewLoadingIds.value.delete(annotId);
+}
+
+function onToggleExpand(edge: RelationalEdge, isOpen: boolean) {
+  const key = edgeKey(edge);
+  if (isOpen) {
+    expandedKeys.value.add(key);
+    void ensurePreview(edge.relational.srcID);
+    void ensurePreview(edge.relational.targetID);
+  } else {
+    expandedKeys.value.delete(key);
   }
 }
 
@@ -105,11 +251,15 @@ async function openAnnotation(annotId: AnnotationID) {
 
 watch(edges, (newEdges) => void resolveEndpointLabels(newEdges), { immediate: true });
 
-// ダイアログを開くたびに最新の検証結果を取得する
+// ダイアログを開くたびに最新の検証結果を取得し、展開状態・プレビューキャッシュもリセットする
 watch(
   open,
   async (isOpen) => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      expandedKeys.value = new Set();
+      previewCache.value = {};
+      return;
+    }
     loading.value = true;
     await relationalStore.refreshFile(prop.file);
     loading.value = false;
@@ -120,13 +270,41 @@ watch(
 
 <style scoped lang="scss">
 .tab-relational-summary-card {
-  width: 480px;
+  width: 560px;
   max-width: 90vw;
 }
 
-.endpoint-link {
-  cursor: pointer;
-  color: var(--q-primary);
-  text-decoration: underline;
+.detail-card {
+  background: $grey-1;
+}
+
+.body--dark .detail-card {
+  background: $grey-9;
+}
+
+.endpoint-detail {
+  min-width: 0;
+}
+
+.preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+  background-color: $grey-2;
+  border-radius: 4px;
+}
+
+.body--dark .preview-box {
+  background-color: $grey-8;
+}
+
+.preview-image {
+  max-height: 140px;
+  max-width: 100%;
+}
+
+.value-line {
+  word-break: break-all;
 }
 </style>
