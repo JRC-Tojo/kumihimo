@@ -105,6 +105,7 @@ import { fileKey } from 'src/utils/document/fileKey';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
 import { useZoomControl } from './composables/useZoomControl';
+import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 import {
   MAX_ZOOM,
   PAGE_LIST_INITIAL_ZOOM,
@@ -433,6 +434,39 @@ async function scrollToCurrentPage(viewerContainerHeight: number) {
   }
 }
 
+/**
+ * 指定したアノテーションが画面中央に来るよう、ページ内の位置までスクロールする
+ *
+ * `scrollToCurrentPage`（ページ単位の近似スクロール）だけでは、ページ内のどこにアノテーションが
+ * あるかまでは考慮されない（長いページの下部にあるアノテーションが画面外のままになる）ため、
+ * ブックマーク・関係性ダイアログからのジャンプ（`pendingTabFocus.annotId`）専用にこちらで補う。
+ * `currentPage`を対象アノテーションのページへ既に移動済みであることが前提
+ */
+async function scrollToAnnotation(annotId: AnnotationID) {
+  const annotation = annotations.value.find((a) => a.id === annotId);
+  if (!annotation || !viewer.value) return;
+
+  // ページ要素自体（`documentViewer`側のズームアンカー計算用矩形）が実際のレイアウトに
+  // 反映されるのを待つ（表示モード切替・ページ切替直後はDOMパッチが未反映の場合があるため）
+  await nextTick();
+  const pageRect = documentViewer.value?.getAnchorRect();
+  if (!pageRect) return;
+
+  const scale = zoomLevel.value / 100;
+  const bbox = ANNOTATION_GEOMETRY[annotation.type].boundingBox(annotation);
+  const wrapperRect = viewer.value.getBoundingClientRect();
+
+  const annotCenterX =
+    pageRect.left - wrapperRect.left + viewer.value.scrollLeft + (bbox.x + bbox.width / 2) * scale;
+  const annotCenterY =
+    pageRect.top - wrapperRect.top + viewer.value.scrollTop + (bbox.y + bbox.height / 2) * scale;
+
+  viewer.value.scrollTo({
+    left: Math.max(0, annotCenterX - wrapperRect.width / 2),
+    top: Math.max(0, annotCenterY - wrapperRect.height / 2),
+  });
+}
+
 // ================================
 
 /**
@@ -696,6 +730,9 @@ onMounted(async () => {
       selectedAnnotationIds.value = [initialTabFocus.annotId];
     }
     await scrollToCurrentPage(viewer.value?.scrollHeight ?? 0);
+    if (initialTabFocus.annotId !== undefined) {
+      await scrollToAnnotation(initialTabFocus.annotId);
+    }
   } else if (storedTabViewState !== undefined) {
     // 明示的な遷移要求がない場合、前回このタブを表示していた際の状態へ復元する
     // （ページ番号自体は既にcurrentPageの初期値へ反映済みのため、ここではpageCount確定後の
@@ -734,6 +771,7 @@ async function consumePendingTabFocus() {
   goToPage(pending.page);
   if (pending.annotId !== undefined) selectedAnnotationIds.value = [pending.annotId];
   await scrollToCurrentPage(viewer.value?.scrollHeight ?? 0);
+  if (pending.annotId !== undefined) await scrollToAnnotation(pending.annotId);
 }
 
 watch(annotations, (newAnnots, oldAnnots) => {
