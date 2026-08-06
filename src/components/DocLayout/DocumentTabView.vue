@@ -309,7 +309,8 @@ async function loadDocument() {
     const shouldContinue = await resolveConfigConflict();
     if (!shouldContinue) {
       loading.value = false;
-      editorStore.closeTab(prop.file, prop.layoutSide);
+      // 文書自体を開けなかった異常系のため、ピン留めされていても閉じる
+      editorStore.closeTab(prop.file, prop.layoutSide, true);
       return;
     }
   }

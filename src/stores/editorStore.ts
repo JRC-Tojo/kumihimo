@@ -231,6 +231,15 @@ export const useEditorStore = defineStore('editor', {
     currentStatusMessage(state): string | undefined {
       return Array.from(state.statusMessages.values()).at(-1);
     },
+
+    /**
+     * 指定タブがピン留めされているかどうか
+     */
+    isTabPinned(
+      state,
+    ): (elem: { containerID: ContainerID; path: string }, layoutSide: LayoutSide) => boolean {
+      return (elem, layoutSide) => state.pinedTabPaths[layoutSide].has(tabKey(elem));
+    },
   },
 
   actions: {
@@ -359,7 +368,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * 選択された文書のタブを開く
+     * 選択された文書のタブを、現在アクティブなペインに開く
      *
      * containerIDまで含めて同一性判定するため、別コンテナの同名パスファイルも正しく別タブとして開かれる。
      * `targetPage`を指定すると、開いた後にそのページへ遷移する（対象のDocumentTabView.vueが
@@ -367,15 +376,26 @@ export const useEditorStore = defineStore('editor', {
      * 呼び出し順序に依存する別々の意図フラグを個別に扱う必要をなくしている）
      */
     openTab(elem: ContainerElement, targetPage?: number, focusAnnotId?: AnnotationID): void {
+      this.openTabAt(elem, this.activeSide, targetPage, focusAnnotId);
+    },
+
+    /**
+     * 選択された文書のタブを、指定したペインに開く（`openTab`の一般化。タブの別ペインへの
+     * 複製に使う。ペインを明示指定できる点以外は`openTab`と同じ）
+     */
+    openTabAt(
+      elem: ContainerElement,
+      layoutSide: LayoutSide,
+      targetPage?: number,
+      focusAnnotId?: AnnotationID,
+    ): void {
       if (elem.type !== 'File') return;
 
-      const isAlreadyOpened = this.tabs[this.activeSide].some(
-        (tab) => tabKey(tab) === tabKey(elem),
-      );
+      const isAlreadyOpened = this.tabs[layoutSide].some((tab) => tabKey(tab) === tabKey(elem));
       if (!isAlreadyOpened) {
-        this.tabs[this.activeSide].push(elem);
+        this.tabs[layoutSide].push(elem);
       }
-      this.selectTab(elem, this.activeSide, true);
+      this.selectTab(elem, layoutSide, true);
 
       if (targetPage !== undefined) {
         this.pendingTabFocus = {
@@ -408,8 +428,13 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * タブを閉じる
+     *
+     * ピン留めされたタブは`force`がtrueの場合を除き閉じない（設定コンフリクトで文書を開けなかった
+     * 場合等、ピン留めの意思表示より優先すべき異常系のみ`force`を使う）
      */
-    closeTab(elem: ContainerElement, layoutSide: LayoutSide): void {
+    closeTab(elem: ContainerElement, layoutSide: LayoutSide, force = false): void {
+      if (!force && this.pinedTabPaths[layoutSide].has(tabKey(elem))) return;
+
       const targetIdx = this.tabs[layoutSide].findIndex((tab) => tabKey(tab) === tabKey(elem));
       if (targetIdx === -1) return;
 
@@ -497,9 +522,21 @@ export const useEditorStore = defineStore('editor', {
 
     /**
      * タブをピンする
+     *
+     * ピン留めされたタブは常にタブバー先頭（既存のピン留めタブの直後）に固定表示するため、
+     * ピン留めと同時にその位置へ並べ替える
      */
     pinTab(elem: ContainerElement, layoutSide: LayoutSide): void {
       this.pinedTabPaths[layoutSide].add(tabKey(elem));
+
+      const idx = this.tabs[layoutSide].findIndex((tab) => tabKey(tab) === tabKey(elem));
+      if (idx === -1) return;
+      const [moved] = this.tabs[layoutSide].splice(idx, 1);
+      if (!moved) return;
+      const pinnedCount = this.tabs[layoutSide].filter((tab) =>
+        this.pinedTabPaths[layoutSide].has(tabKey(tab)),
+      ).length;
+      this.tabs[layoutSide].splice(pinnedCount, 0, moved);
     },
 
     /**

@@ -374,6 +374,26 @@ export default {
         saveFailed: '緩和ルールの保存に失敗しました。',
       },
     },
+    tabs: {
+      pin: 'ピン留め',
+      unpin: 'ピン留めを解除',
+      duplicateTo: '別のペインに複製',
+      paneNames: {
+        ul: '左上のペイン',
+        ur: '右上のペイン',
+        ll: '左下のペイン',
+        lr: '右下のペイン',
+      },
+      showRelationalSummary: '関係性の検証結果一覧を表示',
+      closeOthers: '他のタブをすべて閉じる',
+      closeToRight: '右側のタブをすべて閉じる',
+      closeSaved: '保存済みのタブをすべて閉じる',
+      close: 'タブを閉じる',
+      relationalSummary: {
+        title: 'このファイルの関係性検証結果',
+        noRelations: 'このファイルに関わる関係性はありません',
+      },
+    },
     pageList: {
       thumbnailAlt: 'ページ {page}',
     },

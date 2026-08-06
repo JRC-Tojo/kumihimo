@@ -375,6 +375,26 @@ export default {
         saveFailed: 'Failed to save the relaxation rule.',
       },
     },
+    tabs: {
+      pin: 'Pin',
+      unpin: 'Unpin',
+      duplicateTo: 'Duplicate to another pane',
+      paneNames: {
+        ul: 'Top-left pane',
+        ur: 'Top-right pane',
+        ll: 'Bottom-left pane',
+        lr: 'Bottom-right pane',
+      },
+      showRelationalSummary: 'Show relational verification results',
+      closeOthers: 'Close others',
+      closeToRight: 'Close tabs to the right',
+      closeSaved: 'Close saved tabs',
+      close: 'Close tab',
+      relationalSummary: {
+        title: 'Relational Verification Results',
+        noRelations: 'No relations involve this file',
+      },
+    },
     pageList: {
       thumbnailAlt: 'Page {page}',
     },
