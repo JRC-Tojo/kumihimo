@@ -1128,12 +1128,17 @@ function syncTransformerSelection() {
   transformer.nodes(nodes);
 }
 
+// immediate: true が無いと、ブックマーク等からのジャンプでAnnotationLayerが
+// 「selectedAnnotIdsに既に対象IDが入った状態」で新規マウントされた場合（値自体は
+// 変化しないため）このwatchが一度も発火せず、Transformerへnodesが設定されないまま
+// 選択枠線が表示されない不具合になる。supportsTransformer:falseの種別（各コンポーネントが
+// 個別アンカーをisSelected propで直接描画する）はこの問題を持たないため気付かれにくい
 watch(
   selectedAnnotIds,
   () => {
     void nextTick(syncTransformerSelection);
   },
-  { flush: 'post', deep: true },
+  { flush: 'post', deep: true, immediate: true },
 );
 
 // ズームのデバウンス再描画（PdfPage.vue）でcanvasSizeが変わるとKonva Stageの
