@@ -12,31 +12,40 @@ const idC = '00000000-0000-4000-8000-000000000003' as AnnotationID;
 
 describe('decideRelationalOnAnnotationsAdded', () => {
   it('関係性モードが未設定の場合は何もしない（非連続・連続いずれでもモード自体が無ければ対象外）', () => {
-    expect(decideRelationalOnAnnotationsAdded(undefined, undefined, [idA])).toBeUndefined();
+    expect(
+      decideRelationalOnAnnotationsAdded(undefined, undefined, [idA], undefined),
+    ).toBeUndefined();
   });
 
   it('待機中でない状態で1件追加されたら、そのアノテーションを起点に待機を開始する（1組目・非連続時の1つ目の作成）', () => {
-    const decision = decideRelationalOnAnnotationsAdded('link', undefined, [idA]);
+    const decision = decideRelationalOnAnnotationsAdded('link', undefined, [idA], undefined);
     expect(decision).toEqual({ action: 'start', annotId: idA });
   });
 
   it('待機中に1件追加されたら、そのアノテーションで確定する（1組目・非連続時の2つ目の作成）', () => {
-    const decision = decideRelationalOnAnnotationsAdded('link', idA, [idB]);
+    const decision = decideRelationalOnAnnotationsAdded('link', idA, [idB], undefined);
     expect(decision).toEqual({ action: 'finish', annotId: idB });
   });
 
   it('連続登録中でも待機解除後に次のアノテーションが作成されれば、それを新たな起点として待機を開始する（連続時の6.：次ペアの1つ目）', () => {
-    // 直前のペア（idA-idB）確定後、pendingIdは解除済みの状態を想定する
-    const decision = decideRelationalOnAnnotationsAdded('link', undefined, [idC]);
+    // 直前のペア（idA-idB）確定後、pendingIdは解除済み・目印も選択変化側で解除済みの状態を想定する
+    const decision = decideRelationalOnAnnotationsAdded('link', undefined, [idC], undefined);
     expect(decision).toEqual({ action: 'start', annotId: idC });
   });
 
+  it('追加検知されたアノテーションが直前に確定したペアの対象そのものであれば何もしない（選択変化側の確定処理がアノテーション一覧への反映より先に完了し、後追いでこの追加検知が走った場合。これを新たな起点にしてしまうと、直後に描いた次のアノテーションと即座に関係性が結ばれてしまう）', () => {
+    const decision = decideRelationalOnAnnotationsAdded('link', undefined, [idB], idB);
+    expect(decision).toBeUndefined();
+  });
+
   it('一度に複数件追加された場合は判定しない（同一アノテーションとしての一意な起点が決まらないため）', () => {
-    expect(decideRelationalOnAnnotationsAdded('link', undefined, [idA, idB])).toBeUndefined();
+    expect(
+      decideRelationalOnAnnotationsAdded('link', undefined, [idA, idB], undefined),
+    ).toBeUndefined();
   });
 
   it('追加が無い場合（内容更新のみの変化）は何もしない', () => {
-    expect(decideRelationalOnAnnotationsAdded('link', idA, [])).toBeUndefined();
+    expect(decideRelationalOnAnnotationsAdded('link', idA, [], undefined)).toBeUndefined();
   });
 });
 

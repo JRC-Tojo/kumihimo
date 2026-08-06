@@ -512,6 +512,7 @@ async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: An
     mode,
     editorStore.relationalPendingId,
     addedIds,
+    editorStore.relationalLastPairedId,
   );
   if (decision === undefined || mode === undefined) return;
 
