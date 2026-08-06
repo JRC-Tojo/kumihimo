@@ -1185,7 +1185,12 @@ describe('embedBookmarksIntoPdf（pdf-lib、ネイティブしおり(Outline)と
     return readSiblings(outlines.get(PDFName.of('First')) as PDFRef | undefined);
   }
 
-  function bm(id: string, title: string, pageNumber: number, extra: Partial<BookmarkInfo> = {}): BookmarkInfo {
+  function bm(
+    id: string,
+    title: string,
+    pageNumber: number,
+    extra: Partial<BookmarkInfo> = {},
+  ): BookmarkInfo {
     return { id: id as BookmarkID, title, pageNumber, ...extra };
   }
 

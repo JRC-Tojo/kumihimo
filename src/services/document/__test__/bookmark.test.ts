@@ -93,7 +93,9 @@ describe('listBookmarks', () => {
 describe('addBookmark', () => {
   it('新規ブックマークを既存のfileHashを維持したまま追加保存する', async () => {
     loadConfigMock.mockImplementationOnce(() =>
-      Promise.resolve(Success({ fileHash: 'hash1', annots: {}, bookmarks: {}, outlineImported: false })),
+      Promise.resolve(
+        Success({ fileHash: 'hash1', annots: {}, bookmarks: {}, outlineImported: false }),
+      ),
     );
 
     const res = await addBookmark(file, 'タイトル', 3);
@@ -153,7 +155,9 @@ describe('addBookmark', () => {
 
   it('annotationIdを指定すると保存されるブックマークに反映される', async () => {
     loadConfigMock.mockImplementationOnce(() =>
-      Promise.resolve(Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false })),
+      Promise.resolve(
+        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false }),
+      ),
     );
 
     const annotationId = 'annot-1' as never;
@@ -165,7 +169,9 @@ describe('addBookmark', () => {
 
   it('保存時に既存のoutlineImportedの値を維持する', async () => {
     loadConfigMock.mockImplementationOnce(() =>
-      Promise.resolve(Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: true })),
+      Promise.resolve(
+        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: true }),
+      ),
     );
 
     await addBookmark(file, 'タイトル', 1);
@@ -199,7 +205,9 @@ describe('removeBookmark', () => {
 
   it('存在しないIDを指定した場合もエラーにせず、現状のまま保存する', async () => {
     loadConfigMock.mockImplementationOnce(() =>
-      Promise.resolve(Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false })),
+      Promise.resolve(
+        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false }),
+      ),
     );
 
     const res = await removeBookmark(file, 'nope' as BookmarkID);
@@ -220,7 +228,12 @@ describe('removeBookmark', () => {
           bookmarks: {
             [rootId]: { id: rootId, title: 'Root', pageNumber: 1 },
             [childId]: { id: childId, title: 'Child', pageNumber: 2, parentId: rootId },
-            [grandchildId]: { id: grandchildId, title: 'Grandchild', pageNumber: 3, parentId: childId },
+            [grandchildId]: {
+              id: grandchildId,
+              title: 'Grandchild',
+              pageNumber: 3,
+              parentId: childId,
+            },
             [unrelatedId]: { id: unrelatedId, title: 'Unrelated', pageNumber: 4 },
           },
           outlineImported: false,
@@ -255,7 +268,9 @@ describe('renameBookmark', () => {
 
   it('存在しないIDを指定した場合はNotFoundErrorで失敗する', async () => {
     loadConfigMock.mockImplementationOnce(() =>
-      Promise.resolve(Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false })),
+      Promise.resolve(
+        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false }),
+      ),
     );
 
     const res = await renameBookmark(file, 'nope' as BookmarkID, 'x');
