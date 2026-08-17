@@ -83,7 +83,7 @@ export function useTabCloseActions() {
         // 保存処理。失敗したら中断してエラーメッセージを表示
         try {
           await saveDocument(file);
-        } catch (err) {
+        } catch {
           editorStore.postStatusMessage('tab-close', t('message.error'));
           return false;
         }

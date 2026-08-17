@@ -127,6 +127,7 @@ import { useRelationalStore, fileKey, type RelationalEdge } from 'src/stores/rel
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import { formatValueWithFormula } from 'src/utils/calculation/formula';
+import { Path } from 'src/utils/binary/path';
 
 interface Prop {
   file: ContainerElementFile;
@@ -231,9 +232,7 @@ async function resolveEndpointLabels(targetEdges: RelationalEdge[]) {
   for (const id of ids) {
     if (endpointLabelCache.value[id] !== undefined) continue;
     const fileRes = await api.resolveAnnotationFile(id);
-    endpointLabelCache.value[id] = fileRes.ok
-      ? new Path(fileRes.data.path).basename()
-      : '?';
+    endpointLabelCache.value[id] = fileRes.ok ? new Path(fileRes.data.path).basename() : '?';
   }
 }
 
