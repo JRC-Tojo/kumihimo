@@ -35,9 +35,10 @@ import type { AnnotationTool } from 'src/models/docPage';
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
-import type { AnnotationInfo } from 'src/models/relational/fileSchema';
+import type { AnnotationInfo, BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
 import type { RelaxationOptions } from 'src/models/relational/relaxation';
 import * as annotationService from 'src/services/document/annotation';
+import * as bookmarkService from 'src/services/document/bookmark';
 import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import type { Observable } from 'dexie';
@@ -365,6 +366,82 @@ class BackendApi {
   async peekContainerElements(id: ContainerID): Promise<ApiResponse<Container>> {
     const res = await containerService.peekContainerElements(id);
     return toApiResponse(res, 'CONTAINER_LOAD_FAILED');
+  }
+
+  /**
+   * 指定文書に登録されているブックマーク一覧を取得する（ページ番号の昇順）
+   *
+   * PDFに元々埋め込まれているしおり（アウトライン）は`loadDocumentConfig`初回呼び出し時に
+   * 自動でここに取り込まれるため、呼び出し側はブックマークの起源を区別する必要はない
+   */
+  async listBookmarks(file: ContainerElementFile): Promise<ApiResponse<BookmarkInfo[]>> {
+    const res = await bookmarkService.listBookmarks(file);
+    return toApiResponse(res, 'BOOKMARK_LOAD_FAILED');
+  }
+
+  /**
+   * ブックマークを新規登録する
+   *
+   * `options.parentId`を指定すると、既存のブックマークの子要素として登録される。
+   * `options.annotationId`を指定すると、ページ番号だけでなくアノテーション位置も記録し、
+   * ジャンプ時にその位置へ遷移できるようにする
+   */
+  async addBookmark(
+    file: ContainerElementFile,
+    title: string,
+    pageNumber: number,
+    options?: bookmarkService.AddBookmarkOptions,
+  ): Promise<ApiResponse<BookmarkInfo>> {
+    const res = await bookmarkService.addBookmark(file, title, pageNumber, options);
+    return toApiResponse(res, 'BOOKMARK_SAVE_FAILED');
+  }
+
+  /**
+   * ブックマークを削除する（子要素が存在する場合はまとめて削除される）
+   */
+  async removeBookmark(
+    file: ContainerElementFile,
+    bookmarkId: BookmarkID,
+  ): Promise<ApiResponse<void>> {
+    const res = await bookmarkService.removeBookmark(file, bookmarkId);
+    return toApiResponse(res, 'BOOKMARK_SAVE_FAILED');
+  }
+
+  /**
+   * ブックマークの名称を変更する
+   */
+  async renameBookmark(
+    file: ContainerElementFile,
+    bookmarkId: BookmarkID,
+    newTitle: string,
+  ): Promise<ApiResponse<void>> {
+    const res = await bookmarkService.renameBookmark(file, bookmarkId, newTitle);
+    return toApiResponse(res, 'BOOKMARK_SAVE_FAILED');
+  }
+
+  /**
+   * 登録済みブックマークを、PDFのネイティブしおり（Outline）として文書データへ書き込む
+   *
+   * 「名前を付けて保存」（`saveDocumentAs`）でPDFを別名保存する際に使う。ブックマークが
+   * 存在しない場合は`docSrc`をそのまま返す（Outline未設定のPDFへ余計な変更を加えない）
+   */
+  async packBookmarksInSource(
+    docSrc: DocumentSource,
+    file: ContainerElementFile,
+  ): Promise<ApiResponse<DocumentSource>> {
+    const bookmarksRes = await bookmarkService.listBookmarks(file);
+    if (!bookmarksRes.ok) return toApiResponse(bookmarksRes, 'BOOKMARK_LOAD_FAILED');
+    if (bookmarksRes.value.length === 0) return toApiResponse(Success(docSrc));
+
+    const annotInfosRes = await annotationService.getAnnotationsByFile(file);
+    if (!annotInfosRes.ok) return toApiResponse(annotInfosRes, 'DOC_ANNOT_LOAD_FAILED');
+
+    const packedRes = await pdfRepo.embedBookmarksIntoPdf(
+      docSrc,
+      bookmarksRes.value,
+      annotInfosRes.value,
+    );
+    return toApiResponse(packedRes, 'BOOKMARK_EMBED_FAILED');
   }
 
   // ============ アノテーション操作 ============

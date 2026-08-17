@@ -14,6 +14,7 @@ import fontkit from '@pdf-lib/fontkit';
 import {
   PDFDocument,
   PDFHexString,
+  PDFName,
   rgb,
   StandardFonts,
   moveTo,
@@ -38,19 +39,23 @@ import {
   showText,
   rectangle,
 } from 'pdf-lib';
-import type { PDFContext, PDFFont, PDFName, PDFOperator, PDFPage } from 'pdf-lib';
+import type { PDFContext, PDFFont, PDFOperator, PDFPage, PDFRef } from 'pdf-lib';
 import { DocumentSource } from 'src/models/document/common';
 import type { Result } from 'src/models/error/result';
 import { Success, Failure, toError } from 'src/models/error/result';
 import type {
+  AnnotationID,
   AnnotationStyle,
   ArrowHeadType,
   BlendMode,
+  PdfOutlineEntry,
   TextItemBox,
 } from 'src/models/document/pdf';
+import type { AnnotationInfo, BookmarkInfo } from 'src/models/relational/fileSchema';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
+import { buildBookmarkTree, type BookmarkNode } from 'src/utils/document/bookmarkTree';
 import {
   computeHeadTransform,
   getHeadLocalPoints,
@@ -141,6 +146,77 @@ export async function getNumPages(src64: DocumentSource): Promise<Result<number>
     return Success(loaded.value.numPages);
   } catch (e) {
     return Failure(toError(e));
+  } finally {
+    void loaded.value.destroy();
+  }
+}
+
+/**
+ * アウトライン項目の宛先(`dest`)を1始まりのページ番号へ解決する
+ *
+ * 名前付き宛先（文字列）の場合は`getDestination`で実体の配列を取得してから解決する。
+ * 外部URLへのリンクや、ページ参照を含まない不正な宛先の場合は解決できずundefinedを返す
+ * （呼び出し側の保存処理全体を失敗させないため、例外は投げない）
+ */
+async function resolveOutlineDestPageNumber(
+  pdf: PDFDocumentProxy,
+  dest: string | unknown[] | null,
+): Promise<number | undefined> {
+  if (dest === null) return undefined;
+
+  try {
+    const destArray = typeof dest === 'string' ? await pdf.getDestination(dest) : dest;
+    if (!Array.isArray(destArray) || destArray.length === 0) return undefined;
+
+    const pageIndex = await pdf.getPageIndex(destArray[0]);
+    return pageIndex + 1;
+  } catch {
+    return undefined;
+  }
+}
+
+interface RawOutlineNode {
+  title: string;
+  dest: string | unknown[] | null;
+  items: RawOutlineNode[];
+}
+
+/** 階層構造のアウトラインを、階層の深さ(`level`)を保持したまま平坦な配列に変換する */
+function flattenOutlineNodes(
+  nodes: RawOutlineNode[],
+  level: number,
+): { title: string; level: number; dest: string | unknown[] | null }[] {
+  return nodes.flatMap((node) => [
+    { title: node.title, level, dest: node.dest },
+    ...flattenOutlineNodes(node.items, level + 1),
+  ]);
+}
+
+/** 既に取得済みのPDFDocumentProxyから、埋め込まれたしおり（アウトライン）一覧を取得する */
+export async function getOutlineFromDoc(pdf: PDFDocumentProxy): Promise<Result<PdfOutlineEntry[]>> {
+  try {
+    const outline = ((await pdf.getOutline()) ?? []) as RawOutlineNode[];
+    const flattened = flattenOutlineNodes(outline, 0);
+
+    const entries = await Promise.all(
+      flattened.map(async (node) => ({
+        title: node.title,
+        level: node.level,
+        pageNumber: await resolveOutlineDestPageNumber(pdf, node.dest),
+      })),
+    );
+    return Success(entries);
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
+/** PDFに埋め込まれたしおり（アウトライン）一覧を取得する */
+export async function getOutline(src64: DocumentSource): Promise<Result<PdfOutlineEntry[]>> {
+  const loaded = await loadPdfFromSrc64(src64);
+  if (!loaded.ok) return Failure(loaded.error);
+  try {
+    return await getOutlineFromDoc(loaded.value);
   } finally {
     void loaded.value.destroy();
   }
@@ -2056,6 +2132,115 @@ export async function embedAnnotationsAsVectorIntoPdf(
   }
 }
 
+/**
+ * ブックマークのジャンプ先（`/Dest`）を組み立てる
+ *
+ * `annotationId`が解決できた場合は、そのアノテーションの外接矩形の左上（画面上の見た目どおりの
+ * 左上）を`/XYZ`で指定する。解決できない場合はページ全体を表示する`/Fit`にフォールバックする
+ */
+function buildOutlineDest(
+  page: PDFPage,
+  node: BookmarkInfo,
+  annotInfoById: Map<AnnotationID, AnnotationInfo>,
+): unknown[] {
+  const pageRef = page.ref;
+  const annotInfo = node.annotationId ? annotInfoById.get(node.annotationId) : undefined;
+  if (!annotInfo) return [pageRef, 'Fit'];
+
+  const bbox = calculateBoundingBox(annotInfo.style);
+  const p1 = visualToRawPageSpace(bbox.x, bbox.y, page);
+  const p2 = visualToRawPageSpace(bbox.x + bbox.width, bbox.y + bbox.height, page);
+  const left = Math.min(p1.x, p2.x);
+  const top = Math.max(p1.y, p2.y);
+  return [pageRef, 'XYZ', left, top, null];
+}
+
+/**
+ * 登録済みブックマークを、PDFのネイティブしおり（Outline）として書き込む
+ *
+ * `bookmarks`の`parentId`をそのままOutlineの階層（`/First`/`/Last`/`/Prev`/`/Next`/`/Parent`）に
+ * 反映する。各ノードの`/Ref`は`context.nextRef()`で先に確保し（相互参照のため2パスで構築する）、
+ * 実体は`context.assign`で後から確定させる。ページ範囲外を指すブックマークは書き込み対象から除く
+ */
+export async function embedBookmarksIntoPdf(
+  src64: DocumentSource,
+  bookmarks: BookmarkInfo[],
+  annotInfos: AnnotationInfo[],
+): Promise<Result<DocumentSource>> {
+  try {
+    const pdfDoc = await PDFDocument.load(src64);
+    const context = pdfDoc.context;
+    const pageCount = pdfDoc.getPageCount();
+    const annotInfoById = new Map(annotInfos.map((info) => [info.style.id, info]));
+
+    const validBookmarks = bookmarks.filter((b) => b.pageNumber >= 1 && b.pageNumber <= pageCount);
+    const tree = buildBookmarkTree(validBookmarks);
+
+    if (tree.length > 0) {
+      // 1パス目: 各ノードに空のRefを確保する（相互参照する兄弟・親子をこの時点で解決するため）
+      const refById = new Map<string, PDFRef>();
+      const assignRefs = (nodes: BookmarkNode[]) => {
+        for (const node of nodes) {
+          refById.set(node.id, context.nextRef());
+          assignRefs(node.children);
+        }
+      };
+      assignRefs(tree);
+      const outlinesRef = context.nextRef();
+
+      // 2パス目: 兄弟・親子のRefが確定した状態で各ノードの実体を書き込む
+      // `/Count`はPDF仕様上「直接の子」ではなく「開いた状態で表示される子孫の総数」を指すため、
+      // 各ノードごとの子孫総数を再帰的に積み上げて返す（直接の子の数だけを返すと孫以降が
+      // 数え落とされ、Acrobat等での表示件数がおかしくなる）
+      const buildLevel = (nodes: BookmarkNode[], parentRef: PDFRef): number => {
+        let totalDescendantCount = 0;
+        nodes.forEach((node, index) => {
+          const ref = refById.get(node.id)!;
+          const page = pdfDoc.getPage(node.pageNumber - 1);
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const dictLiteral: Record<string, any> = {
+            Title: PDFHexString.fromText(node.title),
+            Parent: parentRef,
+            Dest: buildOutlineDest(page, node, annotInfoById),
+          };
+          if (index > 0) dictLiteral.Prev = refById.get(nodes[index - 1]!.id);
+          if (index < nodes.length - 1) dictLiteral.Next = refById.get(nodes[index + 1]!.id);
+          let childDescendantCount = 0;
+          if (node.children.length > 0) {
+            dictLiteral.First = refById.get(node.children[0]!.id);
+            dictLiteral.Last = refById.get(node.children[node.children.length - 1]!.id);
+            // 常に展開状態で表示する（正の値＝開いた状態の子孫要素数）
+            childDescendantCount = buildLevel(node.children, ref);
+            dictLiteral.Count = childDescendantCount;
+          }
+
+          context.assign(ref, context.obj(dictLiteral));
+          totalDescendantCount += 1 + childDescendantCount;
+        });
+        return totalDescendantCount;
+      };
+
+      const rootCount = buildLevel(tree, outlinesRef);
+      context.assign(
+        outlinesRef,
+        context.obj({
+          Type: 'Outlines',
+          First: refById.get(tree[0]!.id)!,
+          Last: refById.get(tree[tree.length - 1]!.id)!,
+          Count: rootCount,
+        }),
+      );
+      pdfDoc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+    }
+
+    const out = await pdfDoc.save();
+    return uint8ToDocSrc(out);
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
 // Export まとめ
 export default {
   loadPdfFromSrc64,
@@ -2070,4 +2255,5 @@ export default {
   embedAnnotationsIntoPdf,
   embedAnnotationsAsCommentsIntoPdf,
   embedAnnotationsAsVectorIntoPdf,
+  embedBookmarksIntoPdf,
 };

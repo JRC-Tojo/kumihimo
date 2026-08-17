@@ -66,6 +66,29 @@ export const AnnotationInfo = z.object({
 export type AnnotationInfo = z.infer<typeof AnnotationInfo>;
 
 /**
+ * ブックマークの識別子
+ */
+export const BookmarkID = z.uuidv4().brand('BookmarkID');
+export type BookmarkID = z.infer<typeof BookmarkID>;
+
+/**
+ * ユーザーが本システム側で登録したブックマーク（文書内の特定ページへの目印）
+ *
+ * PDF自体に埋め込まれたしおり（アウトライン、`PdfOutlineEntry`）とは別物で、
+ * こちらは`.kcfg`に保存され、登録・削除・改名が可能
+ */
+export const BookmarkInfo = z.object({
+  id: BookmarkID,
+  title: z.string(),
+  pageNumber: z.number().int().positive(),
+  // 親ブックマークのID（ルート要素はundefined）。親子関係の登録に使う
+  parentId: BookmarkID.optional(),
+  // アノテーションの右クリックから登録された場合のみ設定される、ジャンプ先のアノテーション
+  annotationId: AnnotationID.optional(),
+});
+export type BookmarkInfo = z.infer<typeof BookmarkInfo>;
+
+/**
  * `<<filePath>>/<<fileName>>.kcfg`として保存するアノテーションファイルスキーマ
  *
  * 関係性情報追跡のためにアノテーション情報は外部化して保存する
@@ -73,6 +96,11 @@ export type AnnotationInfo = z.infer<typeof AnnotationInfo>;
 export const DocumentConfigFile = z.object({
   fileHash: z.hash('sha256'),
   annots: z.record(AnnotationID, AnnotationInfo),
+  // 既存の.kcfgにはこのフィールドが無いため、読み込み時は空のオブジェクトを既定値とする
+  bookmarks: z.record(BookmarkID, BookmarkInfo).optional().default({}),
+  // PDFのしおり（アウトライン）をブックマークとして自動取り込み済みかどうか。
+  // 一度取り込んだ後に再度取り込んで重複登録しないためのフラグ
+  outlineImported: z.boolean().optional().default(false),
 });
 export type DocumentConfigFile = z.infer<typeof DocumentConfigFile>;
 

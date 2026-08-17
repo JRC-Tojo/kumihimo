@@ -108,6 +108,10 @@
             <q-item-section>{{ t('pdfEditor.tools.contextMenu.openRelational') }}</q-item-section>
           </q-item>
 
+          <q-item v-close-popup clickable @click="onAddBookmark" @mouseenter="closeSubmenu">
+            <q-item-section>{{ t('pdfEditor.tools.contextMenu.addBookmark') }}</q-item-section>
+          </q-item>
+
           <q-separator />
 
           <q-item
@@ -135,11 +139,14 @@
  * mode判定・editorTools.tsのonClicked参照）
  */
 import { computed, onBeforeUnmount, ref } from 'vue';
+import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
+import { useBackendApi } from 'src/apis/backendApi';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import type { AnnotationTool } from 'src/models/docPage';
+import type { ContainerElementFile } from 'src/models/container';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { useAnnotationStylePanel } from 'src/components/DocLayout/composables/useAnnotationStylePanel';
 import { annotationStyleToPresetStyle } from 'src/components/DocLayout/composables/useAnnotationPresets';
@@ -148,14 +155,17 @@ import AnnotationPresetPreview from 'src/components/DocLayout/AnnotationPresetPr
 
 interface Props {
   annotation: AnnotationStyle;
+  file: ContainerElementFile;
   clientPos: { x: number; y: number };
 }
 const props = defineProps<Props>();
 const emit = defineEmits<{ close: [] }>();
 
 const { t } = useI18n();
+const $q = useQuasar();
 const editorStore = useEditorStore();
 const settingsStore = useSettingsStore();
+const api = useBackendApi();
 const { applyPresetStyleToSelection } = useAnnotationStylePanel();
 
 const presetsForType = computed<AnnotationTool[]>(() =>
@@ -228,6 +238,24 @@ function onRegisterPreset() {
  */
 function onOpenRelational() {
   editorStore.requestPeek(props.annotation.id);
+}
+
+/**
+ * 右クリックされた注釈の位置をブックマークとして登録する。ページ番号だけでなく
+ * `annotationId`も記録し、ブックマーク選択時にこの注釈の位置へジャンプできるようにする。
+ * ブックマークパネル自身はこの変更を検知できないため、`touchBookmarks`で再読込を促す
+ */
+async function onAddBookmark() {
+  const title = `${t('explorer.bookmarks.page')} ${props.annotation.pageNumber}`;
+  const res = await api.addBookmark(props.file, title, props.annotation.pageNumber, {
+    annotationId: props.annotation.id,
+  });
+  if (!res.ok) {
+    console.error(res.error);
+    $q.notify({ type: 'negative', message: t('explorer.bookmarks.operationFailed') });
+    return;
+  }
+  editorStore.touchBookmarks(props.file);
 }
 
 /**

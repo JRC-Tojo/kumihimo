@@ -11,6 +11,7 @@ import {
   PDFHexString,
   PDFStream,
   type PDFRawStream,
+  type PDFRef,
   degrees,
   type PDFNumber,
 } from 'pdf-lib';
@@ -18,6 +19,7 @@ import { JSDOM } from 'jsdom';
 import { createCanvas } from 'canvas';
 import type { TextItemBox, AnnotationStyle } from 'src/models/document/pdf';
 import { AnnotationID, ColorCode } from 'src/models/document/pdf';
+import type { BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
 import { DocumentSource } from 'src/models/document/common';
 import type { FileIdentity } from 'src/utils/document/fileKey';
 import { ContainerID } from 'src/models/container';
@@ -85,8 +87,10 @@ const {
   embedAnnotationsIntoPdf,
   embedAnnotationsAsCommentsIntoPdf,
   embedAnnotationsAsVectorIntoPdf,
+  embedBookmarksIntoPdf,
   extractImageFromRegion,
   extractAnnotationContextPreview,
+  getOutline,
 } = await import('../pdf');
 
 /**
@@ -698,11 +702,23 @@ describe('embedAnnotationsAsCommentsIntoPdf（pdf-lib、ネイティブ注釈と
 const DUMMY_SRC = DocumentSource.parse(btoa('dummy-pdf-bytes'));
 
 /** pdfjs-distの`getDocument`モックが返す、テストごとに最小限のメソッドだけを実装したフェイクのPDFDocumentProxy */
-function buildFakeDoc(pages: unknown[]): PDFDocumentProxy {
+interface FakeDocOptions {
+  outline?: unknown[] | null;
+  destinations?: Record<string, unknown[]>;
+  pageIndexByRef?: (ref: unknown) => number;
+}
+
+function buildFakeDoc(pages: unknown[], opts: FakeDocOptions = {}): PDFDocumentProxy {
   return {
     numPages: pages.length,
     getPage: (n: number) => Promise.resolve(pages[n - 1]),
     destroy: () => Promise.resolve(),
+    getOutline: () => Promise.resolve(opts.outline ?? null),
+    getDestination: (id: string) => Promise.resolve(opts.destinations?.[id] ?? null),
+    getPageIndex: (ref: unknown) =>
+      opts.pageIndexByRef
+        ? Promise.resolve(opts.pageIndexByRef(ref))
+        : Promise.reject(new Error('getPageIndex is not configured for this test')),
   } as unknown as PDFDocumentProxy;
 }
 
@@ -792,6 +808,78 @@ describe('getPageSize / getNumPages / extractTextByPage / extractAllText（pdfjs
     expect(res.ok).toBeFalse();
     if (res.ok) return;
     expect(res.error.message).toBe('parse failed');
+  });
+});
+
+describe('getOutline（pdfjs-distモック）', () => {
+  it('階層構造のアウトラインを、階層の深さを保持したまま平坦な配列に変換する', async () => {
+    fakeGetDocumentImpl = () => ({
+      promise: Promise.resolve(
+        buildFakeDoc([buildFakePage(), buildFakePage(), buildFakePage()], {
+          outline: [
+            {
+              title: '第1章',
+              dest: [{ num: 0 }],
+              items: [{ title: '1.1節', dest: [{ num: 1 }], items: [] }],
+            },
+            { title: '第2章', dest: [{ num: 2 }], items: [] },
+          ],
+          pageIndexByRef: (ref) => (ref as { num: number }).num,
+        }),
+      ),
+    });
+
+    const res = await getOutline(DUMMY_SRC);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toEqual([
+      { title: '第1章', level: 0, pageNumber: 1 },
+      { title: '1.1節', level: 1, pageNumber: 2 },
+      { title: '第2章', level: 0, pageNumber: 3 },
+    ]);
+  });
+
+  it('名前付き宛先（文字列のdest）はgetDestinationで実体を解決してからページ番号にする', async () => {
+    fakeGetDocumentImpl = () => ({
+      promise: Promise.resolve(
+        buildFakeDoc([buildFakePage(), buildFakePage()], {
+          outline: [{ title: '目次', dest: 'namedDest1', items: [] }],
+          destinations: { namedDest1: [{ num: 1 }] },
+          pageIndexByRef: (ref) => (ref as { num: number }).num,
+        }),
+      ),
+    });
+
+    const res = await getOutline(DUMMY_SRC);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toEqual([{ title: '目次', level: 0, pageNumber: 2 }]);
+  });
+
+  it('外部URLへのリンク等、ページ参照を解決できない項目はpageNumberがundefinedになる（失敗にはしない）', async () => {
+    fakeGetDocumentImpl = () => ({
+      promise: Promise.resolve(
+        buildFakeDoc([buildFakePage()], {
+          outline: [{ title: '外部リンク', dest: null, items: [] }],
+        }),
+      ),
+    });
+
+    const res = await getOutline(DUMMY_SRC);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toEqual([{ title: '外部リンク', level: 0, pageNumber: undefined }]);
+  });
+
+  it('アウトラインが存在しない（getOutlineがnullを返す）場合は空配列を返す', async () => {
+    fakeGetDocumentImpl = () => ({
+      promise: Promise.resolve(buildFakeDoc([buildFakePage()], { outline: null })),
+    });
+
+    const res = await getOutline(DUMMY_SRC);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toEqual([]);
   });
 });
 
@@ -1059,6 +1147,158 @@ describe('embedAnnotationsAsVectorIntoPdf（pdf-lib、ページ背景を保持�
     const src = await buildTestPdfSrc(1, [300, 300]);
     const res = await embedAnnotationsAsVectorIntoPdf(src, [buildTextAnnotation(1)]);
     expect(res.ok).toBeTrue();
+  });
+});
+
+describe('embedBookmarksIntoPdf（pdf-lib、ネイティブしおり(Outline)として書き込み）', () => {
+  interface OutlineNode {
+    title: string;
+    dest: unknown[];
+    children: OutlineNode[];
+  }
+
+  /** 保存後のPDFから、/Root/Outlines配下の階層をJSの木構造として読み戻す（テスト検証用） */
+  async function readOutlineTree(src64: DocumentSource): Promise<OutlineNode[]> {
+    const doc = await loadTestPdf(src64);
+    const outlinesRef = doc.catalog.get(PDFName.of('Outlines')) as PDFRef | undefined;
+    if (!outlinesRef) return [];
+    const outlines = doc.context.lookup(outlinesRef, PDFDict);
+
+    const readSiblings = (firstRef: PDFRef | undefined): OutlineNode[] => {
+      const nodes: OutlineNode[] = [];
+      let currentRef = firstRef;
+      while (currentRef) {
+        const dict = doc.context.lookup(currentRef, PDFDict);
+        const title = dict.lookup(PDFName.of('Title'), PDFHexString).decodeText();
+        const dest = dict.lookup(PDFName.of('Dest'), PDFArray).asArray();
+        const firstChildRef = dict.get(PDFName.of('First')) as PDFRef | undefined;
+        nodes.push({
+          title,
+          dest,
+          children: firstChildRef ? readSiblings(firstChildRef) : [],
+        });
+        currentRef = dict.get(PDFName.of('Next')) as PDFRef | undefined;
+      }
+      return nodes;
+    };
+
+    return readSiblings(outlines.get(PDFName.of('First')) as PDFRef | undefined);
+  }
+
+  function bm(
+    id: string,
+    title: string,
+    pageNumber: number,
+    extra: Partial<BookmarkInfo> = {},
+  ): BookmarkInfo {
+    return { id: id as BookmarkID, title, pageNumber, ...extra };
+  }
+
+  it('親子関係をOutlineの階層（First/Next/Parent）に反映する', async () => {
+    const src = await buildTestPdfSrc(2, [300, 300]);
+    const parentId = 'parent';
+    const res = await embedBookmarksIntoPdf(
+      src,
+      [
+        bm(parentId, '第1章', 1),
+        bm('child-1', '1.1', 1, { parentId: parentId as BookmarkID }),
+        bm('child-2', '1.2', 2, { parentId: parentId as BookmarkID }),
+        bm('root-2', '第2章', 2),
+      ],
+      [],
+    );
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const tree = await readOutlineTree(res.value);
+    expect(tree.map((n) => n.title)).toEqual(['第1章', '第2章']);
+    expect(tree[0]!.children.map((n) => n.title)).toEqual(['1.1', '1.2']);
+    expect(tree[1]!.children).toEqual([]);
+  });
+
+  it('annotationIdが無いブックマークは/Fitでページ全体を指す', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedBookmarksIntoPdf(src, [bm('a', 'ページ1', 1)], []);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [node] = await readOutlineTree(res.value);
+    expect(node?.dest[1]?.toString()).toBe('/Fit');
+  });
+
+  it('annotationIdを持つブックマークは、アノテーションの左上を/XYZで指す', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const annotInfo = { style: buildBoxAnnotation(1), context: {} };
+    const res = await embedBookmarksIntoPdf(
+      src,
+      [bm('a', '注釈', 1, { annotationId: TEST_ANNOTATION_ID })],
+      [annotInfo],
+    );
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const [node] = await readOutlineTree(res.value);
+    expect(node?.dest[1]?.toString()).toBe('/XYZ');
+    // boundingBox()はBOUNDING_BOX_PADDING(=2)分だけ広げた矩形を返すため、
+    // x=10,y=10,width=50,height=30 → (8,8)-(62,42) / ページ高さ300 → 左上 = (8, 292)
+    expect((node?.dest[2] as PDFNumber).asNumber()).toBe(8);
+    expect((node?.dest[3] as PDFNumber).asNumber()).toBe(292);
+  });
+
+  it('ページ範囲外を指すブックマークは書き込み対象から除外される', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedBookmarksIntoPdf(src, [bm('a', '範囲外', 99)], []);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const tree = await readOutlineTree(res.value);
+    expect(tree).toEqual([]);
+  });
+
+  it('ブックマークが0件の場合は/Outlinesを作成しない', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedBookmarksIntoPdf(src, [], []);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    expect(doc.catalog.get(PDFName.of('Outlines'))).toBeUndefined();
+  });
+
+  it('/Countは直接の子だけでなく、開いた状態で表示される子孫の総数を反映する', async () => {
+    // root > child > grandchildの3階層構造で、各ノードの/Countが直接の子の数（バグ時の値）
+    // ではなく、そのノード配下の子孫の総数になっていることを検証する
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedBookmarksIntoPdf(
+      src,
+      [
+        bm('root', '第1章', 1),
+        bm('child', '1.1', 1, { parentId: 'root' as BookmarkID }),
+        bm('grandchild', '1.1.1', 1, { parentId: 'child' as BookmarkID }),
+      ],
+      [],
+    );
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const outlinesRef = doc.catalog.get(PDFName.of('Outlines')) as PDFRef;
+    const outlines = doc.context.lookup(outlinesRef, PDFDict);
+    const readCount = (dict: PDFDict) =>
+      (dict.get(PDFName.of('Count')) as unknown as PDFNumber).asNumber();
+
+    // Outlines直下の/Countは木全体（root, child, grandchildの3件）の総数
+    expect(readCount(outlines)).toBe(3);
+
+    const rootRef = outlines.get(PDFName.of('First')) as PDFRef;
+    const rootDict = doc.context.lookup(rootRef, PDFDict);
+    // rootの/Countは自分自身を含まない子孫の総数（child, grandchildの2件）
+    expect(readCount(rootDict)).toBe(2);
+
+    const childRef = rootDict.get(PDFName.of('First')) as PDFRef;
+    const childDict = doc.context.lookup(childRef, PDFDict);
+    // childの/Countは自分自身を含まない子孫の総数（grandchildの1件）
+    expect(readCount(childDict)).toBe(1);
   });
 });
 

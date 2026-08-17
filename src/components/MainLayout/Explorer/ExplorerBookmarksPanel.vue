@@ -1,36 +1,99 @@
 <template>
   <div class="explorer-bookmarks-panel">
-    <div v-if="bookmarks.length === 0" class="q-pa-md text-center text-grey">
+    <div class="q-px-sm q-pb-xs row items-center">
+      <q-btn flat dense round icon="add" size="sm" :disable="!activeFile" @click="onAddBookmark">
+        <q-tooltip>{{ $t('explorer.bookmarks.add') }}</q-tooltip>
+      </q-btn>
+    </div>
+
+    <div v-if="loading" class="q-pa-md text-center">
+      <q-spinner color="primary" size="1.5em" />
+    </div>
+    <div v-else-if="loadFailed" class="q-pa-md text-center text-negative">
+      {{ $t('explorer.bookmarks.loadFailed') }}
+    </div>
+    <div v-else-if="tree.length === 0" class="q-pa-md text-center text-grey">
       {{ $t('explorer.bookmarks.noBookmarks') }}
     </div>
-    <q-list v-else>
-      <!-- TODO: ブックマークにファイル参照が実装されたら、該当ページへの遷移を有効にしてclickableに戻す -->
-      <q-item v-for="bookmark in bookmarks" :key="bookmark.id">
-        <q-item-section avatar>
-          <q-icon name="bookmark" color="amber" />
-        </q-item-section>
-        <q-item-section>
-          <q-item-label>{{ bookmark.label }}</q-item-label>
-          <q-item-label caption
-            >{{ $t('explorer.bookmarks.page') }} {{ bookmark.pageNumber }}</q-item-label
-          >
-        </q-item-section>
-      </q-item>
-    </q-list>
+    <div v-else>
+      <BookmarkTreeItem
+        v-for="node in tree"
+        :key="node.id"
+        :file="activeFile!"
+        :node="node"
+        :all-bookmarks="bookmarks"
+        @reload="loadBookmarks"
+      />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useBackendApi } from 'src/apis/backendApi';
+import { useEditorStore } from 'src/stores/editorStore';
+import type { BookmarkInfo } from 'src/models/relational/fileSchema';
+import { buildBookmarkTree } from 'src/utils/document/bookmarkTree';
+import BookmarkTreeItem from './BookmarkTreeItem.vue';
 
-interface Bookmark {
-  id: string;
-  pageNumber: number;
-  label: string;
+const { t: $t } = useI18n();
+const api = useBackendApi();
+const editorStore = useEditorStore();
+
+const activeFile = computed(() => editorStore.getActiveTab(editorStore.activeSide));
+// アノテーション右クリック等、このパネル以外からのブックマーク変更を検知するためのリビジョン
+const bookmarksRevision = computed(() => {
+  const file = activeFile.value;
+  return file ? editorStore.getBookmarksRevision(file) : undefined;
+});
+
+const loading = ref(false);
+const loadFailed = ref(false);
+const bookmarks = ref<BookmarkInfo[]>([]);
+const tree = computed(() => buildBookmarkTree(bookmarks.value));
+
+// `loadBookmarks`の多重呼び出し（ファイル切り替えの連続発生等）で発行順と応答順が入れ替わった際に、
+// 古い応答が新しい応答を上書きしてしまわないようにするためのリクエスト世代カウンタ
+let bookmarksRequestId = 0;
+
+/**
+ * アクティブな文書のブックマーク一覧を読み込む
+ *
+ * PDF自体に埋め込まれたしおり（アウトライン）は文書読み込み時に自動でここへ取り込まれる
+ * （`documentService.loadConfig`側の処理）ため、ここでは区別なく一覧を取得するだけでよい
+ */
+async function loadBookmarks() {
+  const file = activeFile.value;
+  if (!file) {
+    bookmarks.value = [];
+    loadFailed.value = false;
+    return;
+  }
+
+  const requestId = ++bookmarksRequestId;
+  loading.value = true;
+  const res = await api.listBookmarks(file);
+  // 呼び出し中に別のloadBookmarksが発行されていた場合、この応答は古いので破棄する
+  if (requestId !== bookmarksRequestId) return;
+  if (!res.ok) console.error(res.error);
+  bookmarks.value = res.ok ? res.data : [];
+  loadFailed.value = !res.ok;
+  loading.value = false;
 }
 
-// TODO: ブックマークはバックエンドから取得する
-const bookmarks = computed<Bookmark[]>(() => []);
+watch([activeFile, bookmarksRevision], () => void loadBookmarks(), { immediate: true });
+
+/** 現在表示中のページを対象に、新規ブックマークを登録する */
+async function onAddBookmark() {
+  const file = activeFile.value;
+  if (!file) return;
+
+  const page = editorStore.activeTabCurrentPage[editorStore.activeSide] ?? 1;
+  const title = `${$t('explorer.bookmarks.page')} ${page}`;
+  const res = await api.addBookmark(file, title, page);
+  if (res.ok) await loadBookmarks();
+}
 </script>
 
 <style scoped lang="scss">

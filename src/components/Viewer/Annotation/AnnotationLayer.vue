@@ -82,6 +82,7 @@
     <AnnotationContextMenu
       v-if="contextMenuAnnotation"
       :annotation="contextMenuAnnotation"
+      :file="props.file"
       :client-pos="contextMenuPos"
       @close="contextMenuAnnotation = null"
     />
@@ -1127,12 +1128,16 @@ function syncTransformerSelection() {
   transformer.nodes(nodes);
 }
 
+// `immediate: true`が必要: 連続表示モードの仮想化（DocumentViewer.vue）により、ブックマーク等の
+// ジャンプで既に選択済みのIDがセットされた後になって初めてこのページのAnnotationLayerが
+// マウントされるケースがある。immediateを付けないとマウント時点の値と一致しているだけとみなされ
+// コールバックが一度も呼ばれず、Transformerがいつまでも対象ノードに追従しない
 watch(
   selectedAnnotIds,
   () => {
     void nextTick(syncTransformerSelection);
   },
-  { flush: 'post', deep: true },
+  { flush: 'post', deep: true, immediate: true },
 );
 
 // ズームのデバウンス再描画（PdfPage.vue）でcanvasSizeが変わるとKonva Stageの

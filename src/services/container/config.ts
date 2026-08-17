@@ -10,6 +10,8 @@ import { calcBase64Hash } from 'src/utils/binary/base64';
 import type {
   AnnotationBaseAddress,
   AnnotationInfo,
+  BookmarkID,
+  BookmarkInfo,
   RelationalInFile,
 } from 'src/models/relational/fileSchema';
 import { CachedRelationalFile, DocumentConfigFile } from 'src/models/relational/fileSchema';
@@ -360,17 +362,24 @@ export async function getDocumentConfigFile(
 
 /**
  * 文書設定ファイルを保存する
+ *
+ * `bookmarks`・`outlineImported`はアノテーションと異なりDB経由の差分管理を行わないため、
+ * 呼び出し側が現在有効な値（読み込み直後の内容に対する変更後の状態）をそのまま渡すこと
  */
 export async function saveDocumentConfigFile(
   cID: ContainerID,
   filePath: string,
   annotInfos: AnnotationInfo[],
   fileHash: string,
+  bookmarks: Record<BookmarkID, BookmarkInfo>,
+  outlineImported: boolean,
 ): Promise<Result<void>> {
   // 書き込む情報を構築する
   const docConf: DocumentConfigFile = {
     fileHash,
     annots: fromEntries(annotInfos.map((aInfo) => [aInfo.style.id, aInfo])),
+    bookmarks,
+    outlineImported,
   };
   const docConfStr = JSON.stringify(docConf, null, 2);
   const docConfSrc = textRepository.encodeTextContents(docConfStr);
@@ -434,6 +443,8 @@ export async function saveDocumentConfigs(
   oldSrc: DocumentSource,
   newSrc: DocumentSource,
   annotInfos: AnnotationInfo[],
+  bookmarks: Record<BookmarkID, BookmarkInfo>,
+  outlineImported: boolean,
 ): Promise<Result<void>> {
   // 新ファイルのハッシュ値を取得
   const newSrcHash = await calcBase64Hash(newSrc);
@@ -444,7 +455,14 @@ export async function saveDocumentConfigs(
   if (!backupRes.ok) return backupRes;
 
   // 文書設定ファイルの更新
-  const docConfRes = await saveDocumentConfigFile(cID, filePath, annotInfos, newSrcHash.value);
+  const docConfRes = await saveDocumentConfigFile(
+    cID,
+    filePath,
+    annotInfos,
+    newSrcHash.value,
+    bookmarks,
+    outlineImported,
+  );
   if (!docConfRes.ok) return docConfRes;
 
   return Success();
