@@ -570,12 +570,18 @@ async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: An
  * 独立して確定処理を実行すると、`api.registRelationals`が二重に呼ばれて関係性が重複登録
  * されたり、一方が待機を解除した直後にもう一方が古い状態を見て待機を再開してしまい
  * 「対になるアノテーションを選択しても待機状態が解除されない」ように見える不具合につながる。
- * そのため、実際にユーザーが操作しているアクティブなペインでのみ確定処理を行う
+ *
+ * そのため、実際にこのペインでユーザーが新たにアノテーションを選択したかどうかを、選択変更前後の
+ * IDの差分（新規に加わったIDがあるか）で判定する。アノテーション一覧購読の再通知（DB更新の
+ * エコー）による`selectedAnnotationIds`の再代入は、既存の選択からIDが減ることはあっても
+ * 増えることはないため、この判定でアクティブペインかどうかに関わらず確実に除外できる。
+ * （`editorStore.activeSide`で判定していた旧実装は、クリックによる選択確定＝mousedownの直後の
+ * 時点ではまだそのペインの`.document-layout`の`click`イベントが発火しておらず`activeSide`が
+ * 更新されていないため、「他ペインのアノテーションを直接選択する」操作を常に取りこぼしていた）
  */
-async function registRelationalBySelect(selectedIds: AnnotationID[], originSide: LayoutSide) {
-  // ガードは選択変更が発生した時点のペイン（originSide）に紐づける。
-  // originSide がこのコンポーネントの layoutSide と一致しない場合、発生元が別ペインであるため処理を行わない
-  if (originSide !== prop.layoutSide) return;
+async function registRelationalBySelect(selectedIds: AnnotationID[], oldSelectedIds: AnnotationID[]) {
+  const hasNewSelection = selectedIds.some((id) => !oldSelectedIds.includes(id));
+  if (!hasNewSelection) return;
 
   const targetId = decideRelationalOnSelectionChanged(
     editorStore.relationalMode,
@@ -808,10 +814,8 @@ watch(annotations, (newAnnots, oldAnnots) => {
   const originSide = editorStore.activeSide;
   void handleAnnotationsChanged(newAnnots, oldAnnots, originSide);
 });
-watch(selectedAnnotationIds, (selectedIds) => {
-  // 選択変更発生時点のアクティブペインを発生元として渡す
-  const originSide = editorStore.activeSide;
-  void registRelationalBySelect(selectedIds, originSide);
+watch(selectedAnnotationIds, (selectedIds, oldSelectedIds) => {
+  void registRelationalBySelect(selectedIds, oldSelectedIds);
 });
 // 現在表示中のページ番号を、Explorerのブックマークパネル等このコンポーネントの外側からも
 // 参照できるようeditorStoreへ橋渡しする（「現在のページをブックマーク」の既定ページに使う）
@@ -821,16 +825,20 @@ watch(currentPage, (page) => editorStore.setActiveTabCurrentPage(prop.layoutSide
 
 // アクティブなペインの選択状態を、スタイルパネル（MainTools/SubTools行）用にeditorStoreへ橋渡しする。
 // 選択状態自体はペインごとのこのコンポーネントが持つため、layerOrderAction等と同じ
-// 「意図・状態をeditorStoreに反映する」パターンを踏襲する
+// 「意図・状態をeditorStoreに反映する」パターンを踏襲する。
+//
+// 同一ファイルが複数ペインに開かれている場合、非アクティブ側のペインでもアノテーション一覧の
+// 購読（`observedAnnotationStylesByFile`）が更新のたびに再発火し、`selectedAnnotations`が
+// （内容が変わらなくても）新しい配列参照として再計算されてこのwatchを起動させてしまう。
+// ファイル一致だけで解除条件を判定すると、そのたびに非アクティブ側が「自分は非アクティブだから」
+// と誤ってアクティブ側の選択を解除してしまい、値を変更するたびに編集ツールバーが点滅・消失する
+// 不具合につながる。解除は必ず「自分が最後にこの選択をセットした本人（side一致）」の場合のみ行う
 watch(
   [selectedAnnotations, () => editorStore.activeSide],
   () => {
     if (editorStore.activeSide === prop.layoutSide) {
-      editorStore.setActiveSelection(prop.file, selectedAnnotations.value);
-    } else if (
-      editorStore.activeSelection !== undefined &&
-      isSameFile(editorStore.activeSelection.file, prop.file)
-    ) {
+      editorStore.setActiveSelection(prop.file, selectedAnnotations.value, prop.layoutSide);
+    } else if (editorStore.activeSelection?.side === prop.layoutSide) {
       editorStore.clearActiveSelection();
     }
   },
@@ -962,10 +970,8 @@ onBeforeUnmount(() => {
   acquiredPdf?.release();
 
   // このペインの選択がスタイルパネルに反映されたままタブが閉じられた場合、選択状態を解除する
-  if (
-    editorStore.activeSelection !== undefined &&
-    isSameFile(editorStore.activeSelection.file, prop.file)
-  ) {
+  // （sideで判定することで、同一ファイルを開く別ペインの選択を誤って解除しないようにする）
+  if (editorStore.activeSelection?.side === prop.layoutSide) {
     editorStore.clearActiveSelection();
   }
 });
