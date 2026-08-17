@@ -120,6 +120,46 @@ jobs:
       - name: Type check
         run: bunx vue-tsc --noEmit
 
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install && bun run quasar prepare
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        # PlaywrightのブラウザプロセスはOSのパイプ機構に依存し、Bunランタイム経由で起動すると
+        # Windows環境では既知の不具合でハングする（chromium.launch()がタイムアウトする。
+        # oven-sh/bun#27977等）。Linux CIでは再現しないが、切り離すためnpxで実行するNode.jsを
+        # 使う（このジョブではactions/setup-nodeで導入済み）
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
   # セキュリティスキャンは現状GitHub Botに一任
   # security-scan:
   #   name: Security Scan

@@ -52,3 +52,9 @@ yarn-error.log*
 
 # large files
 *.traineddata
+
+# Playwright E2E
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache
