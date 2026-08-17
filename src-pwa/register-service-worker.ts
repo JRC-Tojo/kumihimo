@@ -1,8 +1,25 @@
 import { register } from 'register-service-worker';
+import { Notify } from 'quasar';
+
+import { globalI18n } from 'src/boot/i18n';
 
 // The ready(), registered(), cached(), updatefound() and updated()
 // events passes a ServiceWorkerRegistration instance in their arguments.
 // ServiceWorkerRegistration: https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration
+
+/** 定期的な更新チェックの間隔（30分） */
+const UPDATE_CHECK_INTERVAL_MS = 1000 * 60 * 30;
+
+/** controllerchangeによる二重リロードを防ぐためのフラグ */
+let reloading = false;
+
+// 新しいService Workerが有効化されてページの制御を引き継いだら、
+// 一度だけ確実にリロードして新しいコードを反映する
+navigator.serviceWorker.addEventListener('controllerchange', () => {
+  if (reloading) return;
+  reloading = true;
+  window.location.reload();
+});
 
 register(process.env.SERVICE_WORKER_FILE, {
   // The registrationOptions object will be passed as the second argument
@@ -15,8 +32,11 @@ register(process.env.SERVICE_WORKER_FILE, {
     // console.log('Service worker is active.')
   },
 
-  registered(/* registration */) {
-    // console.log('Service worker has been registered.')
+  registered(registration) {
+    // タブを開きっぱなしにするユースケースを想定し、能動的に更新を検知する
+    setInterval(() => {
+      void registration.update();
+    }, UPDATE_CHECK_INTERVAL_MS);
   },
 
   cached(/* registration */) {
@@ -27,8 +47,27 @@ register(process.env.SERVICE_WORKER_FILE, {
     // console.log('New content is downloading.')
   },
 
-  updated(/* registration */) {
-    // console.log('New content is available; please refresh.')
+  updated(registration) {
+    // 新しいService Workerがwaiting状態で待機している旨をユーザーへ通知する。
+    // 作業を妨げないよう自動では消えない非ブロッキング通知にし、
+    // ボタン押下時のみSKIP_WAITINGを送って更新を確定させる
+    if (!registration.waiting) return;
+
+    const { t } = globalI18n;
+    Notify.create({
+      type: 'info',
+      message: t('pwa.updateAvailable'),
+      timeout: 0,
+      actions: [
+        {
+          label: t('pwa.reload'),
+          color: 'white',
+          handler: () => {
+            registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+          },
+        },
+      ],
+    });
   },
 
   offline() {
