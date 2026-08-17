@@ -574,4 +574,53 @@ describe('registerAnnotationStyleにおけるコンテンツ再読み込みの�
     expect(extractTextByAnnotMock).not.toHaveBeenCalled();
     expect(extractImageFromRegionMock).not.toHaveBeenCalled();
   });
+
+  it('短時間に連続してジオメトリが変化した場合、先に始まった（遅い）読み込みが後から完了しても、後発（最新）の読み込み結果を上書きしない', async () => {
+    getAnnotationInfoMock.mockClear();
+    loadFileAsDocumentSourceMock.mockClear();
+    extractTextByAnnotMock.mockClear();
+    updateAnnotationContentTextMock.mockClear();
+
+    // 1回目（遅い）：サイズ変更直後の読み込み。手動でresolveするまでファイル取得が完了しない
+    getAnnotationInfoMock.mockImplementationOnce(() =>
+      Promise.resolve(Failure(new Error('not found'))),
+    );
+    let resolveSlowSource: (value: Result<string>) => void = () => undefined;
+    const slowSource = new Promise<Result<string>>((resolve) => {
+      resolveSlowSource = resolve;
+    });
+    loadFileAsDocumentSourceMock.mockImplementationOnce(() => slowSource);
+
+    const firstStyle = baseStyle(idA, { width: 20 });
+    const firstRegister = registerAnnotationStyle(file, firstStyle);
+    // 1回目の呼び出しがloadFileAsDocumentSourceの完了待ちに入るまでマイクロタスクをフラッシュする
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // 2回目（速い）：さらに微調整した直後の読み込み。即座に完了する
+    getAnnotationInfoMock.mockImplementationOnce(() =>
+      Promise.resolve(Success<AnnotationInfo>({ style: firstStyle, context: { text: undefined } })),
+    );
+    loadFileAsDocumentSourceMock.mockImplementationOnce(() =>
+      Promise.resolve(Success('dummy-source' as never)),
+    );
+    extractTextByAnnotMock.mockImplementationOnce(() => Promise.resolve(Success('最新の値')));
+
+    const secondStyle = baseStyle(idA, { width: 30 });
+    await registerAnnotationStyle(file, secondStyle);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // 2回目（最新）の読み込みが先に完了し、DBに反映される
+    expect(updateAnnotationContentTextMock).toHaveBeenCalledWith(idA, '最新の値');
+    const writeCountAfterSecond = updateAnnotationContentTextMock.mock.calls.length;
+
+    // その後、1回目（古い）の読み込みが遅れて完了する
+    extractTextByAnnotMock.mockImplementationOnce(() => Promise.resolve(Success('古い値')));
+    resolveSlowSource(Success('dummy-source' as never));
+    await firstRegister;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // 古い読み込みの結果が後から書き込まれ、最新の値を上書きしてしまわないこと
+    expect(updateAnnotationContentTextMock).toHaveBeenCalledTimes(writeCountAfterSecond);
+    expect(updateAnnotationContentTextMock).not.toHaveBeenCalledWith(idA, '古い値');
+  });
 });

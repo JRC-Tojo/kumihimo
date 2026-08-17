@@ -247,6 +247,40 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(bbox.height).toBe(8);
   });
 
+  it('line: 始点アンカー（points[0]/points[1]）だけを動かした場合でもboundingBoxに反映される（Issue #76: 始点だけ動かすと関係性の読み取り値が更新されない不具合の回帰テスト）', () => {
+    const baseStyle = {
+      id: '00000000-0000-4000-8000-000000000000' as never,
+      pageNumber: 1,
+      // 外接矩形は負座標を0にクランプするため、始点移動によるx側の縮小がクランプで
+      // 相殺されないよう、あらかじめ原点から離れた位置に置く
+      x: 100,
+      y: 100,
+      color: '#000000' as never,
+      strokeWidth: 2,
+      strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      comment: {},
+      type: 'line' as const,
+    };
+
+    // 作成直後：始点は(x, y)そのもの、終点はそこから(10, 0)のオフセット
+    const original = ANNOTATION_GEOMETRY.line.boundingBox({ ...baseStyle, points: [0, 0, 10, 0] });
+
+    // 頂点アンカー（useTwoPointAnchors）で始点だけをドラッグした場合、x/yは変わらず
+    // points[0]/points[1]だけが変化する（終点は据え置き）
+    const startMoved = ANNOTATION_GEOMETRY.line.boundingBox({
+      ...baseStyle,
+      points: [-20, 0, 10, 0],
+    });
+
+    // 始点を動かした分だけ外接矩形の左端が広がっていること
+    expect(startMoved).not.toEqual(original);
+    expect(startMoved.x).toBe(original.x - 20);
+    expect(startMoved.width).toBe(original.width + 20);
+  });
+
   it('polyline: createFromPointsは先頭の頂点を原点とした相対座標配列を生成する', () => {
     const points = [
       { x: 10, y: 10 },
@@ -581,6 +615,44 @@ describe('boundingBox（残りの種別）', () => {
       headSize: 12,
     });
     expect(bbox).toEqual({ x: 0, y: 0, width: 28, height: 38 });
+  });
+
+  it('polyline: 始点頂点（points[0]/points[1]）だけを動かした場合でもboundingBoxに反映される（Issue #76と同種の回帰テスト）', () => {
+    const baseStyle = {
+      id: '00000000-0000-4000-8000-000000000000' as never,
+      pageNumber: 1,
+      x: 100,
+      y: 100,
+      color: '#000000' as never,
+      strokeWidth: 2,
+      strokeType: 'solid' as const,
+      blendMode: 'normal' as never,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      comment: {},
+      type: 'polyline' as const,
+      startHead: 'none' as const,
+      endHead: 'none' as const,
+      headSize: 12,
+    };
+
+    // 作成直後：始点は(x, y)そのもの、終点はそこから(20, 0)のオフセット
+    const original = ANNOTATION_GEOMETRY.polyline.boundingBox({
+      ...baseStyle,
+      points: [0, 0, 20, 0],
+    });
+
+    // 頂点アンカー（useMultiPointAnchors）で始点だけをドラッグした場合、x/yは変わらず
+    // points[0]/points[1]だけが変化する（終点は据え置き）。始点を既存範囲[0, 20]の内側
+    // （旧実装ではx/yをそのまま範囲に含め続けてしまい、この移動が検知されなかった）へ動かす
+    const startMoved = ANNOTATION_GEOMETRY.polyline.boundingBox({
+      ...baseStyle,
+      points: [10, 0, 20, 0],
+    });
+
+    expect(startMoved).not.toEqual(original);
+    expect(startMoved.x).toBe(original.x + 10);
+    expect(startMoved.width).toBe(original.width - 10);
   });
 
   it('polygon: boundingBoxは頂点群の外接矩形（線幅を考慮）を返す', () => {
