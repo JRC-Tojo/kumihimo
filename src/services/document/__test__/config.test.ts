@@ -3,7 +3,11 @@ import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Failure, NotFoundError, Success } from 'src/models/error/result';
-import type { AnnotationInfo, BookmarkID, DocumentConfigFile } from 'src/models/relational/fileSchema';
+import type {
+  AnnotationInfo,
+  BookmarkID,
+  DocumentConfigFile,
+} from 'src/models/relational/fileSchema';
 import type { DocumentSource } from 'src/models/document/common';
 import type { PdfOutlineEntry } from 'src/models/document/pdf';
 import { calcBase64Hash } from 'src/utils/binary/base64';

@@ -216,7 +216,7 @@ export default {
         fontEmbedRiskMessageUnsupported:
           "This browser doesn't support font access, so some characters in text boxes (such as Japanese) may not display in the saved PDF. We recommend reopening this file in a supported browser, such as Google Chrome or Microsoft Edge.",
         fontEmbedRiskMessageDenied:
-          "Font access hasn't been granted for this site, so some characters in text boxes (such as Japanese) may not display in the saved PDF. Follow these steps to allow font access for this site, then reload the page and save again.\n\nStep 1: Click the lock icon or settings icon at the left of the address bar.\nStep 2: Open \"Fonts\" or \"Site settings\" in the menu.\nStep 3: Change the permission to \"Allow\".\nStep 4: Reload the page.",
+          'Font access hasn\'t been granted for this site, so some characters in text boxes (such as Japanese) may not display in the saved PDF. Follow these steps to allow font access for this site, then reload the page and save again.\n\nStep 1: Click the lock icon or settings icon at the left of the address bar.\nStep 2: Open "Fonts" or "Site settings" in the menu.\nStep 3: Change the permission to "Allow".\nStep 4: Reload the page.',
         fontEmbedRiskProceed: 'Save anyway',
         saveAsDialog: {
           title: 'Save As',
