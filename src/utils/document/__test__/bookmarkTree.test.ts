@@ -109,6 +109,8 @@ describe('outlineEntriesToBookmarks', () => {
   });
 
   test('levelが1階層ずつ増えず飛び越える場合も、直近の浅い祖先を親として解決する', () => {
+    // 欠番のlevel（0の次に1を飛ばして2）を持つOutlineでも、直前のlevel-1だけを見るのではなく
+    // 浅い方へたどって最も近い祖先を親として解決できることを検証する
     const entries: PdfOutlineEntry[] = [
       { title: 'a', level: 0, pageNumber: 1 },
       // level 1が存在しないままlevel 2に飛ぶ（PDFのアウトラインでlevelの連続性は保証されない）

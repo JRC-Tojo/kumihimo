@@ -444,6 +444,7 @@ export default {
     bookmarks: {
       title: 'Bookmarks',
       noBookmarks: 'No Bookmarks',
+      loadFailed: 'Failed to load bookmarks',
       page: 'Page',
       add: 'Bookmark current page',
       addChild: 'Add as child',

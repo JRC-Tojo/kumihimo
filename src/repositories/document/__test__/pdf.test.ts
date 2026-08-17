@@ -1266,6 +1266,8 @@ describe('embedBookmarksIntoPdf（pdf-lib、ネイティブしおり(Outline)と
   });
 
   it('/Countは直接の子だけでなく、開いた状態で表示される子孫の総数を反映する', async () => {
+    // root > child > grandchildの3階層構造で、各ノードの/Countが直接の子の数（バグ時の値）
+    // ではなく、そのノード配下の子孫の総数になっていることを検証する
     const src = await buildTestPdfSrc(1, [300, 300]);
     const res = await embedBookmarksIntoPdf(
       src,

@@ -443,6 +443,7 @@ export default {
     bookmarks: {
       title: 'ブックマーク',
       noBookmarks: 'ブックマークなし',
+      loadFailed: 'ブックマークの読み込みに失敗しました',
       page: 'ページ',
       add: '現在のページをブックマーク',
       addChild: '子要素として登録',

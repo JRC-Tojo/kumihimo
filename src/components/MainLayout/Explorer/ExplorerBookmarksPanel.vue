@@ -9,6 +9,9 @@
     <div v-if="loading" class="q-pa-md text-center">
       <q-spinner color="primary" size="1.5em" />
     </div>
+    <div v-else-if="loadFailed" class="q-pa-md text-center text-negative">
+      {{ $t('explorer.bookmarks.loadFailed') }}
+    </div>
     <div v-else-if="tree.length === 0" class="q-pa-md text-center text-grey">
       {{ $t('explorer.bookmarks.noBookmarks') }}
     </div>
@@ -46,6 +49,7 @@ const bookmarksRevision = computed(() => {
 });
 
 const loading = ref(false);
+const loadFailed = ref(false);
 const bookmarks = ref<BookmarkInfo[]>([]);
 const tree = computed(() => buildBookmarkTree(bookmarks.value));
 
@@ -63,6 +67,7 @@ async function loadBookmarks() {
   const file = activeFile.value;
   if (!file) {
     bookmarks.value = [];
+    loadFailed.value = false;
     return;
   }
 
@@ -71,7 +76,9 @@ async function loadBookmarks() {
   const res = await api.listBookmarks(file);
   // 呼び出し中に別のloadBookmarksが発行されていた場合、この応答は古いので破棄する
   if (requestId !== bookmarksRequestId) return;
+  if (!res.ok) console.error(res.error);
   bookmarks.value = res.ok ? res.data : [];
+  loadFailed.value = !res.ok;
   loading.value = false;
 }
 
