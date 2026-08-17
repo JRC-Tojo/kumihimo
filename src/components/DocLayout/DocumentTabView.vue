@@ -728,6 +728,10 @@ onMounted(async () => {
     goToPage(initialTabFocus.page);
     if (initialTabFocus.annotId !== undefined) {
       selectedAnnotationIds.value = [initialTabFocus.annotId];
+      // 'hand'モードのままだとAnnotationLayer側がisEditingModeをfalseと判定し、
+      // Transformerの枠線が一切描画されない（選択状態は反映されても見た目上判別できない）ため、
+      // ブックマーク等からのジャンプで選択を伴う場合は必ずポインタモードへ切り替える
+      editorStore.currentTools = 'pointer';
     }
     await scrollToCurrentPage(viewer.value?.scrollHeight ?? 0);
     if (initialTabFocus.annotId !== undefined) {
@@ -769,7 +773,12 @@ async function consumePendingTabFocus() {
 
   editorStore.clearPendingTabFocus();
   goToPage(pending.page);
-  if (pending.annotId !== undefined) selectedAnnotationIds.value = [pending.annotId];
+  if (pending.annotId !== undefined) {
+    selectedAnnotationIds.value = [pending.annotId];
+    // initialTabFocus側と同様、'hand'モードのままだとTransformerの枠線が表示されないため
+    // ポインタモードへ切り替える
+    editorStore.currentTools = 'pointer';
+  }
   await scrollToCurrentPage(viewer.value?.scrollHeight ?? 0);
   if (pending.annotId !== undefined) await scrollToAnnotation(pending.annotId);
 }
