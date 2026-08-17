@@ -123,6 +123,16 @@ export type RelationalContinuousRestartDecision =
  * 「対になるアノテーションが選択され続けているだけ」とみなしてスキップする。
  * 呼び出し側は`targetId`にアノテーションオブジェクトそのものではなくIDを渡すこと
  * （アノテーション一覧の更新に伴い参照だけが変化してこの判定が意図せず再実行されるのを防ぐため）
+ *
+ * `lastPairedId`は`targetId`が別の“定まった”アノテーションに変わった場合のみ解除する。
+ * `targetId`が一旦`undefined`になっただけでは解除しない。新規アノテーション作成直後は、
+ * 選択IDへの反映（描画完了時に直接代入）がアノテーション一覧への反映（バックエンド経由の
+ * 非同期通知）より先に届くため、そのアノテーションが一覧に載るまでの一瞬`activeSelection`
+ * （＝`targetId`）が空になる（`DocumentTabView.vue`の`selectedAnnotations`はまだ一覧に
+ * 存在しないIDを除外するため）。この一瞬をここで「対象が変わった」と誤認して`lastPairedId`
+ * を解除してしまうと、直後に届くその対象アノテーション自身の一覧反映（後追い検知）を
+ * `decideRelationalOnAnnotationsAdded`側で正しく無視できなくなり、後追い反映を新たな起点として
+ * 誤って待機開始してしまう（＝次にどこかで描いたアノテーションと意図せず関係性が結ばれる）
  */
 export function decideRelationalContinuousRestart(params: {
   continuous: boolean;
@@ -135,7 +145,7 @@ export function decideRelationalContinuousRestart(params: {
   if (lastPairedId !== undefined && targetId === lastPairedId) {
     return { start: false, clearLastPaired: false };
   }
-  const clearLastPaired = lastPairedId !== undefined;
+  const clearLastPaired = lastPairedId !== undefined && targetId !== undefined;
   if (!continuous || pending || targetId === undefined || mode === undefined) {
     return { start: false, clearLastPaired };
   }

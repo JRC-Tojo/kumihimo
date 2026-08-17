@@ -124,6 +124,17 @@ describe('decideRelationalContinuousRestart', () => {
     expect(decision).toEqual({ start: true, clearLastPaired: true, annotId: idC, mode: 'link' });
   });
 
+  it('選択が一旦無くなっただけ（targetIdがundefinedになっただけ）では目印を解除しない（新規アノテーション作成直後、選択IDの反映がアノテーション一覧への反映より先に届くことで一瞬選択が空に見える場合に、直後に届く後追いのアノテーション一覧反映を誤った新たな起点にしないため）', () => {
+    const decision = decideRelationalContinuousRestart({
+      continuous: true,
+      pending: false,
+      mode: 'link',
+      targetId: undefined,
+      lastPairedId: idB,
+    });
+    expect(decision).toEqual({ start: false, clearLastPaired: false });
+  });
+
   it('目印が無い状態でも、選択が変化していれば新たな起点として待機を再開する', () => {
     const decision = decideRelationalContinuousRestart({
       continuous: true,

@@ -19,10 +19,14 @@
       </q-tooltip>
     </q-btn>
 
-    <!-- 待機中はキャンセルボタン、そうでなければ設定ショートカットボタン。この1枠だけが入れ替わり、
-         等しい/リンクボタンの配置は待機中かどうかに関わらず変化しない -->
+    <!-- 待機中・連続定義モード中はキャンセルボタン、そうでなければ設定ショートカットボタン。
+         連続定義モードはペア確定直後で待機中でない間も有効であり続けるため、`isPending`だけで
+         判定すると、その間だけキャンセルボタンが消えてしまい、連続モードを解除する手段が
+         見えなくなる（誤ってダブルクリックした場合等に気付けず、次に描いたアノテーションが
+         新たな起点になり続けてしまう）。この1枠だけが入れ替わり、等しい/リンクボタンの配置は
+         待機中かどうかに関わらず変化しない -->
     <q-btn
-      v-if="isPending"
+      v-if="isPending || editorStore.relationalContinuous"
       dense
       flat
       :ripple="false"
@@ -32,7 +36,11 @@
       @click="onCancel"
     >
       <q-tooltip anchor="top middle" self="bottom middle">
-        {{ t('pdfEditor.tools.relational.cancel') }}
+        {{
+          isPending
+            ? t('pdfEditor.tools.relational.cancel')
+            : t('pdfEditor.tools.relational.cancelContinuous')
+        }}
       </q-tooltip>
     </q-btn>
     <q-btn
@@ -67,8 +75,10 @@
  * 次のアノテーションを新たな起点として自動的に待機を再開する（`targetId`の変化を監視して行う。
  * 直前の対象とそのまま連鎖させるのではなく、次の選択を独立した新しいペアの起点として扱う）。
  * ユーザーが明示的にキャンセルボタンを押すまで有効であり続ける。
- * 末尾の1枠（設定ショートカット／キャンセル）だけが待機中かどうかで入れ替わり、
- * それ以外のボタン配置は変化しない
+ * 末尾の1枠（設定ショートカット／キャンセル）は、待機中または連続定義モード中に
+ * キャンセルボタンへ入れ替わり、それ以外のボタン配置は変化しない。連続定義モードは
+ * ペア確定直後（待機中でない間）も有効であり続けるため、`isPending`だけで判定すると
+ * その間だけキャンセルボタンが消え、連続モードを解除する手段が見えなくなってしまう。
  */
 import { computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -96,8 +106,12 @@ const target = computed<AnnotationStyle | undefined>(() => {
 const targetId = computed(() => target.value?.id);
 
 const isPending = computed(() => editorStore.relationalPendingId !== undefined);
-// 待機中は、選択が外れて`target`が無くなっても操作盤を表示し続ける（種別の確認・キャンセルのため）
-const visible = computed(() => target.value !== undefined || isPending.value);
+// 待機中・連続定義モード中は、選択が外れて`target`が無くなっても操作盤を表示し続ける
+// （種別の確認・キャンセルのため。特に連続定義モードはペア確定直後も有効であり続けるため、
+// ここに含めないと選択が外れた瞬間キャンセルボタンごと操作盤が消え、解除できなくなる）
+const visible = computed(
+  () => target.value !== undefined || isPending.value || editorStore.relationalContinuous,
+);
 
 const relationalModes = [
   { type: 'equal', icon: 'sync_alt' },

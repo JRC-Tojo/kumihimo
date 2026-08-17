@@ -39,6 +39,8 @@
         :animation="0"
         group="documentTabs"
         class="tabs-container"
+        filter=".pinned"
+        :prevent-on-filter="false"
         @add="onTabAdded"
         @remove="onTabRemoved"
       >
@@ -47,11 +49,13 @@
           v-for="tab in tabs"
           :key="`${tab.containerID}/${tab.path}`"
           :file="tab"
+          :layout-side="prop.layoutSide"
           :active="
             !isSettingsActive && isSameFile(tab, activeTabFile) && activeLayout === layoutSide
           "
           @select="selectTab(tab, true)"
           @close="closeTab(tab)"
+          @show-relational-summary="relationalSummaryFile = tab"
         />
       </VueDraggable>
     </div>
@@ -92,6 +96,12 @@
         <p class="q-mt-md text-grey-6">{{ $t('pdfEditor.document.noDocumentSelected') }}</p>
       </div>
     </div>
+
+    <TabRelationalSummaryDialog
+      v-if="relationalSummaryFile"
+      v-model:open="relationalSummaryDialogOpen"
+      :file="relationalSummaryFile"
+    />
   </div>
 </template>
 
@@ -102,20 +112,18 @@ import UnsupportedFileTabView from 'src/components/DocLayout/UnsupportedFileTabV
 import PluginPanelView from 'src/components/DocLayout/PluginPanelView.vue';
 import DocTabItem from 'src/components/DocLayout/DocTabItem.vue';
 import TabItem from 'src/components/DocLayout/TabItem.vue';
+import TabRelationalSummaryDialog from 'src/components/DocLayout/TabRelationalSummaryDialog.vue';
 import SettingsPage from 'src/pages/SettingsPage.vue';
 import ContainerSettingsPage from 'src/pages/ContainerSettingsPage.vue';
 import type { ContainerElementFile } from 'src/models/container';
 import { useEditorStore, SETTINGS_TAB_KEY } from 'src/stores/editorStore';
 import type { LayoutSide } from 'src/stores/editorStore';
 import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DraggableEvent } from 'vue-draggable-plus';
 import { VueDraggable } from 'vue-draggable-plus';
-import { useBackendApi } from 'src/apis/backendApi';
-import { Path } from 'src/utils/binary/path';
-import { saveDocument } from 'src/utils/document/saveDocument';
-import { unsavedChangesDialog } from 'src/components/Dialog/confirmDialog';
+import { useTabCloseActions } from 'src/components/DocLayout/composables/useTabCloseActions';
 
 interface Prop {
   layoutSide: LayoutSide;
@@ -123,8 +131,16 @@ interface Prop {
 const prop = defineProps<Prop>();
 
 const { t: $t } = useI18n();
-const api = useBackendApi();
 const editorStore = useEditorStore();
+const { closeTabWithConfirm } = useTabCloseActions();
+
+const relationalSummaryFile = ref<ContainerElementFile>();
+const relationalSummaryDialogOpen = computed({
+  get: () => relationalSummaryFile.value !== undefined,
+  set: (v) => {
+    if (!v) relationalSummaryFile.value = undefined;
+  },
+});
 const tabs = computed({
   get: () => editorStore.tabs[prop.layoutSide],
   set: (newTabList) => {
@@ -177,24 +193,7 @@ function selectTab(file: ContainerElementFile, isFocus: boolean) {
 }
 
 async function closeTab(file: ContainerElementFile) {
-  const unsavedRes = await api.hasUnsavedChangesByFile(file);
-  const hasUnsavedChanges = unsavedRes.ok && unsavedRes.data;
-
-  if (hasUnsavedChanges) {
-    const choice = await unsavedChangesDialog({
-      title: $t('explorer.unsavedChanges'),
-      message: $t('explorer.unsavedTabConfirm', { name: new Path(file.path).basename() }),
-    });
-    if (choice === 'cancel') return;
-    if (choice === 'save') {
-      await saveDocument(file);
-    } else {
-      // 保存せず閉じる：仮登録されたアノテーション・関係性を破棄し、保存前の状態へ巻き戻す
-      await api.discardUnsavedChanges(file);
-    }
-  }
-
-  editorStore.closeTab(file, prop.layoutSide);
+  await closeTabWithConfirm(file, prop.layoutSide);
 }
 
 function onTabAdded(e: DraggableEvent<ContainerElementFile>) {
