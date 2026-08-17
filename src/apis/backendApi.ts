@@ -523,6 +523,31 @@ class BackendApi {
   }
 
   /**
+   * 現在のブラウザ・アノテーション内容で、埋め込み保存時にフォント（特に日本語等の
+   * WinAnsiEncodingで表現できない文字）が表示されなくなるリスクがあるかどうかを判定する
+   *
+   * Local Font Access APIが使えない（非対応ブラウザ、または対応ブラウザでも権限が
+   * 未許可・拒否済みでOSフォントを一件も取得できない）場合、標準14フォントでは表現できない
+   * 文字を含むテキストボックスがあると、保存後のPDFでその文字が表示されなくなる。
+   * 呼び出し側は、この判定がtrueの場合に警告ダイアログ等でユーザーに確認を促すこと
+   */
+  async hasFontEmbedRisk(annotations: AnnotationStyle[]): Promise<boolean> {
+    const needsRealFont = annotations.some(
+      (a) => a.type === 'text' && a.text.trim() !== '' && !pdfRepo.isWinAnsiEncodable(a.text),
+    );
+    if (!needsRealFont) return false;
+    if (!this.isLocalFontAccessSupported()) return true;
+
+    // 対応ブラウザでも、権限が未許可・拒否済み、またはユーザー操作から離れた呼び出しのため
+    // 一度もOSフォントを取得できていない場合はリスクありとして扱う。権限拒否時、
+    // `queryLocalFonts()`は例外を投げず「0件」として解決することがあるため、
+    // reject（`!ok`）だけでなく取得件数0件も判定に含める（そうしないと拒否状態が
+    // 「フォント一覧の取得に成功した（＝安全）」と誤判定されてしまう）
+    const familiesRes = await this.queryLocalFontFamilies();
+    return !familiesRes.ok || familiesRes.data.length === 0;
+  }
+
+  /**
    * 指定ファイルのアノテーション情報をDBから取得する
    */
   async getAnnotationsByFile(file: ContainerElementFile): Promise<ApiResponse<AnnotationInfo[]>> {

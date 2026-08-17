@@ -1,8 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
+import type { AnnotationID } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Failure, NotFoundError, Success } from 'src/models/error/result';
-import type { BookmarkID, DocumentConfigFile } from 'src/models/relational/fileSchema';
+import type { AnnotationInfo, BookmarkID, DocumentConfigFile } from 'src/models/relational/fileSchema';
 import type { DocumentSource } from 'src/models/document/common';
 import type { PdfOutlineEntry } from 'src/models/document/pdf';
 import { calcBase64Hash } from 'src/utils/binary/base64';
@@ -66,9 +67,26 @@ void mock.module('src/services/container/config', () => ({
   saveDocumentConfigFile: saveDocumentConfigFileMock,
 }));
 
-const registerAnnotationInfoMock = mock((): Promise<Result<void>> => Promise.resolve(Success()));
+const registerAnnotationInfoMock = mock(
+  (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _aInfo: AnnotationInfo[],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _file: ContainerElementFile,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _isTemporary: boolean,
+  ): Promise<Result<void>> => Promise.resolve(Success()),
+);
+// 既定では未保存(temporary)の注釈は無い（空Set）ものとして扱う。上書き防止ロジックを検証する
+// テストでは、個別に`mockImplementationOnce`で対象IDを含むSetへ差し替える
+const getTemporaryAnnotationIdsMock = mock(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+  (_file: ContainerElementFile): Promise<Result<Set<AnnotationID>>> =>
+    Promise.resolve(Success(new Set<AnnotationID>())),
+);
 void mock.module('src/services/document/annotation', () => ({
   registerAnnotationInfo: registerAnnotationInfoMock,
+  getTemporaryAnnotationIds: getTemporaryAnnotationIdsMock,
 }));
 
 void mock.module('src/repositories/document/pdfDocumentCache', () => ({
@@ -205,5 +223,77 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
     if (!res.ok) return;
     const titles = Object.values(res.value.bookmarks).map((b) => b.title);
     expect(titles.sort()).toEqual(['新規', '既存'].sort());
+  });
+});
+
+describe('loadConfig（未保存のローカル編集を.kcfgで上書きしない）', () => {
+  function buildAnnotInfo(id: AnnotationID): AnnotationInfo {
+    return {
+      style: {
+        id,
+        type: 'box',
+        pageNumber: 1,
+        x: 0,
+        y: 0,
+        color: '#000000' as never,
+        strokeWidth: 2,
+        strokeType: 'solid',
+        width: 10,
+        height: 10,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        comment: {},
+      },
+      context: {},
+    };
+  }
+
+  it('isTemporary:trueなIDは.kcfgからの登録対象から除外される', async () => {
+    const temporaryId = '00000000-0000-4000-8000-000000000001' as AnnotationID;
+    const savedId = '00000000-0000-4000-8000-000000000002' as AnnotationID;
+    documentConfigFileFixture = {
+      fileHash: DOC_SRC_HASH,
+      annots: {
+        [temporaryId]: buildAnnotInfo(temporaryId),
+        [savedId]: buildAnnotInfo(savedId),
+      },
+      bookmarks: {},
+      outlineImported: true, // しおり取り込み処理を素通りさせ、このテストの対象に絞る
+    };
+    getTemporaryAnnotationIdsMock.mockClear();
+    getTemporaryAnnotationIdsMock.mockImplementationOnce(() =>
+      Promise.resolve(Success(new Set([temporaryId]))),
+    );
+    registerAnnotationInfoMock.mockClear();
+
+    const res = await loadConfig(buildFile('doc.pdf'));
+    expect(res.ok).toBeTrue();
+
+    expect(registerAnnotationInfoMock).toHaveBeenCalledTimes(1);
+    const registeredInfos = registerAnnotationInfoMock.mock.calls[0]?.[0] as AnnotationInfo[];
+    const registeredIds = registeredInfos.map((info) => info.style.id);
+    expect(registeredIds).toContain(savedId);
+    expect(registeredIds).not.toContain(temporaryId);
+  });
+
+  it('getTemporaryAnnotationIdsの取得に失敗した場合は、従来どおり全件を登録対象にする', async () => {
+    const idOnly = '00000000-0000-4000-8000-000000000003' as AnnotationID;
+    documentConfigFileFixture = {
+      fileHash: DOC_SRC_HASH,
+      annots: { [idOnly]: buildAnnotInfo(idOnly) },
+      bookmarks: {},
+      outlineImported: true,
+    };
+    getTemporaryAnnotationIdsMock.mockClear();
+    getTemporaryAnnotationIdsMock.mockImplementationOnce(() =>
+      Promise.resolve(Failure(new Error('db error'))),
+    );
+    registerAnnotationInfoMock.mockClear();
+
+    const res = await loadConfig(buildFile('doc.pdf'));
+    expect(res.ok).toBeTrue();
+
+    const registeredInfos = registerAnnotationInfoMock.mock.calls[0]?.[0] as AnnotationInfo[];
+    expect(registeredInfos.map((info) => info.style.id)).toContain(idOnly);
   });
 });

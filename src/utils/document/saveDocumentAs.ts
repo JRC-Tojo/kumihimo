@@ -14,6 +14,7 @@ import { useRelationalStore } from 'src/stores/relationalStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import { applyRelationalOverrideToStyle } from 'src/components/Viewer/Annotation/relationalStyleOverride';
 import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
+import { fontEmbedRiskDialog } from 'src/components/Dialog/confirmDialog';
 
 /**
  * 別名保存時にアノテーションをどう扱うか
@@ -29,16 +30,25 @@ export interface SaveAsDestination {
   filePath: string;
 }
 
+export interface FontEmbedRiskDialogMessages {
+  title: string;
+  /** 非対応ブラウザ（Firefox/Safari等）向けの本文。対応ブラウザで開き直すよう促す */
+  unsupportedMessage: string;
+  /** 対応ブラウザだが権限が未許可・拒否済みの場合向けの本文。サイト設定から許可する手順を示す */
+  deniedMessage: string;
+}
+
 /**
  * 指定した文書を、指定したモード・保存先で別名保存する
  *
- * @returns 保存に成功したかどうか
+ * @returns 保存に成功したかどうか（フォント埋め込みリスクの警告でユーザーがキャンセルした場合もfalse）
  */
 export async function saveDocumentAs(
   file: ContainerElementFile,
   destination: SaveAsDestination,
   mode: SaveAsMode,
   notifyMessages?: SaveDocumentNotifyMessages,
+  fontEmbedRiskMessages?: FontEmbedRiskDialogMessages,
 ): Promise<boolean> {
   const api = useBackendApi();
 
@@ -68,6 +78,19 @@ export async function saveDocumentAs(
         settingsStore.relationalVerificationStyle,
       ),
     );
+
+    // Local Font Access権限が無い（非対応ブラウザ、または対応ブラウザでも未許可・拒否済み）ために
+    // 一部の文字（日本語等）が埋め込み後のPDFで表示されなくなるリスクがある場合、警告して
+    // ユーザーに続行するか中断するかを選ばせる。Local Font Access権限は一度拒否されると
+    // スクリプトから再度要求できない（ブラウザの仕様上の制約）ため、再試行ボタンは持たず、
+    // 対応ブラウザで拒否されている場合はサイト設定から手動で許可し直す手順を案内する
+    if (fontEmbedRiskMessages && (await api.hasFontEmbedRisk(styles))) {
+      const message = api.isLocalFontAccessSupported()
+        ? fontEmbedRiskMessages.deniedMessage
+        : fontEmbedRiskMessages.unsupportedMessage;
+      const choice = await fontEmbedRiskDialog({ title: fontEmbedRiskMessages.title, message });
+      if (choice === 'cancel') return false; // 通知なしで中断（ユーザーの意図的な選択のため）
+    }
 
     const packRes =
       mode === 'embedAnnotations'

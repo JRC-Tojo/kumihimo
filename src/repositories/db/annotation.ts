@@ -237,6 +237,32 @@ export async function countTemporaryAnnotations(
 }
 
 /**
+ * 特定ファイルに紐づく未保存（仮登録）のアノテーションIDを取得する
+ *
+ * `loadConfig`が`.kcfg`の内容をDBへ反映する際、まだ`.kcfg`に保存されていないローカルの
+ * 編集・削除がある注釈を古いスナップショットで上書きしないよう、対象IDを除外するために使う
+ * （`countTemporaryAnnotations`と異なり、ソフト削除（`isDeleted: true`）の行も含める＝
+ * 削除直後にタブを切り替えて戻った際に、削除した注釈が復活するのを防ぐため）
+ */
+export async function getTemporaryAnnotationIds(
+  file: ContainerElementFile,
+): Promise<Result<Set<AnnotationID>>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const rows = await db.annotations
+      .where('containerID')
+      .equals(file.containerID)
+      .filter((row) => row.filePath === file.path && row.isTemporary)
+      .toArray();
+    return Success(new Set(rows.map((row) => row.id)));
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * DexieのLiveQueryを利用して特定ファイルのアノテーション情報を購読する
  */
 export function observedAnnotationStylesByFile(

@@ -73,6 +73,7 @@ import {
   isLocalFontAccessSupported,
   queryLocalFonts,
   findBestFontMatch,
+  findFontForGenericFamily,
   getFontBytes,
 } from 'src/repositories/document/localFontAccess';
 import { PDFJS_GET_DOCUMENT_ASSET_OPTIONS } from 'src/utils/document/pdfjsAssets';
@@ -1036,33 +1037,106 @@ interface ResolvedTextFont {
 }
 
 /**
- * フォントファミリー名・太さから、実際にPDFへ埋め込むフォントを解決する。
+ * 指定したフォントバイト列が、`text`に含まれる文字（改行・半角スペースを除く）のグリフを
+ * 実際に収録しているかどうかを判定する。
  *
- * `fontFamily`が汎用名（sans-serif/serif/monospace）ではなく、かつこのブラウザがLocal Font
- * Access APIに対応している場合、OSにインストールされている実フォントのデータを取得して
- * fontkit経由でそのまま埋め込む（標準14フォントのWinAnsi制限を受けず、日本語等のUnicode全般を
- * 正しく扱える）。対応していない・フォントが見つからない・埋め込みに失敗した場合は、
- * 従来どおり標準14フォントへ近似マッピングする
+ * 汎用フォント名（sans-serif等）でのOS実フォント解決は候補名リストとの文字列一致に頼っているが、
+ * OSのロケールによってはフォント名自体がローカライズされて列挙される（例: 日本語環境では
+ * "Meiryo"ではなく"メイリオ"のように現地語名になる）ことがあり、英語の候補名では見つからない
+ * 場合がある。そのため名前一致とは独立に、実際に対象文字を描画できるかどうかをfontkitの
+ * 文字コード→グリフ変換で直接確認する
+ */
+function fontBytesCoverText(bytes: Uint8Array, text: string): boolean {
+  try {
+    const parsed = fontkit.create(bytes);
+    for (const ch of text) {
+      const codePoint = ch.codePointAt(0);
+      if (codePoint === undefined) continue;
+      if (codePoint === 0x0a || codePoint === 0x0d || codePoint === 0x20) continue;
+      if (!parsed.hasGlyphForCodePoint(codePoint)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 指定したOS実フォントのデータを取得し、fontkit経由でそのままPDFへ埋め込む（内容の検証は行わない） */
+async function tryEmbedFont(pdfDoc: PDFDocument, fontData: FontData): Promise<PDFFont | null> {
+  const bytesRes = await getFontBytes(fontData);
+  if (!bytesRes.ok) return null;
+  try {
+    pdfDoc.registerFontkit(fontkit);
+    return await pdfDoc.embedFont(bytesRes.value, { subset: true });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 指定したOS実フォントのデータを取得し、`text`のグリフを実際に収録している場合のみ
+ * fontkit経由でPDFへ埋め込む（`fontBytesCoverText`による事前検証あり）
+ */
+async function tryEmbedFontForText(
+  pdfDoc: PDFDocument,
+  fontData: FontData,
+  text: string,
+): Promise<PDFFont | null> {
+  const bytesRes = await getFontBytes(fontData);
+  if (!bytesRes.ok) return null;
+  if (!fontBytesCoverText(bytesRes.value, text)) return null;
+  try {
+    pdfDoc.registerFontkit(fontkit);
+    return await pdfDoc.embedFont(bytesRes.value, { subset: true });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * フォントファミリー名・太さ・実際に描画するテキストから、PDFへ埋め込むフォントを解決する。
+ *
+ * このブラウザがLocal Font Access APIに対応している場合、汎用名（sans-serif/serif/monospace）
+ * かどうかに関わらず常にOSにインストールされている実フォントのデータを取得してfontkit経由で
+ * そのまま埋め込む（標準14フォントのWinAnsi制限を受けず、日本語等のUnicode全般を正しく扱える）。
+ *
+ * 汎用名の場合、まずWindows/macOSで標準的な候補名リストから探す（`findFontForGenericFamily`）。
+ * 候補名に一致するフォントが見つからない、または見つかったフォントが実際には対象テキストの
+ * グリフを収録していない（OSのロケールによりフォント名自体が現地語化されている場合等）ときは、
+ * インストール済みの他のフォントから対象テキストを実際に描画できるものを最終手段として探す
+ * （`fontBytesCoverText`でグリフの実収録有無を直接確認する）。
+ *
+ * 汎用名ではなく特定フォント名が明示されている場合は、ユーザーが指定したそのフォントのみを試し、
+ * 無断で別のフォントへ差し替えることはしない。
+ *
+ * いずれの場合も、対応していない・見つからない・埋め込みに失敗した場合は、従来どおり
+ * 標準14フォントへ近似マッピングする
  */
 async function resolveTextFont(
   pdfDoc: PDFDocument,
   fontFamily: string,
   fontWeight: number,
+  text: string,
 ): Promise<ResolvedTextFont> {
-  if (!isGenericFontFamily(fontFamily) && isLocalFontAccessSupported()) {
+  if (isLocalFontAccessSupported()) {
     const fontsRes = await queryLocalFonts();
     if (fontsRes.ok) {
-      const match = findBestFontMatch(fontsRes.value, fontFamily, fontWeight >= 700);
-      if (match) {
-        const bytesRes = await getFontBytes(match);
-        if (bytesRes.ok) {
-          try {
-            pdfDoc.registerFontkit(fontkit);
-            const embedded = await pdfDoc.embedFont(bytesRes.value, { subset: true });
-            return { font: embedded, isStandard: false };
-          } catch {
-            // フォント埋め込みに失敗した場合は標準14フォントへフォールバックする
-          }
+      const bold = fontWeight >= 700;
+
+      if (isGenericFontFamily(fontFamily)) {
+        const namedMatch = findFontForGenericFamily(fontsRes.value, fontFamily, bold);
+        const candidates = namedMatch
+          ? [namedMatch, ...fontsRes.value.filter((f) => f !== namedMatch)]
+          : fontsRes.value;
+        for (const candidate of candidates) {
+          const embedded = await tryEmbedFontForText(pdfDoc, candidate, text);
+          if (embedded) return { font: embedded, isStandard: false };
+        }
+      } else {
+        const match = findBestFontMatch(fontsRes.value, fontFamily, bold);
+        if (match) {
+          const embedded = await tryEmbedFont(pdfDoc, match);
+          if (embedded) return { font: embedded, isStandard: false };
         }
       }
     }
@@ -1079,7 +1153,7 @@ async function resolveTextFont(
  * 失敗してしまう。`resolveTextFont`でOSフォントの実埋め込みに成功した場合はこの制限を受けない
  * ため、標準14フォントへフォールバックした場合にのみ、この判定でテキスト描画を安全にスキップする
  */
-function isWinAnsiEncodable(text: string): boolean {
+export function isWinAnsiEncodable(text: string): boolean {
   const specialCodePoints = new Set([
     0x2018, 0x2019, 0x201a, 0x201c, 0x201d, 0x201e, 0x2020, 0x2021, 0x2022, 0x2026, 0x2013, 0x2014,
     0x02c6, 0x02dc, 0x2039, 0x203a, 0x2030, 0x20ac, 0x0152, 0x0153, 0x0160, 0x0161, 0x0178, 0x017d,
@@ -1516,7 +1590,7 @@ export async function embedAnnotationsAsCommentsIntoPdf(
         const fontCacheKey = `${fontFamily}|${fontWeight >= 700 ? 'bold' : 'regular'}`;
         let cachedFont = fontCache.get(fontCacheKey);
         if (!cachedFont) {
-          const resolved = await resolveTextFont(pdfDoc, fontFamily, fontWeight);
+          const resolved = await resolveTextFont(pdfDoc, fontFamily, fontWeight, text);
           cachedFont = {
             font: resolved.font,
             resourceName: `F${fontCache.size}`,
@@ -1896,12 +1970,13 @@ function textDirectionBasis(rotation: 0 | 90 | 180 | 270): {
 async function getOrEmbedFont(
   fontFamily: string,
   fontWeight: number,
+  text: string,
   pc: VectorPageContext,
 ): Promise<{ font: PDFFont; name: PDFName; isStandard: boolean }> {
   const cacheKey = `${fontFamily}|${fontWeight >= 700 ? 'bold' : 'regular'}`;
   let resolved = pc.fontCache.get(cacheKey);
   if (!resolved) {
-    resolved = await resolveTextFont(pc.pdfDoc, fontFamily, fontWeight);
+    resolved = await resolveTextFont(pc.pdfDoc, fontFamily, fontWeight, text);
     pc.fontCache.set(cacheKey, resolved);
   }
   let name = pc.pageFontNames.get(cacheKey);
@@ -2012,7 +2087,7 @@ async function pdfOpsForText(
         font,
         name: fontName,
         isStandard,
-      } = await getOrEmbedFont(a.fontFamily, a.fontWeight, pc);
+      } = await getOrEmbedFont(a.fontFamily, a.fontWeight, a.text, pc);
       // 標準14フォントはWinAnsiEncoding固定でCJK文字のグリフを持たないため、日本語等を含む
       // 場合はクラッシュを避けるためグリフ埋め込み自体をスキップする（実フォント埋め込みに
       // 成功している場合はこの制限を受けないため、そのまま描画を試みる）

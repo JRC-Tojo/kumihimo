@@ -38,6 +38,11 @@ const countTemporaryAnnotationsMock = mock(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
   (_file: ContainerElementFile): Promise<Result<number>> => Promise.resolve(Success(0)),
 );
+const getTemporaryAnnotationIdsMock = mock(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+  (_file: ContainerElementFile): Promise<Result<Set<AnnotationID>>> =>
+    Promise.resolve(Success(new Set<AnnotationID>())),
+);
 const addAnnotationInfosMock = mock(
   (
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
@@ -77,6 +82,7 @@ void mock.module('src/repositories/db/annotation', () => ({
   getAnnotationAddress: getAnnotationAddressMock,
   getAnnotationsByFile: getAnnotationsByFileMock,
   countTemporaryAnnotations: countTemporaryAnnotationsMock,
+  getTemporaryAnnotationIds: getTemporaryAnnotationIdsMock,
   updateAnnotationStyle: updateAnnotationStyleMock,
   addAnnotationInfos: addAnnotationInfosMock,
   deleteAnnotationsForFile: deleteAnnotationsForFileMock,
@@ -149,6 +155,7 @@ const {
   getAnnotationAddress,
   getAnnotationsByFile,
   countTemporaryAnnotations,
+  getTemporaryAnnotationIds,
   registerAnnotationInfo,
   clearAnnotationsForFile,
   saveAnnotationInfo,
@@ -331,6 +338,21 @@ describe('annotationRepositoryへの単純な委譲関数', () => {
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
     expect(res.value).toBe(0);
+  });
+
+  it('getTemporaryAnnotationIdsはfileを渡して委譲し、返り値をそのまま返す', async () => {
+    getTemporaryAnnotationIdsMock.mockClear();
+    getTemporaryAnnotationIdsMock.mockImplementationOnce(() =>
+      Promise.resolve(Success(new Set([idA]))),
+    );
+
+    const res = await getTemporaryAnnotationIds(file);
+
+    expect(getTemporaryAnnotationIdsMock).toHaveBeenCalledTimes(1);
+    expect(getTemporaryAnnotationIdsMock.mock.calls[0]?.[0]).toBe(file);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.has(idA)).toBeTrue();
   });
 
   it('registerAnnotationInfoはaddAnnotationInfosへ引数をそのまま渡して委譲する', async () => {

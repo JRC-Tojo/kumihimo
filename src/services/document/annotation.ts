@@ -94,6 +94,15 @@ export function countTemporaryAnnotations(file: ContainerElementFile): Promise<R
 }
 
 /**
+ * 特定ファイルに紐づく未保存（仮登録）のアノテーションIDを取得する
+ */
+export function getTemporaryAnnotationIds(
+  file: ContainerElementFile,
+): Promise<Result<Set<AnnotationID>>> {
+  return annotationRepository.getTemporaryAnnotationIds(file);
+}
+
+/**
  * コンテンツ未読み込みのアノテーションにコンテンツを読み込んで付与する
  * TODO: 本来は文書種別をもとに処理を分岐すべき
  */

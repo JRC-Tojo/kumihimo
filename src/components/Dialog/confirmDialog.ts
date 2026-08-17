@@ -88,6 +88,36 @@ export function importPresetsDialog(
   });
 }
 
+export interface FontEmbedRiskDialogOptions {
+  title: string;
+  message: string;
+}
+
+/**
+ * フォント埋め込みリスクの警告ダイアログ（キャンセル／このまま保存の2択）
+ *
+ * Local Font Access APIは一度拒否されると（ブラウザの仕様上）スクリプトから再度許可を
+ * 要求することができないため、再試行ボタンは持たない。`message`側で、対応ブラウザで拒否
+ * されている場合はサイト設定から手動で許可し直す手順を、非対応ブラウザの場合は対応ブラウザで
+ * 開き直すよう促す文言を、呼び出し側が状況に応じて出し分けること
+ */
+export function fontEmbedRiskDialog(
+  opts: FontEmbedRiskDialogOptions,
+): Promise<'proceed' | 'cancel'> {
+  return new Promise((resolve) => {
+    Dialog.create({
+      component: ConfirmDialog,
+      componentProps: {
+        title: opts.title,
+        message: opts.message,
+        variant: 'fontEmbedRisk',
+      },
+    })
+      .onOk((value: 'proceed') => resolve(value))
+      .onCancel(() => resolve('cancel'));
+  });
+}
+
 export interface UnsavedChangesDialogOptions {
   title: string;
   message: string;
