@@ -579,7 +579,10 @@ async function registRelationalByAdd(newAnnots: AnnotationStyle[], oldAnnots: An
  * 時点ではまだそのペインの`.document-layout`の`click`イベントが発火しておらず`activeSide`が
  * 更新されていないため、「他ペインのアノテーションを直接選択する」操作を常に取りこぼしていた）
  */
-async function registRelationalBySelect(selectedIds: AnnotationID[], oldSelectedIds: AnnotationID[]) {
+async function registRelationalBySelect(
+  selectedIds: AnnotationID[],
+  oldSelectedIds: AnnotationID[],
+) {
   const hasNewSelection = selectedIds.some((id) => !oldSelectedIds.includes(id));
   if (!hasNewSelection) return;
 

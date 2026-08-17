@@ -128,8 +128,7 @@ export const useEditorStore = defineStore('editor', {
     // ファイル一致だけでは「非アクティブ側のペイン」が誤って他ペインの選択を解除できてしまうため、
     // 解除時にはセットした本人（同じside）かどうかも必ず確認する
     activeSelection: undefined as
-      | { file: ContainerElementFile; annotations: AnnotationStyle[]; side: LayoutSide }
-      | undefined,
+      { file: ContainerElementFile; annotations: AnnotationStyle[]; side: LayoutSide } | undefined,
 
     // ドキュメントレイアウトの状態
     tabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<ContainerElementFile[]>,
