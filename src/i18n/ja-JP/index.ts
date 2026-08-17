@@ -447,6 +447,7 @@ export default {
       add: '現在のページをブックマーク',
       addChild: '子要素として登録',
       deleteConfirmWithChildren: '子要素もまとめて削除されます。削除しますか？',
+      operationFailed: 'ブックマークの操作に失敗しました',
     },
   },
 

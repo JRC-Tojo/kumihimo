@@ -139,6 +139,7 @@
  * mode判定・editorTools.tsのonClicked参照）
  */
 import { computed, onBeforeUnmount, ref } from 'vue';
+import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
@@ -161,6 +162,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{ close: [] }>();
 
 const { t } = useI18n();
+const $q = useQuasar();
 const editorStore = useEditorStore();
 const settingsStore = useSettingsStore();
 const api = useBackendApi();
@@ -248,7 +250,12 @@ async function onAddBookmark() {
   const res = await api.addBookmark(props.file, title, props.annotation.pageNumber, {
     annotationId: props.annotation.id,
   });
-  if (res.ok) editorStore.touchBookmarks(props.file);
+  if (!res.ok) {
+    console.error(res.error);
+    $q.notify({ type: 'negative', message: t('explorer.bookmarks.operationFailed') });
+    return;
+  }
+  editorStore.touchBookmarks(props.file);
 }
 
 /**

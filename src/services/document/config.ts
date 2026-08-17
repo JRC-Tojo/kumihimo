@@ -216,15 +216,21 @@ export async function saveConfig(
   if (!rsWithAdrs.ok) return rsWithAdrs;
 
   // ブックマーク・しおり取り込み済みフラグはアノテーションと異なりDB経由の差分管理を行わないため、
-  // 上書きで消えないよう保存直前の`.kcfg`から現在有効な内容をそのまま読み直して引き継ぐ
+  // 上書きで消えないよう保存直前の`.kcfg`から現在有効な内容をそのまま読み直して引き継ぐ。
+  // 読み込み・パース自体の失敗（I/O・破損・スキーマ不整合等）を空として扱うと既存のブックマークを
+  // 消してしまうため、ファイル不存在（`NotFoundError`）と確認できた場合以外はそのままエラーとして返す
   const currentConfigRes = await containerConfigService.getDocumentConfigFile(
     file.containerID,
     file,
   );
-  const bookmarks = currentConfigRes.ok ? currentConfigRes.value.bookmarks : {};
-  const outlineImported = currentConfigRes.ok
-    ? (currentConfigRes.value.outlineImported ?? false)
-    : false;
+  let bookmarks: DocumentConfigFile['bookmarks'] = {};
+  let outlineImported = false;
+  if (currentConfigRes.ok) {
+    bookmarks = currentConfigRes.value.bookmarks;
+    outlineImported = currentConfigRes.value.outlineImported ?? false;
+  } else if (!(currentConfigRes.error instanceof NotFoundError)) {
+    return currentConfigRes;
+  }
 
   // 取得した情報をマージして実ファイルに保存する
   const annotSavedRes = await containerConfigService.saveDocumentConfigs(

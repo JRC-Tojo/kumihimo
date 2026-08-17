@@ -49,6 +49,10 @@ const loading = ref(false);
 const bookmarks = ref<BookmarkInfo[]>([]);
 const tree = computed(() => buildBookmarkTree(bookmarks.value));
 
+// `loadBookmarks`の多重呼び出し（ファイル切り替えの連続発生等）で発行順と応答順が入れ替わった際に、
+// 古い応答が新しい応答を上書きしてしまわないようにするためのリクエスト世代カウンタ
+let bookmarksRequestId = 0;
+
 /**
  * アクティブな文書のブックマーク一覧を読み込む
  *
@@ -62,8 +66,11 @@ async function loadBookmarks() {
     return;
   }
 
+  const requestId = ++bookmarksRequestId;
   loading.value = true;
   const res = await api.listBookmarks(file);
+  // 呼び出し中に別のloadBookmarksが発行されていた場合、この応答は古いので破棄する
+  if (requestId !== bookmarksRequestId) return;
   bookmarks.value = res.ok ? res.data : [];
   loading.value = false;
 }

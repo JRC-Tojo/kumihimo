@@ -63,6 +63,13 @@ describe('collectDescendantIds', () => {
     const bookmarks = [bm('root', 1)];
     expect(collectDescendantIds(bookmarks, 'root' as BookmarkID)).toEqual([]);
   });
+
+  test('外部編集による循環参照があっても無限ループにならない', () => {
+    // 外部で編集された.kcfgがa→b→aのような循環したparentIdを持ち込むケースを想定
+    const bookmarks = [bm('a', 1, 'b'), bm('b', 2, 'a')];
+    const ids = collectDescendantIds(bookmarks, 'a' as BookmarkID);
+    expect(new Set(ids as string[])).toEqual(new Set(['a', 'b']));
+  });
 });
 
 describe('outlineEntriesToBookmarks', () => {
@@ -99,6 +106,17 @@ describe('outlineEntriesToBookmarks', () => {
     const [a, a1, a11, a2] = bookmarks;
     expect(a11!.parentId).toBe(a1!.id);
     expect(a2!.parentId).toBe(a!.id);
+  });
+
+  test('levelが1階層ずつ増えず飛び越える場合も、直近の浅い祖先を親として解決する', () => {
+    const entries: PdfOutlineEntry[] = [
+      { title: 'a', level: 0, pageNumber: 1 },
+      // level 1が存在しないままlevel 2に飛ぶ（PDFのアウトラインでlevelの連続性は保証されない）
+      { title: 'a-x-1', level: 2, pageNumber: 2 },
+    ];
+    const bookmarks = outlineEntriesToBookmarks(entries, makeIdGen());
+    const [a, ax1] = bookmarks;
+    expect(ax1!.parentId).toBe(a!.id);
   });
 
   test('pageNumberが解決できないエントリは除外する', () => {

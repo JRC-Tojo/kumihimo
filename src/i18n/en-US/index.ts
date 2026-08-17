@@ -448,6 +448,7 @@ export default {
       add: 'Bookmark current page',
       addChild: 'Add as child',
       deleteConfirmWithChildren: 'This will also delete its child bookmarks. Delete anyway?',
+      operationFailed: 'Failed to update bookmark',
     },
   },
 

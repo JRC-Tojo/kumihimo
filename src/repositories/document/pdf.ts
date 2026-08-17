@@ -2189,7 +2189,11 @@ export async function embedBookmarksIntoPdf(
       const outlinesRef = context.nextRef();
 
       // 2パス目: 兄弟・親子のRefが確定した状態で各ノードの実体を書き込む
+      // `/Count`はPDF仕様上「直接の子」ではなく「開いた状態で表示される子孫の総数」を指すため、
+      // 各ノードごとの子孫総数を再帰的に積み上げて返す（直接の子の数だけを返すと孫以降が
+      // 数え落とされ、Acrobat等での表示件数がおかしくなる）
       const buildLevel = (nodes: BookmarkNode[], parentRef: PDFRef): number => {
+        let totalDescendantCount = 0;
         nodes.forEach((node, index) => {
           const ref = refById.get(node.id)!;
           const page = pdfDoc.getPage(node.pageNumber - 1);
@@ -2202,16 +2206,19 @@ export async function embedBookmarksIntoPdf(
           };
           if (index > 0) dictLiteral.Prev = refById.get(nodes[index - 1]!.id);
           if (index < nodes.length - 1) dictLiteral.Next = refById.get(nodes[index + 1]!.id);
+          let childDescendantCount = 0;
           if (node.children.length > 0) {
             dictLiteral.First = refById.get(node.children[0]!.id);
             dictLiteral.Last = refById.get(node.children[node.children.length - 1]!.id);
-            // 常に展開状態で表示する（正の値＝開いた状態の子要素数）
-            dictLiteral.Count = buildLevel(node.children, ref);
+            // 常に展開状態で表示する（正の値＝開いた状態の子孫要素数）
+            childDescendantCount = buildLevel(node.children, ref);
+            dictLiteral.Count = childDescendantCount;
           }
 
           context.assign(ref, context.obj(dictLiteral));
+          totalDescendantCount += 1 + childDescendantCount;
         });
-        return nodes.length;
+        return totalDescendantCount;
       };
 
       const rootCount = buildLevel(tree, outlinesRef);

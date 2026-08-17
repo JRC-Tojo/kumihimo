@@ -57,6 +57,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useEditorStore } from 'src/stores/editorStore';
@@ -76,6 +77,7 @@ const prop = defineProps<Prop>();
 const emit = defineEmits<{ reload: [] }>();
 
 const { t: $t } = useI18n();
+const $q = useQuasar();
 const api = useBackendApi();
 const editorStore = useEditorStore();
 
@@ -118,7 +120,12 @@ async function onDelete() {
     if (!ok) return;
   }
 
-  await api.removeBookmark(prop.file, prop.node.id);
+  const res = await api.removeBookmark(prop.file, prop.node.id);
+  if (!res.ok) {
+    console.error(res.error);
+    $q.notify({ type: 'negative', message: $t('explorer.bookmarks.operationFailed') });
+    return;
+  }
   emit('reload');
 }
 
@@ -150,7 +157,12 @@ async function confirmRename() {
   const newTitle = renameValue.value.trim();
   if (newTitle === '' || newTitle === prop.node.title) return;
 
-  await api.renameBookmark(prop.file, prop.node.id, newTitle);
+  const res = await api.renameBookmark(prop.file, prop.node.id, newTitle);
+  if (!res.ok) {
+    console.error(res.error);
+    $q.notify({ type: 'negative', message: $t('explorer.bookmarks.operationFailed') });
+    return;
+  }
   emit('reload');
 }
 </script>

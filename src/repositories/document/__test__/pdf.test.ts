@@ -1264,6 +1264,40 @@ describe('embedBookmarksIntoPdf（pdf-lib、ネイティブしおり(Outline)と
     const doc = await loadTestPdf(res.value);
     expect(doc.catalog.get(PDFName.of('Outlines'))).toBeUndefined();
   });
+
+  it('/Countは直接の子だけでなく、開いた状態で表示される子孫の総数を反映する', async () => {
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const res = await embedBookmarksIntoPdf(
+      src,
+      [
+        bm('root', '第1章', 1),
+        bm('child', '1.1', 1, { parentId: 'root' as BookmarkID }),
+        bm('grandchild', '1.1.1', 1, { parentId: 'child' as BookmarkID }),
+      ],
+      [],
+    );
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const outlinesRef = doc.catalog.get(PDFName.of('Outlines')) as PDFRef;
+    const outlines = doc.context.lookup(outlinesRef, PDFDict);
+    const readCount = (dict: PDFDict) =>
+      (dict.get(PDFName.of('Count')) as unknown as PDFNumber).asNumber();
+
+    // Outlines直下の/Countは木全体（root, child, grandchildの3件）の総数
+    expect(readCount(outlines)).toBe(3);
+
+    const rootRef = outlines.get(PDFName.of('First')) as PDFRef;
+    const rootDict = doc.context.lookup(rootRef, PDFDict);
+    // rootの/Countは自分自身を含まない子孫の総数（child, grandchildの2件）
+    expect(readCount(rootDict)).toBe(2);
+
+    const childRef = rootDict.get(PDFName.of('First')) as PDFRef;
+    const childDict = doc.context.lookup(childRef, PDFDict);
+    // childの/Countは自分自身を含まない子孫の総数（grandchildの1件）
+    expect(readCount(childDict)).toBe(1);
+  });
 });
 
 /**

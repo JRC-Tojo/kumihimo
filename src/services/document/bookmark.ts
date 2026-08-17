@@ -43,8 +43,12 @@ export async function addBookmark(
   const configRes = await loadConfig(file);
   if (!configRes.ok) return configRes;
 
+  // レイヤー境界（サービス層）を例外で越えないよう、`parse`ではなく`safeParse`で検証する
+  const idRes = BookmarkIDSchema.safeParse(crypto.randomUUID());
+  if (!idRes.success) return Failure(idRes.error);
+
   const newBookmark: BookmarkInfo = {
-    id: BookmarkIDSchema.parse(crypto.randomUUID()),
+    id: idRes.data,
     title,
     pageNumber,
     parentId: options?.parentId,
