@@ -220,12 +220,8 @@ export default {
         fontEmbedRiskProceed: 'Save anyway',
         saveAsDialog: {
           title: 'Save As',
-          mode: {
-            title: 'What to save',
-            documentOnly: 'Document only',
-            embedAnnotations: 'Embed annotations into the document',
-            annotationsAsComments: 'Save annotations as comments',
-          },
+          embedAnnotations: 'Embed annotations',
+          embedAsComments: 'Embed annotations as comments',
           destination: 'Destination',
           destinationLoadFailed: 'Failed to load the destination list',
           fileName: 'File name',

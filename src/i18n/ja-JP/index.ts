@@ -220,12 +220,8 @@ export default {
         fontEmbedRiskProceed: 'このまま保存',
         saveAsDialog: {
           title: '名前を付けて保存',
-          mode: {
-            title: '保存内容',
-            documentOnly: '文書本体のみ',
-            embedAnnotations: 'アノテーションを埋め込んで保存',
-            annotationsAsComments: 'アノテーションをコメントとして保存',
-          },
+          embedAnnotations: 'アノテーションを埋め込む',
+          embedAsComments: 'アノテーションをコメントとして埋め込む',
           destination: '保存先',
           destinationLoadFailed: '保存先の読み込みに失敗しました',
           fileName: 'ファイル名',
