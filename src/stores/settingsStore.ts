@@ -84,6 +84,13 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     /**
+     * ロック画面解除後、ローカルの設定状態へ即座に反映する（実際の保存はAPI側で完了済み）
+     */
+    markUnlocked(): void {
+      if (this.appSettings) this.appSettings.unlocked = true;
+    },
+
+    /**
      * 直近使用色として保持する件数を変更する（設定画面から呼ばれる）。上限を減らした場合は
      * 既存の直近使用色一覧もその場で切り詰める
      *

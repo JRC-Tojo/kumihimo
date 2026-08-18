@@ -57,6 +57,7 @@ import * as pluginRunService from 'src/services/plugin/run';
 import * as pluginSubmissionService from 'src/services/plugin/submissionGithub';
 import * as githubAuthService from 'src/services/plugin/githubAuth';
 import { parseSubmissionDraft } from 'src/services/plugin/manifest';
+import * as lockService from 'src/services/lock';
 
 /**
  * バックエンド統合 API層
@@ -87,6 +88,16 @@ class BackendApi {
     }
 
     return toApiResponse(Success());
+  }
+
+  // ============ ロック画面 ============
+
+  /**
+   * 起動時ロック画面のパスワードを検証する。一致した場合は解除済みフラグを保存する
+   */
+  async verifyLockPassword(input: string): Promise<ApiResponse<boolean>> {
+    const res = await lockService.verifyLockPassword(input);
+    return toApiResponse(res, 'LOCK_VERIFY_FAILED');
   }
 
   // ============ コンテナ操作 ============
