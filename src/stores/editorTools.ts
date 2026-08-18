@@ -206,8 +206,9 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
       // テキストツールの選択時、Local Font Access権限を先読みで要求しておく。
       // 保存（埋め込み）処理はユーザー操作の直後とは限らず、その場で初回の許可プロンプトを
       // 出せないことがあるため、確実にクリックハンドラ内にある今のうちに要求しておく
+      // （結果は使わないfire-and-forgetのため明示的に破棄する）
       if (type === 'text') {
-        api.prefetchLocalFonts();
+        void api.prefetchLocalFonts();
       }
     },
   }));

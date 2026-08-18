@@ -246,6 +246,7 @@ export function excludeTemporaryAnnotationInfos(
   aInfos: AnnotationInfo[],
   temporaryIds: Set<AnnotationID>,
 ): AnnotationInfo[] {
+  // 各AnnotationInfoのスタイルIDが仮登録ID集合に含まれるものだけを取り除いて返す
   return aInfos.filter((aInfo) => !temporaryIds.has(aInfo.style.id));
 }
 

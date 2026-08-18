@@ -91,6 +91,7 @@ const {
   extractImageFromRegion,
   extractAnnotationContextPreview,
   getOutline,
+  anyTextWillFallbackToStandardFont,
 } = await import('../pdf');
 
 /**
@@ -1523,4 +1524,58 @@ describe('OSフォント（Local Font Access API）による実フォント埋�
       });
     },
   );
+
+  describe('anyTextWillFallbackToStandardFont（フォント埋め込みリスク判定の実体）', () => {
+    it('OSフォントが0件の場合はフォールバックすると判定する', async () => {
+      window.queryLocalFonts = () => Promise.resolve([]);
+
+      const result = await anyTextWillFallbackToStandardFont([
+        { fontFamily: 'sans-serif', fontWeight: 400, text: 'こんにちは' },
+      ]);
+      expect(result).toBeTrue();
+    });
+
+    it('OSフォントが1件でもあるだけでは、対象文字を収録していなければフォールバックすると判定する', async () => {
+      // 候補名にもファミリー名にも一致しない、対象テキストのグリフも持たない無関係なフォントのみ
+      window.queryLocalFonts = () =>
+        Promise.resolve([
+          {
+            postscriptName: 'SomeOther-Regular',
+            fullName: 'Some Other Font',
+            family: 'Some Other Font',
+            style: 'Regular',
+            blob: () => Promise.resolve(new Blob([])),
+          },
+        ]);
+
+      // OSフォントが1件でも取得できることをもって「安全」と誤判定しないことを確認する
+      // （フォント一覧の件数だけでなく、保存処理と同じグリフ収録判定を経由すること）
+      const result = await anyTextWillFallbackToStandardFont([
+        { fontFamily: 'sans-serif', fontWeight: 400, text: 'こんにちは' },
+      ]);
+      expect(result).toBeTrue();
+    });
+
+    describe.skipIf(LIBERATION_SANS_BYTES === null)('対象文字を実際に収録するOSフォントがある場合', () => {
+      const fontBytes = LIBERATION_SANS_BYTES!;
+
+      it('フォールバックしないと判定する', async () => {
+        window.queryLocalFonts = () =>
+          Promise.resolve([
+            {
+              postscriptName: 'LiberationSans-Regular',
+              fullName: 'Liberation Sans',
+              family: 'Liberation Sans',
+              style: 'Regular',
+              blob: () => Promise.resolve(new Blob([Uint8Array.from(fontBytes)])),
+            },
+          ]);
+
+        const result = await anyTextWillFallbackToStandardFont([
+          { fontFamily: 'Liberation Sans', fontWeight: 400, text: 'Hello' },
+        ]);
+        expect(result).toBeFalse();
+      });
+    });
+  });
 });

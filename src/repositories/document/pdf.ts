@@ -1173,6 +1173,27 @@ async function resolveTextFont(
 }
 
 /**
+ * 指定したテキスト群のいずれかが、実際の保存処理（`resolveTextFont`）と同じ候補選定・
+ * グリフ収録判定を経ても標準14フォントへフォールバックしてしまう（＝実フォントを埋め込めない）
+ * かどうかを判定する。
+ *
+ * OSフォントが1件でも取得できることと、対象テキストの文字を実際に埋め込めることは別問題
+ * （無関係な言語のフォントしか無い場合等）であるため、`resolveTextFont`をそのまま呼び出して
+ * 保存時と全く同じ判定結果になるようにする。実際のPDF保存は行わないため、使い捨ての
+ * 空PDFDocumentを1つ用意し、すべてのテキストで使い回す
+ */
+export async function anyTextWillFallbackToStandardFont(
+  texts: { fontFamily: string; fontWeight: number; text: string }[],
+): Promise<boolean> {
+  const pdfDoc = await PDFDocument.create();
+  for (const t of texts) {
+    const resolved = await resolveTextFont(pdfDoc, t.fontFamily, t.fontWeight, t.text);
+    if (resolved.isStandard) return true;
+  }
+  return false;
+}
+
+/**
  * WinAnsiEncoding（CP1252）でエンコード可能な範囲の文字だけで構成されているかどうかを判定する。
  *
  * pdf-libの標準14フォント（Helvetica/Times/Courier）はWinAnsiEncoding固定でグリフを持たず、

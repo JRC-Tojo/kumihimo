@@ -405,7 +405,8 @@ function startTextEdit(annotation: TextAnnotationStyle) {
   // Local Font Access権限を先読みで要求しておく（新規描画直後・既存テキストボックスの
   // ダブルクリック編集開始のいずれもユーザー操作の直後のため、許可プロンプトを出せる）。
   // 保存（埋め込み）処理はユーザー操作の直後とは限らないため、ここで先に済ませておく
-  api.prefetchLocalFonts();
+  // （結果は使わないfire-and-forgetのため明示的に破棄する）
+  void api.prefetchLocalFonts();
 }
 
 // <textarea>が実際にマウントされたタイミング（editingTextAnnotationがnull→非nullに変わった時）で

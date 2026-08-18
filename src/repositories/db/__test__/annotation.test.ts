@@ -7,6 +7,7 @@ import { excludeTemporaryAnnotationInfos } from '../annotation';
  * テスト用に、指定IDのみを変えた最小構成のAnnotationInfo（box型・位置サイズ固定）を生成する
  */
 function buildAnnotInfo(id: AnnotationID): AnnotationInfo {
+  // 指定IDをstyle.idに設定したbox型の注釈情報を、contextは未読み込み（空）のまま返す
   return {
     style: {
       id,

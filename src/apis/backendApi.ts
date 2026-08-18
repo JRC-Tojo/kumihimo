@@ -30,7 +30,12 @@ import type {
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
-import type { AnnotationID, AnnotationStyle, ColorCode } from 'src/models/document/pdf';
+import type {
+  AnnotationID,
+  AnnotationStyle,
+  ColorCode,
+  TextAnnotationStyle,
+} from 'src/models/document/pdf';
 import type { AnnotationTool } from 'src/models/docPage';
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
@@ -530,13 +535,18 @@ class BackendApi {
    *
    * テキストツール選択・テキストボックス編集開始など複数の呼び出し元を持つが、一度でも
    * 要求済みであれば以降は何もしない（許可プロンプトは初回のみで、対応ブラウザでも一度
-   * 拒否されると再度要求できないため、繰り返し呼んでもOSフォント一覧の再取得が無駄になるだけ）
+   * 拒否されると再度要求できないため、繰り返し呼んでもOSフォント一覧の再取得が無駄になるだけ）。
+   * 先読みはfire-and-forgetで使われることが多いが、取得失敗を呼び出し側でも判定できるよう
+   * `ApiResponse`をそのまま返す（不要であれば呼び出し側で明示的に`void`破棄すること）
    */
-  prefetchLocalFonts(): void {
-    if (this.localFontsPrefetched) return;
-    if (!this.isLocalFontAccessSupported()) return;
+  async prefetchLocalFonts(): Promise<ApiResponse<void>> {
+    if (this.localFontsPrefetched) return toApiResponse(Success());
+    if (!this.isLocalFontAccessSupported()) return toApiResponse(Success());
     this.localFontsPrefetched = true;
-    void this.queryLocalFontFamilies();
+
+    const res = await this.queryLocalFontFamilies();
+    if (!res.ok) return res;
+    return toApiResponse(Success());
   }
 
   /**
@@ -549,19 +559,22 @@ class BackendApi {
    * 呼び出し側は、この判定がtrueの場合に警告ダイアログ等でユーザーに確認を促すこと
    */
   async hasFontEmbedRisk(annotations: AnnotationStyle[]): Promise<ApiResponse<boolean>> {
-    const needsRealFont = annotations.some(
-      (a) => a.type === 'text' && a.text.trim() !== '' && !pdfRepo.isWinAnsiEncodable(a.text),
+    // WinAnsiEncodingで表現できない文字（日本語等）を含むテキストボックスのみを判定対象にする
+    // （それ以外は標準14フォントのままで表示できるため、実フォントの解決有無を問わず安全）
+    const targets = annotations.filter(
+      (a): a is TextAnnotationStyle =>
+        a.type === 'text' && a.text.trim() !== '' && !pdfRepo.isWinAnsiEncodable(a.text),
     );
-    if (!needsRealFont) return toApiResponse(Success(false));
+    if (targets.length === 0) return toApiResponse(Success(false));
     if (!this.isLocalFontAccessSupported()) return toApiResponse(Success(true));
 
-    // 対応ブラウザでも、権限が未許可・拒否済み、またはユーザー操作から離れた呼び出しのため
-    // 一度もOSフォントを取得できていない場合はリスクありとして扱う。権限拒否時、
-    // `queryLocalFonts()`は例外を投げず「0件」として解決することがあるため、
-    // reject（`!ok`）だけでなく取得件数0件も判定に含める（そうしないと拒否状態が
-    // 「フォント一覧の取得に成功した（＝安全）」と誤判定されてしまう）
-    const familiesRes = await this.queryLocalFontFamilies();
-    return toApiResponse(Success(!familiesRes.ok || familiesRes.data.length === 0));
+    // OSフォントが1件でも取得できることと、対象テキストの文字を実際に埋め込めることは別問題
+    // （無関係な言語のフォントしか無い場合等）であるため、保存処理と同じ候補選定・グリフ収録
+    // 判定（`resolveTextFont`）を`anyTextWillFallbackToStandardFont`経由でそのまま再利用する
+    const hasFallback = await pdfRepo.anyTextWillFallbackToStandardFont(
+      targets.map((a) => ({ fontFamily: a.fontFamily, fontWeight: a.fontWeight, text: a.text })),
+    );
+    return toApiResponse(Success(hasFallback));
   }
 
   /**

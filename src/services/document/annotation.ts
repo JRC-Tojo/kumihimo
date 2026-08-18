@@ -110,6 +110,8 @@ export function registerConfigAnnotationInfos(
   file: ContainerElementFile,
   aInfo: AnnotationInfo[],
 ): Promise<Result<void>> {
+  // 仮登録IDの判定・除外はリポジトリ側のトランザクション内で行うため、ここでは引数と
+  // 戻り値のResultをそのままリポジトリへ委譲する
   return annotationRepository.registerConfigAnnotationInfos(file, aInfo);
 }
 
