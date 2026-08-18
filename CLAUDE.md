@@ -8,13 +8,14 @@ kumihimo（`kumihimo`）：膨大なPDF文書にマークをつけ、文書を�
 
 - 開発サーバー（フロントエンド＋統合バックエンド、PWAモード）: `bun run dev`
 - ビルド（PWAモード）: `bun run build`
-- Lint: `bun run lint`（`./src*/**/*.{ts,js,cjs,mjs,vue}` に対して ESLint を実行）
+- Lint: `bun run lint`（`./src*/**/*.{ts,js,cjs,mjs,vue}`・`e2e/**`・`playwright.config.ts` に対して ESLint を実行）
 - フォーマット: `bun run format`（Prettier、直接書き込み）
 - テスト（全体）: `bun test --isolate`（`bun run test`と同じ）。`mock.module`はプロセス全体で共有され、テストファイルをまたいで残り続けるため、`--isolate`無しで実行すると読み込み順序次第で他ファイルのモックが漏れて失敗する。単に `bun test` を実行しないこと
 - テスト（単一ファイル）: `bun test src/repositories/container/__test__/local.test.ts`
+- E2Eテスト（実Chromium、関係性・アノテーション操作・PDFレンダリングのビジュアル/操作感検証）: `bun run test:e2e`（Playwright。`bun run dev`を自動起動して検証する）。**Windows環境ではNode.jsで実行すること**（`npx playwright test`）。BunランタイムでChromiumを起動すると既知の不具合でハングする（`chromium.launch()`がタイムアウトする。Windows特有でLinux/macOSでは再現しない。参考: oven-sh/bun#27977等）
 - 依存関係の追加: `bun add <pkg>` / 開発用依存関係: `bun add -D <pkg>`
 
-テストは対象コードと同じ場所の `__test__/` サブフォルダに配置する（例: `src/utils/binary/__test__/base64.test.ts`）。
+テストは対象コードと同じ場所の `__test__/` サブフォルダに配置する（例: `src/utils/binary/__test__/base64.test.ts`）。E2Eテスト（`e2e/`配下、`__test__/`規約の対象外）は既存のComposable/Serviceロジックテストと重複しないよう、実ブラウザでの描画結果・操作感のみを検証する。
 
 ## アーキテクチャ
 

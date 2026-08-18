@@ -4,6 +4,7 @@
     <q-btn
       v-for="relMode in relationalModes"
       :key="relMode.type"
+      :data-testid="`relational-define-${relMode.type}`"
       dense
       :flat="editorStore.relationalMode !== relMode.type"
       :ripple="false"
