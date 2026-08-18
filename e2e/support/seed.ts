@@ -8,37 +8,11 @@ export interface SeededDocument {
 }
 
 /**
- * `page.reload()`を実行する。失敗時は少し待って最大2回まで再試行する。
- *
- * `src/repositories/inMemory/IndexedDB.ts`は新規ストア作成時にバージョンを1つずつ
- * 上げて再オープンする実装で、その`onblocked`ハンドラは自発的に`window.location.reload()`を
- * 呼ぶ。この自発リロードと本関数のreload()呼び出しがまれに競合し、`net::ERR_ABORTED`に
- * なることがあるため、単純な再試行で吸収する
- */
-async function reloadResilient(page: Page): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await page.reload();
-      return;
-    } catch (e) {
-      if (attempt >= 2) throw e;
-      await page.waitForTimeout(300);
-    }
-  }
-}
-
-/**
  * インメモリの`cache`コンテナへフィクスチャPDFを1件投入する。
  *
  * `ExplorerView.vue`はコンテナ一覧を`onMounted`時にのみ取得するため、BackendApi経由で
  * 直接作成したコンテナはページをリロードするまでExplorer上に現れない
- * （`createContainer`は`cache`型でも実体はIndexedDBへ保存されるため、リロードでも消えない）。
- *
- * `createContainer`→`loadContainer`→`saveFile`は、初回はそれぞれ別のIndexedDBストアを
- * 新規作成する（`cache.ts`のSKEL/ELEM/SOURCE_STORE_NAME）。ストア作成のたびにDBのバージョンを
- * 上げて再オープンするため、間を置かずに連続実行すると直前の接続のクローズが完了する前に
- * 次のオープンが走り、上記の`onblocked`（自発リロード）を誘発しやすい。各呼び出しの間に
- * 短い待機を挟むことで、実運用ではほぼ発生しないこの競合をテストのたびに再現しないようにする
+ * （`createContainer`は`cache`型でも実体はIndexedDBへ保存されるため、リロードでも消えない）
  */
 export async function seedCacheContainerWithFixturePdf(
   page: Page,
@@ -51,18 +25,15 @@ export async function seedCacheContainerWithFixturePdf(
 
   const result = await page.evaluate(
     async ({ containerName, fileName, fixtureSrc }) => {
-      const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
       const api = window.__kumihimoTest?.api;
       if (!api) throw new Error('__kumihimoTest hook is not available');
 
       const containerRes = await api.createContainer('cache', containerName, '/');
       if (!containerRes.ok || !containerRes.data) throw new Error('createContainer failed');
       const containerId = containerRes.data.id;
-      await settle();
 
       const loadRes = await api.loadContainer(containerId);
       if (!loadRes.ok) throw new Error('loadContainer failed');
-      await settle();
 
       const fileRes = await api.saveFile(containerId, fileName, fixtureSrc);
       if (!fileRes.ok || !fileRes.data) throw new Error('saveFile failed');
@@ -72,7 +43,7 @@ export async function seedCacheContainerWithFixturePdf(
     { containerName, fileName, fixtureSrc },
   );
 
-  await reloadResilient(page);
+  await page.reload();
   await waitForTestHook(page);
 
   return result;

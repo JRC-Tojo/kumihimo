@@ -15,8 +15,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  ...(process.env.CI ? { workers: 1 } : {}),
-  reporter: 'list',
+  // 対象は`bun run dev`（Vite開発サーバー）1プロセスのみで、水平スケールしない。並列ワーカーが
+  // 複数同時にcold状態のモジュールコンパイル（pdfjs-dist/Konva等、重量級）を要求すると、
+  // 一部のワーカーの初回描画がタイムアウトしうるため、常に直列実行する（CI/ローカール問わず）
+  workers: 1,
+  // 'list'はコンソール出力のみでplaywright-report/を生成しないため、CI失敗時にアップロードする
+  // レポート（.github/workflows/frontend.ymlのUpload Playwright reportステップ）用にhtmlも併用する
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
     baseURL: 'http://localhost:9200',
     viewport: { width: 1280, height: 800 },

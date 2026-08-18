@@ -6,6 +6,7 @@ const PAGE_SIZE = { width: 400, height: 300 };
 const SRC_ID = '33333333-3333-4333-8333-333333333333';
 const TARGET_ID = '44444444-4444-4444-8444-444444444444';
 
+/** テスト用のboxアノテーションスタイルオブジェクトを組み立てる（pdf.test.tsのbuildAnnotationBaseと同じ形） */
 function buildBoxStyle(id: string, x: number, y: number) {
   const now = new Date().toISOString();
   return {
@@ -30,6 +31,10 @@ test.describe('関係性機能', () => {
     await page.goto('/');
   });
 
+  /**
+   * 2つのアノテーションを順に選択して「等しい」でペアリングすると、関係性が実際に登録され、
+   * かつ対象シェイプの見た目（検証状態の枠色）が変化することを検証する
+   */
   test('2つのアノテーションを選択してペアリングすると、関係性が登録され見た目が変化する', async ({
     page,
   }) => {

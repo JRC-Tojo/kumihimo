@@ -1,3 +1,7 @@
 [test]
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = ["**/src/services/container/config.ts"]
+# bunの既定のテストファイル検出は`*.spec.ts`も対象にするため、Playwright用のe2e/**（同じ
+# `*.spec.ts`拡張）をbun testが誤って読み込み、@playwright/testのtest.describe()と競合してしまう。
+# e2e/はPlaywright（`bun run test:e2e`）専用のため、bun testの対象から除外する
+pathIgnorePatterns = ["e2e/**"]

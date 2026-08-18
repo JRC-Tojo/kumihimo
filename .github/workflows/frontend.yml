@@ -125,6 +125,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -159,6 +161,7 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+          if-no-files-found: error
 
   # セキュリティスキャンは現状GitHub Botに一任
   # security-scan:
