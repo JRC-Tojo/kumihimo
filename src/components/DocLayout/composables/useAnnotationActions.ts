@@ -11,10 +11,12 @@ import { type Ref } from 'vue';
 import dayjs from 'dayjs';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useEditorStore } from 'src/stores/editorStore';
+import { useGroupStore } from 'src/stores/groupStore';
 import { useAnnotationHistory } from './useAnnotationHistory';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
+import { fileKey } from 'src/utils/document/fileKey';
 
 /** 連続ペースト・複製時に位置をずらす基準量（px、文書座標） */
 const PASTE_OFFSET_STEP = 20;
@@ -29,6 +31,7 @@ export interface UseAnnotationActionsDeps {
 export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
   const api = useBackendApi();
   const editorStore = useEditorStore();
+  const groupStore = useGroupStore();
   const history = useAnnotationHistory();
 
   /** 選択中の注釈IDを実体（AnnotationStyle）に解決する */
@@ -173,6 +176,38 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     history.recordChangedBatch(deps.file, pairs);
   }
 
+  /**
+   * 選択中のアノテーションをグループ化する（右クリックメニュー「グループ化」から使う）
+   *
+   * 選択範囲に既存グループのメンバーが含まれていた場合、サービス層側でそのグループを解散して
+   * 統合する（ネストは発生させない）。グループ化後は新しいグループの全メンバーを選択状態にする
+   */
+  async function groupSelected(): Promise<void> {
+    const ids = deps.selectedAnnotationIds.value;
+    if (ids.length < 2) return;
+
+    const res = await api.groupAnnotations(deps.file, ids);
+    if (!res.ok) return;
+
+    await groupStore.refreshFile(deps.file);
+    deps.selectedAnnotationIds.value = [...res.data.memberIds];
+  }
+
+  /**
+   * 選択中のアノテーションのグループ化を解除する（右クリックメニュー「グループ化を解除」から使う）
+   *
+   * 選択が既存グループの全メンバーとちょうど一致する場合のみ解除する（部分選択では何もしない）
+   */
+  async function ungroupSelected(): Promise<void> {
+    const group = groupStore.matchingGroup(fileKey(deps.file), deps.selectedAnnotationIds.value);
+    if (group === undefined) return;
+
+    const res = await api.ungroupAnnotations(deps.file, group.id);
+    if (!res.ok) return;
+
+    await groupStore.refreshFile(deps.file);
+  }
+
   return {
     deleteSelected,
     nudgeSelected,
@@ -180,5 +215,7 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     pasteClipboard,
     duplicateSelected,
     reorderSelected,
+    groupSelected,
+    ungroupSelected,
   };
 }

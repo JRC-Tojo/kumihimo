@@ -63,6 +63,8 @@ const saveDocumentConfigFileMock = mock(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
     _bookmarks: unknown,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _groups: unknown,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
     _outlineImported: boolean,
   ): Promise<Result<void>> => Promise.resolve(Success()),
 );
@@ -84,6 +86,13 @@ const registerConfigAnnotationInfosMock = mock(
 );
 void mock.module('src/services/document/annotation', () => ({
   registerConfigAnnotationInfos: registerConfigAnnotationInfosMock,
+}));
+
+// グループのグローバルキャッシュ同期（`registerConfigAnnotationInfos`のグループ版）も同様にモック化する
+const syncGroupCacheMock = mock((): Promise<Result<void>> => Promise.resolve(Success()));
+void mock.module('src/services/document/annotationGroup', () => ({
+  syncGroupCache: syncGroupCacheMock,
+  remapFilePath: (): Promise<Result<void>> => Promise.resolve(Success()),
 }));
 
 void mock.module('src/repositories/document/pdfDocumentCache', () => ({
@@ -113,7 +122,7 @@ const DOC_SRC_HASH = docSrcHashRes.value;
 function savedArgs(): { bookmarks: Record<string, unknown>; outlineImported: boolean } {
   const call = saveDocumentConfigFileMock.mock.calls.at(-1);
   if (!call) throw new Error('saveDocumentConfigFile was not called');
-  return { bookmarks: call[4] as Record<string, unknown>, outlineImported: call[5] };
+  return { bookmarks: call[4] as Record<string, unknown>, outlineImported: call[6] };
 }
 
 describe('loadConfig（PDFしおりの自動取り込み）', () => {

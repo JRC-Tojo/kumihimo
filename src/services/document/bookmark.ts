@@ -62,6 +62,7 @@ export async function addBookmark(
     Object.values(configRes.value.annots),
     configRes.value.fileHash,
     updatedBookmarks,
+    configRes.value.groups,
     configRes.value.outlineImported ?? false,
   );
   if (!saveRes.ok) return saveRes;
@@ -89,6 +90,7 @@ export async function removeBookmark(
     Object.values(configRes.value.annots),
     configRes.value.fileHash,
     updatedBookmarks,
+    configRes.value.groups,
     configRes.value.outlineImported ?? false,
   );
 }
@@ -116,6 +118,7 @@ export async function renameBookmark(
     Object.values(configRes.value.annots),
     configRes.value.fileHash,
     updatedBookmarks,
+    configRes.value.groups,
     configRes.value.outlineImported ?? false,
   );
 }

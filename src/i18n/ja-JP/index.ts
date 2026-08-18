@@ -265,6 +265,8 @@ export default {
       },
       contextMenu: {
         copy: 'コピー',
+        group: 'グループ化',
+        ungroup: 'グループ化を解除',
         applyPreset: 'プリセットスタイルを適用',
         registerPreset: 'プリセットとして登録',
         openRelational: '関係性ダイアログを開く',
@@ -376,6 +378,19 @@ export default {
         save: '保存',
         cancel: 'キャンセル',
         saveFailed: '緩和ルールの保存に失敗しました。',
+      },
+      group: {
+        memberCount: '{count}件のアノテーションをグループ化しています',
+        aggregationUndefined:
+          '値の算出方法が未設定です（このままだと「等しい」の検証は常にNGになります）',
+        aggregationSum: '値の算出方法: 合計',
+        configureAggregation: 'グループの値の算出方法を設定',
+        aggregationDialog: {
+          title: 'グループの値の算出方法',
+          hint: 'このグループを関係性の「等しい」の端点にした際に使う代表値の算出方法を選択してください。',
+          sum: '合計（メンバーの数値を合算する）',
+          saveFailed: '算出方法の保存に失敗しました。',
+        },
       },
     },
     tabs: {

@@ -12,11 +12,10 @@
     >
       <!-- 合成モードが他の注釈やスタイルパネルの現在値に引きずられず注釈自身の値で文書と
            合成されるよう、専用レイヤー（＝専用canvas）へ割り当てる。ただし1注釈1レイヤーだと
-           Konvaのレイヤー数上限警告（推奨3〜5枚）に達しやすいため、z順（visibleAnnotationsの並び順）で
-           隣接し合成モードが'normal'（未設定含む）の注釈同士だけを同一レイヤーへまとめる（'normal'は
-           背景と合成せず通常の重ね描きのため同一canvasにまとめても結果が変わらない）。'multiply'/'screen'
-           等の非'normal'は各注釈が個別に背景と合成される必要があるため、同一canvasにまとめると
-           結果が変わってしまい、常に1注釈1レイヤーのまま分離する -->
+           Konvaのレイヤー数上限警告（推奨3〜5枚）に達しやすいため、annotationBlendGrouping.tsの
+           groupAnnotationsByBlendModeでz順（visibleAnnotationsの並び順）を保ったまま複数の注釈を
+           同一レイヤーへまとめる（詳細な条件はそちらのコメント参照。'normal'同士は常にまとめてよく、
+           同一の非'normal'ブレンドモード同士は外接矩形が重なっていない場合のみまとめる） -->
       <AnnotationBlendLayer
         v-for="group in annotationBlendGroups"
         :key="group.key"
@@ -115,6 +114,9 @@ import {
   type ContextMenuHitAttrs,
 } from './annotationContextMenuHitTest';
 import { bindGroupDragSync } from './composables/useGroupDragSync';
+import { groupAnnotationsByBlendMode } from './annotationBlendGrouping';
+import { useGroupStore } from 'src/stores/groupStore';
+import { fileKey } from 'src/utils/document/fileKey';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -146,6 +148,27 @@ function applyShiftAxisLock(basePoint: Point | undefined | null, pos: Point): Po
 const page = defineModel<number>('page', { required: true });
 const canvasSize = defineModel<{ width: number; height: number }>('canvasSize', { required: true });
 const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
+
+const groupStore = useGroupStore();
+
+/**
+ * 選択にグループのメンバーが含まれている場合、常にそのグループの全メンバーへ展開する
+ *
+ * クリック・矩形選択・コンテキストメニュー・ジャンプ復元等、選択を書き換えるあらゆる箇所
+ * （多数存在する）に個別対応する代わりに、書き換え結果を監視してここで一括補正する。
+ * グループ化されたアノテーション群を単一のオブジェクトのように扱うための挙動であり、
+ * 展開済みの選択に対しては何もしない（`expanded`が`ids`と一致すれば代入しないため、無限ループしない）
+ */
+watch(selectedAnnotIds, (ids) => {
+  if (ids.length === 0) return;
+  const fk = fileKey(props.file);
+  const expanded = new Set(ids);
+  ids.forEach((id) => {
+    groupStore.memberSet(fk, id)?.forEach((memberId) => expanded.add(memberId));
+  });
+  if (expanded.size === ids.length) return;
+  selectedAnnotIds.value = Array.from(expanded);
+});
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
@@ -333,33 +356,10 @@ const visibleAnnotations = computed(() => {
   return [...filtered].sort((a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b));
 });
 
-// z順を保ったまま、隣接し合成モードが'normal'（未設定含む）の注釈同士だけを1レイヤーへまとめる。
-// 'normal'は背景と合成せず通常の重ね描きのため同一canvasにまとめても結果が変わらないが、
-// 'multiply'/'screen'等は各注釈が個別に背景と合成される必要があり、同一canvasにまとめると
-// 注釈同士が先に合成されてから背景と合成されてしまう（結果が異なる）ため、1注釈1レイヤーに分離する
-// （AnnotationBlendLayerのレイヤー数を抑えるため。詳細はテンプレート側のコメント参照）
-const annotationBlendGroups = computed(() => {
-  const groups: {
-    key: AnnotationID;
-    blendMode: AnnotationStyle['blendMode'];
-    annotations: AnnotationStyle[];
-  }[] = [];
-  const isNormal = (blendMode: AnnotationStyle['blendMode']) =>
-    blendMode === undefined || blendMode === 'normal';
-  for (const annotation of visibleAnnotations.value) {
-    const last = groups.at(-1);
-    if (last && isNormal(last.blendMode) && isNormal(annotation.blendMode)) {
-      last.annotations.push(annotation);
-    } else {
-      groups.push({
-        key: annotation.id,
-        blendMode: annotation.blendMode,
-        annotations: [annotation],
-      });
-    }
-  }
-  return groups;
-});
+// z順を保ったまま、Konva.Layer（AnnotationBlendLayer）の数を最小化するようグルーピングする。
+// グルーピング条件の詳細はannotationBlendGrouping.ts参照
+// （AnnotationBlendLayerのレイヤー数を抑えるため。合成の考え方はテンプレート側のコメントも参照）
+const annotationBlendGroups = computed(() => groupAnnotationsByBlendMode(visibleAnnotations.value));
 
 const editingTextStyle = computed(() => {
   const annotation = editingTextAnnotation.value;

@@ -12,6 +12,7 @@ import type {
   AnnotationInfo,
   BookmarkID,
   BookmarkInfo,
+  RelationalEndpointID,
   RelationalInFile,
 } from 'src/models/relational/fileSchema';
 import { CachedRelationalFile, DocumentConfigFile } from 'src/models/relational/fileSchema';
@@ -23,7 +24,7 @@ import * as textRepository from 'src/repositories/document/text';
 import type { RelationalWithAddress } from 'src/models/relational/common';
 import { CONFIG_FILE_EXTS } from 'src/models/document/common';
 import { fromEntries } from 'src/utils/obj/obj';
-import type { AnnotationID } from 'src/models/document/pdf';
+import type { AnnotationGroup, AnnotationGroupID } from 'src/models/document/group';
 
 const CONTAINER_CONFIG_FOLDER = '.kumihimo';
 
@@ -155,14 +156,14 @@ export function buildCachedRelationalFile(
     }, new Map<string, RelationalInFile>()),
   ).map(([, relation]) => relation);
 
-  // 4. 保存時に必要なAnnotationIDのファイル情報を再構築する
-  const referencedAnnotIDs = new Set<AnnotationID>();
+  // 4. 保存時に必要な端点（アノテーション・グループ）のファイル情報を再構築する
+  const referencedAnnotIDs = new Set<RelationalEndpointID>();
   uniqueRelationals.forEach((relation) => {
     referencedAnnotIDs.add(relation.src);
     referencedAnnotIDs.add(relation.target);
   });
 
-  const annotIdToFileInfo: Record<AnnotationID, AnnotationBaseAddress> = {};
+  const annotIdToFileInfo: Record<RelationalEndpointID, AnnotationBaseAddress> = {};
 
   // 4a. まず新規Relationalから優先的にファイル情報を埋める
   const assignFromRelation = (relation: RelationalWithAddress) => {
@@ -235,10 +236,10 @@ export function remapCachedRelationalFilePaths(
   oldFile: CachedRelationalFile,
   pathMap: Record<string, string>,
 ): CachedRelationalFile {
-  const remappedAnnotIdToFileInfo: Record<AnnotationID, AnnotationBaseAddress> = {};
+  const remappedAnnotIdToFileInfo: Record<RelationalEndpointID, AnnotationBaseAddress> = {};
   for (const [annotID, address] of Object.entries(oldFile.annotIdToFileInfo)) {
     const newFilePath = pathMap[address.filePath];
-    remappedAnnotIdToFileInfo[annotID as AnnotationID] =
+    remappedAnnotIdToFileInfo[annotID as RelationalEndpointID] =
       newFilePath !== undefined ? { ...address, filePath: newFilePath } : address;
   }
 
@@ -363,8 +364,9 @@ export async function getDocumentConfigFile(
 /**
  * 文書設定ファイルを保存する
  *
- * `bookmarks`・`outlineImported`はアノテーションと異なりDB経由の差分管理を行わないため、
- * 呼び出し側が現在有効な値（読み込み直後の内容に対する変更後の状態）をそのまま渡すこと
+ * `bookmarks`・`groups`・`outlineImported`はアノテーションと異なりDB経由の差分管理を
+ * 行わないため、呼び出し側が現在有効な値（読み込み直後の内容に対する変更後の状態）を
+ * そのまま渡すこと
  */
 export async function saveDocumentConfigFile(
   cID: ContainerID,
@@ -372,6 +374,7 @@ export async function saveDocumentConfigFile(
   annotInfos: AnnotationInfo[],
   fileHash: string,
   bookmarks: Record<BookmarkID, BookmarkInfo>,
+  groups: Record<AnnotationGroupID, AnnotationGroup>,
   outlineImported: boolean,
 ): Promise<Result<void>> {
   // 書き込む情報を構築する
@@ -379,6 +382,7 @@ export async function saveDocumentConfigFile(
     fileHash,
     annots: fromEntries(annotInfos.map((aInfo) => [aInfo.style.id, aInfo])),
     bookmarks,
+    groups,
     outlineImported,
   };
   const docConfStr = JSON.stringify(docConf, null, 2);
@@ -444,6 +448,7 @@ export async function saveDocumentConfigs(
   newSrc: DocumentSource,
   annotInfos: AnnotationInfo[],
   bookmarks: Record<BookmarkID, BookmarkInfo>,
+  groups: Record<AnnotationGroupID, AnnotationGroup>,
   outlineImported: boolean,
 ): Promise<Result<void>> {
   // 新ファイルのハッシュ値を取得
@@ -461,6 +466,7 @@ export async function saveDocumentConfigs(
     annotInfos,
     newSrcHash.value,
     bookmarks,
+    groups,
     outlineImported,
   );
   if (!docConfRes.ok) return docConfRes;

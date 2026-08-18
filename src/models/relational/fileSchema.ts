@@ -4,8 +4,18 @@
 
 import z from 'zod';
 import { AnnotationID, AnnotationStyle } from '../document/pdf';
+import { AnnotationGroup, AnnotationGroupID } from '../document/group';
 import { ContainerID } from '../container';
 import { RelaxationOptions } from './relaxation';
+
+/**
+ * 関係性の端点となりうるID（個々のアノテーション、またはグループ）
+ *
+ * `z.brand`は型レベルのタグでランタイム検証を追加しないため、既存の`relational.json`
+ * （値はすべて`AnnotationID`のUUID文字列）はこの型のままパースに成功する
+ */
+export const RelationalEndpointID = z.union([AnnotationID, AnnotationGroupID]);
+export type RelationalEndpointID = z.infer<typeof RelationalEndpointID>;
 
 /**
  * リンクのみの関係性
@@ -98,6 +108,8 @@ export const DocumentConfigFile = z.object({
   annots: z.record(AnnotationID, AnnotationInfo),
   // 既存の.kcfgにはこのフィールドが無いため、読み込み時は空のオブジェクトを既定値とする
   bookmarks: z.record(BookmarkID, BookmarkInfo).optional().default({}),
+  // 既存の.kcfgにはこのフィールドが無いため、読み込み時は空のオブジェクトを既定値とする
+  groups: z.record(AnnotationGroupID, AnnotationGroup).optional().default({}),
   // PDFのしおり（アウトライン）をブックマークとして自動取り込み済みかどうか。
   // 一度取り込んだ後に再度取り込んで重複登録しないためのフラグ
   outlineImported: z.boolean().optional().default(false),
@@ -110,14 +122,14 @@ export type DocumentConfigFile = z.infer<typeof DocumentConfigFile>;
  * フロントエンドとやり取りする型とは別にファイル保存用の型として定義する
  */
 export const RelationalInFile = z.object({
-  src: AnnotationID,
-  target: AnnotationID,
+  src: RelationalEndpointID,
+  target: RelationalEndpointID,
   rule: RelationalRule,
 });
 export type RelationalInFile = z.infer<typeof RelationalInFile>;
 
 /**
- * AnnotationIDとそのアノテーションが存在するファイルの位置を示す
+ * アノテーション（またはグループ）とそれが存在するファイルの位置を示す
  */
 export const AnnotationBaseAddress = z.object({
   cID: ContainerID,
@@ -131,8 +143,8 @@ export type AnnotationBaseAddress = z.infer<typeof AnnotationBaseAddress>;
  * 本システムで定義する関係性情報を保存する
  */
 export const CachedRelationalFile = z.object({
-  // 関係性を定義したアノテーションの位置のみ保存
-  annotIdToFileInfo: z.record(AnnotationID, AnnotationBaseAddress),
+  // 関係性を定義したアノテーション（またはグループ）の位置のみ保存
+  annotIdToFileInfo: z.record(RelationalEndpointID, AnnotationBaseAddress),
   relationals: RelationalInFile.array(),
 });
 export type CachedRelationalFile = z.infer<typeof CachedRelationalFile>;

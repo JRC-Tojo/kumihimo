@@ -8,6 +8,7 @@ import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as relationalService from 'src/services/document/relational';
 import * as annotationService from 'src/services/document/annotation';
+import * as annotationGroupService from 'src/services/document/annotationGroup';
 import * as pdfRepo from 'src/repositories/document/pdf';
 import { Path } from 'src/utils/binary/path';
 import { trackPdfAnnotation } from 'src/utils/tracker/trackPdfAnnot';
@@ -55,7 +56,13 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
   if (configFileRes.ok) {
     configFile = configFileRes.value;
   } else if (configFileRes.error instanceof NotFoundError) {
-    configFile = { fileHash: fileHash.value, annots: {}, bookmarks: {}, outlineImported: false };
+    configFile = {
+      fileHash: fileHash.value,
+      annots: {},
+      bookmarks: {},
+      groups: {},
+      outlineImported: false,
+    };
   } else {
     return configFileRes;
   }
@@ -81,6 +88,15 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
   const annotInfos = Object.values(configFile.annots);
   const registRes = await annotationService.registerConfigAnnotationInfos(file, annotInfos);
   if (!registRes.ok) return registRes;
+
+  // グループはブックマーク同様DB経由の差分管理を行わないため、`.kcfg`の内容をそのまま
+  // グローバルキャッシュ（関係性のアドレス解決に使う）へ同期する。
+  // 既存の.kcfgにはこのフィールドが無いため、読み込み時は空のオブジェクトを既定値とする
+  const groupSyncRes = await annotationGroupService.syncGroupCache(
+    file,
+    Object.values(configFile.groups ?? {}),
+  );
+  if (!groupSyncRes.ok) return groupSyncRes;
 
   // 更新版情報を返す
   return Success(configFile);
@@ -115,6 +131,7 @@ async function importOutlineOnce(
     Object.values(configFile.annots),
     configFile.fileHash,
     mergedBookmarks,
+    configFile.groups,
     true,
   );
   if (!saveRes.ok) return configFile;
@@ -141,6 +158,7 @@ export async function acceptExternalConfig(
     annotInfos,
     config.fileHash,
     config.bookmarks,
+    config.groups,
     config.outlineImported ?? false,
   );
   if (!saveRes.ok) return saveRes;
@@ -220,8 +238,8 @@ export async function saveConfig(
   const rsWithAdrs = await relationalService.getRelationalsInvolvingFile(file);
   if (!rsWithAdrs.ok) return rsWithAdrs;
 
-  // ブックマーク・しおり取り込み済みフラグはアノテーションと異なりDB経由の差分管理を行わないため、
-  // 上書きで消えないよう保存直前の`.kcfg`から現在有効な内容をそのまま読み直して引き継ぐ。
+  // ブックマーク・グループ・しおり取り込み済みフラグはアノテーションと異なりDB経由の差分管理を
+  // 行わないため、上書きで消えないよう保存直前の`.kcfg`から現在有効な内容をそのまま読み直して引き継ぐ。
   // 読み込み・パース自体の失敗（I/O・破損・スキーマ不整合等）を空として扱うと既存のブックマークを
   // 消してしまうため、ファイル不存在（`NotFoundError`）と確認できた場合以外はそのままエラーとして返す
   const currentConfigRes = await containerConfigService.getDocumentConfigFile(
@@ -229,9 +247,11 @@ export async function saveConfig(
     file,
   );
   let bookmarks: DocumentConfigFile['bookmarks'] = {};
+  let groups: DocumentConfigFile['groups'] = {};
   let outlineImported = false;
   if (currentConfigRes.ok) {
     bookmarks = currentConfigRes.value.bookmarks;
+    groups = currentConfigRes.value.groups;
     outlineImported = currentConfigRes.value.outlineImported ?? false;
   } else if (!(currentConfigRes.error instanceof NotFoundError)) {
     return currentConfigRes;
@@ -245,6 +265,7 @@ export async function saveConfig(
     newSrc,
     annotInfos.value,
     bookmarks,
+    groups,
     outlineImported,
   );
   if (!annotSavedRes.ok) return annotSavedRes;
@@ -398,6 +419,8 @@ export async function renamePath(
     for (const [oldPath, newPathStr] of Object.entries(pathMap)) {
       const annotRemapRes = await annotationService.remapFilePath(cID, oldPath, newPathStr);
       if (!annotRemapRes.ok) return annotRemapRes;
+      const groupRemapRes = await annotationGroupService.remapFilePath(cID, oldPath, newPathStr);
+      if (!groupRemapRes.ok) return groupRemapRes;
       const relRemapRes = await relationalService.remapFilePath(cID, oldPath, newPathStr);
       if (!relRemapRes.ok) return relRemapRes;
     }

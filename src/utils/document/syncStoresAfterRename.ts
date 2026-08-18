@@ -9,6 +9,7 @@
 import type { ContainerID, RenamedEntry } from 'src/models/container';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
+import { useGroupStore } from 'src/stores/groupStore';
 import { useExplorerStore } from 'src/stores/explorerStore';
 
 export function syncStoresAfterRename(containerID: ContainerID, renamed: RenamedEntry[]): void {
@@ -21,5 +22,6 @@ export function syncStoresAfterRename(containerID: ContainerID, renamed: Renamed
 
   useEditorStore().remapPaths(containerID, pathMap);
   useRelationalStore().remapFileKeys(containerID, pathMap);
+  useGroupStore().remapFileKeys(containerID, pathMap);
   useExplorerStore().remapKeys(containerID, pathMap);
 }

@@ -1,7 +1,12 @@
 import z from 'zod';
 import { AnnotationID } from '../document/pdf';
 import { ContainerElementFile } from '../container';
-import { AnnotationBaseAddress, RelationalCheckedRule, RelationalRule } from './fileSchema';
+import {
+  AnnotationBaseAddress,
+  RelationalCheckedRule,
+  RelationalEndpointID,
+  RelationalRule,
+} from './fileSchema';
 
 export const AnnotIDToFile = z.record(AnnotationID, ContainerElementFile);
 export type AnnotIDToFile = z.infer<typeof AnnotIDToFile>;
@@ -10,8 +15,8 @@ export type AnnotIDToFile = z.infer<typeof AnnotIDToFile>;
  * 関係性データ
  */
 export const Relational = z.object({
-  srcID: AnnotationID,
-  targetID: AnnotationID,
+  srcID: RelationalEndpointID,
+  targetID: RelationalEndpointID,
   rule: RelationalRule,
 });
 export type Relational = z.infer<typeof Relational>;
@@ -33,8 +38,8 @@ export type RelationalWithAddress = z.infer<typeof RelationalWithAddress>;
  * （＝登録は完了しているが検証は保留中の状態）
  */
 export const RelationalResponce = z.object({
-  srcID: AnnotationID,
-  targetID: AnnotationID,
+  srcID: RelationalEndpointID,
+  targetID: RelationalEndpointID,
   srcVal: z.string(),
   targetVal: z.string(),
   checkedRule: RelationalCheckedRule.optional(),

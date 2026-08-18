@@ -2,9 +2,12 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
-import type { AnnotationID } from 'src/models/document/pdf';
 import type { Relational } from 'src/models/relational/common';
-import type { RelationalCheckedRule, RelationalRule } from 'src/models/relational/fileSchema';
+import type {
+  RelationalCheckedRule,
+  RelationalEndpointID,
+  RelationalRule,
+} from 'src/models/relational/fileSchema';
 import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
 import { runConcurrently } from 'src/utils/promise/concurrent';
 import { fileKey } from 'src/utils/document/fileKey';
@@ -62,14 +65,14 @@ function aggregateStatus(edges: RelationalEdge[]): RelationalStatus {
 /**
  * 指定アノテーション側から見た比較値を返す（src側ならsrcVal、target側ならtargetVal）
  */
-export function edgeValueFor(edge: RelationalEdge, annotId: AnnotationID): string {
+export function edgeValueFor(edge: RelationalEdge, annotId: RelationalEndpointID): string {
   return edge.relational.srcID === annotId ? edge.srcVal : edge.targetVal;
 }
 
 /**
  * 指定アノテーションの「相手側」の比較値を返す
  */
-export function otherEdgeValueFor(edge: RelationalEdge, annotId: AnnotationID): string {
+export function otherEdgeValueFor(edge: RelationalEdge, annotId: RelationalEndpointID): string {
   return edge.relational.srcID === annotId ? edge.targetVal : edge.srcVal;
 }
 
@@ -86,9 +89,9 @@ export const useRelationalStore = defineStore('relational', {
      * state.edgesByFileKeyへの依存はこのgetter自身の評価時点で読み取っておく
      * （返り値の関数の中で読むと、Piniaのgetterの依存追跡が曖昧になるため）
      */
-    edgesForAnnotation(state): (annotId: AnnotationID) => RelationalEdge[] {
+    edgesForAnnotation(state): (annotId: RelationalEndpointID) => RelationalEdge[] {
       const allEdges = Object.values(state.edgesByFileKey).flat();
-      return (annotId: AnnotationID) => {
+      return (annotId: RelationalEndpointID) => {
         const relevant = allEdges.filter(
           (edge) => edge.relational.srcID === annotId || edge.relational.targetID === annotId,
         );
@@ -101,10 +104,10 @@ export const useRelationalStore = defineStore('relational', {
     /**
      * 指定アノテーションの検証状態（優先度: ng > pending > ok、関連なしはundefined）
      */
-    statusForAnnotation(): (annotId: AnnotationID) => RelationalStatus {
+    statusForAnnotation(): (annotId: RelationalEndpointID) => RelationalStatus {
       // this.edgesForAnnotationへのアクセスをここで行い、getter間の依存を明示的に確立する
       const getEdgesForAnnotation = this.edgesForAnnotation;
-      return (annotId: AnnotationID) => aggregateStatus(getEdgesForAnnotation(annotId));
+      return (annotId: RelationalEndpointID) => aggregateStatus(getEdgesForAnnotation(annotId));
     },
 
     /**
@@ -150,7 +153,7 @@ export const useRelationalStore = defineStore('relational', {
     async refreshEdgeBothEndpoints(
       file: ContainerElementFile,
       edge: RelationalEdge,
-      selfId: AnnotationID,
+      selfId: RelationalEndpointID,
     ): Promise<void> {
       const api = useBackendApi();
       await this.refreshFile(file);
@@ -174,7 +177,7 @@ export const useRelationalStore = defineStore('relational', {
     async updateRelationalRule(
       file: ContainerElementFile,
       edge: RelationalEdge,
-      selfId: AnnotationID,
+      selfId: RelationalEndpointID,
       newRule: RelationalRule,
     ): Promise<boolean> {
       const api = useBackendApi();
@@ -213,7 +216,7 @@ export const useRelationalStore = defineStore('relational', {
     changeRelationalRuleType(
       file: ContainerElementFile,
       edge: RelationalEdge,
-      selfId: AnnotationID,
+      selfId: RelationalEndpointID,
       newType: RelationalRuleType,
     ): Promise<boolean> {
       return this.updateRelationalRule(file, edge, selfId, buildRelationalRule(newType));
