@@ -13,13 +13,22 @@ const UPDATE_CHECK_INTERVAL_MS = 1000 * 60 * 30;
 /** controllerchangeによる二重リロードを防ぐためのフラグ */
 let reloading = false;
 
-// 新しいService Workerが有効化されてページの制御を引き継いだら、
-// 一度だけ確実にリロードして新しいコードを反映する
-navigator.serviceWorker.addEventListener('controllerchange', () => {
-  if (reloading) return;
-  reloading = true;
-  window.location.reload();
-});
+/**
+ * ユーザーが更新通知のボタンを押したかどうか。
+ * 初回インストール時もclientsClaim()によりcontrollerchangeが発生するため、
+ * ユーザーが更新を承認した場合のみリロードするよう区別する
+ */
+let updateAccepted = false;
+
+if ('serviceWorker' in navigator) {
+  // 新しいService Workerが有効化されてページの制御を引き継いだら、
+  // ユーザーが更新を承認していた場合に限り一度だけリロードして新しいコードを反映する
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!updateAccepted || reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+}
 
 register(process.env.SERVICE_WORKER_FILE, {
   // The registrationOptions object will be passed as the second argument
@@ -35,7 +44,7 @@ register(process.env.SERVICE_WORKER_FILE, {
   registered(registration) {
     // タブを開きっぱなしにするユースケースを想定し、能動的に更新を検知する
     setInterval(() => {
-      void registration.update();
+      void registration.update().catch(() => undefined);
     }, UPDATE_CHECK_INTERVAL_MS);
   },
 
@@ -63,6 +72,7 @@ register(process.env.SERVICE_WORKER_FILE, {
           label: t('pwa.reload'),
           color: 'white',
           handler: () => {
+            updateAccepted = true;
             registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
           },
         },

@@ -192,7 +192,7 @@ export default {
     failedToUpdateDocument: 'Failed to update document',
   },
 
-  // PWA update notification
+  // PWAの更新通知
   pwa: {
     updateAvailable: 'A new version is available. Reload to update.',
     reload: 'Reload',
