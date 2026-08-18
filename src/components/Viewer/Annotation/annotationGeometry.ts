@@ -390,22 +390,32 @@ const boxGeometry: AnnotationGeometryModule = {
   ],
 };
 
-/** 直線・矢印共通: 起点・終点の外接矩形（線幅を考慮）を計算する */
+/**
+ * 直線・矢印共通: 起点・終点の外接矩形（線幅を考慮）を計算する
+ *
+ * `points`は`[x1, y1, x2, y2]`で、いずれもx/yを起点とした相対座標（起点側も終点側も一般に
+ * 非ゼロになり得る）。頂点アンカーを個別にドラッグする編集（useTwoPointAnchors）は、始点側の
+ * アンカーを動かした場合でも`x`/`y`自体は変えず`points[0]`/`points[1]`だけを更新するため、
+ * 始点側のオフセットを無視して`x`をそのまま起点とみなすと、始点だけを動かした変更が
+ * 外接矩形（＝内容再読み込みの要否判定）に一切反映されなくなってしまう
+ */
 function lineLikeBoundingBox(
   x: number,
   y: number,
   points: number[],
   strokeWidth: number,
 ): BoundingBox {
-  const [, , dx, dy] = points;
+  const [x1, y1, dx, dy] = points;
+  const x1Abs = x + (x1 ?? 0);
+  const y1Abs = y + (y1 ?? 0);
   const x2 = x + (dx ?? 2);
   const y2 = y + (dy ?? 2);
 
   const halfStroke = strokeWidth / 2 + BOUNDING_BOX_PADDING;
-  const minX = Math.min(x, x2) - halfStroke;
-  const maxX = Math.max(x, x2) + halfStroke;
-  const minY = Math.min(y, y2) - halfStroke;
-  const maxY = Math.max(y, y2) + halfStroke;
+  const minX = Math.min(x1Abs, x2) - halfStroke;
+  const maxX = Math.max(x1Abs, x2) + halfStroke;
+  const minY = Math.min(y1Abs, y2) - halfStroke;
+  const maxY = Math.max(y1Abs, y2) + halfStroke;
 
   return {
     x: Math.max(0, minX),
@@ -415,17 +425,44 @@ function lineLikeBoundingBox(
   };
 }
 
-/** 折れ線・ポリゴン共通: 相対座標の頂点配列（原点からのオフセット）からmin/max範囲を計算する（余白なし） */
+/** 直線・矢印共通: 始点から見た終点までの辺長（絶対値）を返す */
+function lineLikeSize(points: number[]): { width: number; height: number } {
+  const x1 = points[0] ?? 0;
+  const y1 = points[1] ?? 0;
+  return {
+    width: Math.abs((points[2] ?? 0) - x1),
+    height: Math.abs((points[3] ?? 0) - y1),
+  };
+}
+
+/** 直線・矢印共通: 始点（points[0], points[1]）を固定したまま、終点側だけを伸縮して指定サイズにする */
+function lineLikeResizeTo(points: number[], width: number, height: number): number[] {
+  const x1 = points[0] ?? 0;
+  const y1 = points[1] ?? 0;
+  const signX = (points[2] ?? 0) - x1 < 0 ? -1 : 1;
+  const signY = (points[3] ?? 0) - y1 < 0 ? -1 : 1;
+  return [x1, y1, x1 + width * signX, y1 + height * signY];
+}
+
+/**
+ * 折れ線・ポリゴン共通: 相対座標の頂点配列（原点からのオフセット）からmin/max範囲を計算する（余白なし）
+ *
+ * min/maxの初期値は`(0, 0)`ではなくInfinity/-Infinityにすること。頂点0は作成直後こそ原点
+ * （オフセット0,0）と一致するが、頂点アンカーで頂点0だけをドラッグした場合、x/yは変えずに
+ * 頂点0のオフセットだけが非ゼロに更新される。ここを`(0, 0)`で初期化してしまうと、
+ * 「動かす前の頂点0の位置」が常に範囲へ含まれ続けてしまい、頂点0の移動先が既存の他頂点の
+ * 範囲内に収まる場合、外接矩形（＝内容再読み込みの要否判定）に変化が反映されなくなる
+ */
 function computePointsSpan(points: number[]): {
   minX: number;
   maxX: number;
   minY: number;
   maxY: number;
 } {
-  let minX = 0;
-  let maxX = 0;
-  let minY = 0;
-  let maxY = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
 
   for (let i = 0; i + 1 < points.length; i += 2) {
     const px = points[i]!;
@@ -456,7 +493,14 @@ function resizePointsTo(points: number[], width: number, height: number): number
   );
 }
 
-/** 折れ線・ポリゴン共通: 全頂点のmin/maxから外接矩形（線幅を考慮）を計算する（lineLikeBoundingBoxのN点版） */
+/**
+ * 折れ線・ポリゴン共通: 全頂点のmin/maxから外接矩形（線幅を考慮）を計算する（lineLikeBoundingBoxのN点版）
+ *
+ * min/maxの初期値は`x`/`y`ではなくInfinity/-Infinityにすること。理由は`computePointsSpan`と同様で、
+ * `x`/`y`（頂点0の作成直後の絶対位置）を常に範囲へ含めてしまうと、頂点0だけをドラッグして
+ * 移動させた際、その移動先が既存の範囲内に収まる場合に外接矩形の変化として検知できなくなる
+ * （Issue #76: 折れ線の始点を動かしても関係性の読み取り値が更新されない不具合と同種の原因）
+ */
 function multiPointBoundingBox(
   x: number,
   y: number,
@@ -464,10 +508,10 @@ function multiPointBoundingBox(
   strokeWidth: number,
 ): BoundingBox {
   const halfStroke = strokeWidth / 2 + BOUNDING_BOX_PADDING;
-  let minX = x;
-  let maxX = x;
-  let minY = y;
-  let maxY = y;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
 
   for (let i = 0; i + 1 < points.length; i += 2) {
     const px = x + points[i]!;
@@ -528,13 +572,11 @@ const lineGeometry: AnnotationGeometryModule = {
   },
   getSize(style) {
     if (style.type !== 'line') return { width: 0, height: 0 };
-    return { width: Math.abs(style.points[2] ?? 0), height: Math.abs(style.points[3] ?? 0) };
+    return lineLikeSize(style.points);
   },
   resizeTo(style, width, height) {
     if (style.type !== 'line') return {};
-    const signX = (style.points[2] ?? 0) < 0 ? -1 : 1;
-    const signY = (style.points[3] ?? 0) < 0 ? -1 : 1;
-    return { points: [style.points[0] ?? 0, style.points[1] ?? 0, width * signX, height * signY] };
+    return { points: lineLikeResizeTo(style.points, width, height) };
   },
   intersectsRect(style, rect) {
     if (style.type !== 'line') return false;
@@ -718,13 +760,11 @@ const arrowGeometry: AnnotationGeometryModule = {
   },
   getSize(style) {
     if (style.type !== 'arrow') return { width: 0, height: 0 };
-    return { width: Math.abs(style.points[2] ?? 0), height: Math.abs(style.points[3] ?? 0) };
+    return lineLikeSize(style.points);
   },
   resizeTo(style, width, height) {
     if (style.type !== 'arrow') return {};
-    const signX = (style.points[2] ?? 0) < 0 ? -1 : 1;
-    const signY = (style.points[3] ?? 0) < 0 ? -1 : 1;
-    return { points: [style.points[0] ?? 0, style.points[1] ?? 0, width * signX, height * signY] };
+    return { points: lineLikeResizeTo(style.points, width, height) };
   },
   intersectsRect(style, rect) {
     if (style.type !== 'arrow') return false;
