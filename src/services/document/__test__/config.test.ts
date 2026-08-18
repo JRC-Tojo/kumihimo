@@ -71,26 +71,19 @@ void mock.module('src/services/container/config', () => ({
   saveDocumentConfigFile: saveDocumentConfigFileMock,
 }));
 
-const registerAnnotationInfoMock = mock(
+// 仮登録IDの判定と登録は`registerConfigAnnotationInfos`が単一トランザクションで行うため、
+// loadConfig側は結果（成功/失敗）のみを気にすればよい。除外ロジック自体の検証は
+// `src/repositories/db/__test__/annotation.test.ts`（`excludeTemporaryAnnotationInfos`）で行う
+const registerConfigAnnotationInfosMock = mock(
   (
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
-    _aInfo: AnnotationInfo[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
     _file: ContainerElementFile,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
-    _isTemporary: boolean,
+    _aInfo: AnnotationInfo[],
   ): Promise<Result<void>> => Promise.resolve(Success()),
 );
-// 既定では未保存(temporary)の注釈は無い（空Set）ものとして扱う。上書き防止ロジックを検証する
-// テストでは、個別に`mockImplementationOnce`で対象IDを含むSetへ差し替える
-const getTemporaryAnnotationIdsMock = mock(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
-  (_file: ContainerElementFile): Promise<Result<Set<AnnotationID>>> =>
-    Promise.resolve(Success(new Set<AnnotationID>())),
-);
 void mock.module('src/services/document/annotation', () => ({
-  registerAnnotationInfo: registerAnnotationInfoMock,
-  getTemporaryAnnotationIds: getTemporaryAnnotationIdsMock,
+  registerConfigAnnotationInfos: registerConfigAnnotationInfosMock,
 }));
 
 void mock.module('src/repositories/document/pdfDocumentCache', () => ({
@@ -231,7 +224,11 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
 });
 
 describe('loadConfig（未保存のローカル編集を.kcfgで上書きしない）', () => {
+  /**
+   * テスト用に、指定IDのみを変えた最小構成のAnnotationInfo（box型・位置サイズ固定）を生成する
+   */
   function buildAnnotInfo(id: AnnotationID): AnnotationInfo {
+    // stateとしては指定IDのbox注釈のみを持たせ、contextは未読み込み（空）のまま返す
     return {
       style: {
         id,
@@ -252,35 +249,37 @@ describe('loadConfig（未保存のローカル編集を.kcfgで上書きしな�
     };
   }
 
-  it('isTemporary:trueなIDは.kcfgからの登録対象から除外される', async () => {
-    const temporaryId = '00000000-0000-4000-8000-000000000001' as AnnotationID;
-    const savedId = '00000000-0000-4000-8000-000000000002' as AnnotationID;
+  it('.kcfgから読み取った全件を、file・aInfoとしてそのままregisterConfigAnnotationInfosへ渡す', async () => {
+    // 仮登録IDの判定・除外は`registerConfigAnnotationInfos`側が単一トランザクションで行うため、
+    // loadConfigはここでは絞り込みを行わず、読み取った全件をそのまま渡すだけでよい
+    // （除外ロジック自体は`excludeTemporaryAnnotationInfos`のテストで検証済み）
+    const idA = '00000000-0000-4000-8000-000000000001' as AnnotationID;
+    const idB = '00000000-0000-4000-8000-000000000002' as AnnotationID;
     documentConfigFileFixture = {
       fileHash: DOC_SRC_HASH,
       annots: {
-        [temporaryId]: buildAnnotInfo(temporaryId),
-        [savedId]: buildAnnotInfo(savedId),
+        [idA]: buildAnnotInfo(idA),
+        [idB]: buildAnnotInfo(idB),
       },
       bookmarks: {},
       outlineImported: true, // しおり取り込み処理を素通りさせ、このテストの対象に絞る
     };
-    getTemporaryAnnotationIdsMock.mockClear();
-    getTemporaryAnnotationIdsMock.mockImplementationOnce(() =>
-      Promise.resolve(Success(new Set([temporaryId]))),
-    );
-    registerAnnotationInfoMock.mockClear();
+    registerConfigAnnotationInfosMock.mockClear();
 
-    const res = await loadConfig(buildFile('doc.pdf'));
+    const file = buildFile('doc.pdf');
+    const res = await loadConfig(file);
     expect(res.ok).toBeTrue();
 
-    expect(registerAnnotationInfoMock).toHaveBeenCalledTimes(1);
-    const registeredInfos = registerAnnotationInfoMock.mock.calls[0]?.[0] as AnnotationInfo[];
-    const registeredIds = registeredInfos.map((info) => info.style.id);
-    expect(registeredIds).toContain(savedId);
-    expect(registeredIds).not.toContain(temporaryId);
+    expect(registerConfigAnnotationInfosMock).toHaveBeenCalledTimes(1);
+    const [passedFile, passedInfos] = registerConfigAnnotationInfosMock.mock.calls[0] as [
+      ContainerElementFile,
+      AnnotationInfo[],
+    ];
+    expect(passedFile).toBe(file);
+    expect(passedInfos.map((info) => info.style.id).sort()).toEqual([idA, idB].sort());
   });
 
-  it('getTemporaryAnnotationIdsの取得に失敗した場合は、従来どおり全件を登録対象にする', async () => {
+  it('registerConfigAnnotationInfosが失敗した場合はloadConfig自体も失敗として返す', async () => {
     const idOnly = '00000000-0000-4000-8000-000000000003' as AnnotationID;
     documentConfigFileFixture = {
       fileHash: DOC_SRC_HASH,
@@ -288,16 +287,12 @@ describe('loadConfig（未保存のローカル編集を.kcfgで上書きしな�
       bookmarks: {},
       outlineImported: true,
     };
-    getTemporaryAnnotationIdsMock.mockClear();
-    getTemporaryAnnotationIdsMock.mockImplementationOnce(() =>
+    registerConfigAnnotationInfosMock.mockClear();
+    registerConfigAnnotationInfosMock.mockImplementationOnce(() =>
       Promise.resolve(Failure(new Error('db error'))),
     );
-    registerAnnotationInfoMock.mockClear();
 
     const res = await loadConfig(buildFile('doc.pdf'));
-    expect(res.ok).toBeTrue();
-
-    const registeredInfos = registerAnnotationInfoMock.mock.calls[0]?.[0] as AnnotationInfo[];
-    expect(registeredInfos.map((info) => info.style.id)).toContain(idOnly);
+    expect(res.ok).toBeFalse();
   });
 });

@@ -75,6 +75,14 @@ const updateAnnotationContentTextMock = mock(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
   (_id: AnnotationID, _text: string): Promise<Result<void>> => Promise.resolve(Success()),
 );
+const registerConfigAnnotationInfosMock = mock(
+  (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _file: ContainerElementFile,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _aInfos: AnnotationInfo[],
+  ): Promise<Result<void>> => Promise.resolve(Success()),
+);
 
 void mock.module('src/repositories/db/annotation', () => ({
   initAnnotDB: initAnnotDBMock,
@@ -83,6 +91,7 @@ void mock.module('src/repositories/db/annotation', () => ({
   getAnnotationsByFile: getAnnotationsByFileMock,
   countTemporaryAnnotations: countTemporaryAnnotationsMock,
   getTemporaryAnnotationIds: getTemporaryAnnotationIdsMock,
+  registerConfigAnnotationInfos: registerConfigAnnotationInfosMock,
   updateAnnotationStyle: updateAnnotationStyleMock,
   addAnnotationInfos: addAnnotationInfosMock,
   deleteAnnotationsForFile: deleteAnnotationsForFileMock,
@@ -157,6 +166,7 @@ const {
   countTemporaryAnnotations,
   getTemporaryAnnotationIds,
   registerAnnotationInfo,
+  registerConfigAnnotationInfos,
   clearAnnotationsForFile,
   saveAnnotationInfo,
   removeAnnotationInfo,
@@ -363,6 +373,17 @@ describe('annotationRepositoryへの単純な委譲関数', () => {
 
     expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
     expect(addAnnotationInfosMock.mock.calls[0]).toEqual([file, infos, false]);
+    expect(res.ok).toBeTrue();
+  });
+
+  it('registerConfigAnnotationInfosはfile・aInfoをそのまま渡して委譲する', async () => {
+    registerConfigAnnotationInfosMock.mockClear();
+
+    const infos: AnnotationInfo[] = [{ style: baseStyle(idA), context: {} }];
+    const res = await registerConfigAnnotationInfos(file, infos);
+
+    expect(registerConfigAnnotationInfosMock).toHaveBeenCalledTimes(1);
+    expect(registerConfigAnnotationInfosMock.mock.calls[0]).toEqual([file, infos]);
     expect(res.ok).toBeTrue();
   });
 

@@ -103,6 +103,17 @@ export function getTemporaryAnnotationIds(
 }
 
 /**
+ * 設定ファイル（`.kcfg`）由来の確定済みアノテーション情報を、未保存のローカル編集・削除で
+ * 上書きしないようDBへ反映する（仮登録IDの判定と登録を単一のDBトランザクションで実行する）
+ */
+export function registerConfigAnnotationInfos(
+  file: ContainerElementFile,
+  aInfo: AnnotationInfo[],
+): Promise<Result<void>> {
+  return annotationRepository.registerConfigAnnotationInfos(file, aInfo);
+}
+
+/**
  * アノテーションごとに、直近発火したコンテンツ再読み込みの世代番号を管理する
  *
  * サイズ・位置を短時間に連続して微調整すると、`loadAnnotContent`が複数同時に走ることになる。

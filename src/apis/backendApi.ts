@@ -64,6 +64,9 @@ import { parseSubmissionDraft } from 'src/services/plugin/manifest';
  * 将来的なAPI通信化にも対応できるように設計
  */
 class BackendApi {
+  /** `prefetchLocalFonts`が一度でも実行済みかどうか（同一セッション中の再実行を防ぐフラグ） */
+  private localFontsPrefetched = false;
+
   /**
    * 初期化
    */
@@ -523,6 +526,20 @@ class BackendApi {
   }
 
   /**
+   * Local Font Access権限を先読みで要求する（ユーザー操作のイベントハンドラ内から呼ぶこと）
+   *
+   * テキストツール選択・テキストボックス編集開始など複数の呼び出し元を持つが、一度でも
+   * 要求済みであれば以降は何もしない（許可プロンプトは初回のみで、対応ブラウザでも一度
+   * 拒否されると再度要求できないため、繰り返し呼んでもOSフォント一覧の再取得が無駄になるだけ）
+   */
+  prefetchLocalFonts(): void {
+    if (this.localFontsPrefetched) return;
+    if (!this.isLocalFontAccessSupported()) return;
+    this.localFontsPrefetched = true;
+    void this.queryLocalFontFamilies();
+  }
+
+  /**
    * 現在のブラウザ・アノテーション内容で、埋め込み保存時にフォント（特に日本語等の
    * WinAnsiEncodingで表現できない文字）が表示されなくなるリスクがあるかどうかを判定する
    *
@@ -531,12 +548,12 @@ class BackendApi {
    * 文字を含むテキストボックスがあると、保存後のPDFでその文字が表示されなくなる。
    * 呼び出し側は、この判定がtrueの場合に警告ダイアログ等でユーザーに確認を促すこと
    */
-  async hasFontEmbedRisk(annotations: AnnotationStyle[]): Promise<boolean> {
+  async hasFontEmbedRisk(annotations: AnnotationStyle[]): Promise<ApiResponse<boolean>> {
     const needsRealFont = annotations.some(
       (a) => a.type === 'text' && a.text.trim() !== '' && !pdfRepo.isWinAnsiEncodable(a.text),
     );
-    if (!needsRealFont) return false;
-    if (!this.isLocalFontAccessSupported()) return true;
+    if (!needsRealFont) return toApiResponse(Success(false));
+    if (!this.isLocalFontAccessSupported()) return toApiResponse(Success(true));
 
     // 対応ブラウザでも、権限が未許可・拒否済み、またはユーザー操作から離れた呼び出しのため
     // 一度もOSフォントを取得できていない場合はリスクありとして扱う。権限拒否時、
@@ -544,7 +561,7 @@ class BackendApi {
     // reject（`!ok`）だけでなく取得件数0件も判定に含める（そうしないと拒否状態が
     // 「フォント一覧の取得に成功した（＝安全）」と誤判定されてしまう）
     const familiesRes = await this.queryLocalFontFamilies();
-    return !familiesRes.ok || familiesRes.data.length === 0;
+    return toApiResponse(Success(!familiesRes.ok || familiesRes.data.length === 0));
   }
 
   /**

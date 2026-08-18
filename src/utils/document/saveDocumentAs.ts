@@ -84,12 +84,15 @@ export async function saveDocumentAs(
     // ユーザーに続行するか中断するかを選ばせる。Local Font Access権限は一度拒否されると
     // スクリプトから再度要求できない（ブラウザの仕様上の制約）ため、再試行ボタンは持たず、
     // 対応ブラウザで拒否されている場合はサイト設定から手動で許可し直す手順を案内する
-    if (fontEmbedRiskMessages && (await api.hasFontEmbedRisk(styles))) {
-      const message = api.isLocalFontAccessSupported()
-        ? fontEmbedRiskMessages.deniedMessage
-        : fontEmbedRiskMessages.unsupportedMessage;
-      const choice = await fontEmbedRiskDialog({ title: fontEmbedRiskMessages.title, message });
-      if (choice === 'cancel') return false; // 通知なしで中断（ユーザーの意図的な選択のため）
+    if (fontEmbedRiskMessages) {
+      const riskRes = await api.hasFontEmbedRisk(styles);
+      if (riskRes.ok && riskRes.data) {
+        const message = api.isLocalFontAccessSupported()
+          ? fontEmbedRiskMessages.deniedMessage
+          : fontEmbedRiskMessages.unsupportedMessage;
+        const choice = await fontEmbedRiskDialog({ title: fontEmbedRiskMessages.title, message });
+        if (choice === 'cancel') return false; // 通知なしで中断（ユーザーの意図的な選択のため）
+      }
     }
 
     const packRes =

@@ -1030,11 +1030,32 @@ function isGenericFontFamily(fontFamily: string): boolean {
   return family === 'sans-serif' || family === 'serif' || family === 'monospace';
 }
 
+/**
+ * 汎用フォント名で候補名リストに一致するOSフォントが無かった場合、最終手段として
+ * インストール済みフォントを先頭から何件まで総当たりで試すか
+ *
+ * OSには数百件のフォントが登録されていることがあり、上限を設けないと対象テキストが
+ * どのフォントでも表現できない文字（絵文字等）を含む場合に全件をパースしてから
+ * 標準14フォントへ落ちることになり、保存処理が長時間ブロックする
+ */
+const GENERIC_FALLBACK_SCAN_LIMIT = 40;
+
 interface ResolvedTextFont {
   font: PDFFont;
   /** 標準14フォント（WinAnsiEncoding固定）かどうか。falseなら実フォントを埋め込み済みでUnicodeを扱える */
   isStandard: boolean;
 }
+
+/**
+ * fontkitの`create()`が返しうる、個別フォントを束ねたコレクション（`.ttc`のTrueTypeCollection・
+ * `.dfont`のDFont）の最小限の構造。`fontkit.d.ts`の型定義はコレクションを考慮せず常に`Font`を
+ * 返すものとして宣言されているため、実行時にメソッドの有無で個別フォントかどうかを判別する
+ */
+interface FontkitFontCollection {
+  getFont(postscriptName: string): FontkitFont | null;
+}
+
+type FontkitFont = ReturnType<typeof fontkit.create>;
 
 /**
  * 指定したフォントバイト列が、`text`に含まれる文字（改行・半角スペースを除く）のグリフを
@@ -1044,16 +1065,28 @@ interface ResolvedTextFont {
  * OSのロケールによってはフォント名自体がローカライズされて列挙される（例: 日本語環境では
  * "Meiryo"ではなく"メイリオ"のように現地語名になる）ことがあり、英語の候補名では見つからない
  * 場合がある。そのため名前一致とは独立に、実際に対象文字を描画できるかどうかをfontkitの
- * 文字コード→グリフ変換で直接確認する
+ * 文字コード→グリフ変換で直接確認する。
+ *
+ * `.ttc`（TrueType Collection）・`.dfont`のバイト列を`postscriptName`なしで`create`に渡すと、
+ * fontkitは個別の`Font`ではなく`hasGlyphForCodePoint`を持たないコレクションオブジェクトを
+ * 返すため、その場合のみ`postscriptName`で`getFont`し個別のFontを取り出す
  */
-function fontBytesCoverText(bytes: Uint8Array, text: string): boolean {
+function fontBytesCoverText(bytes: Uint8Array, text: string, postscriptName?: string): boolean {
   try {
     const parsed = fontkit.create(bytes);
+    const font =
+      typeof parsed.hasGlyphForCodePoint === 'function'
+        ? parsed
+        : postscriptName !== undefined
+          ? (parsed as unknown as FontkitFontCollection).getFont(postscriptName)
+          : null;
+    if (!font || typeof font.hasGlyphForCodePoint !== 'function') return false;
+
     for (const ch of text) {
       const codePoint = ch.codePointAt(0);
       if (codePoint === undefined) continue;
       if (codePoint === 0x0a || codePoint === 0x0d || codePoint === 0x20) continue;
-      if (!parsed.hasGlyphForCodePoint(codePoint)) return false;
+      if (!font.hasGlyphForCodePoint(codePoint)) return false;
     }
     return true;
   } catch {
@@ -1061,30 +1094,22 @@ function fontBytesCoverText(bytes: Uint8Array, text: string): boolean {
   }
 }
 
-/** 指定したOS実フォントのデータを取得し、fontkit経由でそのままPDFへ埋め込む（内容の検証は行わない） */
-async function tryEmbedFont(pdfDoc: PDFDocument, fontData: FontData): Promise<PDFFont | null> {
-  const bytesRes = await getFontBytes(fontData);
-  if (!bytesRes.ok) return null;
-  try {
-    pdfDoc.registerFontkit(fontkit);
-    return await pdfDoc.embedFont(bytesRes.value, { subset: true });
-  } catch {
-    return null;
-  }
-}
-
 /**
- * 指定したOS実フォントのデータを取得し、`text`のグリフを実際に収録している場合のみ
- * fontkit経由でPDFへ埋め込む（`fontBytesCoverText`による事前検証あり）
+ * 指定したOS実フォントのデータを取得し、fontkit経由でPDFへ埋め込む
+ *
+ * `text`を渡した場合のみ、`fontBytesCoverText`で対象テキストのグリフの実収録を事前検証し、
+ * 収録していなければ埋め込みを行わない
  */
-async function tryEmbedFontForText(
+async function tryEmbedFont(
   pdfDoc: PDFDocument,
   fontData: FontData,
-  text: string,
+  text?: string,
 ): Promise<PDFFont | null> {
   const bytesRes = await getFontBytes(fontData);
   if (!bytesRes.ok) return null;
-  if (!fontBytesCoverText(bytesRes.value, text)) return null;
+  if (text !== undefined && !fontBytesCoverText(bytesRes.value, text, fontData.postscriptName)) {
+    return null;
+  }
   try {
     pdfDoc.registerFontkit(fontkit);
     return await pdfDoc.embedFont(bytesRes.value, { subset: true });
@@ -1125,11 +1150,13 @@ async function resolveTextFont(
 
       if (isGenericFontFamily(fontFamily)) {
         const namedMatch = findFontForGenericFamily(fontsRes.value, fontFamily, bold);
+        // 名前一致が無い場合の最終手段の総当たりは、インストール済み全フォントのパースで
+        // 保存処理が長時間ブロックしないよう、走査件数に上限を設ける
         const candidates = namedMatch
           ? [namedMatch, ...fontsRes.value.filter((f) => f !== namedMatch)]
-          : fontsRes.value;
+          : fontsRes.value.slice(0, GENERIC_FALLBACK_SCAN_LIMIT);
         for (const candidate of candidates) {
-          const embedded = await tryEmbedFontForText(pdfDoc, candidate, text);
+          const embedded = await tryEmbedFont(pdfDoc, candidate, text);
           if (embedded) return { font: embedded, isStandard: false };
         }
       } else {

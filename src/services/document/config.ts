@@ -75,13 +75,11 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
   // （`.kcfg`に記録済みの確定データであるため、仮フラグは付けない＝isTemporary: false）。
   // ただし、まだ`.kcfg`に反映されていないローカルの編集・削除（isTemporary: true）がある注釈は、
   // この古いスナップショットで上書きしない（タブ切替による再マウントのたびに毎回この経路を通るため、
-  // ここで無条件に上書きすると、直前の編集がblur等でDBへ書き込まれた直後でも巻き戻ってしまう）
+  // ここで無条件に上書きすると、直前の編集がblur等でDBへ書き込まれた直後でも巻き戻ってしまう）。
+  // 仮登録IDの判定と登録を単一のDBトランザクションで行うことで、判定後・登録前に別の書き込みが
+  // 割り込んで巻き戻ってしまう競合を防ぐ（`registerConfigAnnotationInfos`参照）
   const annotInfos = Object.values(configFile.annots);
-  const temporaryIdsRes = await annotationService.getTemporaryAnnotationIds(file);
-  const safeAnnotInfos = temporaryIdsRes.ok
-    ? annotInfos.filter((info) => !temporaryIdsRes.value.has(info.style.id))
-    : annotInfos;
-  const registRes = await annotationService.registerAnnotationInfo(safeAnnotInfos, file, false);
+  const registRes = await annotationService.registerConfigAnnotationInfos(file, annotInfos);
   if (!registRes.ok) return registRes;
 
   // 更新版情報を返す
