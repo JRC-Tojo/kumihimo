@@ -1556,26 +1556,29 @@ describe('OSフォント（Local Font Access API）による実フォント埋�
       expect(result).toBeTrue();
     });
 
-    describe.skipIf(LIBERATION_SANS_BYTES === null)('対象文字を実際に収録するOSフォントがある場合', () => {
-      const fontBytes = LIBERATION_SANS_BYTES!;
+    describe.skipIf(LIBERATION_SANS_BYTES === null)(
+      '対象文字を実際に収録するOSフォントがある場合',
+      () => {
+        const fontBytes = LIBERATION_SANS_BYTES!;
 
-      it('フォールバックしないと判定する', async () => {
-        window.queryLocalFonts = () =>
-          Promise.resolve([
-            {
-              postscriptName: 'LiberationSans-Regular',
-              fullName: 'Liberation Sans',
-              family: 'Liberation Sans',
-              style: 'Regular',
-              blob: () => Promise.resolve(new Blob([Uint8Array.from(fontBytes)])),
-            },
+        it('フォールバックしないと判定する', async () => {
+          window.queryLocalFonts = () =>
+            Promise.resolve([
+              {
+                postscriptName: 'LiberationSans-Regular',
+                fullName: 'Liberation Sans',
+                family: 'Liberation Sans',
+                style: 'Regular',
+                blob: () => Promise.resolve(new Blob([Uint8Array.from(fontBytes)])),
+              },
+            ]);
+
+          const result = await anyTextWillFallbackToStandardFont([
+            { fontFamily: 'Liberation Sans', fontWeight: 400, text: 'Hello' },
           ]);
-
-        const result = await anyTextWillFallbackToStandardFont([
-          { fontFamily: 'Liberation Sans', fontWeight: 400, text: 'Hello' },
-        ]);
-        expect(result).toBeFalse();
-      });
-    });
+          expect(result).toBeFalse();
+        });
+      },
+    );
   });
 });
