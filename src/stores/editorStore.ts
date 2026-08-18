@@ -123,9 +123,12 @@ export const useEditorStore = defineStore('editor', {
     stickyDrawMode: false,
     // アクティブなペインで現在選択中のアノテーション（スタイルパネルの選択編集モードで使う）。
     // 選択状態自体は各DocumentTabView（ペインごと）が持つため、layerOrderAction等と同じ
-    // 「意図・状態をeditorStoreに橋渡しする」パターンでここに反映させる
+    // 「意図・状態をeditorStoreに橋渡しする」パターンでここに反映させる。
+    // `side`はこの選択をセットしたペインを表す。同一ファイルが複数ペインに開かれている場合、
+    // ファイル一致だけでは「非アクティブ側のペイン」が誤って他ペインの選択を解除できてしまうため、
+    // 解除時にはセットした本人（同じside）かどうかも必ず確認する
     activeSelection: undefined as
-      { file: ContainerElementFile; annotations: AnnotationStyle[] } | undefined,
+      { file: ContainerElementFile; annotations: AnnotationStyle[]; side: LayoutSide } | undefined,
 
     // ドキュメントレイアウトの状態
     tabs: { ul: [], ur: [], ll: [], lr: [] } as Layouts<ContainerElementFile[]>,
@@ -316,8 +319,12 @@ export const useEditorStore = defineStore('editor', {
     /**
      * アクティブなペインの選択中アノテーションをスタイルパネル用に反映する
      */
-    setActiveSelection(file: ContainerElementFile, annotations: AnnotationStyle[]): void {
-      this.activeSelection = annotations.length > 0 ? { file, annotations } : undefined;
+    setActiveSelection(
+      file: ContainerElementFile,
+      annotations: AnnotationStyle[],
+      side: LayoutSide,
+    ): void {
+      this.activeSelection = annotations.length > 0 ? { file, annotations, side } : undefined;
     },
 
     /**
