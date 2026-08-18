@@ -1,5 +1,14 @@
 // English localization
 export default {
+  // Startup lock screen
+  lock: {
+    title: 'Locked',
+    description: 'A password is required to use this app.',
+    passwordLabel: 'Password',
+    unlock: 'Unlock',
+    verifyFailed: 'Incorrect password.',
+  },
+
   // Page titles
   title: {
     app: 'Kumihimo',

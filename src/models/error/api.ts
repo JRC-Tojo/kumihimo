@@ -15,6 +15,8 @@ export type ApiErrorKey =
   | 'INIT_PROCESS_ERROR'
   | 'FAILED_LOAD_SETTINGS'
   | 'FAILED_SAVE_SETTINGS'
+  // =========== ロック画面 ===========
+  | 'LOCK_VERIFY_FAILED'
   // =========== 認証関係 ===========
   // | 'AUTH_UNAUTHORIZED'
   // | 'AUTH_FORBIDDEN'
