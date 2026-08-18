@@ -94,12 +94,25 @@ export function countTemporaryAnnotations(file: ContainerElementFile): Promise<R
 }
 
 /**
+ * アノテーションごとに、直近発火したコンテンツ再読み込みの世代番号を管理する
+ *
+ * サイズ・位置を短時間に連続して微調整すると、`loadAnnotContent`が複数同時に走ることになる。
+ * 直接テキスト抽出（速い）とOCR経由（遅い）で所要時間が大きく異なるため、開始順序と完了順序が
+ * 一致する保証がなく、対策なしでは古いジオメトリに対する読み込みが後から完了して最新の結果を
+ * 上書きしてしまう（＝サイズを変えても「自身の値」が更新されないように見える）。
+ * このMapで「そのアノテーションIDに対する最新の読み込み要求」を追跡し、完了時点で世代が
+ * 一致する場合のみDBへ反映する
+ */
+const contentLoadGeneration = new Map<AnnotationID, number>();
+
+/**
  * コンテンツ未読み込みのアノテーションにコンテンツを読み込んで付与する
  * TODO: 本来は文書種別をもとに処理を分岐すべき
  */
 async function loadAnnotContent(
   file: ContainerElementFile,
   annotationInfo: AnnotationInfo,
+  generation: number,
 ): Promise<Result<void>> {
   const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
   if (!fileSrc.ok) return fileSrc;
@@ -115,6 +128,11 @@ async function loadAnnotContent(
     const text = img.ok ? await Image2Text(img.value).catch(() => '') : '';
     annotationInfo.context.text = text;
   }
+
+  // 読み込み中により新しいジオメトリ変更が発生していた場合、この結果はすでに古い。
+  // そのままDBへ書き込むと、後発の読み込みが先に書き込んだ最新の結果を上書きしてしまうため、
+  // 何もせずに終了する（後発側の書き込みだけを正としたい）
+  if (contentLoadGeneration.get(annotationInfo.style.id) !== generation) return Success();
 
   // 抽出したテキストのみをDBへ反映する。
   // OCR完了まで時間がかかるため、ここで`annotationInfo`（呼び出し時点のstyleを保持したまま）を
@@ -189,11 +207,19 @@ export async function registerAnnotationStyle(
   if (!saveRes.ok) return saveRes;
 
   if (geometryChanged) {
+    // このアノテーションIDに対する「最新の読み込み要求」として世代番号を発行する。
+    // 完了時にこの世代が最新のままであれば書き込み、既に後発の要求に追い越されていれば
+    // 書き込みを行わない（loadAnnotContent側・失敗時フォールバックの双方で参照する）
+    const generation = (contentLoadGeneration.get(resolvedStyle.id) ?? 0) + 1;
+    contentLoadGeneration.set(resolvedStyle.id, generation);
+
     // コンテンツの読み込みは投げっぱなしにするが、失敗時はcontext.textがundefinedのまま
-    // DBに残り続けないよう、明示的に空文字列で確定させる
-    void loadAnnotContent(file, annotationInfo).then((res) => {
-      if (!res.ok)
+    // DBに残り続けないよう、明示的に空文字列で確定させる（ただし、この間に後発の要求が
+    // 発行されていた場合は、その要求の結果を上書きしないよう何もしない）
+    void loadAnnotContent(file, annotationInfo, generation).then((res) => {
+      if (!res.ok && contentLoadGeneration.get(annotationInfo.style.id) === generation) {
         void annotationRepository.updateAnnotationContentText(annotationInfo.style.id, '');
+      }
     });
   }
 
