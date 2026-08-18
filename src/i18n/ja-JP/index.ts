@@ -212,14 +212,16 @@ export default {
         auto: '自動保存',
         success: '保存しました',
         failed: '保存に失敗しました',
+        fontEmbedRiskTitle: 'フォントを埋め込めない可能性があります',
+        fontEmbedRiskMessageUnsupported:
+          'お使いのブラウザはフォントの読み込みに対応していないため、テキストボックス内の一部の文字（日本語など）が保存後のPDFで表示されなくなる可能性があります。Google ChromeやMicrosoft Edgeなど対応ブラウザで開き直すことをおすすめします。',
+        fontEmbedRiskMessageDenied:
+          'フォントへのアクセスが許可されていないため、テキストボックス内の一部の文字（日本語など）が保存後のPDFで表示されなくなる可能性があります。以下の手順でこのサイトのフォントへのアクセスを許可し、ページを再読み込みしてから再度保存してください。\n\n手順1: ブラウザのアドレスバーの左端にある「鍵マーク」または「設定アイコン」をクリック\n手順2: メニュー内の「フォント」または「サイトの設定」を開く\n手順3: 権限を「許可」に変更する\n手順4: ページを再読み込み（リロード）する',
+        fontEmbedRiskProceed: 'このまま保存',
         saveAsDialog: {
           title: '名前を付けて保存',
-          mode: {
-            title: '保存内容',
-            documentOnly: '文書本体のみ',
-            embedAnnotations: 'アノテーションを埋め込んで保存',
-            annotationsAsComments: 'アノテーションをコメントとして保存',
-          },
+          embedAnnotations: 'アノテーションを埋め込む',
+          embedAsComments: 'アノテーションをコメントとして埋め込む',
           destination: '保存先',
           destinationLoadFailed: '保存先の読み込みに失敗しました',
           fileName: 'ファイル名',

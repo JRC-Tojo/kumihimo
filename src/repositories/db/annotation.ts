@@ -237,6 +237,83 @@ export async function countTemporaryAnnotations(
 }
 
 /**
+ * アノテーション情報一覧から、仮登録（isTemporary: true）のIDに該当するものを除外する
+ *
+ * `.kcfg`から読み込んだ確定済みデータで、まだ`.kcfg`に反映されていないローカルの編集・削除を
+ * 上書きしないようにするための純粋なフィルタ処理。DBアクセスを含まないため単体でテストできる
+ */
+export function excludeTemporaryAnnotationInfos(
+  aInfos: AnnotationInfo[],
+  temporaryIds: Set<AnnotationID>,
+): AnnotationInfo[] {
+  // 各AnnotationInfoのスタイルIDが仮登録ID集合に含まれるものだけを取り除いて返す
+  return aInfos.filter((aInfo) => !temporaryIds.has(aInfo.style.id));
+}
+
+/**
+ * 設定ファイル（`.kcfg`）から読み込んだ確定済みアノテーション情報を、ローカルで未保存の
+ * 編集・削除（isTemporary: true）があるものを除いてDBへ反映する
+ *
+ * 仮登録IDの判定（`getTemporaryAnnotationIds`相当）と登録（`addAnnotationInfos`相当）を
+ * 同一のDexieトランザクション内で行うことで、判定後・登録前に別の書き込み（blur等による
+ * isTemporary更新）が割り込み、その新しいローカル状態を古い`.kcfg`の内容で上書きしてしまう
+ * 競合を防ぐ
+ */
+export async function registerConfigAnnotationInfos(
+  file: ContainerElementFile,
+  aInfos: AnnotationInfo[],
+): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.transaction('rw', db.annotations, async () => {
+      const temporaryRows = await db.annotations
+        .where('containerID')
+        .equals(file.containerID)
+        .filter((row) => row.filePath === file.path && row.isTemporary)
+        .toArray();
+      const temporaryIds = new Set(temporaryRows.map((row) => row.id));
+
+      const safeInfos = excludeTemporaryAnnotationInfos(aInfos, temporaryIds);
+      const rawedRecords = JSON.parse(
+        JSON.stringify(safeInfos.map((aInfo) => toAnnotationRecord(file, aInfo, false))),
+      );
+      await db.annotations.bulkPut(rawedRecords);
+    });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
+ * 特定ファイルに紐づく未保存（仮登録）のアノテーションIDを取得する
+ *
+ * `loadConfig`が`.kcfg`の内容をDBへ反映する際、まだ`.kcfg`に保存されていないローカルの
+ * 編集・削除がある注釈を古いスナップショットで上書きしないよう、対象IDを除外するために使う
+ * （`countTemporaryAnnotations`と異なり、ソフト削除（`isDeleted: true`）の行も含める＝
+ * 削除直後にタブを切り替えて戻った際に、削除した注釈が復活するのを防ぐため）
+ */
+export async function getTemporaryAnnotationIds(
+  file: ContainerElementFile,
+): Promise<Result<Set<AnnotationID>>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    const rows = await db.annotations
+      .where('containerID')
+      .equals(file.containerID)
+      .filter((row) => row.filePath === file.path && row.isTemporary)
+      .toArray();
+    return Success(new Set(rows.map((row) => row.id)));
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}
+
+/**
  * DexieのLiveQueryを利用して特定ファイルのアノテーション情報を購読する
  */
 export function observedAnnotationStylesByFile(

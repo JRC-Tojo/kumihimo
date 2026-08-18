@@ -5,7 +5,7 @@
         <div class="text-h6">{{ title }}</div>
       </q-card-section>
 
-      <q-card-section v-if="message" class="q-pt-none">
+      <q-card-section v-if="message" class="q-pt-none message-section">
         {{ message }}
       </q-card-section>
 
@@ -51,6 +51,15 @@
             @click="onAppend"
           />
         </template>
+        <template v-else-if="variant === 'fontEmbedRisk'">
+          <q-btn flat :label="$t('button.cancel')" @click="onCancelClick" />
+          <q-btn
+            unelevated
+            color="negative"
+            :label="$t('pdfEditor.tools.save.fontEmbedRiskProceed')"
+            @click="onProceedAnyway"
+          />
+        </template>
         <template v-else>
           <q-btn flat :label="$t('button.cancel')" @click="onCancelClick" />
           <q-btn
@@ -75,7 +84,7 @@ import type { DrawingAnnotationStyle } from 'src/models/docPage';
 interface Prop {
   title: string;
   message?: string;
-  variant?: 'confirm' | 'prompt' | 'unsavedChanges' | 'importPresets';
+  variant?: 'confirm' | 'prompt' | 'unsavedChanges' | 'importPresets' | 'fontEmbedRisk';
   severity?: 'normal' | 'negative';
   promptInitialValue?: string;
   promptLabel?: string;
@@ -119,7 +128,19 @@ function onAppend() {
   onDialogOK('append');
 }
 
+function onProceedAnyway() {
+  onDialogOK('proceed');
+}
+
 function onCancelClick() {
   onDialogCancel();
 }
 </script>
+
+<style scoped lang="scss">
+// フォント権限の許可手順（fontEmbedRiskバリアント）等、改行を含むメッセージをそのまま
+// 見た目の改行として表示する（通常の1文だけのメッセージには影響しない）
+.message-section {
+  white-space: pre-line;
+}
+</style>

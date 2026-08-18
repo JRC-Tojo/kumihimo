@@ -38,6 +38,11 @@ const countTemporaryAnnotationsMock = mock(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
   (_file: ContainerElementFile): Promise<Result<number>> => Promise.resolve(Success(0)),
 );
+const getTemporaryAnnotationIdsMock = mock(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+  (_file: ContainerElementFile): Promise<Result<Set<AnnotationID>>> =>
+    Promise.resolve(Success(new Set<AnnotationID>())),
+);
 const addAnnotationInfosMock = mock(
   (
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
@@ -70,6 +75,14 @@ const updateAnnotationContentTextMock = mock(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
   (_id: AnnotationID, _text: string): Promise<Result<void>> => Promise.resolve(Success()),
 );
+const registerConfigAnnotationInfosMock = mock(
+  (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _file: ContainerElementFile,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _aInfos: AnnotationInfo[],
+  ): Promise<Result<void>> => Promise.resolve(Success()),
+);
 
 void mock.module('src/repositories/db/annotation', () => ({
   initAnnotDB: initAnnotDBMock,
@@ -77,6 +90,8 @@ void mock.module('src/repositories/db/annotation', () => ({
   getAnnotationAddress: getAnnotationAddressMock,
   getAnnotationsByFile: getAnnotationsByFileMock,
   countTemporaryAnnotations: countTemporaryAnnotationsMock,
+  getTemporaryAnnotationIds: getTemporaryAnnotationIdsMock,
+  registerConfigAnnotationInfos: registerConfigAnnotationInfosMock,
   updateAnnotationStyle: updateAnnotationStyleMock,
   addAnnotationInfos: addAnnotationInfosMock,
   deleteAnnotationsForFile: deleteAnnotationsForFileMock,
@@ -149,7 +164,9 @@ const {
   getAnnotationAddress,
   getAnnotationsByFile,
   countTemporaryAnnotations,
+  getTemporaryAnnotationIds,
   registerAnnotationInfo,
+  registerConfigAnnotationInfos,
   clearAnnotationsForFile,
   saveAnnotationInfo,
   removeAnnotationInfo,
@@ -333,6 +350,21 @@ describe('annotationRepositoryへの単純な委譲関数', () => {
     expect(res.value).toBe(0);
   });
 
+  it('getTemporaryAnnotationIdsはfileを渡して委譲し、返り値をそのまま返す', async () => {
+    getTemporaryAnnotationIdsMock.mockClear();
+    getTemporaryAnnotationIdsMock.mockImplementationOnce(() =>
+      Promise.resolve(Success(new Set([idA]))),
+    );
+
+    const res = await getTemporaryAnnotationIds(file);
+
+    expect(getTemporaryAnnotationIdsMock).toHaveBeenCalledTimes(1);
+    expect(getTemporaryAnnotationIdsMock.mock.calls[0]?.[0]).toBe(file);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.has(idA)).toBeTrue();
+  });
+
   it('registerAnnotationInfoはaddAnnotationInfosへ引数をそのまま渡して委譲する', async () => {
     addAnnotationInfosMock.mockClear();
 
@@ -341,6 +373,17 @@ describe('annotationRepositoryへの単純な委譲関数', () => {
 
     expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
     expect(addAnnotationInfosMock.mock.calls[0]).toEqual([file, infos, false]);
+    expect(res.ok).toBeTrue();
+  });
+
+  it('registerConfigAnnotationInfosはfile・aInfoをそのまま渡して委譲する', async () => {
+    registerConfigAnnotationInfosMock.mockClear();
+
+    const infos: AnnotationInfo[] = [{ style: baseStyle(idA), context: {} }];
+    const res = await registerConfigAnnotationInfos(file, infos);
+
+    expect(registerConfigAnnotationInfosMock).toHaveBeenCalledTimes(1);
+    expect(registerConfigAnnotationInfosMock.mock.calls[0]).toEqual([file, infos]);
     expect(res.ok).toBeTrue();
   });
 

@@ -91,6 +91,7 @@ const {
   extractImageFromRegion,
   extractAnnotationContextPreview,
   getOutline,
+  anyTextWillFallbackToStandardFont,
 } = await import('../pdf');
 
 /**
@@ -1411,5 +1412,173 @@ describe('OSフォント（Local Font Access API）による実フォント埋�
     const [fontRef] = fontDict!.values();
     const embeddedFont = doc.context.lookup(fontRef, PDFDict);
     expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type1');
+  });
+
+  describe.skipIf(LIBERATION_SANS_BYTES === null)('汎用フォント名（sans-serif等）の場合', () => {
+    const fontBytes = LIBERATION_SANS_BYTES!;
+
+    it('候補名リストに一致するOSフォントが見つかった場合、標準14フォントではなく実フォントを埋め込む', async () => {
+      // 'Arial'はsans-serifの候補名リストに含まれているため、これが一致する
+      window.queryLocalFonts = () =>
+        Promise.resolve([
+          {
+            postscriptName: 'LiberationSans-Regular',
+            fullName: 'Liberation Sans',
+            family: 'Arial',
+            style: 'Regular',
+            blob: () => Promise.resolve(new Blob([Uint8Array.from(fontBytes)])),
+          },
+        ]);
+
+      const src = await buildTestPdfSrc(1, [300, 300]);
+      const genericFontText = {
+        ...buildTextAnnotation(1),
+        text: 'Hello',
+        fontFamily: 'sans-serif',
+      };
+      const res = await embedAnnotationsAsVectorIntoPdf(src, [genericFontText]);
+      expect(res.ok).toBeTrue();
+      if (!res.ok) return;
+
+      const doc = await loadTestPdf(res.value);
+      const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+      expect(fontDict).toBeDefined();
+      const [fontRef] = fontDict!.values();
+      const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+      expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type0');
+      const [descendantRef] = embeddedFont
+        .lookup(PDFName.of('DescendantFonts'), PDFArray)
+        .asArray();
+      const descendantDict = doc.context.lookup(descendantRef, PDFDict);
+      const fontDescriptor = descendantDict.lookup(PDFName.of('FontDescriptor'), PDFDict);
+      expect(fontDescriptor.has(PDFName.of('FontFile2'))).toBeTrue();
+    });
+  });
+
+  it('汎用フォント名で候補名リストに一致するOSフォントが無い場合は標準14フォントへフォールバックする', async () => {
+    window.queryLocalFonts = () =>
+      Promise.resolve([
+        {
+          postscriptName: 'SomeOther-Regular',
+          fullName: 'Some Other Font',
+          family: 'Some Other Font',
+          style: 'Regular',
+          blob: () => Promise.resolve(new Blob([])),
+        },
+      ]);
+
+    const src = await buildTestPdfSrc(1, [300, 300]);
+    const genericFontText = {
+      ...buildTextAnnotation(1),
+      text: 'Hello',
+      fontFamily: 'sans-serif',
+    };
+    const res = await embedAnnotationsAsVectorIntoPdf(src, [genericFontText]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const doc = await loadTestPdf(res.value);
+    const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+    expect(fontDict).toBeDefined();
+    const [fontRef] = fontDict!.values();
+    const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+    expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type1');
+  });
+
+  describe.skipIf(LIBERATION_SANS_BYTES === null)(
+    '汎用フォント名で候補名がOSのロケールにより一致しない場合',
+    () => {
+      const fontBytes = LIBERATION_SANS_BYTES!;
+
+      it('候補名リストに一致しなくても、対象テキストのグリフを実際に持つ他のOSフォントへ最終手段としてフォールバックする', async () => {
+        // 候補名リスト（英語名）のどれとも一致しない名前（ローカライズされたフォント名を想定）
+        // だが、対象テキストのグリフは実際に持っているフォントとして振る舞わせる
+        window.queryLocalFonts = () =>
+          Promise.resolve([
+            {
+              postscriptName: 'LiberationSans-Regular',
+              fullName: 'ローカライズされたフォント名',
+              family: 'ローカライズされたフォント名',
+              style: 'Regular',
+              blob: () => Promise.resolve(new Blob([Uint8Array.from(fontBytes)])),
+            },
+          ]);
+
+        const src = await buildTestPdfSrc(1, [300, 300]);
+        const genericFontText = {
+          ...buildTextAnnotation(1),
+          text: 'Hello',
+          fontFamily: 'sans-serif',
+        };
+        const res = await embedAnnotationsAsVectorIntoPdf(src, [genericFontText]);
+        expect(res.ok).toBeTrue();
+        if (!res.ok) return;
+
+        const doc = await loadTestPdf(res.value);
+        const fontDict = doc.getPage(0).node.Resources()?.lookup(PDFName.of('Font'), PDFDict);
+        expect(fontDict).toBeDefined();
+        const [fontRef] = fontDict!.values();
+        const embeddedFont = doc.context.lookup(fontRef, PDFDict);
+        // 候補名一致ではなく、グリフの実収録有無で見つけた実フォントが埋め込まれていること
+        expect(embeddedFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type0');
+      });
+    },
+  );
+
+  describe('anyTextWillFallbackToStandardFont（フォント埋め込みリスク判定の実体）', () => {
+    it('OSフォントが0件の場合はフォールバックすると判定する', async () => {
+      window.queryLocalFonts = () => Promise.resolve([]);
+
+      const result = await anyTextWillFallbackToStandardFont([
+        { fontFamily: 'sans-serif', fontWeight: 400, text: 'こんにちは' },
+      ]);
+      expect(result).toBeTrue();
+    });
+
+    it('OSフォントが1件でもあるだけでは、対象文字を収録していなければフォールバックすると判定する', async () => {
+      // 候補名にもファミリー名にも一致しない、対象テキストのグリフも持たない無関係なフォントのみ
+      window.queryLocalFonts = () =>
+        Promise.resolve([
+          {
+            postscriptName: 'SomeOther-Regular',
+            fullName: 'Some Other Font',
+            family: 'Some Other Font',
+            style: 'Regular',
+            blob: () => Promise.resolve(new Blob([])),
+          },
+        ]);
+
+      // OSフォントが1件でも取得できることをもって「安全」と誤判定しないことを確認する
+      // （フォント一覧の件数だけでなく、保存処理と同じグリフ収録判定を経由すること）
+      const result = await anyTextWillFallbackToStandardFont([
+        { fontFamily: 'sans-serif', fontWeight: 400, text: 'こんにちは' },
+      ]);
+      expect(result).toBeTrue();
+    });
+
+    describe.skipIf(LIBERATION_SANS_BYTES === null)(
+      '対象文字を実際に収録するOSフォントがある場合',
+      () => {
+        const fontBytes = LIBERATION_SANS_BYTES!;
+
+        it('フォールバックしないと判定する', async () => {
+          window.queryLocalFonts = () =>
+            Promise.resolve([
+              {
+                postscriptName: 'LiberationSans-Regular',
+                fullName: 'Liberation Sans',
+                family: 'Liberation Sans',
+                style: 'Regular',
+                blob: () => Promise.resolve(new Blob([Uint8Array.from(fontBytes)])),
+              },
+            ]);
+
+          const result = await anyTextWillFallbackToStandardFont([
+            { fontFamily: 'Liberation Sans', fontWeight: 400, text: 'Hello' },
+          ]);
+          expect(result).toBeFalse();
+        });
+      },
+    );
   });
 });

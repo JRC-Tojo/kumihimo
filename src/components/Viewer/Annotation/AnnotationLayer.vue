@@ -95,6 +95,7 @@ import type Konva from 'konva';
 import dayjs from 'dayjs';
 import { createAnnotationFromPoints, startDrawingAnnotation } from './annotationDrawingManager';
 import { useEditorStore } from 'src/stores/editorStore';
+import { useBackendApi } from 'src/apis/backendApi';
 import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
 import type { ContainerElementFile } from 'src/models/container';
 import {
@@ -130,6 +131,7 @@ interface Props {
 
 const props = defineProps<Props>();
 const editorStore = useEditorStore();
+const api = useBackendApi();
 const { shiftKey } = useModifierKeys();
 
 /**
@@ -399,6 +401,12 @@ function startTextEdit(annotation: TextAnnotationStyle) {
   // フォーカスは下のwatch(editingTextAnnotation)に一任する。
   // 描き終えた直後は`props.annotations`（DB購読経由）へ新規注釈がまだ反映されておらず、
   // ここで直接focusしても<textarea v-if>が実際にマウントされる前で失敗することがあるため
+
+  // Local Font Access権限を先読みで要求しておく（新規描画直後・既存テキストボックスの
+  // ダブルクリック編集開始のいずれもユーザー操作の直後のため、許可プロンプトを出せる）。
+  // 保存（埋め込み）処理はユーザー操作の直後とは限らないため、ここで先に済ませておく
+  // （結果は使わないfire-and-forgetのため明示的に破棄する）
+  void api.prefetchLocalFonts();
 }
 
 // <textarea>が実際にマウントされたタイミング（editingTextAnnotationがnull→非nullに変わった時）で

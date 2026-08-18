@@ -65,6 +65,11 @@ function callSavingTools(t: (key: string) => string): IDocTool[] {
             success: t('pdfEditor.tools.save.success'),
             failed: t('pdfEditor.tools.save.failed'),
           },
+          {
+            title: t('pdfEditor.tools.save.fontEmbedRiskTitle'),
+            unsupportedMessage: t('pdfEditor.tools.save.fontEmbedRiskMessageUnsupported'),
+            deniedMessage: t('pdfEditor.tools.save.fontEmbedRiskMessageDenied'),
+          },
         );
       },
     },
@@ -196,6 +201,14 @@ async function callAnnotationTools(t: (key: string) => string): Promise<IDocTool
         //     - 選択中のタイプと同じ種別が選択されたとき
         const style = firstPresetStyleForType(type);
         if (style !== undefined) editorStore.currentAnnotationStyle = style;
+      }
+
+      // テキストツールの選択時、Local Font Access権限を先読みで要求しておく。
+      // 保存（埋め込み）処理はユーザー操作の直後とは限らず、その場で初回の許可プロンプトを
+      // 出せないことがあるため、確実にクリックハンドラ内にある今のうちに要求しておく
+      // （結果は使わないfire-and-forgetのため明示的に破棄する）
+      if (type === 'text') {
+        void api.prefetchLocalFonts();
       }
     },
   }));

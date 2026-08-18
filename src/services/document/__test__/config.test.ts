@@ -1,8 +1,13 @@
 import { describe, expect, it, mock } from 'bun:test';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
+import type { AnnotationID } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Failure, NotFoundError, Success } from 'src/models/error/result';
-import type { BookmarkID, DocumentConfigFile } from 'src/models/relational/fileSchema';
+import type {
+  AnnotationInfo,
+  BookmarkID,
+  DocumentConfigFile,
+} from 'src/models/relational/fileSchema';
 import type { DocumentSource } from 'src/models/document/common';
 import type { PdfOutlineEntry } from 'src/models/document/pdf';
 import { calcBase64Hash } from 'src/utils/binary/base64';
@@ -66,9 +71,19 @@ void mock.module('src/services/container/config', () => ({
   saveDocumentConfigFile: saveDocumentConfigFileMock,
 }));
 
-const registerAnnotationInfoMock = mock((): Promise<Result<void>> => Promise.resolve(Success()));
+// 仮登録IDの判定と登録は`registerConfigAnnotationInfos`が単一トランザクションで行うため、
+// loadConfig側は結果（成功/失敗）のみを気にすればよい。除外ロジック自体の検証は
+// `src/repositories/db/__test__/annotation.test.ts`（`excludeTemporaryAnnotationInfos`）で行う
+const registerConfigAnnotationInfosMock = mock(
+  (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _file: ContainerElementFile,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _aInfo: AnnotationInfo[],
+  ): Promise<Result<void>> => Promise.resolve(Success()),
+);
 void mock.module('src/services/document/annotation', () => ({
-  registerAnnotationInfo: registerAnnotationInfoMock,
+  registerConfigAnnotationInfos: registerConfigAnnotationInfosMock,
 }));
 
 void mock.module('src/repositories/document/pdfDocumentCache', () => ({
@@ -205,5 +220,79 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
     if (!res.ok) return;
     const titles = Object.values(res.value.bookmarks).map((b) => b.title);
     expect(titles.sort()).toEqual(['新規', '既存'].sort());
+  });
+});
+
+describe('loadConfig（未保存のローカル編集を.kcfgで上書きしない）', () => {
+  /**
+   * テスト用に、指定IDのみを変えた最小構成のAnnotationInfo（box型・位置サイズ固定）を生成する
+   */
+  function buildAnnotInfo(id: AnnotationID): AnnotationInfo {
+    // stateとしては指定IDのbox注釈のみを持たせ、contextは未読み込み（空）のまま返す
+    return {
+      style: {
+        id,
+        type: 'box',
+        pageNumber: 1,
+        x: 0,
+        y: 0,
+        color: '#000000' as never,
+        strokeWidth: 2,
+        strokeType: 'solid',
+        width: 10,
+        height: 10,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        comment: {},
+      },
+      context: {},
+    };
+  }
+
+  it('.kcfgから読み取った全件を、file・aInfoとしてそのままregisterConfigAnnotationInfosへ渡す', async () => {
+    // 仮登録IDの判定・除外は`registerConfigAnnotationInfos`側が単一トランザクションで行うため、
+    // loadConfigはここでは絞り込みを行わず、読み取った全件をそのまま渡すだけでよい
+    // （除外ロジック自体は`excludeTemporaryAnnotationInfos`のテストで検証済み）
+    const idA = '00000000-0000-4000-8000-000000000001' as AnnotationID;
+    const idB = '00000000-0000-4000-8000-000000000002' as AnnotationID;
+    documentConfigFileFixture = {
+      fileHash: DOC_SRC_HASH,
+      annots: {
+        [idA]: buildAnnotInfo(idA),
+        [idB]: buildAnnotInfo(idB),
+      },
+      bookmarks: {},
+      outlineImported: true, // しおり取り込み処理を素通りさせ、このテストの対象に絞る
+    };
+    registerConfigAnnotationInfosMock.mockClear();
+
+    const file = buildFile('doc.pdf');
+    const res = await loadConfig(file);
+    expect(res.ok).toBeTrue();
+
+    expect(registerConfigAnnotationInfosMock).toHaveBeenCalledTimes(1);
+    const [passedFile, passedInfos] = registerConfigAnnotationInfosMock.mock.calls[0] as [
+      ContainerElementFile,
+      AnnotationInfo[],
+    ];
+    expect(passedFile).toBe(file);
+    expect(passedInfos.map((info) => info.style.id).sort()).toEqual([idA, idB].sort());
+  });
+
+  it('registerConfigAnnotationInfosが失敗した場合はloadConfig自体も失敗として返す', async () => {
+    const idOnly = '00000000-0000-4000-8000-000000000003' as AnnotationID;
+    documentConfigFileFixture = {
+      fileHash: DOC_SRC_HASH,
+      annots: { [idOnly]: buildAnnotInfo(idOnly) },
+      bookmarks: {},
+      outlineImported: true,
+    };
+    registerConfigAnnotationInfosMock.mockClear();
+    registerConfigAnnotationInfosMock.mockImplementationOnce(() =>
+      Promise.resolve(Failure(new Error('db error'))),
+    );
+
+    const res = await loadConfig(buildFile('doc.pdf'));
+    expect(res.ok).toBeFalse();
   });
 });

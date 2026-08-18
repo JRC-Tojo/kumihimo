@@ -94,6 +94,28 @@ export function countTemporaryAnnotations(file: ContainerElementFile): Promise<R
 }
 
 /**
+ * 特定ファイルに紐づく未保存（仮登録）のアノテーションIDを取得する
+ */
+export function getTemporaryAnnotationIds(
+  file: ContainerElementFile,
+): Promise<Result<Set<AnnotationID>>> {
+  return annotationRepository.getTemporaryAnnotationIds(file);
+}
+
+/**
+ * 設定ファイル（`.kcfg`）由来の確定済みアノテーション情報を、未保存のローカル編集・削除で
+ * 上書きしないようDBへ反映する（仮登録IDの判定と登録を単一のDBトランザクションで実行する）
+ */
+export function registerConfigAnnotationInfos(
+  file: ContainerElementFile,
+  aInfo: AnnotationInfo[],
+): Promise<Result<void>> {
+  // 仮登録IDの判定・除外はリポジトリ側のトランザクション内で行うため、ここでは引数と
+  // 戻り値のResultをそのままリポジトリへ委譲する
+  return annotationRepository.registerConfigAnnotationInfos(file, aInfo);
+}
+
+/**
  * アノテーションごとに、直近発火したコンテンツ再読み込みの世代番号を管理する
  *
  * サイズ・位置を短時間に連続して微調整すると、`loadAnnotContent`が複数同時に走ることになる。

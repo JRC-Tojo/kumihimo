@@ -5,13 +5,6 @@
         <div class="text-h6">{{ $t('pdfEditor.tools.save.saveAsDialog.title') }}</div>
       </q-card-section>
 
-      <q-card-section v-if="isPdf" class="q-pt-none">
-        <div class="text-caption text-grey-7 q-mb-xs">
-          {{ $t('pdfEditor.tools.save.saveAsDialog.mode.title') }}
-        </div>
-        <q-option-group v-model="mode" dense :options="modeOptions" color="primary" />
-      </q-card-section>
-
       <q-card-section class="q-pt-none">
         <div class="text-caption text-grey-7 q-mb-xs">
           {{ $t('pdfEditor.tools.save.saveAsDialog.destination') }}
@@ -47,6 +40,24 @@
           :error="!!fileNameError"
           :error-message="fileNameError ?? undefined"
         />
+        <q-checkbox
+          v-if="isPdf"
+          v-model="embedAnnotations"
+          dense
+          class="q-mt-sm"
+          :label="$t('pdfEditor.tools.save.saveAsDialog.embedAnnotations')"
+        />
+        <!--
+          「アノテーションをコメントとして埋め込む」チェックボックス（機能は実装済みだが、
+          UI上はまだ非表示。有効化する場合はこのブロックのコメントアウトを外すだけでよい）
+          <q-checkbox
+            v-if="isPdf"
+            v-model="embedAsComments"
+            dense
+            :disable="!embedAnnotations"
+            :label="$t('pdfEditor.tools.save.saveAsDialog.embedAsComments')"
+          />
+        -->
       </q-card-section>
 
       <q-card-actions align="right">
@@ -91,21 +102,18 @@ const api = useBackendApi();
 const isPdf = getSupportedDocumentKind(prop.sourceFile.path) === 'pdf';
 const extension = new Path(prop.sourceFile.path).extname();
 
-const mode = ref<SaveAsMode>('documentOnly');
-const modeOptions = [
-  {
-    label: $t('pdfEditor.tools.save.saveAsDialog.mode.documentOnly'),
-    value: 'documentOnly' as SaveAsMode,
-  },
-  {
-    label: $t('pdfEditor.tools.save.saveAsDialog.mode.embedAnnotations'),
-    value: 'embedAnnotations' as SaveAsMode,
-  },
-  {
-    label: $t('pdfEditor.tools.save.saveAsDialog.mode.annotationsAsComments'),
-    value: 'annotationsAsComments' as SaveAsMode,
-  },
-];
+// アノテーションを埋め込むかどうか（既定は埋め込む）。falseの場合は文書本体のみ保存する
+// documentOnly相当になる
+const embedAnnotations = ref(true);
+// アノテーションをコメント（PDFのネイティブ注釈）として埋め込むかどうか。
+// UI上のチェックボックスは未表示（テンプレート側でコメントアウト）だが、機能自体は
+// 実装済みとして維持する。embedAnnotationsがfalseの間は無効（そちらが優先される）
+const embedAsComments = ref(false);
+
+const mode = computed<SaveAsMode>(() => {
+  if (!embedAnnotations.value) return 'documentOnly';
+  return embedAsComments.value ? 'annotationsAsComments' : 'embedAnnotations';
+});
 
 const fileName = ref(new Path(prop.sourceFile.path).stemname());
 
