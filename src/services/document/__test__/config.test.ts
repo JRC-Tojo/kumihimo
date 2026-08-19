@@ -131,6 +131,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
     outlineFixture = Success([
@@ -156,6 +157,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: true,
     };
     getOutlineMock.mockClear();
@@ -172,6 +174,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
     getOutlineMock.mockClear();
@@ -186,6 +189,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
     outlineFixture = Success([]);
@@ -202,6 +206,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
     outlineFixture = Failure(new Error('corrupted pdf'));
@@ -220,6 +225,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       bookmarks: {
         [existingId]: { id: existingId, title: '既存', pageNumber: 1 },
       },
+      groups: {},
       outlineImported: false,
     };
     outlineFixture = Success([{ title: '新規', level: 0, pageNumber: 3 }]);
@@ -271,6 +277,7 @@ describe('loadConfig（未保存のローカル編集を.kcfgで上書きしな�
         [idB]: buildAnnotInfo(idB),
       },
       bookmarks: {},
+      groups: {},
       outlineImported: true, // しおり取り込み処理を素通りさせ、このテストの対象に絞る
     };
     registerConfigAnnotationInfosMock.mockClear();
@@ -294,6 +301,7 @@ describe('loadConfig（未保存のローカル編集を.kcfgで上書きしな�
       fileHash: DOC_SRC_HASH,
       annots: { [idOnly]: buildAnnotInfo(idOnly) },
       bookmarks: {},
+      groups: {},
       outlineImported: true,
     };
     registerConfigAnnotationInfosMock.mockClear();

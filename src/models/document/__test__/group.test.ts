@@ -3,8 +3,8 @@ import { AnnotationGroup, AnnotationGroupID, GroupValueAggregation } from '../gr
 import type { AnnotationID } from '../pdf';
 
 const groupId = '00000000-0000-4000-8000-000000000001';
-const memberIdA = '00000000-0000-4000-8000-000000000002';
-const memberIdB = '00000000-0000-4000-8000-000000000003';
+const memberIdA = '00000000-0000-4000-8000-000000000002' as AnnotationID;
+const memberIdB = '00000000-0000-4000-8000-000000000003' as AnnotationID;
 
 describe('AnnotationGroupID', () => {
   it('UUID v4形式の文字列をパースできる', () => {

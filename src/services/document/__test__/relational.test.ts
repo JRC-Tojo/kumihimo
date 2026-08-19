@@ -703,6 +703,7 @@ describe('getAnnotationPageNumber', () => {
         [idTarget]: { style: baseStyle(idTarget, { pageNumber: 3 }), context: { text: 'X' } },
       },
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
 

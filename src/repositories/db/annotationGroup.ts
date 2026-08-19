@@ -51,7 +51,7 @@ function toRecord(file: ContainerElementFile, group: AnnotationGroup): Annotatio
     containerID: file.containerID,
     filePath: file.path,
     memberIds: group.memberIds,
-    valueAggregation: group.valueAggregation,
+    ...(group.valueAggregation !== undefined && { valueAggregation: group.valueAggregation }),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -122,7 +122,7 @@ export async function getGroup(
     return Success({
       address: { cID: record.containerID, filePath: record.filePath },
       memberIds: record.memberIds,
-      valueAggregation: record.valueAggregation,
+      ...(record.valueAggregation !== undefined && { valueAggregation: record.valueAggregation }),
     });
   } catch (error) {
     return Failure(toError(error));
