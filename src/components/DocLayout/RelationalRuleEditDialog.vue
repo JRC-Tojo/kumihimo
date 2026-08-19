@@ -65,8 +65,7 @@ import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useRelationalStore, edgeValueFor, type RelationalEdge } from 'src/stores/relationalStore';
 import type { ContainerElementFile } from 'src/models/container';
-import type { AnnotationID } from 'src/models/document/pdf';
-import type { RelationalRule } from 'src/models/relational/fileSchema';
+import type { RelationalEndpointID, RelationalRule } from 'src/models/relational/fileSchema';
 import {
   DEFAULT_RELAXATION_OPTIONS,
   type RelaxationOptions,
@@ -82,7 +81,7 @@ import RelaxationRuleEditor from 'src/components/Settings/RelaxationRuleEditor.v
 interface Prop {
   file: ContainerElementFile;
   edge: RelationalEdge;
-  selfAnnotId: AnnotationID;
+  selfAnnotId: RelationalEndpointID;
 }
 const prop = defineProps<Prop>();
 

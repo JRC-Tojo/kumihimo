@@ -36,13 +36,24 @@ import type {
   ColorCode,
   TextAnnotationStyle,
 } from 'src/models/document/pdf';
+import type {
+  AnnotationGroup,
+  AnnotationGroupID,
+  GroupValueAggregation,
+} from 'src/models/document/group';
 import type { AnnotationTool } from 'src/models/docPage';
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
-import type { AnnotationInfo, BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
+import type {
+  AnnotationInfo,
+  BookmarkID,
+  BookmarkInfo,
+  RelationalEndpointID,
+} from 'src/models/relational/fileSchema';
 import type { RelaxationOptions } from 'src/models/relational/relaxation';
 import * as annotationService from 'src/services/document/annotation';
+import * as annotationGroupService from 'src/services/document/annotationGroup';
 import * as bookmarkService from 'src/services/document/bookmark';
 import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
@@ -676,6 +687,82 @@ class BackendApi {
     return toApiResponse(res, 'DOC_ANNOT_PREVIEW_FAILED');
   }
 
+  // ============ グループ操作 ============
+
+  /**
+   * 指定ファイルに登録されているグループ一覧を取得する
+   */
+  async listAnnotationGroups(file: ContainerElementFile): Promise<ApiResponse<AnnotationGroup[]>> {
+    const res = await annotationGroupService.listAnnotationGroups(file);
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_LOAD_FAILED');
+  }
+
+  /**
+   * 指定ファイル内の特定グループを取得する
+   */
+  async getAnnotationGroup(
+    file: ContainerElementFile,
+    groupId: AnnotationGroupID,
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.getAnnotationGroup(file, groupId);
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_LOAD_FAILED');
+  }
+
+  /**
+   * 複数のアノテーションをグループ化する
+   *
+   * 選択範囲に既存グループのメンバーが含まれていた場合はそのグループを解散して統合する。
+   * 解散したグループが関係性の端点になっていた場合は、孤立させないよう関係性もあわせて削除する
+   */
+  async groupAnnotations(
+    file: ContainerElementFile,
+    annotationIds: AnnotationID[],
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.groupAnnotations(file, annotationIds);
+    if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_GROUP_FAILED');
+
+    for (const dissolvedId of res.value.dissolvedGroupIds) {
+      const cleanupRes = await relationalService.removeRelationalsForAnnotation(dissolvedId);
+      if (!cleanupRes.ok) return toApiResponse(cleanupRes, 'RELATIONAL_REMOVE_FAILED');
+    }
+
+    return toApiResponse(Success(res.value.group));
+  }
+
+  /**
+   * グループを解除する
+   *
+   * グループが関係性の端点になっていた場合は、孤立させないよう関係性もあわせて削除する
+   */
+  async ungroupAnnotations(
+    file: ContainerElementFile,
+    groupId: AnnotationGroupID,
+  ): Promise<ApiResponse<void>> {
+    const res = await annotationGroupService.ungroupAnnotations(file, groupId);
+    if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_UNGROUP_FAILED');
+
+    const cleanupRes = await relationalService.removeRelationalsForAnnotation(groupId);
+    if (!cleanupRes.ok) return toApiResponse(cleanupRes, 'RELATIONAL_REMOVE_FAILED');
+
+    return toApiResponse(res, 'DOC_ANNOT_UNGROUP_FAILED');
+  }
+
+  /**
+   * グループ全体を代表する値の算出方法を設定・変更する
+   */
+  async updateGroupValueAggregation(
+    file: ContainerElementFile,
+    groupId: AnnotationGroupID,
+    aggregation: GroupValueAggregation,
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.updateGroupValueAggregation(
+      file,
+      groupId,
+      aggregation,
+    );
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_VALUE_SAVE_FAILED');
+  }
+
   // ============ 関係性操作 ============
 
   /**
@@ -740,10 +827,10 @@ class BackendApi {
   }
 
   /**
-   * 指定したアノテーションに紐づく関係性（src側）をすべて削除する
+   * 指定した端点（アノテーションまたはグループ）に紐づく関係性（src側）をすべて削除する
    */
-  async removeRelationals(sourceAnnotID: AnnotationID): Promise<ApiResponse<void>> {
-    const res = await relationalService.removeRelationals(sourceAnnotID);
+  async removeRelationals(sourceID: RelationalEndpointID): Promise<ApiResponse<void>> {
+    const res = await relationalService.removeRelationals(sourceID);
     return toApiResponse(res, 'RELATIONAL_REMOVE_FAILED');
   }
 
@@ -751,26 +838,28 @@ class BackendApi {
    * srcID・targetIDが一致する1本の関係性のみを削除する（リンクの変更・個別削除用）
    */
   async removeRelationalEdge(
-    srcID: AnnotationID,
-    targetID: AnnotationID,
+    srcID: RelationalEndpointID,
+    targetID: RelationalEndpointID,
   ): Promise<ApiResponse<void>> {
     const res = await relationalService.removeRelationalEdge(srcID, targetID);
     return toApiResponse(res, 'RELATIONAL_REMOVE_FAILED');
   }
 
   /**
-   * アノテーションIDから、そのアノテーションが属するファイル情報を解決する
+   * 端点（アノテーションまたはグループ）のIDから、それが属するファイル情報を解決する
    */
-  async resolveAnnotationFile(annotID: AnnotationID): Promise<ApiResponse<ContainerElementFile>> {
-    const res = await relationalService.resolveAnnotationFile(annotID);
+  async resolveAnnotationFile(
+    id: RelationalEndpointID,
+  ): Promise<ApiResponse<ContainerElementFile>> {
+    const res = await relationalService.resolveAnnotationFile(id);
     return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
   }
 
   /**
-   * アノテーションIDから、そのアノテーションが存在するページ番号を解決する
+   * 端点（アノテーションまたはグループ）のIDから、それが存在するページ番号を解決する
    */
-  async getAnnotationPageNumber(annotID: AnnotationID): Promise<ApiResponse<number>> {
-    const res = await relationalService.getAnnotationPageNumber(annotID);
+  async getAnnotationPageNumber(id: RelationalEndpointID): Promise<ApiResponse<number>> {
+    const res = await relationalService.getAnnotationPageNumber(id);
     return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
   }
 

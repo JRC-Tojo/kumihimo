@@ -271,6 +271,8 @@ export default {
       },
       contextMenu: {
         copy: 'Copy',
+        group: 'Group',
+        ungroup: 'Ungroup',
         applyPreset: 'Apply preset style',
         registerPreset: 'Register as preset',
         openRelational: 'Open relational dialog',
@@ -383,6 +385,19 @@ export default {
         save: 'Save',
         cancel: 'Cancel',
         saveFailed: 'Failed to save the relaxation rule.',
+      },
+      group: {
+        memberCount: 'This group has {count} annotation(s)',
+        aggregationUndefined:
+          'No value aggregation is set (an "equal" check against this group will always fail until one is set)',
+        aggregationSum: 'Value aggregation: Sum',
+        configureAggregation: "Configure the group's value aggregation",
+        aggregationDialog: {
+          title: 'Group value aggregation',
+          hint: 'Choose how to compute the representative value used when this group is an endpoint of an "equal" relation.',
+          sum: 'Sum (add up the numeric values of the members)',
+          saveFailed: 'Failed to save the aggregation method.',
+        },
       },
     },
     tabs: {

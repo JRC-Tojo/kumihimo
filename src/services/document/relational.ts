@@ -1,5 +1,5 @@
 import type { ContainerElementFile, ContainerID, ContainerSkel } from 'src/models/container';
-import { Failure, Success, type Result } from 'src/models/error/result';
+import { Failure, NotFoundError, Success, type Result } from 'src/models/error/result';
 import type {
   Relational,
   RelationalResponce,
@@ -8,6 +8,7 @@ import type {
 import type {
   AnnotationBaseAddress,
   AnnotationInfo,
+  RelationalEndpointID,
   RelationalRule,
 } from 'src/models/relational/fileSchema';
 import {
@@ -17,8 +18,10 @@ import {
 import * as containerService from 'src/services/container/main';
 import * as containerConfigService from 'src/services/container/config';
 import * as docAnnotService from 'src/services/document/annotation';
+import * as annotationGroupService from 'src/services/document/annotationGroup';
 import * as relationalRepository from 'src/repositories/db/relational';
 import type { AnnotationID } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import { resolveCachedContainerID } from 'src/services/document/containerIdResolver';
 import { relaxedEqual } from 'src/utils/text/relaxedCompare';
 import {
@@ -110,32 +113,119 @@ async function ensureAnnotationInfo(
 }
 
 /**
+ * 関係性の端点（アノテーション or グループ）が取りうる値の状態
+ *
+ * - ready: 値が確定している
+ * - pending: OCR等の内容読み込みが完了していない（そのうち解決される可能性がある）
+ * - unresolvable: グループの値算出方法が未設定など、ユーザーの操作なしには解決しない
+ */
+type EndpointValueState =
+  { status: 'ready'; value: string } | { status: 'pending' } | { status: 'unresolvable' };
+
+/**
+ * 関係性の端点（アノテーションIDまたはグループID）のアドレスを解決する
+ *
+ * まずアノテーションとして解決を試み、見つからない場合はグループとして解決する
+ * （UUID自体にはアノテーション/グループの区別が無いため、実体を引けるかどうかで判定する）
+ */
+async function resolveEndpointAddress(
+  id: RelationalEndpointID,
+): Promise<Result<AnnotationBaseAddress>> {
+  const annotAddress = await docAnnotService.getAnnotationAddress(id as AnnotationID);
+  if (annotAddress.ok) return annotAddress;
+  if (!(annotAddress.error instanceof NotFoundError)) return annotAddress;
+
+  return annotationGroupService.getGroupAddress(id as AnnotationGroupID);
+}
+
+/**
+ * グループ全体を代表する値を、メンバーの値算出方法に従って算出する
+ *
+ * v1では合計（'sum'）のみをサポートする。欠損メンバーや非数値のメンバーは合計から除外する
+ * （安全側に倒し、算出自体を失敗させない）
+ */
+async function resolveGroupValue(
+  memberIds: AnnotationID[],
+  groupAddress: AnnotationBaseAddress,
+): Promise<EndpointValueState> {
+  const memberValues: number[] = [];
+  let anyPending = false;
+
+  for (const memberId of memberIds) {
+    const info = await ensureAnnotationInfo(memberId, groupAddress);
+    if (!info.ok) continue;
+
+    const text = info.value.context.text;
+    if (text === undefined) {
+      anyPending = true;
+      continue;
+    }
+
+    const num = parseNumericValue(text.normalize('NFKC'));
+    if (num !== undefined) memberValues.push(num);
+  }
+
+  if (anyPending) return { status: 'pending' };
+
+  const sum = memberValues.reduce((a, b) => a + b, 0);
+  return { status: 'ready', value: String(sum) };
+}
+
+/**
+ * 関係性の端点（アノテーションIDまたはグループID）の値を解決する
+ */
+async function resolveEndpointValue(
+  id: RelationalEndpointID,
+  address: AnnotationBaseAddress,
+): Promise<Result<EndpointValueState>> {
+  const annotInfo = await ensureAnnotationInfo(id as AnnotationID, address);
+  if (annotInfo.ok) {
+    const text = annotInfo.value.context.text;
+    return Success(text === undefined ? { status: 'pending' } : { status: 'ready', value: text });
+  }
+  if (!(annotInfo.error instanceof NotFoundError)) return annotInfo;
+
+  const group = await annotationGroupService.getGroupRecord(id as AnnotationGroupID);
+  if (!group.ok) return group;
+  if (group.value.valueAggregation === undefined) return Success({ status: 'unresolvable' });
+
+  return Success(await resolveGroupValue(group.value.memberIds, group.value.address));
+}
+
+/**
  * 指定した関係性一覧を検証する
  */
 export async function checkRelational(
   r: RelationalWithAddress,
 ): Promise<Result<RelationalResponce>> {
-  const srcContent = await ensureAnnotationInfo(r.relational.srcID, r.srcAddress);
-  if (!srcContent.ok) return srcContent;
-  const targetContent = await ensureAnnotationInfo(r.relational.targetID, r.targetAddress);
-  if (!targetContent.ok) return targetContent;
+  const srcState = await resolveEndpointValue(r.relational.srcID, r.srcAddress);
+  if (!srcState.ok) return srcState;
+  const targetState = await resolveEndpointValue(r.relational.targetID, r.targetAddress);
+  if (!targetState.ok) return targetState;
 
-  // .textが読み込み中の場合はundefinedのため、関係性の検証を省略する
-  // （OCR結果が空文字列''になるケースは「読み込み済みだが内容が空」であり、これは未読み込み(undefined)とは区別する）
-  const srcContentTxt = srcContent.value.context.text;
-  const targetContentTxt = targetContent.value.context.text;
-  if (srcContentTxt === undefined || targetContentTxt === undefined) {
+  // どちらかが「読み込み中」の場合は検証を保留する（そのうち解決される可能性があるため）
+  // （OCR結果が空文字列''になるケースは「読み込み済みだが内容が空」であり、これは未読み込みとは区別する）
+  if (srcState.value.status === 'pending' || targetState.value.status === 'pending') {
     return Failure(new Error('An annotation content is not loaded yet'));
   }
+
+  const srcVal = srcState.value.status === 'ready' ? srcState.value.value : '';
+  const targetVal = targetState.value.status === 'ready' ? targetState.value.value : '';
+
+  // 'unresolvable'（グループの値算出方法が未設定）を含む場合、'equal'ルールの検証は
+  // 常にNGとして確定させる（'link'ルールは値を使わないため未設定でも通常通り成立する）
+  const hasUnresolvable =
+    srcState.value.status === 'unresolvable' || targetState.value.status === 'unresolvable';
 
   // 緩和ルールのアプリ設定側フォールバックは、src側アノテーションが属するコンテナの
   // コンテナ設定（`.kumihimo/settings.json`）を基準にする（同一コンテナを開く誰にとっても
   // 同じ検証結果になるようにするため、ブラウザローカルなアプリ設定は使わない）
   const checkedRule = await validRelational(
     r.relational,
-    srcContentTxt,
-    targetContentTxt,
+    srcVal,
+    targetVal,
     r.srcAddress.cID,
+    hasUnresolvable,
   );
 
   return Success(checkedRule);
@@ -166,9 +256,9 @@ export async function checkRelationalSafe(r: RelationalWithAddress): Promise<Rel
 export async function registRelational(
   newRelational: Relational,
 ): Promise<Result<RelationalResponce>> {
-  const srcAddress = await docAnnotService.getAnnotationAddress(newRelational.srcID);
+  const srcAddress = await resolveEndpointAddress(newRelational.srcID);
   if (!srcAddress.ok) return srcAddress;
-  const targetAddress = await docAnnotService.getAnnotationAddress(newRelational.targetID);
+  const targetAddress = await resolveEndpointAddress(newRelational.targetID);
   if (!targetAddress.ok) return targetAddress;
   const saveRes = await relationalRepository.addRelational(
     newRelational,
@@ -219,9 +309,9 @@ export async function getReferencedFilePaths(cID: ContainerID): Promise<Result<s
 }
 
 /**
- * 指定したアノテーションに紐づく関係性を仮フラグ付きでをすべて削除する
+ * 指定した端点（アノテーションまたはグループ）に紐づく関係性を仮フラグ付きでをすべて削除する
  */
-export function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
+export function removeRelationals(srcID: RelationalEndpointID): Promise<Result<void>> {
   return relationalRepository.softRemoveRelationalsBySrcID(srcID);
 }
 
@@ -229,49 +319,59 @@ export function removeRelationals(srcID: AnnotationID): Promise<Result<void>> {
  * srcID・targetIDが一致する1本の関係性のみを削除する（リンクの変更・個別削除用）
  */
 export function removeRelationalEdge(
-  srcID: AnnotationID,
-  targetID: AnnotationID,
+  srcID: RelationalEndpointID,
+  targetID: RelationalEndpointID,
 ): Promise<Result<void>> {
   return relationalRepository.softRemoveRelationalEdge(srcID, targetID);
 }
 
 /**
- * 指定したアノテーションがsrc・target問わずどちらかの側で関わる関係性をすべて削除する
+ * 指定した端点（アノテーションまたはグループ）がsrc・target問わずどちらかの側で関わる
+ * 関係性をすべて削除する
  *
- * アノテーション自体が削除された際、紐づく関係性を孤立させないためのクリーンアップ用
+ * アノテーション・グループ自体が削除された際、紐づく関係性を孤立させないためのクリーンアップ用
  */
-export function removeRelationalsForAnnotation(annotID: AnnotationID): Promise<Result<void>> {
-  return relationalRepository.softRemoveRelationalsByAnnotationID(annotID);
+export function removeRelationalsForAnnotation(id: RelationalEndpointID): Promise<Result<void>> {
+  return relationalRepository.softRemoveRelationalsByAnnotationID(id);
 }
 
 /**
- * アノテーションIDから、そのアノテーションが属するファイル情報を解決する
+ * 端点（アノテーションまたはグループ）のIDから、それが属するファイル情報を解決する
  *
- * 関係性は別コンテナのアノテーション同士でも定義できるため、対象コンテナが
+ * 関係性は別コンテナの端点同士でも定義できるため、対象コンテナが
  * まだ読み込まれていない場合はcontainerService.loadContainerで読み込む
  */
 export async function resolveAnnotationFile(
-  annotID: AnnotationID,
+  id: RelationalEndpointID,
 ): Promise<Result<ContainerElementFile>> {
-  const address = await docAnnotService.getAnnotationAddress(annotID);
+  const address = await resolveEndpointAddress(id);
   if (!address.ok) return address;
 
   return resolveFileByAddress(address.value);
 }
 
 /**
- * アノテーションIDから、そのアノテーションが存在するページ番号を解決する
+ * 端点（アノテーションまたはグループ）のIDから、それが存在するページ番号を解決する
  *
- * 「対になるアノテーション」の文書を開く際、先頭ページではなく実際のページへ遷移させるために使う
+ * 「対になるアノテーション」の文書を開く際、先頭ページではなく実際のページへ遷移させるために使う。
+ * グループの場合はネストが無いため、先頭メンバーのページ番号を代表値として返す
  */
-export async function getAnnotationPageNumber(annotID: AnnotationID): Promise<Result<number>> {
-  const address = await docAnnotService.getAnnotationAddress(annotID);
+export async function getAnnotationPageNumber(id: RelationalEndpointID): Promise<Result<number>> {
+  const address = await resolveEndpointAddress(id);
   if (!address.ok) return address;
 
-  const info = await ensureAnnotationInfo(annotID, address.value);
-  if (!info.ok) return info;
+  const info = await ensureAnnotationInfo(id as AnnotationID, address.value);
+  if (info.ok) return Success(info.value.style.pageNumber);
+  if (!(info.error instanceof NotFoundError)) return info;
 
-  return Success(info.value.style.pageNumber);
+  const group = await annotationGroupService.getGroupRecord(id as AnnotationGroupID);
+  if (!group.ok) return group;
+  const firstMemberId = group.value.memberIds[0];
+  if (firstMemberId === undefined) return Failure(new NotFoundError('Group has no members'));
+
+  const memberInfo = await ensureAnnotationInfo(firstMemberId, group.value.address);
+  if (!memberInfo.ok) return memberInfo;
+  return Success(memberInfo.value.style.pageNumber);
 }
 
 /**
@@ -445,12 +545,18 @@ async function validRelational(
   srcVal: string,
   targetVal: string,
   cID: ContainerID,
+  hasUnresolvable: boolean,
 ): Promise<RelationalResponce> {
   let isOK = true;
   switch (relational.rule.type) {
     case 'link':
       break;
     case 'equal': {
+      if (hasUnresolvable) {
+        // グループの値算出方法が未設定などで一方の値が確定しない場合、常にNGとして扱う
+        isOK = false;
+        break;
+      }
       const rule = relational.rule;
       const relaxation = await resolveRelaxationOptions(rule, cID);
       const srcComparisonVal = applyFormula(srcVal, rule.srcFormula);

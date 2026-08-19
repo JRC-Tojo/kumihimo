@@ -9,6 +9,7 @@ import type {
   ViewMode,
 } from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import type { RelationalRule } from 'src/models/relational/fileSchema';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { Path } from 'src/utils/binary/path';
@@ -23,6 +24,12 @@ export type Layouts<T> = { [side in LayoutSide]: T };
 export type TileMode = 'single' | 'dubble' | 'grid';
 
 export type RelationalType = RelationalRule['type'] | undefined;
+
+/**
+ * 関係性の簡易閲覧ダイアログを開く対象（個々のアノテーション、またはグループ）
+ */
+export type PeekTarget =
+  { kind: 'annotation'; id: AnnotationID } | { kind: 'group'; id: AnnotationGroupID };
 
 /**
  * タブの同一性判定に用いるキー
@@ -202,7 +209,15 @@ export const useEditorStore = defineStore('editor', {
     // 関係性ダイアログを開く意図フラグ（deleteRequestedと同じパターン）。アノテーション
     // 右クリックメニューからの要求をここに一時的にセットし、実際にダイアログを開く処理は
     // 選択状態を持つDocumentTabView側でwatchして実行する
-    peekRequestedAnnotId: undefined as AnnotationID | undefined,
+    peekRequestedTarget: undefined as PeekTarget | undefined,
+
+    // グループ化操作の意図フラグ（deleteRequestedと同じパターン）。アノテーション右クリック
+    // メニューの「グループ化」からの要求をここに一時的にセットし、実際の処理は選択状態を持つ
+    // DocumentTabView側でwatchして実行する
+    groupRequested: false,
+
+    // グループ化解除操作の意図フラグ（groupRequestedと同じパターン）
+    ungroupRequested: false,
 
     // `openTab`にページ番号を指定した際に記録される、遷移先ページの情報。
     // DocumentTabView.vueは自分宛て（containerID・pathが一致）であればこれを消費し、
@@ -728,15 +743,44 @@ export const useEditorStore = defineStore('editor', {
      * 関係性ダイアログを開く意図をセットする（アノテーション右クリックメニューの
      * 「関係性ダイアログを開く」から使う）
      */
-    requestPeek(annotId: AnnotationID): void {
-      this.peekRequestedAnnotId = annotId;
+    requestPeek(target: PeekTarget): void {
+      this.peekRequestedTarget = target;
     },
 
     /**
      * 関係性ダイアログを開く意図フラグを解除する
      */
     clearPeekRequest(): void {
-      this.peekRequestedAnnotId = undefined;
+      this.peekRequestedTarget = undefined;
+    },
+
+    /**
+     * グループ化操作の意図をセットする（アノテーション右クリックメニューの「グループ化」から使う）
+     */
+    requestGroup(): void {
+      this.groupRequested = true;
+    },
+
+    /**
+     * グループ化操作の意図フラグを解除する
+     */
+    clearGroupRequest(): void {
+      this.groupRequested = false;
+    },
+
+    /**
+     * グループ化解除操作の意図をセットする（アノテーション右クリックメニューの
+     * 「グループ化を解除」から使う）
+     */
+    requestUngroup(): void {
+      this.ungroupRequested = true;
+    },
+
+    /**
+     * グループ化解除操作の意図フラグを解除する
+     */
+    clearUngroupRequest(): void {
+      this.ungroupRequested = false;
     },
 
     /**

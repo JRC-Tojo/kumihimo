@@ -1,18 +1,17 @@
 import Dexie, { type Table } from 'dexie';
 import type { ContainerElementFile } from 'src/models/container';
 import { ContainerID } from 'src/models/container';
-import type { AnnotationID } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
 import { Failure, Success, toError } from 'src/models/error/result';
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
-import type { AnnotationBaseAddress } from 'src/models/relational/fileSchema';
+import type { AnnotationBaseAddress, RelationalEndpointID } from 'src/models/relational/fileSchema';
 
 interface RelationalRecord {
   id: string;
-  srcID: AnnotationID;
+  srcID: RelationalEndpointID;
   srcContainerID: ContainerID;
   srcFilePath: string;
-  targetID: AnnotationID;
+  targetID: RelationalEndpointID;
   targetContainerID: ContainerID;
   targetFilePath: string;
   rule: Relational['rule'];
@@ -309,8 +308,8 @@ export async function softRemoveRelationalsBySrcID(srcID: string): Promise<Resul
  * こちらは特定の1エッジのみを対象にする（リンクの変更・個別削除用）
  */
 export async function softRemoveRelationalEdge(
-  srcID: AnnotationID,
-  targetID: AnnotationID,
+  srcID: RelationalEndpointID,
+  targetID: RelationalEndpointID,
 ): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;
@@ -337,7 +336,7 @@ export async function softRemoveRelationalEdge(
  * アノテーション自体が削除された際に、紐づく関係性を孤立させないためのクリーンアップ用
  */
 export async function softRemoveRelationalsByAnnotationID(
-  annotID: AnnotationID,
+  annotID: RelationalEndpointID,
 ): Promise<Result<void>> {
   const ready = await ensureReady();
   if (!ready.ok) return ready;

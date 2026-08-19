@@ -16,6 +16,26 @@
           </q-item>
 
           <q-item
+            v-if="canGroup"
+            v-close-popup
+            clickable
+            @click="onGroup"
+            @mouseenter="closeSubmenu"
+          >
+            <q-item-section>{{ t('pdfEditor.tools.contextMenu.group') }}</q-item-section>
+          </q-item>
+
+          <q-item
+            v-if="canUngroup"
+            v-close-popup
+            clickable
+            @click="onUngroup"
+            @mouseenter="closeSubmenu"
+          >
+            <q-item-section>{{ t('pdfEditor.tools.contextMenu.ungroup') }}</q-item-section>
+          </q-item>
+
+          <q-item
             clickable
             @click="activeSubmenu = 'layerOrder'"
             @mouseenter="scheduleOpenSubmenu('layerOrder')"
@@ -143,7 +163,9 @@ import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from 'src/stores/editorStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
+import { useGroupStore } from 'src/stores/groupStore';
 import { useBackendApi } from 'src/apis/backendApi';
+import { fileKey } from 'src/utils/document/fileKey';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import type { AnnotationTool } from 'src/models/docPage';
 import type { ContainerElementFile } from 'src/models/container';
@@ -165,6 +187,7 @@ const { t } = useI18n();
 const $q = useQuasar();
 const editorStore = useEditorStore();
 const settingsStore = useSettingsStore();
+const groupStore = useGroupStore();
 const api = useBackendApi();
 const { applyPresetStyleToSelection } = useAnnotationStylePanel();
 
@@ -173,6 +196,22 @@ const presetsForType = computed<AnnotationTool[]>(() =>
     (p) => p.style.type === props.annotation.type,
   ),
 );
+
+/** 選択中の全アノテーションID（選択が無い場合は右クリックされた注釈のみ） */
+const selectedIds = computed(() =>
+  (editorStore.activeSelection?.annotations ?? [props.annotation]).map((a) => a.id),
+);
+
+/** 選択が既存グループとちょうど一致するグループ（グループ化解除・関係性ダイアログの判定に使う） */
+const selectionMatchingGroup = computed(() =>
+  groupStore.matchingGroup(fileKey(props.file), selectedIds.value),
+);
+
+/** 2件以上選択している間はいつでもグループ化できる（既存グループを含む場合はサービス層で統合される） */
+const canGroup = computed(() => selectedIds.value.length > 1);
+
+/** 選択がまるごと1つの既存グループと一致する場合のみ「グループ化を解除」を表示する */
+const canUngroup = computed(() => selectionMatchingGroup.value !== undefined);
 
 // サブメニュー（表示順序変更・プリセットスタイルを適用）を素早くマウスが通り過ぎただけで
 // 開いてしまわないよう、ややの長さのホバーを経てから開く。クリックでは即座に開く
@@ -233,11 +272,33 @@ function onRegisterPreset() {
 }
 
 /**
+ * グループ化の意図をeditorStoreにセットする。実処理は選択状態を持つDocumentTabView側で
+ * このフラグをwatchして行う
+ */
+function onGroup() {
+  editorStore.requestGroup();
+}
+
+/**
+ * グループ化解除の意図をeditorStoreにセットする（onGroupと同じパターン）
+ */
+function onUngroup() {
+  editorStore.requestUngroup();
+}
+
+/**
  * 関係性ダイアログを開く意図をeditorStoreにセットする。ダイアログを開く実処理は
- * 選択状態を持つDocumentTabView側でこのフラグをwatchして行う
+ * 選択状態を持つDocumentTabView側でこのフラグをwatchして行う。
+ * 選択範囲がまるごと1つのグループと一致する場合はグループを、それ以外は右クリックされた
+ * 注釈自身を対象にする
  */
 function onOpenRelational() {
-  editorStore.requestPeek(props.annotation.id);
+  const group = selectionMatchingGroup.value;
+  editorStore.requestPeek(
+    group !== undefined
+      ? { kind: 'group', id: group.id }
+      : { kind: 'annotation', id: props.annotation.id },
+  );
 }
 
 /**
