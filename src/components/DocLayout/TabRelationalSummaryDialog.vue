@@ -316,7 +316,11 @@ async function openAnnotation(endpointId: RelationalEndpointID) {
   if (!fileRes.ok) return;
 
   const pageRes = await api.getAnnotationPageNumber(endpointId);
-  editorStore.openTab(fileRes.data, pageRes.ok ? pageRes.data : undefined, endpointId as AnnotationID);
+  editorStore.openTab(
+    fileRes.data,
+    pageRes.ok ? pageRes.data : undefined,
+    endpointId as AnnotationID,
+  );
   open.value = false;
 }
 
