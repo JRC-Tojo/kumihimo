@@ -1,43 +1,55 @@
 # kumihimo
 
-Documents base on the relational model of annotation text blocks
+膨大なPDF文書にマークを付け、 **文書をまたいだ注釈同士の「関連性」** を追跡するためのツールです。Quasar/Vue製のPWAとして動作し、ブラウザだけで完結します。
 
-## Install the dependencies
+## これは何をするツールか
 
-```bash
-yarn
-# or
-npm install
-```
+紙やPDFの帳票・仕様書などを複数の文書間で突き合わせる作業（「この文書の数値と、あの文書の数値が一致しているか」といった確認）を、手作業ではなく画面上でのマーク付けによって支援します。
 
-### Start the app in development mode (hot-code reloading, error reporting, etc.)
+1. PDF文書のテキスト上にペン・直線・範囲（矩形）でアノテーションを描画する
+2. 別の文書・別の箇所にあるアノテーションと紐づけて「関連性」を登録する
+3. 関連付けたアノテーション同士の内容（値の一致、条件の充足、OCR結果の照合など）をシステムが自動でチェックし、整合性が取れているかを画面上に表示する
 
-```bash
-quasar dev
-```
+## 主な機能
 
-### Lint the files
+- **アノテーション描画**：ペン・直線ペン・範囲（矩形）形式で、色やスタイルを指定してPDF上にマークできる
+- **関連性（Relational）管理**：文書やコンテナをまたいだアノテーション同士をペアリングし、整合性チェックのルール（値の一致など）を紐づけられる
+- **自動整合性チェック**：関連付けたアノテーション間で、OCR結果の照合などにより内容が一致しているかを自動判定し、状態（OK/NG/判定中）を視覚的に表示する
+- **複数ストレージ対応**：ローカルフォルダ・Boxクラウド・ブラウザ内キャッシュ（IndexedDB）のいずれのコンテナからもPDFを読み込める
+- **PWA対応**：ブラウザ上で動作し、インストールしてオフラインでも利用できる
 
-```bash
-yarn lint
-# or
-npm run lint
-```
-
-### Format the files
+## 起動方法
 
 ```bash
-yarn format
-# or
-npm run format
+bun install
+bun run dev
 ```
 
-### Build the app for production
+ブラウザで `http://localhost:9200` を開くと画面が表示されます。
+
+### その他のコマンド
 
 ```bash
-quasar build
+bun run build   # 本番ビルド（PWAモード）
+bun run lint    # ESLint
+bun run format  # Prettier（直接書き込み）
+bun run test    # 単体テスト（`--isolate`必須なので直接`bun test`は実行しないこと）
 ```
 
-### Customize the configuration
+E2Eテスト（実Chromiumでの描画・操作検証）は Windows環境ではNode.js経由で実行する必要があります。詳細は [CLAUDE.md](CLAUDE.md) を参照してください。
 
-See [Configuring quasar.config.js](https://v2.quasar.dev/quasar-cli-vite/quasar-config-js).
+```bash
+npx playwright test
+```
+
+## 技術スタック
+
+- Quasar / Vue 3 / Pinia
+- pdfjs-dist（PDF描画）、konva / vue-konva（アノテーション描画）
+- Dexie（IndexedDB）
+- Zod（スキーマ・型定義）
+- Bun（開発・テスト実行）
+
+## アーキテクチャ
+
+独立したバックエンドは持たず、クライアント/サーバー分離を内部でシミュレートするフロントエンドのみの構成です。詳細は [CLAUDE.md](CLAUDE.md) を参照してください。
