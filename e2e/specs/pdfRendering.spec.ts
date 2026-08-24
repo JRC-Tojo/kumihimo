@@ -28,8 +28,14 @@ test.describe('PDF文書のレンダリング', () => {
     // pdfManager.ts自体の座標変換ロジック（回転考慮等）はpdf.test.tsで別途検証済みのため、
     // ここでは「実ブラウザで実際に見た目どおり描画されるか」のみを見る。固定のベースライン画像は
     // 用意していない（初回生成には人によるレビューが必要で、今回のスコープ外のフォローアップ課題）
-    // ため、単色（空白）ではない実際の描画内容が存在するかで判定する
-    expect(await hasVisibleContent(await pdfCanvas.screenshot())).toBe(true);
+    // ため、単色（空白）ではない実際の描画内容が存在するかで判定する。
+    // `waitForCanvasReady`はcanvas要素自体のDOM上の可視性しか見ておらず、pdf.jsの実際の
+    // ラスタライズ（backdropへのpixel書き込み）はその後も非同期に続くため、要素が見えた直後の
+    // 1回だけのスクリーンショットでは描画完了前の空白を捉えてしまうことがある。実際に内容が
+    // 描かれるまでポーリングする
+    await expect
+      .poll(async () => hasVisibleContent(await pdfCanvas.screenshot()), { timeout: 10_000 })
+      .toBe(true);
   });
 
   /**
@@ -47,7 +53,19 @@ test.describe('PDF文書のレンダリング', () => {
     // セレクタの選定理由は1つ目のテストのコメントを参照
     const pdfCanvas = page.locator('.pdf-canvas:not(.tile-canvas)').first();
     await waitForCanvasReady(pdfCanvas);
-    const page1Screenshot = await pdfCanvas.screenshot();
+
+    // 1つ目のテストと同じ理由で、1ページ目の描画が実際に完了する（単色ではなくなる）まで
+    // ポーリングしてから基準のスクリーンショットにする
+    let page1Screenshot = await pdfCanvas.screenshot();
+    await expect
+      .poll(
+        async () => {
+          page1Screenshot = await pdfCanvas.screenshot();
+          return hasVisibleContent(page1Screenshot);
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
 
     await page.locator('.page-input').fill('2');
     await page.locator('.page-input').press('Enter');
@@ -55,9 +73,21 @@ test.describe('PDF文書のレンダリング', () => {
 
     // 固定のベースライン画像は用意していない（1つ目のテストのコメントを参照）ため、
     // 1ページ目とは異なる内容（フィクスチャPDFの2ページ目は矩形・テキストの位置が異なる）が
-    // 実際に描画されたかを、ページ送り前後のスクリーンショット差分で確認する
-    const page2Screenshot = await pdfCanvas.screenshot();
-    expect(Buffer.compare(page1Screenshot, page2Screenshot)).not.toBe(0);
+    // 実際に描画されたかを、ページ送り前後のスクリーンショット差分で確認する。
+    // `.page-info`のテキスト更新はページ送りの確定を示すだけで、2ページ目の再描画自体は
+    // その後も非同期に続くため、テキスト更新直後の1回だけのスクリーンショットでは
+    // 1ページ目の内容が残ったまま・または描画途中の空白を捉えてしまうことがある。
+    // 「単色ではない（＝描画済み）」かつ「1ページ目と異なる」の両方を満たすまでポーリングする
+    await expect
+      .poll(
+        async () => {
+          const page2Screenshot = await pdfCanvas.screenshot();
+          const visible = await hasVisibleContent(page2Screenshot);
+          return visible && Buffer.compare(page1Screenshot, page2Screenshot) !== 0;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
   });
 
   /**

@@ -47,7 +47,8 @@ async function initialize(storeName: string): Promise<Result<void>> {
     };
 
     request.onsuccess = async () => {
-      db = request.result;
+      const openedDb = request.result;
+      db = openedDb;
       currentVersion = db.version;
 
       // 他の接続（別タブ、または直後に自分自身が発行するバージョンアップ要求）からの
@@ -57,8 +58,21 @@ async function initialize(storeName: string): Promise<Result<void>> {
       // 自分自身の直前の接続にブロックされてonblockedへ入ってしまうことがあった
       // （同一タブ内でのバージョンアップ時に発生。closeの完了通知はcloseevent等では
       //   得られないため、versionchangeイベントに委ねるのがIndexedDBの標準的な作法）
-      db.onversionchange = () => {
-        db?.close();
+      //
+      // close()するだけでは`db`変数はこの（もう使えない）接続を指したまま残ってしまい、
+      // 以降の`isNeedInitialize`が「db有り」と誤認してこの閉じた接続で読み書きを試み、
+      // 失敗し続ける（"the database connection is closing"）。このコネクションが
+      // 依然として現在の`db`である場合に限り、`db`/`currentVersion`/`isInitialized`を
+      // リセットし、次回`ensureReady`が確実に再接続できるようにする（すでに新しい接続へ
+      // 差し替わっている場合、ここでリセットすると新しい接続を巻き添えで無効化してしまうため
+      // 対象外とする）
+      openedDb.onversionchange = () => {
+        openedDb.close();
+        if (db === openedDb) {
+          db = null;
+          currentVersion = -1;
+          isInitialized.value = false;
+        }
       };
 
       // 初回起動時に既存のDBがあった場合，onupgradeneededが呼ばれないため，再初期化の必要性を確認する

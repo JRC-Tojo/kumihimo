@@ -23,6 +23,10 @@ export async function seedCacheContainerWithFixturePdf(
   const containerName = options.containerName ?? `e2e-${Math.random().toString(36).slice(2)}`;
   const fileName = options.fileName ?? 'sample.pdf';
 
+  // ブラウザ内（`window.__kumihimoTest.api`経由）で`createContainer`→`loadContainer`→
+  // `saveFile`を順に実行し、フィクスチャPDFを1件持つ`cache`コンテナを用意する。
+  // Node側（Playwright）からではなくpage.evaluate内で行うのは、BackendApiがブラウザの
+  // IndexedDB上に構築されるインメモリ実装であり、Node側から直接操作する経路が無いため
   const result = await page.evaluate(
     async ({ containerName, fileName, fixtureSrc }) => {
       // 失敗時に`ApiResponseFailure.error`（key・元エラーのmessage）を投げるエラーに埋め込む。
