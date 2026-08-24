@@ -4,6 +4,7 @@
       <q-btn
         v-for="tool in editorStore.mainTools"
         :key="tool.id"
+        :data-testid="tool.id"
         flat
         :disable="tool.isDisable?.() ?? false"
         dense
