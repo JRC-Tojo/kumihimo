@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { registerAnnotation, seedCacheContainerWithFixturePdf } from '../support/seed';
-import { docPointToPagePosition, stageCanvas } from '../support/canvasCoords';
+import { docPointToPagePosition, stageCanvas, waitForCanvasReady } from '../support/canvasCoords';
 
 const PAGE_SIZE = { width: 400, height: 300 };
 const SRC_ID = '33333333-3333-4333-8333-333333333333';
@@ -47,7 +47,7 @@ test.describe('関係性機能', () => {
     await page.locator('[data-testid="select-mode"]').click();
 
     const canvas = stageCanvas(page);
-    await expect(canvas).toBeVisible();
+    await waitForCanvasReady(canvas);
     const beforePair = await canvas.screenshot();
 
     // 1つめのアノテーションを選択 -> 「等しい」を1クリックしてペアリング待機状態にする

@@ -25,18 +25,32 @@ export async function seedCacheContainerWithFixturePdf(
 
   const result = await page.evaluate(
     async ({ containerName, fileName, fixtureSrc }) => {
+      // 失敗時に`ApiResponseFailure.error`（key・元エラーのmessage）を投げるエラーに埋め込む。
+      // CI上での間欠的な失敗（特にloadContainer）は、再現待ちなしに実際の失敗理由が
+      // Playwrightのエラー出力からそのまま追えるようにしておく必要があるため
+      const describeFailure = (res: { error?: unknown }): string => {
+        const err = res.error as { key?: unknown; error?: { message?: unknown } } | undefined;
+        const key = typeof err?.key === 'string' ? err.key : undefined;
+        const message = typeof err?.error?.message === 'string' ? err.error.message : undefined;
+        return [key, message].filter(Boolean).join(': ') || JSON.stringify(res.error);
+      };
+
       const api = window.__kumihimoTest?.api;
       if (!api) throw new Error('__kumihimoTest hook is not available');
 
       const containerRes = await api.createContainer('cache', containerName, '/');
-      if (!containerRes.ok || !containerRes.data) throw new Error('createContainer failed');
+      if (!containerRes.ok || !containerRes.data) {
+        throw new Error(`createContainer failed: ${describeFailure(containerRes)}`);
+      }
       const containerId = containerRes.data.id;
 
       const loadRes = await api.loadContainer(containerId);
-      if (!loadRes.ok) throw new Error('loadContainer failed');
+      if (!loadRes.ok) throw new Error(`loadContainer failed: ${describeFailure(loadRes)}`);
 
       const fileRes = await api.saveFile(containerId, fileName, fixtureSrc);
-      if (!fileRes.ok || !fileRes.data) throw new Error('saveFile failed');
+      if (!fileRes.ok || !fileRes.data) {
+        throw new Error(`saveFile failed: ${describeFailure(fileRes)}`);
+      }
 
       return { containerId, file: fileRes.data };
     },

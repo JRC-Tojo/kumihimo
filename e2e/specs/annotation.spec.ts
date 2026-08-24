@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { registerAnnotation, seedCacheContainerWithFixturePdf } from '../support/seed';
-import { docPointToPagePosition, stageCanvas } from '../support/canvasCoords';
+import { docPointToPagePosition, stageCanvas, waitForCanvasReady } from '../support/canvasCoords';
 
 const PAGE_SIZE = { width: 400, height: 300 };
 
@@ -21,7 +21,7 @@ test.describe('アノテーション操作', () => {
     await page.locator('[data-testid="annotation-box"]').click();
 
     const canvas = stageCanvas(page);
-    await expect(canvas).toBeVisible();
+    await waitForCanvasReady(canvas);
 
     const start = await docPointToPagePosition(canvas, { x: 40, y: 40 }, PAGE_SIZE);
     const end = await docPointToPagePosition(canvas, { x: 160, y: 120 }, PAGE_SIZE);
@@ -62,7 +62,7 @@ test.describe('アノテーション操作', () => {
     await page.locator('[data-testid="select-mode"]').click();
 
     const canvas = stageCanvas(page);
-    await expect(canvas).toBeVisible();
+    await waitForCanvasReady(canvas);
 
     const from = await docPointToPagePosition(canvas, { x: 60, y: 60 }, PAGE_SIZE);
     const to = await docPointToPagePosition(canvas, { x: 200, y: 60 }, PAGE_SIZE);
@@ -104,6 +104,7 @@ test.describe('アノテーション操作', () => {
     await page.locator('[data-testid="select-mode"]').click();
 
     const canvas = stageCanvas(page);
+    await waitForCanvasReady(canvas);
     const pos = await docPointToPagePosition(canvas, { x: 60, y: 60 }, PAGE_SIZE);
     await page.mouse.click(pos.x, pos.y, { button: 'right' });
 

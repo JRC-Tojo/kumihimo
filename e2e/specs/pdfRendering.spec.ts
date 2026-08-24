@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { seedCacheContainerWithFixturePdf } from '../support/seed';
-import { stageCanvas } from '../support/canvasCoords';
+import { stageCanvas, waitForCanvasReady } from '../support/canvasCoords';
 import { hasVisibleContent } from '../support/pixelAssertions';
 
 test.describe('PDF文書のレンダリング', () => {
@@ -22,7 +22,7 @@ test.describe('PDF文書のレンダリング', () => {
     // `.tile-canvas`が追加で付く）。`canvas`要素のDOM順に依存する`.first()`は、注釈レイヤーの
     // 追加やタイル分割の実装変更で容易に別のcanvasを指してしまうため、クラス名で明示的に絞り込む
     const pdfCanvas = page.locator('.pdf-canvas:not(.tile-canvas)').first();
-    await expect(pdfCanvas).toBeVisible();
+    await waitForCanvasReady(pdfCanvas);
 
     // 実際にpdf.jsがページ内容（フィクスチャPDFの矩形＋テキスト）を描画した結果を検証する。
     // pdfManager.ts自体の座標変換ロジック（回転考慮等）はpdf.test.tsで別途検証済みのため、
@@ -46,7 +46,7 @@ test.describe('PDF文書のレンダリング', () => {
 
     // セレクタの選定理由は1つ目のテストのコメントを参照
     const pdfCanvas = page.locator('.pdf-canvas:not(.tile-canvas)').first();
-    await expect(pdfCanvas).toBeVisible();
+    await waitForCanvasReady(pdfCanvas);
     const page1Screenshot = await pdfCanvas.screenshot();
 
     await page.locator('.page-input').fill('2');
@@ -78,8 +78,8 @@ test.describe('PDF文書のレンダリング', () => {
     // セレクタの選定理由は1つ目のテストのコメントを参照
     const pdfCanvas = page.locator('.pdf-canvas:not(.tile-canvas)').first();
     const annotationCanvas = stageCanvas(page);
-    await expect(pdfCanvas).toBeVisible();
-    await expect(annotationCanvas).toBeVisible();
+    await waitForCanvasReady(pdfCanvas);
+    await waitForCanvasReady(annotationCanvas);
 
     const pdfBox = await pdfCanvas.boundingBox();
     const annotationBox = await annotationCanvas.boundingBox();

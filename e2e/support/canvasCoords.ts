@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 export interface DocPoint {
   x: number;
@@ -17,6 +17,22 @@ export interface DocSize {
  */
 export function stageCanvas(page: Page): Locator {
   return page.locator('.annotation-layer-wrapper canvas').first();
+}
+
+/**
+ * 描画系canvas（PDF描画・注釈レイヤーいずれも）が実際に表示されるまで待つ。
+ *
+ * `PdfPage.vue`は`canvasRendered`（pdf.jsによる初回`render()`完了後）まで
+ * `.annotation-layer-wrapper`自体をマウントしない（`v-if="canvasRendered"`）ため、
+ * これらのcanvasはDOM上に存在しない状態からスタートする。Playwrightの`expect`の既定タイムアウトは
+ * 5秒だが、CI環境（特にVite開発サーバーのコールドコンパイル直後、pdf.js/Konvaを初めて
+ * 読み込むタイミング）では初回描画がそれを超えることがあり、`toBeVisible()`が
+ * タイムアウトして「canvasの情報が取得できない」失敗につながっていた。この専用ヘルパーで
+ * 個別に長めのタイムアウトを与えることで、他の（描画を伴わない）通常のUI操作アサーションの
+ * タイムアウトは短いまま保つ
+ */
+export async function waitForCanvasReady(canvas: Locator, timeoutMs = 20_000): Promise<void> {
+  await expect(canvas).toBeVisible({ timeout: timeoutMs });
 }
 
 /**
