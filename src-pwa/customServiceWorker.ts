@@ -14,8 +14,16 @@ import {
 } from 'workbox-precaching';
 import { registerRoute, NavigationRoute } from 'workbox-routing';
 
-void self.skipWaiting();
+// 新しいService Workerはインストール後もwaiting状態を維持し、
+// クライアント側からのSKIP_WAITINGメッセージを受けてから有効化する
+// （中途半端な更新を防ぐため、自動でskipWaitingは呼ばない）
 void clientsClaim();
+
+self.addEventListener('message', (event) => {
+  if ((event.data as { type?: string } | undefined)?.type === 'SKIP_WAITING') {
+    void self.skipWaiting();
+  }
+});
 
 // Use with precache injection
 precacheAndRoute(self.__WB_MANIFEST);

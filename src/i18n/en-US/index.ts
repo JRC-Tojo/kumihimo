@@ -192,6 +192,12 @@ export default {
     failedToUpdateDocument: 'Failed to update document',
   },
 
+  // PWAの更新通知
+  pwa: {
+    updateAvailable: 'A new version is available. Reload to update.',
+    reload: 'Reload',
+  },
+
   // PDF Editor related
   pdfEditor: {
     tools: {
