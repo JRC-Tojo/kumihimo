@@ -6,7 +6,7 @@ import type {
   ContainerSkel,
 } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import type { AnnotationGroupID } from 'src/models/document/group';
+import type { AnnotationGroupID, GroupValueAggregation } from 'src/models/document/group';
 import type { Result } from 'src/models/error/result';
 import { Failure, NotFoundError, Success } from 'src/models/error/result';
 import type {
@@ -106,7 +106,7 @@ let groupRecordFixture:
   | {
       address: AnnotationBaseAddress;
       memberIds: AnnotationID[];
-      valueAggregation?: { type: 'sum' };
+      valueAggregation?: GroupValueAggregation;
     }
   | undefined;
 const getGroupAddressMock = mock((): Promise<Result<AnnotationBaseAddress>> =>
@@ -121,7 +121,7 @@ const getGroupRecordMock = mock(
     Result<{
       address: AnnotationBaseAddress;
       memberIds: AnnotationID[];
-      valueAggregation?: { type: 'sum' };
+      valueAggregation?: GroupValueAggregation;
     }>
   > =>
     Promise.resolve(
@@ -569,6 +569,59 @@ describe('グループを端点とする関係性', () => {
     if (!res.ok) return;
     expect(res.value.srcVal).toBe('5');
     expect(res.value.checkedRule?.isOK).toBe(true);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  it('valueAggregationが"formula"の場合、memberIds順のA, B...を使った式の結果で検証する', async () => {
+    containerRelaxation = NO_RELAXATION;
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = {
+      address: dummyAddress,
+      memberIds: [memberA, memberB],
+      valueAggregation: { type: 'formula', expression: 'A - B + 3' },
+    };
+    contentByAnnotId.set(memberA, '10');
+    contentByAnnotId.set(memberB, '4');
+    contentByAnnotId.set(idTarget, '9');
+
+    const res = await checkRelational({
+      relational: { srcID: groupId, targetID: idTarget, rule: { type: 'equal' } },
+      srcAddress: dummyAddress,
+      targetAddress: dummyAddress,
+    });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.srcVal).toBe('9');
+    expect(res.value.checkedRule?.isOK).toBe(true);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  it('valueAggregationが"formula"でメンバーの一部が欠損・未定義変数参照の場合はNGになる（unresolvable）', async () => {
+    containerRelaxation = NO_RELAXATION;
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = {
+      address: dummyAddress,
+      memberIds: [memberA, memberB],
+      valueAggregation: { type: 'formula', expression: 'A - C' },
+    };
+    contentByAnnotId.set(memberA, '10');
+    contentByAnnotId.set(memberB, '4');
+    contentByAnnotId.set(idTarget, '5');
+
+    const res = await checkRelational({
+      relational: { srcID: groupId, targetID: idTarget, rule: { type: 'equal' } },
+      srcAddress: dummyAddress,
+      targetAddress: dummyAddress,
+    });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.checkedRule?.isOK).toBe(false);
 
     notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
     groupRecordFixture = undefined;

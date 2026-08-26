@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  evaluateExpression,
   evaluateFormula,
   formatValueWithFormula,
   normalizeNumericString,
@@ -39,6 +40,30 @@ describe('evaluateFormula', () => {
     expect(evaluateFormula('', 5)).toBeUndefined();
     expect(evaluateFormula('foo(x)', 5)).toBeUndefined();
     expect(evaluateFormula('(x + 1', 5)).toBeUndefined();
+  });
+});
+
+describe('evaluateExpression', () => {
+  test('複数の名前付き変数を評価できる（グループの値算出方法の数式モードの例）', () => {
+    expect(evaluateExpression('A - B + 3', { A: 10, B: 4 })).toBe(9);
+    expect(evaluateExpression('(A + B) / 2', { A: 6, B: 4 })).toBe(5);
+  });
+
+  test('単一文字に限らず複数文字の変数名も識別子として扱える', () => {
+    expect(evaluateExpression('foo * 2', { foo: 3 })).toBe(6);
+  });
+
+  test('未定義の変数を参照した場合はundefinedを返す（ダングリング変数・削除済みメンバー相当）', () => {
+    expect(evaluateExpression('A + B', { A: 1 })).toBeUndefined();
+  });
+
+  test('0除算・不正な式はundefinedを返す', () => {
+    expect(evaluateExpression('A / 0', { A: 1 })).toBeUndefined();
+    expect(evaluateExpression('A +', { A: 1 })).toBeUndefined();
+  });
+
+  test('evaluateFormulaはevaluateExpressionの単一変数x版として同じ結果を返す', () => {
+    expect(evaluateFormula('x * 1.09', 100)).toBe(evaluateExpression('x * 1.09', { x: 100 }));
   });
 });
 

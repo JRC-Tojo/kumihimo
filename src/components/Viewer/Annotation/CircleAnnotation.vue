@@ -30,6 +30,10 @@ interface Props {
   // circle自体では未使用（頂点アンカーを持つline/arrow/polyline/polygon向けのprop）。
   // AnnotationLayer.vueが全種別共通で渡すため、KonvaのscaleとFallthroughで衝突しないよう宣言だけしておく
   stageScale?: number;
+  // 複数選択（グループ含む）の一員として共有Transformerでリサイズ中かどうか。trueの間は
+  // Transformer側のcenteredScalingに任せ、シェイプ自身のCtrl中心固定・正円維持補正を適用しない
+  // （scaleX!=scaleYのグループ変形では「常に正円を維持する」ことと両立しないため）
+  isGroupTransform?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -122,7 +126,7 @@ function syncNodeGeometry(node: Konva.Ellipse) {
   const scaleX = node.scaleX();
   const scaleY = node.scaleY();
 
-  if (ctrlKey.value && transformStartCenter.value) {
+  if (ctrlKey.value && transformStartCenter.value && !props.isGroupTransform) {
     const uniformScale = Math.max(scaleX, scaleY);
     const nextRadius = Math.max(5, Math.max(node.radiusX(), node.radiusY()) * uniformScale);
     node.setAttrs({

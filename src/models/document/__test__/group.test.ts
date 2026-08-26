@@ -21,6 +21,21 @@ describe('GroupValueAggregation', () => {
     expect(GroupValueAggregation.safeParse({ type: 'sum' }).success).toBeTrue();
   });
 
+  it("type: 'formula' をexpression付きでパースできる", () => {
+    const result = GroupValueAggregation.safeParse({ type: 'formula', expression: 'A - B + 3' });
+    expect(result.success).toBeTrue();
+  });
+
+  it("type: 'formula' はexpressionが空文字列だと拒否する", () => {
+    const result = GroupValueAggregation.safeParse({ type: 'formula', expression: '' });
+    expect(result.success).toBeFalse();
+  });
+
+  it("type: 'formula' はexpressionが無いと拒否する", () => {
+    const result = GroupValueAggregation.safeParse({ type: 'formula' });
+    expect(result.success).toBeFalse();
+  });
+
   it('未知のtypeは拒否する', () => {
     expect(GroupValueAggregation.safeParse({ type: 'average' }).success).toBeFalse();
   });

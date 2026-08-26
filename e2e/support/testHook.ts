@@ -30,13 +30,29 @@ export interface TestAnnotationStyle {
   id: string;
   type: string;
   pageNumber: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
   [key: string]: unknown;
+}
+
+export interface TestAnnotationInfo {
+  style: TestAnnotationStyle;
+  context: { text?: string | undefined };
 }
 
 export interface TestRelational {
   srcID: string;
   targetID: string;
   rule: { type: 'equal' | 'link' };
+}
+
+export interface TestAnnotationGroup {
+  id: string;
+  memberIds: string[];
+  valueAggregation?: { type: 'sum' } | { type: 'formula'; expression: string } | undefined;
+  [key: string]: unknown;
 }
 
 export interface KumihimoTestApi {
@@ -55,8 +71,20 @@ export interface KumihimoTestApi {
     file: TestContainerFile,
     style: TestAnnotationStyle,
   ): Promise<ApiResult<unknown>>;
+  removeAnnotation(annotID: string): Promise<ApiResult<void>>;
+  getAnnotationsByFile(file: TestContainerFile): Promise<ApiResult<TestAnnotationInfo[]>>;
   registRelationals(rel: TestRelational): Promise<ApiResult<unknown>>;
   getRelationalsInFile(file: TestContainerFile): Promise<ApiResult<TestRelational[]>>;
+  listAnnotationGroups(file: TestContainerFile): Promise<ApiResult<TestAnnotationGroup[]>>;
+  getAnnotationGroup(
+    file: TestContainerFile,
+    groupId: string,
+  ): Promise<ApiResult<TestAnnotationGroup>>;
+  groupAnnotations(
+    file: TestContainerFile,
+    annotationIds: string[],
+  ): Promise<ApiResult<{ group: TestAnnotationGroup; dissolvedGroups: TestAnnotationGroup[] }>>;
+  ungroupAnnotations(file: TestContainerFile, groupId: string): Promise<ApiResult<void>>;
 }
 
 export interface KumihimoTestRelationalStore {

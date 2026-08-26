@@ -67,8 +67,13 @@ void mock.module('src/repositories/db/annotationGroup', () => ({
   remapFilePath: mock(() => Promise.resolve(Success())),
 }));
 
-const { groupAnnotations, ungroupAnnotations, updateGroupValueAggregation } =
-  await import('../annotationGroup');
+const {
+  groupAnnotations,
+  ungroupAnnotations,
+  updateGroupValueAggregation,
+  restoreGroup,
+  removeGroupMembers,
+} = await import('../annotationGroup');
 
 const containerID = '00000000-0000-4000-8000-000000000000' as ContainerID;
 const file: ContainerElementFile = {
@@ -104,7 +109,7 @@ describe('groupAnnotations', () => {
 
     expect(res.value.group.memberIds.sort()).toEqual([idA, idB].sort());
     expect(res.value.group.valueAggregation).toBeUndefined();
-    expect(res.value.dissolvedGroupIds).toEqual([]);
+    expect(res.value.dissolvedGroups).toEqual([]);
 
     const saved = savedGroupsArg();
     expect(Object.values(saved).length).toBe(1);
@@ -143,7 +148,7 @@ describe('groupAnnotations', () => {
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
 
-    expect(res.value.dissolvedGroupIds).toEqual([existingGroupId]);
+    expect(res.value.dissolvedGroups).toEqual([existingGroup]);
     // 新しいグループはidA・idB・idCすべてを含む（idAはidBを介して統合される）
     expect(res.value.group.memberIds.sort()).toEqual([idA, idB, idC].sort());
 
@@ -215,5 +220,159 @@ describe('updateGroupValueAggregation', () => {
 
     const saved = savedGroupsArg();
     expect(saved[existingGroupId]?.valueAggregation).toEqual({ type: 'sum' });
+  });
+
+  it('undefinedを渡すと値算出方法を未設定に戻す', async () => {
+    const existingGroup: AnnotationGroup = {
+      id: existingGroupId,
+      memberIds: [idA, idB],
+      valueAggregation: { type: 'sum' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    documentConfigFileFixture = {
+      fileHash: 'hash',
+      annots: {},
+      bookmarks: {},
+      groups: { [existingGroupId]: existingGroup },
+      outlineImported: false,
+    };
+
+    const res = await updateGroupValueAggregation(file, existingGroupId, undefined);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.valueAggregation).toBeUndefined();
+  });
+});
+
+describe('restoreGroup', () => {
+  it('キャプチャ済みのグループ記録をそのままの内容で書き戻す', async () => {
+    documentConfigFileFixture = {
+      fileHash: 'hash',
+      annots: {},
+      bookmarks: {},
+      groups: {},
+      outlineImported: false,
+    };
+    const captured: AnnotationGroup = {
+      id: existingGroupId,
+      memberIds: [idA, idB],
+      valueAggregation: { type: 'sum' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+
+    const res = await restoreGroup(file, captured);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    // idや timestampを新規発行せず、渡した内容をそのまま返す
+    expect(res.value).toEqual(captured);
+
+    const saved = savedGroupsArg();
+    expect(saved[existingGroupId]).toEqual(captured);
+  });
+});
+
+describe('removeGroupMembers', () => {
+  it('指定したメンバーだけを取り除き、グループ自体は残す', async () => {
+    const existingGroup: AnnotationGroup = {
+      id: existingGroupId,
+      memberIds: [idA, idB, idC],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    documentConfigFileFixture = {
+      fileHash: 'hash',
+      annots: {},
+      bookmarks: {},
+      groups: { [existingGroupId]: existingGroup },
+      outlineImported: false,
+    };
+
+    const res = await removeGroupMembers(file, existingGroupId, [idC]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.memberIds.sort()).toEqual([idA, idB].sort());
+
+    const saved = savedGroupsArg();
+    expect(saved[existingGroupId]?.memberIds.sort()).toEqual([idA, idB].sort());
+  });
+
+  it('数式モードの値算出方法が設定されている場合、メンバー縮小に伴い未設定へ戻す（変数割当のずれを防ぐ）', async () => {
+    const existingGroup: AnnotationGroup = {
+      id: existingGroupId,
+      memberIds: [idA, idB, idC],
+      valueAggregation: { type: 'formula', expression: 'A - B + C' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    documentConfigFileFixture = {
+      fileHash: 'hash',
+      annots: {},
+      bookmarks: {},
+      groups: { [existingGroupId]: existingGroup },
+      outlineImported: false,
+    };
+
+    const res = await removeGroupMembers(file, existingGroupId, [idC]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.valueAggregation).toBeUndefined();
+  });
+
+  it('合計モードはメンバー縮小後も維持される（memberIdsの並び順に依存しないため）', async () => {
+    const existingGroup: AnnotationGroup = {
+      id: existingGroupId,
+      memberIds: [idA, idB, idC],
+      valueAggregation: { type: 'sum' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    documentConfigFileFixture = {
+      fileHash: 'hash',
+      annots: {},
+      bookmarks: {},
+      groups: { [existingGroupId]: existingGroup },
+      outlineImported: false,
+    };
+
+    const res = await removeGroupMembers(file, existingGroupId, [idC]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.valueAggregation).toEqual({ type: 'sum' });
+  });
+
+  it('残りメンバー数が最低数を下回る場合は失敗する', async () => {
+    const existingGroup: AnnotationGroup = {
+      id: existingGroupId,
+      memberIds: [idA, idB],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    documentConfigFileFixture = {
+      fileHash: 'hash',
+      annots: {},
+      bookmarks: {},
+      groups: { [existingGroupId]: existingGroup },
+      outlineImported: false,
+    };
+
+    const res = await removeGroupMembers(file, existingGroupId, [idB]);
+    expect(res.ok).toBeFalse();
+  });
+
+  it('存在しないグループIDを指定した場合はNotFoundErrorで失敗する', async () => {
+    documentConfigFileFixture = {
+      fileHash: 'hash',
+      annots: {},
+      bookmarks: {},
+      groups: {},
+      outlineImported: false,
+    };
+
+    const res = await removeGroupMembers(file, 'nope' as AnnotationGroupID, [idA]);
+    expect(res.ok).toBeFalse();
+    if (res.ok) return;
+    expect(res.error).toBeInstanceOf(NotFoundError);
   });
 });

@@ -4,13 +4,17 @@
  *
  * KonvaのTransformerは、アタッチされたノード同士でのみ`_proxyDrag`（ドラッグ開始時の絶対座標を
  * 記録し、次のdragmoveで delta を計算して他のアタッチ済みノードへ`setAbsolutePosition`+
- * `startDrag()`で伝播する仕組み）による同期移動を行う。しかし`AnnotationLayer.vue`は
- * `supportsTransformer: true`の種別（box/circle/text）しかTransformerにアタッチしないため、
- * line/arrow/polyline/polygonのようなGroup系はこの同期の輪の外にいる（issue #49）。
+ * `startDrag()`で伝播する仕組み）による同期移動を行う。元々`AnnotationLayer.vue`は
+ * `supportsTransformer: true`の種別（box/circle/text）しかTransformerにアタッチしなかったため、
+ * line/arrow/polyline/polygonのようなGroup系はこの同期の輪の外にいた（issue #49。本モジュールが
+ * 追加された理由）。その後アノテーショングループ化機能により、複数選択時は全種別が
+ * `canJoinGroupTransformer: true`として共有Transformerにアタッチされるようになったため、
+ * 現状は選択数が2件以上の間、下記の重複回避チェックによりこのモジュール自体は常にスキップされる
+ * （Konva本来の同期に一本化されている）。単一選択への揮発は起きないため、削除はせずそのまま残す
  *
  * 本モジュールはKonva Transformerと全く同じ手法を、選択中の全ノードに対して自前で適用する。
- * ただし「リーダー・フォロワーが共にTransformer対応型」の組み合わせはKonva本来の同期に
- * 既に処理されているため、二重に移動させないよう明示的にスキップする
+ * ただし「リーダー・フォロワーが共に共有Transformerに参加する種別」の組み合わせはKonva本来の
+ * 同期に既に処理されているため、二重に移動させないよう明示的にスキップする
  */
 import type Konva from 'konva';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
@@ -56,8 +60,8 @@ export function bindGroupDragSync(
     if (selectedIds.length <= 1 || !selectedIds.includes(id)) return;
 
     const leaderType = ctx.getAnnotationType(id);
-    const leaderSupportsTransformer = leaderType
-      ? ANNOTATION_REGISTRY[leaderType].supportsTransformer
+    const leaderJoinsGroupTransformer = leaderType
+      ? ANNOTATION_REGISTRY[leaderType].canJoinGroupTransformer
       : false;
 
     selectedIds.forEach((otherId) => {
@@ -65,9 +69,13 @@ export function bindGroupDragSync(
       const otherType = ctx.getAnnotationType(otherId);
       if (!otherType) return;
 
-      // リーダー・フォロワーが共にTransformer対応型の場合、KonvaのTransformerが
-      // 既に同期移動させているため、ここで重ねて動かすと二重にdeltaが適用されてしまう
-      if (leaderSupportsTransformer && ANNOTATION_REGISTRY[otherType].supportsTransformer) return;
+      // リーダー・フォロワーが共に複数選択時の共有Transformerに参加する種別の場合、
+      // KonvaのTransformerが既に同期移動させているため、ここで重ねて動かすと二重にdeltaが
+      // 適用されてしまう（グループ化機能の追加により全種別がcanJoinGroupTransformer:trueと
+      // なったため、実質的にこの関数は選択数>1の間は常にスキップする経路が中心になる）
+      if (leaderJoinsGroupTransformer && ANNOTATION_REGISTRY[otherType].canJoinGroupTransformer) {
+        return;
+      }
 
       const otherNode = ctx.getNode(otherId);
       if (!otherNode || otherNode.isDragging()) return;

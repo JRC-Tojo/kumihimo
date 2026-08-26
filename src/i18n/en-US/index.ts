@@ -396,6 +396,14 @@ export default {
           title: 'Group value aggregation',
           hint: 'Choose how to compute the representative value used when this group is an endpoint of an "equal" relation.',
           sum: 'Sum (add up the numeric values of the members)',
+          formula: 'Formula (build a free-form expression using variables A, B, C...)',
+          formulaLabel: 'Formula',
+          formulaHint:
+            'Build an expression using basic arithmetic and parentheses, referencing members by the variables A, B, C... assigned in member order (e.g. A - B + 3).',
+          formulaPreview: 'Calculated result preview',
+          formulaInvalid:
+            'The formula is invalid, or one of the members\' values could not be parsed as a number (an "equal" check will always fail until this is fixed).',
+          memberValuePending: '(loading)',
           saveFailed: 'Failed to save the aggregation method.',
         },
       },

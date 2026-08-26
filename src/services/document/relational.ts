@@ -25,10 +25,13 @@ import type { AnnotationGroupID } from 'src/models/document/group';
 import { resolveCachedContainerID } from 'src/services/document/containerIdResolver';
 import { relaxedEqual } from 'src/utils/text/relaxedCompare';
 import {
+  evaluateExpression,
   evaluateFormula,
   parseNumericValue,
   roundFormulaResult,
 } from 'src/utils/calculation/formula';
+import { letterForMemberIndex } from 'src/utils/calculation/groupFormula';
+import type { GroupValueAggregation } from 'src/models/document/group';
 
 /**
  * 読み込み中の関係性情報をすべて管理するDBを定義
@@ -90,7 +93,7 @@ async function resolveFileByAddress(
  * あるが、アノテーションDBは開いた文書のセッション中のキャッシュに過ぎないため、フォールバック先
  * として保存済みの確定データである`.kcfg`を読みにいく
  */
-async function ensureAnnotationInfo(
+export async function ensureAnnotationInfo(
   annotID: AnnotationID,
   address: AnnotationBaseAddress,
 ): Promise<Result<AnnotationInfo>> {
@@ -141,34 +144,59 @@ async function resolveEndpointAddress(
 /**
  * グループ全体を代表する値を、メンバーの値算出方法に従って算出する
  *
- * v1では合計（'sum'）のみをサポートする。欠損メンバーや非数値のメンバーは合計から除外する
- * （安全側に倒し、算出自体を失敗させない）
+ * 'sum'：欠損メンバーや非数値のメンバーは合計から除外する（安全側に倒し、算出自体を失敗させない）。
+ * 'formula'：`memberIds`の順序から導出した変数名（A, B, C...）で各メンバーの数値を参照する式を
+ * 評価する。'sum'と異なり、いずれかのメンバーが欠損・非数値の場合は式全体が意味を持たなくなる
+ * ため、部分的に除外するのではなく'unresolvable'として扱う（未定義変数参照・0除算・構文エラーも
+ * 同様にevaluateExpressionがundefinedを返すことで一括して'unresolvable'に落ちる）
  */
 async function resolveGroupValue(
   memberIds: AnnotationID[],
   groupAddress: AnnotationBaseAddress,
+  aggregation: GroupValueAggregation,
 ): Promise<EndpointValueState> {
-  const memberValues: number[] = [];
+  const memberValues: (number | undefined)[] = [];
   let anyPending = false;
 
   for (const memberId of memberIds) {
     const info = await ensureAnnotationInfo(memberId, groupAddress);
-    if (!info.ok) continue;
+    if (!info.ok) {
+      memberValues.push(undefined);
+      continue;
+    }
 
     const text = info.value.context.text;
     if (text === undefined) {
       anyPending = true;
+      memberValues.push(undefined);
       continue;
     }
 
-    const num = parseNumericValue(text.normalize('NFKC'));
-    if (num !== undefined) memberValues.push(num);
+    memberValues.push(parseNumericValue(text.normalize('NFKC')));
   }
 
   if (anyPending) return { status: 'pending' };
 
-  const sum = memberValues.reduce((a, b) => a + b, 0);
-  return { status: 'ready', value: String(sum) };
+  if (aggregation.type === 'sum') {
+    const sum = memberValues.reduce<number>((total, value) => total + (value ?? 0), 0);
+    return { status: 'ready', value: String(sum) };
+  }
+
+  const variables: Record<string, number> = {};
+  let missingMember = false;
+  memberIds.forEach((_, index) => {
+    const value = memberValues[index];
+    if (value === undefined) {
+      missingMember = true;
+      return;
+    }
+    variables[letterForMemberIndex(index)] = value;
+  });
+  if (missingMember) return { status: 'unresolvable' };
+
+  const result = evaluateExpression(aggregation.expression, variables);
+  if (result === undefined) return { status: 'unresolvable' };
+  return { status: 'ready', value: String(roundFormulaResult(result)) };
 }
 
 /**
@@ -189,7 +217,13 @@ async function resolveEndpointValue(
   if (!group.ok) return group;
   if (group.value.valueAggregation === undefined) return Success({ status: 'unresolvable' });
 
-  return Success(await resolveGroupValue(group.value.memberIds, group.value.address));
+  return Success(
+    await resolveGroupValue(
+      group.value.memberIds,
+      group.value.address,
+      group.value.valueAggregation,
+    ),
+  );
 }
 
 /**
@@ -372,6 +406,57 @@ export async function getAnnotationPageNumber(id: RelationalEndpointID): Promise
   const memberInfo = await ensureAnnotationInfo(firstMemberId, group.value.address);
   if (!memberInfo.ok) return memberInfo;
   return Success(memberInfo.value.style.pageNumber);
+}
+
+/**
+ * 関係性の端点（アノテーションまたはグループ）の周辺プレビュー画像を取得する
+ *
+ * アノテーションの場合は通常通り単体の周辺プレビューを返す。グループの場合は、
+ * 代表ページ（先頭メンバーのページ。getAnnotationPageNumberと同じ方針）上の各メンバーを
+ * まとめて強調表示したプレビューを生成する（他ページのメンバーは対象外とする）。
+ *
+ * `src/repositories/document/pdf`（pdf.js経由で重い）は、このファイルの他の関数が
+ * 動作上依存しない実行時にのみ読み込むよう動的importにする。relational.test.tsは
+ * 単体テストのために`annotationGroup`等の重い依存を意図的にモック化しているが、
+ * 静的importにすると常にpdf.jsの実体が読み込まれてしまいそのモック化の意味が失われるため
+ */
+export async function getRelationalEndpointPreviewImage(
+  id: RelationalEndpointID,
+  scale = 2,
+): Promise<Result<string>> {
+  const { extractAnnotationContextPreview, extractGroupContextPreview } =
+    await import('src/repositories/document/pdf');
+
+  const address = await resolveEndpointAddress(id);
+  if (!address.ok) return address;
+
+  const fileSrc = await containerService.loadFileAsDocumentSource(
+    address.value.cID,
+    address.value.filePath,
+  );
+  if (!fileSrc.ok) return fileSrc;
+  const fileIdentity = { containerID: address.value.cID, path: address.value.filePath };
+
+  const info = await ensureAnnotationInfo(id as AnnotationID, address.value);
+  if (info.ok) {
+    return extractAnnotationContextPreview(fileIdentity, fileSrc.value, info.value.style, scale);
+  }
+  if (!(info.error instanceof NotFoundError)) return info;
+
+  const group = await annotationGroupService.getGroupRecord(id as AnnotationGroupID);
+  if (!group.ok) return group;
+
+  const memberInfos = await Promise.all(
+    group.value.memberIds.map((memberId) => ensureAnnotationInfo(memberId, group.value.address)),
+  );
+  const memberStyles = memberInfos.flatMap((r) => (r.ok ? [r.value.style] : []));
+  const representativePage = memberStyles[0]?.pageNumber;
+  if (representativePage === undefined) {
+    return Failure(new NotFoundError('No resolvable group members'));
+  }
+  const samePageStyles = memberStyles.filter((s) => s.pageNumber === representativePage);
+
+  return extractGroupContextPreview(fileIdentity, fileSrc.value, samePageStyles, scale);
 }
 
 /**

@@ -687,6 +687,17 @@ class BackendApi {
     return toApiResponse(res, 'DOC_ANNOT_PREVIEW_FAILED');
   }
 
+  /**
+   * 関係性の端点（アノテーションまたはグループ）の周辺プレビュー画像（PNG dataURL）を取得する
+   */
+  async getRelationalEndpointPreviewImage(
+    id: RelationalEndpointID,
+    scale?: number,
+  ): Promise<ApiResponse<string>> {
+    const res = await relationalService.getRelationalEndpointPreviewImage(id, scale);
+    return toApiResponse(res, 'DOC_ANNOT_PREVIEW_FAILED');
+  }
+
   // ============ グループ操作 ============
 
   /**
@@ -717,16 +728,39 @@ class BackendApi {
   async groupAnnotations(
     file: ContainerElementFile,
     annotationIds: AnnotationID[],
-  ): Promise<ApiResponse<AnnotationGroup>> {
+  ): Promise<ApiResponse<{ group: AnnotationGroup; dissolvedGroups: AnnotationGroup[] }>> {
     const res = await annotationGroupService.groupAnnotations(file, annotationIds);
     if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_GROUP_FAILED');
 
-    for (const dissolvedId of res.value.dissolvedGroupIds) {
-      const cleanupRes = await relationalService.removeRelationalsForAnnotation(dissolvedId);
+    for (const dissolved of res.value.dissolvedGroups) {
+      const cleanupRes = await relationalService.removeRelationalsForAnnotation(dissolved.id);
       if (!cleanupRes.ok) return toApiResponse(cleanupRes, 'RELATIONAL_REMOVE_FAILED');
     }
 
-    return toApiResponse(Success(res.value.group));
+    return toApiResponse(Success(res.value));
+  }
+
+  /**
+   * キャプチャ済みのグループ記録をそのままの内容で復元する（Undo/Redoのリプレイ専用）
+   */
+  async restoreGroup(
+    file: ContainerElementFile,
+    group: AnnotationGroup,
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.restoreGroup(file, group);
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_FAILED');
+  }
+
+  /**
+   * 既存グループから特定のメンバーを取り除く（グループ自体は解散しない部分更新）
+   */
+  async removeGroupMembers(
+    file: ContainerElementFile,
+    groupId: AnnotationGroupID,
+    memberIdsToRemove: AnnotationID[],
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.removeGroupMembers(file, groupId, memberIdsToRemove);
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_FAILED');
   }
 
   /**
@@ -753,7 +787,7 @@ class BackendApi {
   async updateGroupValueAggregation(
     file: ContainerElementFile,
     groupId: AnnotationGroupID,
-    aggregation: GroupValueAggregation,
+    aggregation: GroupValueAggregation | undefined,
   ): Promise<ApiResponse<AnnotationGroup>> {
     const res = await annotationGroupService.updateGroupValueAggregation(
       file,

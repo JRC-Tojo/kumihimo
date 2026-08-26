@@ -93,6 +93,7 @@ import { useGroupStore } from 'src/stores/groupStore';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
+import type { RelationalEndpointID } from 'src/models/relational/fileSchema';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
 import {
   RELATIONAL_STATUS_MESSAGE_KEY,
@@ -489,9 +490,9 @@ async function scrollToAnnotation(annotId: AnnotationID) {
 // ================================
 
 /**
- * 待機中の基準アノテーションと対象アノテーションの間に関係性を登録する
+ * 待機中の基準端点と対象端点（いずれもアノテーションまたはグループ）の間に関係性を登録する
  */
-async function finishRelational(targetId: AnnotationID) {
+async function finishRelational(targetId: RelationalEndpointID) {
   const srcId = editorStore.relationalPendingId;
   const mode = editorStore.relationalMode;
   const pendingFile = editorStore.relationalPendingFile;
@@ -608,6 +609,8 @@ async function registRelationalBySelect(
     editorStore.relationalMode,
     editorStore.relationalPendingId,
     selectedIds,
+    (id) => groupStore.memberSet(fileKey(prop.file), id) ?? new Set([id as AnnotationID]),
+    (ids) => groupStore.matchingGroup(fileKey(prop.file), ids)?.id,
   );
   if (targetId === undefined) return;
 
@@ -622,12 +625,17 @@ async function handleAnnotationsChanged(
   oldAnnots: AnnotationStyle[],
   originSide: LayoutSide,
 ) {
-  // 待機中の基準アノテーションが（このファイル内で）削除された場合は待機を解除する
-  if (
-    editorStore.relationalPendingId !== undefined &&
-    isRelationalPendingFile() &&
-    !newAnnots.some((annot) => annot.id === editorStore.relationalPendingId)
-  ) {
+  // 待機中の基準端点（アノテーションまたはグループ）が（このファイル内で）削除された場合は
+  // 待機を解除する。基準がグループの場合、そのグループのIDはnewAnnotsのどのアノテーションの
+  // idとも一致しないため、アノテーション一覧だけでなくgroupStoreのキャッシュも確認する
+  // （groupStore側の判定に頼るため、実際の基準端点の削除だけでなく、グループの解散・
+  // メンバー変更によるgroupStore更新のタイミング次第でここに来る点に注意）
+  const pendingId = editorStore.relationalPendingId;
+  const pendingEndpointStillExists =
+    pendingId === undefined ||
+    newAnnots.some((annot) => annot.id === pendingId) ||
+    groupStore.groupContaining(fileKey(prop.file), pendingId) !== undefined;
+  if (pendingId !== undefined && isRelationalPendingFile() && !pendingEndpointStillExists) {
     editorStore.cancelRelationalPending();
     return;
   }

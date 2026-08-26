@@ -38,6 +38,13 @@ export interface AnnotationTypeModule {
   mainToolIcon: string;
   /** trueの場合、選択時に共有のv-transformerでリサイズする。falseの場合は各コンポーネントが個別のアンカーでリサイズ・編集を行う */
   supportsTransformer: boolean;
+  /**
+   * trueの場合、複数選択（グループ含む）時のみ共有のv-transformerに参加し、選択範囲全体で
+   * まとめてリサイズできるようにする。単一選択時の挙動（`supportsTransformer`）とは独立しており、
+   * line/arrow/polyline/polygonのように単体では個別アンカー編集を使う種別でも、
+   * 複数選択時はこちらの値で判定する
+   */
+  canJoinGroupTransformer: boolean;
   /** trueの場合、ダブルクリックでAnnotationLayer.vueが管理するテキスト編集用<textarea>オーバーレイを開く */
   supportsInlineTextEdit: boolean;
 }
@@ -50,6 +57,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'check_box_outline_blank',
     mainToolIcon: 'crop_square',
     supportsTransformer: true,
+    canJoinGroupTransformer: true,
     supportsInlineTextEdit: false,
   },
   line: {
@@ -59,6 +67,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'horizontal_rule',
     mainToolIcon: 'edit',
     supportsTransformer: false,
+    canJoinGroupTransformer: true,
     supportsInlineTextEdit: false,
   },
   circle: {
@@ -68,6 +77,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'circle',
     mainToolIcon: 'circle',
     supportsTransformer: true,
+    canJoinGroupTransformer: true,
     supportsInlineTextEdit: false,
   },
   arrow: {
@@ -77,6 +87,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'north_east',
     mainToolIcon: 'north_east',
     supportsTransformer: false,
+    canJoinGroupTransformer: true,
     supportsInlineTextEdit: false,
   },
   polyline: {
@@ -86,6 +97,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'timeline',
     mainToolIcon: 'timeline',
     supportsTransformer: false,
+    canJoinGroupTransformer: true,
     supportsInlineTextEdit: false,
   },
   polygon: {
@@ -95,6 +107,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'change_history',
     mainToolIcon: 'change_history',
     supportsTransformer: false,
+    canJoinGroupTransformer: true,
     supportsInlineTextEdit: false,
   },
   text: {
@@ -104,6 +117,7 @@ export const ANNOTATION_REGISTRY: Record<AnnotationStyle['type'], AnnotationType
     icon: 'font_download',
     mainToolIcon: 'text_fields',
     supportsTransformer: true,
+    canJoinGroupTransformer: true,
     supportsInlineTextEdit: true,
   },
 };

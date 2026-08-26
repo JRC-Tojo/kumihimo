@@ -29,9 +29,12 @@
           :annotation="annotation"
           :is-editing="isEditing"
           :is-selected="selectedAnnotIds.includes(annotation.id)"
+          :is-group-transform="
+            isMultiTransformSelection && selectedAnnotIds.includes(annotation.id)
+          "
           :allow-drag="canDragUnselected"
           :stage-scale="props.scale"
-          @update="onRegisterAnnot"
+          @update="onShapeUpdate"
           @delete="onRemoveAnnot"
         />
       </AnnotationBlendLayer>
@@ -49,11 +52,16 @@
         <v-rect v-if="selectionBox.visible" :config="selectionBoxConfig" />
 
         <!-- Ctrl+drag複製のプレビュー: 複製元は一切変更せず、ドラッグ解除位置に複製されるまでの
-             見た目上のプレビューのみをここに重ねて表示する（非対話・半透明） -->
-        <v-group v-if="duplicatePreviewAnnotation" :config="{ opacity: 0.55, listening: false }">
+             見た目上のプレビューのみをここに重ねて表示する（非対話・半透明）。複数選択・グループの
+             複製時はソースごとに個別のゴーストを重ねる近似表示とする（結合バウンディングボックスではない） -->
+        <v-group
+          v-for="previewAnnotation in duplicatePreviewAnnotations"
+          :key="previewAnnotation.id"
+          :config="{ opacity: 0.55, listening: false }"
+        >
           <component
-            :is="ANNOTATION_REGISTRY[duplicatePreviewAnnotation.type].component"
-            :annotation="duplicatePreviewAnnotation"
+            :is="ANNOTATION_REGISTRY[previewAnnotation.type].component"
+            :annotation="previewAnnotation"
             :is-editing="false"
             :is-selected="false"
             :allow-drag="false"
@@ -99,7 +107,6 @@ import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/mod
 import type { ContainerElementFile } from 'src/models/container';
 import {
   ANNOTATION_GEOMETRY,
-  duplicateAnnotation,
   type ClickPointsDrawModule,
   type Point,
 } from 'src/components/Viewer/Annotation/annotationGeometry';
@@ -128,13 +135,24 @@ interface Props {
   // 見た目上のズーム倍率そのものではない点に注意（PdfPage.vueのrenderScaleを参照）
   scale: number;
   onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
+  // 複数シェイプの同時ドラッグ/リサイズ（グループ・複数選択）をまとめて1件の
+  // Undoステップとして記録するためのバッチ登録コールバック（onShapeUpdate参照）
+  onRegisterAnnotBatch: (annots: AnnotationStyle[]) => Promise<void>;
+  // Ctrl+drag複製の確定処理（貼り付けと同じパイプラインで新規作成・グループ再作成・
+  // Undo記録までを行い、実際に作成されたアノテーション一覧を返す）
+  onDuplicateBatch: (
+    sources: AnnotationStyle[],
+    offset: { dx: number; dy: number },
+    page: number,
+    isGroup: boolean,
+  ) => Promise<AnnotationStyle[]>;
   onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
 }
 
 const props = defineProps<Props>();
 const editorStore = useEditorStore();
 const api = useBackendApi();
-const { shiftKey } = useModifierKeys();
+const { shiftKey, ctrlKey } = useModifierKeys();
 
 /**
  * Shiftキー押下中のみ、基準点からの水平・垂直方向に移動を制限する
@@ -143,6 +161,36 @@ const { shiftKey } = useModifierKeys();
 function applyShiftAxisLock(basePoint: Point | undefined | null, pos: Point): Point {
   if (!shiftKey.value || !basePoint) return pos;
   return lockToDominantAxis(basePoint, pos);
+}
+
+// 複数選択（グループ含む）のドラッグ/リサイズは、対象シェイプの数だけ個別にonUpdateが
+// 発火する。1回のジェスチャーで動いた分をまとめて1件のUndoステップにするため、
+// 同一tick内に届いたupdateを一旦バッファし、nextTickでまとめてonRegisterAnnotBatchへ渡す
+// （リーダー・フォロワーいずれのdragend/transformendも同一のmouseup内で同期的に発火するため、
+// 1回のnextTickフラッシュで1ジェスチャー分を漏れなく拾える）
+const pendingBatchUpdates = new Map<AnnotationID, AnnotationStyle>();
+let batchFlushScheduled = false;
+
+function flushBatchUpdates(): void {
+  batchFlushScheduled = false;
+  if (pendingBatchUpdates.size === 0) return;
+  const batch = Array.from(pendingBatchUpdates.values());
+  pendingBatchUpdates.clear();
+  if (batch.length === 1) void props.onRegisterAnnot(batch[0]!);
+  else void props.onRegisterAnnotBatch(batch);
+}
+
+function onShapeUpdate(annot: AnnotationStyle): void {
+  const ids = selectedAnnotIds.value;
+  if (ids.length > 1 && ids.includes(annot.id)) {
+    pendingBatchUpdates.set(annot.id, annot);
+    if (!batchFlushScheduled) {
+      batchFlushScheduled = true;
+      void nextTick(flushBatchUpdates);
+    }
+  } else {
+    void props.onRegisterAnnot(annot);
+  }
 }
 
 const page = defineModel<number>('page', { required: true });
@@ -225,18 +273,23 @@ const TWO_POINT_DRAG_MIN_DURATION_MS = 150;
 const ctrlDragCandidate = ref<{ id: AnnotationID; stagePos: { x: number; y: number } } | null>(
   null,
 );
-const duplicateDragSource = ref<AnnotationStyle | null>(null);
+// Ctrl+drag複製の対象。複製開始時点で複数選択（グループ含む）の一部だった場合は選択範囲全体を、
+// そうでなければクリックされた1件のみを保持する
+const duplicateDragSources = ref<AnnotationStyle[] | null>(null);
+// 複製元の選択がまるごと1つのグループだった場合、複製後に同じ値算出方法で新しいグループを作り直す
+const duplicateDragWasGroup = ref(false);
 const duplicateDragStageStart = ref<{ x: number; y: number } | null>(null);
 const duplicateDragOffsetDoc = ref<Point>({ x: 0, y: 0 });
 // 複製元は一切変更せず、ドラッグ位置に追従する見た目上のプレビューのみを別途描画する
-const duplicatePreviewAnnotation = computed<AnnotationStyle | null>(() => {
-  const source = duplicateDragSource.value;
-  if (!source) return null;
-  return {
+// （結合バウンディングボックスではなく、ソースごとの簡易プレビューを重ねる近似表示とする）
+const duplicatePreviewAnnotations = computed<AnnotationStyle[]>(() => {
+  const sources = duplicateDragSources.value;
+  if (!sources) return [];
+  return sources.map((source) => ({
     ...source,
     x: source.x + duplicateDragOffsetDoc.value.x,
     y: source.y + duplicateDragOffsetDoc.value.y,
-  };
+  }));
 });
 
 const isDrawing = ref(false);
@@ -292,6 +345,9 @@ watch(
   },
   { immediate: true },
 );
+// 複数選択（グループ含む）かどうか。共有Transformerの対応可否判定（canJoinGroupTransformer vs
+// supportsTransformer）とCtrl中心固定リサイズの両方で使う
+const isMultiTransformSelection = computed(() => selectedAnnotIds.value.length > 1);
 const transformerConfig = computed(() => ({
   ignoreStroke: true,
   rotationSnaps: [
@@ -301,6 +357,9 @@ const transformerConfig = computed(() => ({
   // コーナードラッグは既定で自由変形にする（要件5）。Konva標準の`keepRatio() || e.shiftKey`により、
   // Shift押下時のみ縦横比維持に自動的に切り替わる（要件6。追加実装不要）
   keepRatio: false,
+  // 複数選択（グループ含む）のリサイズ中、Ctrl押下で選択範囲全体の中心を固定してスケールする
+  // （単一選択時のCtrl中心固定は各シェイプ自身のuseAnnotationShape.ts等の補正に任せるため無効のまま）
+  centeredScaling: isMultiTransformSelection.value && ctrlKey.value,
 }));
 const selectedTransformableIds = computed(() =>
   props.annotations
@@ -781,8 +840,10 @@ function handleMouseMove(e: KonvaMouseEvent) {
     });
   }
 
-  // Ctrl+クリック候補がしきい値を超えて動いたら、複製プレビューへ昇格させる
-  if (ctrlDragCandidate.value && !duplicateDragSource.value) {
+  // Ctrl+クリック候補がしきい値を超えて動いたら、複製プレビューへ昇格させる。
+  // クリックされたシェイプが現在の複数選択（グループ含む）に含まれている場合は選択範囲全体を、
+  // そうでなければクリックされた1件のみを複製対象にする
+  if (ctrlDragCandidate.value && !duplicateDragSources.value) {
     const stage = e.target?.getStage();
     const pos = stage?.getPointerPosition();
     if (pos) {
@@ -790,17 +851,23 @@ function handleMouseMove(e: KonvaMouseEvent) {
       const dx = pos.x - candidate.stagePos.x;
       const dy = pos.y - candidate.stagePos.y;
       if (Math.hypot(dx, dy) > DUPLICATE_DRAG_THRESHOLD_PX) {
-        const source = props.annotations.find((a) => a.id === candidate.id);
+        const ids = selectedAnnotIds.value;
+        const sources =
+          ids.length > 1 && ids.includes(candidate.id)
+            ? props.annotations.filter((a) => ids.includes(a.id))
+            : props.annotations.filter((a) => a.id === candidate.id);
         ctrlDragCandidate.value = null;
-        if (source) {
-          duplicateDragSource.value = source;
+        if (sources.length > 0) {
+          duplicateDragSources.value = sources;
+          duplicateDragWasGroup.value =
+            groupStore.matchingGroup(fileKey(props.file), ids) !== undefined;
           duplicateDragStageStart.value = candidate.stagePos;
         }
       }
     }
   }
 
-  if (duplicateDragSource.value && duplicateDragStageStart.value) {
+  if (duplicateDragSources.value && duplicateDragStageStart.value) {
     const stage = e.target?.getStage();
     const pos = stage?.getPointerPosition();
     if (pos) {
@@ -914,22 +981,18 @@ function handleMouseMove(e: KonvaMouseEvent) {
 }
 
 function handleMouseUp(e: KonvaMouseEvent) {
-  if (duplicateDragSource.value) {
-    const source = duplicateDragSource.value;
-    const offset = duplicateDragOffsetDoc.value;
-    duplicateDragSource.value = null;
+  if (duplicateDragSources.value) {
+    const sources = duplicateDragSources.value;
+    const isGroup = duplicateDragWasGroup.value;
+    const offset = { dx: duplicateDragOffsetDoc.value.x, dy: duplicateDragOffsetDoc.value.y };
+    duplicateDragSources.value = null;
+    duplicateDragWasGroup.value = false;
     duplicateDragStageStart.value = null;
     duplicateDragOffsetDoc.value = { x: 0, y: 0 };
     pendingPointerTarget.value = null;
 
-    const duplicated = duplicateAnnotation(
-      source,
-      page.value,
-      source.x + offset.x,
-      source.y + offset.y,
-    );
-    void props.onRegisterAnnot(duplicated).then(() => {
-      selectedAnnotIds.value = [duplicated.id];
+    void props.onDuplicateBatch(sources, offset, page.value, isGroup).then((created) => {
+      if (created.length > 0) selectedAnnotIds.value = created.map((a) => a.id);
     });
     return;
   }
@@ -1125,10 +1188,13 @@ function syncTransformerSelection() {
   const transformer = transformerRef.value?.getNode();
   if (!transformer) return;
 
+  const isMulti = isMultiTransformSelection.value;
   const nodes = selectedTransformableIds.value
     .filter((id) => {
       const annotation = props.annotations.find((a) => a.id === id);
-      return annotation !== undefined && ANNOTATION_REGISTRY[annotation.type].supportsTransformer;
+      if (annotation === undefined) return false;
+      const module = ANNOTATION_REGISTRY[annotation.type];
+      return isMulti ? module.canJoinGroupTransformer : module.supportsTransformer;
     })
     .map((id) => annotationRefs.get(id)?.getNode())
     .filter((node): node is Konva.Node => Boolean(node));

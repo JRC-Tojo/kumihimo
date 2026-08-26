@@ -9,8 +9,8 @@ import type {
   ViewMode,
 } from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
-import type { AnnotationGroupID } from 'src/models/document/group';
-import type { RelationalRule } from 'src/models/relational/fileSchema';
+import type { AnnotationGroupID, GroupValueAggregation } from 'src/models/document/group';
+import type { RelationalEndpointID, RelationalRule } from 'src/models/relational/fileSchema';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { Path } from 'src/utils/binary/path';
 import { useHistoryStore } from './historyStore';
@@ -163,8 +163,8 @@ export const useEditorStore = defineStore('editor', {
 
     // 関係性機能の状態
     relationalMode: undefined as RelationalType,
-    // 関係性登録で基準となるアノテーションID（対になるアノテーションの待機中のみ設定される）
-    relationalPendingId: undefined as AnnotationID | undefined,
+    // 関係性登録で基準となる端点ID（アノテーションまたはグループ。対になる相手の待機中のみ設定される）
+    relationalPendingId: undefined as RelationalEndpointID | undefined,
     // 待機中の基準アノテーションが属するファイル（複数タブ表示時に待機の発生元を判別するために保持）
     relationalPendingFile: undefined as ContainerElementFile | undefined,
     // 連続定義モード（関係性ボタンのダブルクリックで開始）。有効な間は1組の関係性が確定して待機が
@@ -175,7 +175,7 @@ export const useEditorStore = defineStore('editor', {
     // 直前に関係性が確定した際の対象アノテーションID。連続定義モードが選択変化を監視する際、
     // 「ペア確定直後に選択され続けているだけの対象」を新たな起点として誤って再利用しないための
     // 目印（対象そのものが変わるまでの一時的なマーカー）
-    relationalLastPairedId: undefined as AnnotationID | undefined,
+    relationalLastPairedId: undefined as RelationalEndpointID | undefined,
 
     // 削除によるタブクローズの対象（tabKey）。DocumentTabView等がonBeforeUnmount時に
     // 「削除によるクローズか、通常のタブクローズか」を判別するための一時的なマーカー
@@ -189,6 +189,10 @@ export const useEditorStore = defineStore('editor', {
 
     // アノテーションのアプリ内クリップボード（OSクリップボードは使わない。explorerStore.clipboardと同じ思想）
     annotationClipboard: null as AnnotationStyle[] | null,
+    // コピー時の選択範囲がまるごと1つのグループだった場合、貼り付け/複製時にグループを
+    // 再作成するための情報（部分選択のコピーはundefinedのままバラのアノテーションとして扱う）
+    annotationClipboardGroupInfo: undefined as
+      { valueAggregation?: GroupValueAggregation | undefined } | undefined,
 
     // タブごとに、カーソルが最後にPDFページ上でホバーしていた位置（文書座標）を記録する
     // （tabViewStatesと同じくtabKey単位で保持する）。選択中のアノテーションが無い状態で
@@ -303,8 +307,8 @@ export const useEditorStore = defineStore('editor', {
     /**
      * 対になるアノテーションの待機状態を開始する
      */
-    startRelationalPending(annotId: AnnotationID, file: ContainerElementFile): void {
-      this.relationalPendingId = annotId;
+    startRelationalPending(endpointId: RelationalEndpointID, file: ContainerElementFile): void {
+      this.relationalPendingId = endpointId;
       this.relationalPendingFile = file;
     },
 
@@ -677,8 +681,12 @@ export const useEditorStore = defineStore('editor', {
     /**
      * アノテーションのアプリ内クリップボードにコピーする
      */
-    setAnnotationClipboard(items: AnnotationStyle[]): void {
+    setAnnotationClipboard(
+      items: AnnotationStyle[],
+      groupInfo?: { valueAggregation?: GroupValueAggregation | undefined },
+    ): void {
       this.annotationClipboard = items;
+      this.annotationClipboardGroupInfo = groupInfo;
     },
 
     /**
@@ -686,6 +694,7 @@ export const useEditorStore = defineStore('editor', {
      */
     clearAnnotationClipboard(): void {
       this.annotationClipboard = null;
+      this.annotationClipboardGroupInfo = undefined;
     },
 
     /**

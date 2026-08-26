@@ -112,24 +112,25 @@ function withoutGroups(
  *
  * 選択範囲に既存グループのメンバーが含まれていた場合、そのグループは解散して
  * メンバーを新しいグループへ統合する（ネストは発生させない）。呼び出し側は戻り値の
- * `dissolvedGroupIds`について、関係性の孤立除去（`relationalService.removeRelationalsForAnnotation`）
- * を実行すること（レイヤー境界を越えた呼び出しになるため、循環importを避けてここでは行わない）
+ * `dissolvedGroups`について、関係性の孤立除去（`relationalService.removeRelationalsForAnnotation`）
+ * を実行すること（レイヤー境界を越えた呼び出しになるため、循環importを避けてここでは行わない）。
+ * Undo/Redoが解散したグループを正確に復元できるよう、IDだけでなく完全なレコードを返す
  */
 export async function groupAnnotations(
   file: ContainerElementFile,
   annotationIds: AnnotationID[],
-): Promise<Result<{ group: AnnotationGroup; dissolvedGroupIds: AnnotationGroupID[] }>> {
+): Promise<Result<{ group: AnnotationGroup; dissolvedGroups: AnnotationGroup[] }>> {
   const configRes = await loadConfig(file);
   if (!configRes.ok) return configRes;
 
   const candidate = new Set(annotationIds);
   const existingGroups = Object.values(configRes.value.groups);
-  const dissolvedGroupIds: AnnotationGroupID[] = [];
+  const dissolvedGroups: AnnotationGroup[] = [];
 
   existingGroups.forEach((g) => {
     const overlaps = g.memberIds.some((id) => candidate.has(id));
     if (!overlaps) return;
-    dissolvedGroupIds.push(g.id);
+    dissolvedGroups.push(g);
     g.memberIds.forEach((id) => candidate.add(id));
   });
 
@@ -150,7 +151,7 @@ export async function groupAnnotations(
   };
 
   const updatedGroups = {
-    ...withoutGroups(configRes.value.groups, new Set(dissolvedGroupIds)),
+    ...withoutGroups(configRes.value.groups, new Set(dissolvedGroups.map((g) => g.id))),
     [newGroup.id]: newGroup,
   };
 
@@ -168,7 +169,95 @@ export async function groupAnnotations(
   const cacheRes = await annotationGroupRepository.upsertGroups(file, Object.values(updatedGroups));
   if (!cacheRes.ok) return cacheRes;
 
-  return Success({ group: newGroup, dissolvedGroupIds });
+  return Success({ group: newGroup, dissolvedGroups });
+}
+
+/**
+ * キャプチャ済みのグループ記録をそのままの内容で復元する（新しいidやtimestampは発行しない）
+ *
+ * `groupAnnotations`は呼び出すたびに新しいid・timestampを発行するため、
+ * Undo/Redoで「以前存在したグループをそっくり復元する」用途には使えない。
+ * その代わりに使う、状態のリプレイ専用の基本操作
+ */
+export async function restoreGroup(
+  file: ContainerElementFile,
+  group: AnnotationGroup,
+): Promise<Result<AnnotationGroup>> {
+  const configRes = await loadConfig(file);
+  if (!configRes.ok) return configRes;
+
+  const updatedGroups = { ...configRes.value.groups, [group.id]: group };
+
+  const saveRes = await containerConfigService.saveDocumentConfigFile(
+    file.containerID,
+    file.path,
+    Object.values(configRes.value.annots),
+    configRes.value.fileHash,
+    configRes.value.bookmarks,
+    updatedGroups,
+    configRes.value.outlineImported ?? false,
+  );
+  if (!saveRes.ok) return saveRes;
+
+  const cacheRes = await annotationGroupRepository.upsertGroups(file, Object.values(updatedGroups));
+  if (!cacheRes.ok) return cacheRes;
+
+  return Success(group);
+}
+
+/**
+ * 既存グループから特定のメンバーを取り除く（グループ自体は解散しない部分更新）
+ *
+ * 残りメンバー数が`MIN_GROUP_MEMBERS`を下回る場合はFailureを返す。呼び出し側はその場合、
+ * `ungroupAnnotations`でグループ自体を解散すること（アノテーション削除時の整合性維持に使う）
+ */
+export async function removeGroupMembers(
+  file: ContainerElementFile,
+  groupId: AnnotationGroupID,
+  memberIdsToRemove: AnnotationID[],
+): Promise<Result<AnnotationGroup>> {
+  const configRes = await loadConfig(file);
+  if (!configRes.ok) return configRes;
+
+  const target = configRes.value.groups[groupId];
+  if (target === undefined) return Failure(new NotFoundError('Annotation group not found'));
+
+  const removeSet = new Set(memberIdsToRemove);
+  const remaining = target.memberIds.filter((id) => !removeSet.has(id));
+  if (remaining.length < MIN_GROUP_MEMBERS) {
+    return Failure(
+      new Error(`グループのメンバーが最低${MIN_GROUP_MEMBERS}件を下回るため部分更新できません`),
+    );
+  }
+
+  // メンバーが縮小すると数式モードの変数割当（memberIdsの並び順から導出）がずれるため、
+  // 古い数式を誤ったメンバーに対して計算し続けないよう未設定に戻す（'sum'は割当に依存しないため対象外）
+  const valueAggregation =
+    target.valueAggregation?.type === 'formula' ? undefined : target.valueAggregation;
+
+  const updatedGroup: AnnotationGroup = {
+    ...target,
+    memberIds: remaining,
+    valueAggregation,
+    updatedAt: dayjs().toISOString(),
+  };
+  const updatedGroups = { ...configRes.value.groups, [groupId]: updatedGroup };
+
+  const saveRes = await containerConfigService.saveDocumentConfigFile(
+    file.containerID,
+    file.path,
+    Object.values(configRes.value.annots),
+    configRes.value.fileHash,
+    configRes.value.bookmarks,
+    updatedGroups,
+    configRes.value.outlineImported ?? false,
+  );
+  if (!saveRes.ok) return saveRes;
+
+  const cacheRes = await annotationGroupRepository.upsertGroups(file, Object.values(updatedGroups));
+  if (!cacheRes.ok) return cacheRes;
+
+  return Success(updatedGroup);
 }
 
 /**
@@ -206,11 +295,14 @@ export async function ungroupAnnotations(
 
 /**
  * グループ全体を代表する値の算出方法を設定・変更する
+ *
+ * `aggregation`に`undefined`を渡すと「未設定」状態に戻す（Undoで算出方法変更前の
+ * 状態を復元する場合に使う）
  */
 export async function updateGroupValueAggregation(
   file: ContainerElementFile,
   groupId: AnnotationGroupID,
-  aggregation: GroupValueAggregation,
+  aggregation: GroupValueAggregation | undefined,
 ): Promise<Result<AnnotationGroup>> {
   const configRes = await loadConfig(file);
   if (!configRes.ok) return configRes;

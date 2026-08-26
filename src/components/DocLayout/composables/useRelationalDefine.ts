@@ -11,6 +11,7 @@ import type { useI18n } from 'vue-i18n';
 import type { useEditorStore } from 'src/stores/editorStore';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
+import type { RelationalEndpointID } from 'src/models/relational/fileSchema';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
 
 type EditorStore = ReturnType<typeof useEditorStore>;
@@ -43,17 +44,17 @@ export function showRelationalWaitingNotify(
 }
 
 /**
- * 指定アノテーションを基準に、関係性登録の待機状態を開始する
+ * 指定した端点（アノテーションまたはグループ）を基準に、関係性登録の待機状態を開始する
  */
 export function startRelationalDefine(
   editorStore: EditorStore,
   t: I18nT,
   mode: RelationalRuleType,
-  annotId: AnnotationID,
+  endpointId: RelationalEndpointID,
   file: ContainerElementFile,
 ): void {
   editorStore.relationalMode = mode;
-  editorStore.startRelationalPending(annotId, file);
+  editorStore.startRelationalPending(endpointId, file);
   showRelationalWaitingNotify(editorStore, t, mode);
 }
 
@@ -81,9 +82,9 @@ export type RelationalAddDecision =
  */
 export function decideRelationalOnAnnotationsAdded(
   mode: RelationalRuleType | undefined,
-  pendingId: AnnotationID | undefined,
+  pendingId: RelationalEndpointID | undefined,
   addedAnnotIds: AnnotationID[],
-  lastPairedId: AnnotationID | undefined,
+  lastPairedId: RelationalEndpointID | undefined,
 ): RelationalAddDecision {
   if (mode === undefined) return undefined;
   if (addedAnnotIds.length !== 1) return undefined; // 1件増えたときのみ対象
@@ -96,23 +97,43 @@ export function decideRelationalOnAnnotationsAdded(
 
 /**
  * 選択中アノテーションの変化をもとに、待機中の関係性を確定すべきかどうか判定する
- * （`DocumentTabView.vue`が選択状態の変化を監視する際に使う。既存の別アノテーションを
+ * （`DocumentTabView.vue`が選択状態の変化を監視する際に使う。既存の別アノテーション・グループを
  * 対になる相手として選んだ場合の確定はこちらが担う）
+ *
+ * `pendingId`がグループの場合、そのグループの全メンバーIDを新しい選択から除外しないと
+ * （グループ自身のIDはselectedIdsには現れないため）誤って自分自身を相手として確定してしまう。
+ * `resolvePendingMemberIds`はこの除外対象（`pendingId`がグループなら全メンバー、
+ * アノテーションならそれ自身1件）を解決するコールバックで、呼び出し側がgroupStoreを
+ * 参照して実装する（本関数自体はstore非依存の純粋関数のまま保つため）。
+ *
+ * 除外後の選択が2件以上残る場合、それが既存グループ全体とちょうど一致するかを
+ * `resolveGroupMatch`で判定し、一致すればそのグループを新たな相手として確定する
+ * （一致しなければ、相手が一意に定まらないため確定しない）
  */
 export function decideRelationalOnSelectionChanged(
   mode: RelationalRuleType | undefined,
-  pendingId: AnnotationID | undefined,
+  pendingId: RelationalEndpointID | undefined,
   selectedIds: AnnotationID[],
-): AnnotationID | undefined {
+  resolvePendingMemberIds: (id: RelationalEndpointID) => Set<AnnotationID>,
+  resolveGroupMatch: (ids: AnnotationID[]) => RelationalEndpointID | undefined,
+): RelationalEndpointID | undefined {
   if (mode === undefined || pendingId === undefined) return undefined;
-  const targetIds = selectedIds.filter((id) => id !== pendingId);
-  return targetIds.length === 1 ? targetIds[0] : undefined;
+  const excluded = resolvePendingMemberIds(pendingId);
+  const targetIds = selectedIds.filter((id) => !excluded.has(id));
+  if (targetIds.length === 1) return targetIds[0];
+  if (targetIds.length > 1) return resolveGroupMatch(targetIds);
+  return undefined;
 }
 
 /** `decideRelationalContinuousRestart`が返す判定結果 */
 export type RelationalContinuousRestartDecision =
   | { start: false; clearLastPaired: boolean }
-  | { start: true; clearLastPaired: boolean; annotId: AnnotationID; mode: RelationalRuleType };
+  | {
+      start: true;
+      clearLastPaired: boolean;
+      annotId: RelationalEndpointID;
+      mode: RelationalRuleType;
+    };
 
 /**
  * 連続定義モード中、選択中アノテーションのIDが変化した際に、それを新たな起点として
@@ -138,8 +159,8 @@ export function decideRelationalContinuousRestart(params: {
   continuous: boolean;
   pending: boolean;
   mode: RelationalRuleType | undefined;
-  targetId: AnnotationID | undefined;
-  lastPairedId: AnnotationID | undefined;
+  targetId: RelationalEndpointID | undefined;
+  lastPairedId: RelationalEndpointID | undefined;
 }): RelationalContinuousRestartDecision {
   const { continuous, pending, mode, targetId, lastPairedId } = params;
   if (lastPairedId !== undefined && targetId === lastPairedId) {

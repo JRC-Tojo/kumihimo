@@ -10,6 +10,9 @@
       dragBoundFunc,
       onDragstart: onGroupDragStart,
       onDragend: onDragEnd,
+      onTransformstart: onTransformStart,
+      onTransform: onTransform,
+      onTransformend: onTransformEnd,
     }"
   >
     <v-line
@@ -19,8 +22,9 @@
       @mouseleave="onMouseLeave"
     />
 
-    <!-- 頂点アンカー: 選択されて編集中の場合のみ表示 -->
-    <template v-if="props.isEditing && props.isSelected">
+    <!-- 頂点アンカー: 選択されて編集中の場合のみ表示
+         （複数選択の共有Transformerでリサイズ中は、頂点アンカーではなくTransformer側に委ねる） -->
+    <template v-if="props.isEditing && props.isSelected && !props.isGroupTransform">
       <v-rect
         v-for="(anchor, i) in anchorConfigs"
         :key="anchor.id"
@@ -50,6 +54,9 @@ interface Props {
   allowDrag: boolean;
   // Konvaステージの拡大率。頂点アンカーの見た目上のサイズをズームに関わらず一定に保つために使う
   stageScale?: number;
+  // 複数選択（グループ含む）の一員として共有Transformerでリサイズ中かどうか。trueの間は
+  // 頂点アンカーを隠し、グループ全体のscaleをpointsへ焼き込む（onTransform/onTransformEnd参照）
+  isGroupTransform?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -137,6 +144,36 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
   }
 
   emit('update', commitBodyDrag(e, { x: groupNode.x(), y: groupNode.y() }));
+}
+
+/**
+ * 複数選択の共有Transformerによるグループ変形: グループのscaleX/scaleYをpoints（グループ原点
+ * からの相対座標、任意個数）へ焼き込み、scaleを1に戻す
+ */
+function syncGroupTransformGeometry(groupNode: Konva.Group): number[] {
+  const scaleX = groupNode.scaleX();
+  const scaleY = groupNode.scaleY();
+  const points = displayAnnotation.value.points;
+  const nextPoints = points.map((v, i) => (i % 2 === 0 ? v * scaleX : v * scaleY));
+  shapeRef.value?.getNode()?.points(nextPoints);
+  groupNode.setAttrs({ scaleX: 1, scaleY: 1 });
+  return nextPoints;
+}
+
+function onTransformStart() {
+  beginInteraction();
+}
+
+function onTransform(e: Konva.KonvaEventObject<Event>) {
+  syncGroupTransformGeometry(e.target as Konva.Group);
+}
+
+function onTransformEnd(e: Konva.KonvaEventObject<Event>) {
+  const groupNode = e.target as Konva.Group;
+  const points = syncGroupTransformGeometry(groupNode);
+  const updated = withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y(), points });
+  emit('update', updated);
+  endInteraction(updated);
 }
 
 const { onAnchorDragStart, onAnchorDrag, onAnchorDragEnd } = useMultiPointAnchors({

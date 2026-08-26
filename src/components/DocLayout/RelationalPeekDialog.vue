@@ -15,14 +15,16 @@
         }}</span>
       </q-card-section>
 
-      <q-card-section v-if="!isGroup" class="preview-section">
+      <!-- プレビュー: 対象がグループの場合も同じ領域・同じ見た目で表示する
+           （グループの場合はメンバー全員をまとめて強調表示したプレビューになる） -->
+      <q-card-section class="preview-section">
         <q-spinner v-if="previewLoading" color="primary" size="2em" />
         <q-img v-else-if="previewSrc" :src="previewSrc" class="preview-image" fit="contain" />
         <p v-else class="text-caption text-grey-6 q-mb-none">
           {{ $t('pdfEditor.peek.previewUnavailable') }}
         </p>
       </q-card-section>
-      <q-card-actions v-if="!isGroup" align="right" class="q-pt-none">
+      <q-card-actions align="right" class="q-pt-none">
         <q-btn
           flat
           dense
@@ -35,25 +37,26 @@
         />
       </q-card-actions>
 
-      <!-- グループが対象の場合: プレビュー画像の代わりにメンバー数と値算出方法の設定を表示する -->
-      <q-card-section v-else class="q-pt-none">
-        <p class="text-caption text-grey-6 q-mb-sm">
+      <!-- グループが対象の場合のみ: メンバー数・値算出方法の要約と、その設定を開くボタンを
+           1行で表示する（緩和ルールの行ごとの調整ボタンと視覚的に揃えたスタイル） -->
+      <q-card-section v-if="isGroup" class="q-pt-none group-value-row">
+        <span class="text-caption text-grey-6">
           {{ $t('pdfEditor.peek.group.memberCount', { count: groupInfo?.memberIds.length ?? 0 }) }}
-        </p>
-        <p class="text-caption text-grey-6 q-mb-sm">
+          ・
           {{
             groupInfo?.valueAggregation === undefined
               ? $t('pdfEditor.peek.group.aggregationUndefined')
               : $t('pdfEditor.peek.group.aggregationSum')
           }}
-        </p>
+        </span>
         <q-btn
           flat
+          round
           dense
-          size="sm"
           icon="functions"
+          size="sm"
           color="primary"
-          :label="$t('pdfEditor.peek.group.configureAggregation')"
+          :title="$t('pdfEditor.peek.group.configureAggregation')"
           @click="aggregationDialogOpen = true"
         />
       </q-card-section>
@@ -184,9 +187,8 @@ const isGroup = computed(() => prop.target.kind === 'group');
 const previewSrc = ref<string>();
 const previewLoading = ref(false);
 // 現在プレビュー表示中の相手側ID（行のシングルクリックで切り替える。既定では先頭の相手側）。
-// 相手側がグループの場合もありうるため型はRelationalEndpointIDだが、実際のプレビュー画像取得
-// （getAnnotationPreviewImage）はアノテーション専用のAPIで、グループIDを渡した場合は
-// 取得失敗として扱われ「プレビュー利用不可」表示に自然にフォールバックする
+// 相手側がアノテーション・グループのどちらでも、getRelationalEndpointPreviewImageが
+// 両方を解決できるため、対象の種類を区別せずそのまま渡せる
 const previewedAnnotId = ref<RelationalEndpointID>();
 
 // グループが対象の場合の詳細情報（メンバー一覧・値算出方法）
@@ -403,9 +405,7 @@ watch(
       return;
     }
     previewLoading.value = true;
-    // グループIDが渡された場合はアノテーションとして見つからず失敗するため、
-    // 「プレビュー利用不可」表示へ自然にフォールバックする
-    const res = await api.getAnnotationPreviewImage(annotId as AnnotationID);
+    const res = await api.getRelationalEndpointPreviewImage(annotId);
     previewSrc.value = res.ok ? res.data : undefined;
     previewLoading.value = false;
   },
@@ -507,6 +507,13 @@ onBeforeUnmount(clearPendingRetryTimer);
 
 .preview-image {
   max-height: 260px;
+}
+
+.group-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .relation-row {
