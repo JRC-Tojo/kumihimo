@@ -634,7 +634,11 @@ async function handleAnnotationsChanged(
   const pendingEndpointStillExists =
     pendingId === undefined ||
     newAnnots.some((annot) => annot.id === pendingId) ||
-    groupStore.groupContaining(fileKey(prop.file), pendingId) !== undefined;
+    // pendingIdがグループ自身のIDである場合の判定。groupContainingはメンバーシップ一致でも
+    // trueを返すため使わず、グループID自体の完全一致のみを見る（メンバー一致で判定すると、
+    // アノテーション削除〜groupStore.refreshFile完了までの間、削除済みメンバーがまだ
+    // 古いグループレコードのmemberIdsに残っていることで誤って「存在する」と判定してしまう）
+    groupStore.groupsByFileKey[fileKey(prop.file)]?.some((g) => g.id === pendingId) === true;
   if (pendingId !== undefined && isRelationalPendingFile() && !pendingEndpointStillExists) {
     editorStore.cancelRelationalPending();
     return;

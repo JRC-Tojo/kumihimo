@@ -19,6 +19,8 @@ import type {
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import type { ContainerSettingsFile } from 'src/models/relational/containerSettings';
 import type { RelaxationOptions } from 'src/models/relational/relaxation';
+import type { DocumentSource } from 'src/models/document/common';
+import type { FileIdentity } from 'src/utils/document/fileKey';
 
 /**
  * `src/services/document/annotation`・`src/services/container/main`・
@@ -153,9 +155,49 @@ const loadContainerMock = mock(
         : Failure(new Error('container not loaded')),
     ),
 );
+// プレビュー画像取得（getRelationalEndpointPreviewImage）が読み込むファイル本体。
+// 各テストの冒頭でSuccess/Failureを書き換えてから使う
+let fileSrcFixture: Result<string> = Success('dummy-source');
+const loadFileAsDocumentSourceMock = mock(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+  (_cID: ContainerID, _path: string): Promise<Result<string>> =>
+    Promise.resolve(fileSrcFixture),
+);
 void mock.module('src/services/container/main', () => ({
   getContainer: getContainerMock,
   loadContainer: loadContainerMock,
+  loadFileAsDocumentSource: loadFileAsDocumentSourceMock,
+}));
+
+// getRelationalEndpointPreviewImageが動的importで読み込むプレビュー抽出関数
+// （pdf.jsの実描画を避けるためモック化し、呼び出し引数のみ検証する）
+const extractAnnotationContextPreviewMock = mock(
+  (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _file: FileIdentity,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _src64: DocumentSource,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _annotStyle: AnnotationStyle,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _scale?: number,
+  ): Promise<Result<string>> => Promise.resolve(Success('data:image/png;base64,annotation')),
+);
+const extractGroupContextPreviewMock = mock(
+  (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _file: FileIdentity,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _src64: DocumentSource,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _memberStyles: AnnotationStyle[],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _scale?: number,
+  ): Promise<Result<string>> => Promise.resolve(Success('data:image/png;base64,group')),
+);
+void mock.module('src/repositories/document/pdf', () => ({
+  extractAnnotationContextPreview: extractAnnotationContextPreviewMock,
+  extractGroupContextPreview: extractGroupContextPreviewMock,
 }));
 
 // コンテナ設定ファイル（.kumihimo/settings.json）側の緩和ルール。各テストの冒頭で書き換えてから使う
@@ -286,6 +328,7 @@ const {
   removeRelationalsForAnnotation,
   resolveAnnotationFile,
   getAnnotationPageNumber,
+  getRelationalEndpointPreviewImage,
   saveRelationals,
   discardUnsavedRelationalsInvolvingFile,
   remapFilePath,
@@ -679,6 +722,71 @@ describe('グループを端点とする関係性', () => {
     expect(addRelationalMock).toHaveBeenCalledTimes(1);
 
     notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+});
+
+describe('getRelationalEndpointPreviewImage', () => {
+  const groupId = '00000000-0000-4000-8000-0000000000ba' as AnnotationGroupID;
+  const memberA = '00000000-0000-4000-8000-0000000000bb' as AnnotationID;
+  const memberB = '00000000-0000-4000-8000-0000000000bc' as AnnotationID;
+
+  beforeEach(() => {
+    fileSrcFixture = Success('dummy-source');
+    extractAnnotationContextPreviewMock.mockClear();
+    extractGroupContextPreviewMock.mockClear();
+  });
+
+  // アノテーション分岐: 端点がアノテーションとして解決できる場合はextractAnnotationContextPreviewを使う
+  it('端点がアノテーションの場合、extractAnnotationContextPreviewの結果をそのまま返す', async () => {
+    const res = await getRelationalEndpointPreviewImage(idSrc, 3);
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toBe('data:image/png;base64,annotation');
+    expect(extractAnnotationContextPreviewMock).toHaveBeenCalledTimes(1);
+    expect(extractGroupContextPreviewMock).not.toHaveBeenCalled();
+    const call = extractAnnotationContextPreviewMock.mock.calls[0];
+    expect(call?.[0]).toEqual({ containerID, path: filePath });
+    expect(call?.[3]).toBe(3);
+  });
+
+  // グループ分岐: getAnnotationAddressがNotFoundErrorを返す（＝アノテーションとしては存在しない）
+  // 場合、annotationGroupServiceへフォールバックし、同ページのメンバーでextractGroupContextPreviewを使う
+  it('端点がグループの場合、メンバー一覧でextractGroupContextPreviewを呼ぶ', async () => {
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = { address: dummyAddress, memberIds: [memberA, memberB] };
+
+    const res = await getRelationalEndpointPreviewImage(groupId, 3);
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toBe('data:image/png;base64,group');
+    expect(extractGroupContextPreviewMock).toHaveBeenCalledTimes(1);
+    expect(extractAnnotationContextPreviewMock).not.toHaveBeenCalled();
+    const call = extractGroupContextPreviewMock.mock.calls[0];
+    expect(call?.[0]).toEqual({ containerID, path: filePath });
+    expect(call?.[2]?.map((s) => s.id)).toEqual([memberA, memberB]);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  // グループのメンバーが1件も解決できない場合はプレビュー対象自体が無いため失敗を返す
+  it('グループのメンバーが1件も解決できない場合はFailureを返す', async () => {
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    notAnAnnotationIds.add(memberA);
+    notAnAnnotationIds.add(memberB);
+    groupRecordFixture = { address: dummyAddress, memberIds: [memberA, memberB] };
+
+    const res = await getRelationalEndpointPreviewImage(groupId);
+
+    expect(res.ok).toBeFalse();
+    expect(extractGroupContextPreviewMock).not.toHaveBeenCalled();
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    notAnAnnotationIds.delete(memberA);
+    notAnAnnotationIds.delete(memberB);
     groupRecordFixture = undefined;
   });
 });

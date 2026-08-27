@@ -221,29 +221,42 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
 }
 
 /**
- * 複数選択の共有Transformerによるグループ変形: グループのscaleX/scaleYをpoints（グループ原点
- * からの相対座標）へ焼き込み、scaleを1に戻す。頂点0だけをドラッグして原点がずれている場合でも、
- * 各座標成分に同じscaleを掛けるだけでKonvaのローカル座標系での拡縮と一致する
+ * 複数選択の共有Transformerによるグループ変形: グループのscaleX/scaleY/rotationをpoints
+ * （グループ原点からの相対座標）へ焼き込み、scale/rotationを既定値（1・1・0）に戻す。
+ * 頂点0だけをドラッグして原点がずれている場合でも、各座標成分に同じscale・回転行列を
+ * 適用するだけでKonvaのローカル座標系での拡縮・回転と一致する
+ *
+ * Konvaのノードは`translate(x,y) -> rotate(rotation) -> scale(scaleX,scaleY)`の順で
+ * 子のローカル座標へ変換を適用する（Node.getTransform参照）。そのため焼き込みも同じ順序
+ * （まずscaleを掛け、その結果を回転行列で回す）で行わないと、リサイズと回転を同時に行った
+ * 場合に見た目がずれる
  *
  * KonvaのTransformerは複数ノード変形時、各tickで「そのノードの現在のライブな状態」を基準に
- * 増分（incremental）scaleを適用する。そのため掛け算の元になる座標は、ジェスチャー開始前の
- * 値に固定されるVue computed（linePoints）ではなく、直前のtickで実際に書き込んだ
- * Konvaノード自身のpoints()を使う必要がある（そうしないと開始前の古い座標に増分scaleを
+ * 増分（incremental）scale/rotationを適用する。そのため掛け算の元になる座標は、ジェスチャー
+ * 開始前の値に固定されるVue computed（linePoints）ではなく、直前のtickで実際に書き込んだ
+ * Konvaノード自身のpoints()を使う必要がある（そうしないと開始前の古い座標に増分変形を
  * 掛け続けることになり、tickを重ねるたびに実際の見た目とずれていく）
  */
 function syncGroupTransformGeometry(groupNode: Konva.Group): [number, number, number, number] {
   const scaleX = groupNode.scaleX();
   const scaleY = groupNode.scaleY();
+  const rotationRad = (groupNode.rotation() * Math.PI) / 180;
+  const cos = Math.cos(rotationRad);
+  const sin = Math.sin(rotationRad);
+  // スケール済みの座標を回転行列で回す（Konvaの変換順序に合わせる）
+  const rotateScaled = (x: number, y: number): [number, number] => {
+    const scaledX = x * scaleX;
+    const scaledY = y * scaleY;
+    return [scaledX * cos - scaledY * sin, scaledX * sin + scaledY * cos];
+  };
+
   const lineNode = lineRef.value?.getNode();
   const currentPoints = lineNode?.points() ?? linePoints.value;
-  const nextPoints: [number, number, number, number] = [
-    currentPoints[0]! * scaleX,
-    currentPoints[1]! * scaleY,
-    currentPoints[2]! * scaleX,
-    currentPoints[3]! * scaleY,
-  ];
+  const [x1, y1] = rotateScaled(currentPoints[0]!, currentPoints[1]!);
+  const [x2, y2] = rotateScaled(currentPoints[2]!, currentPoints[3]!);
+  const nextPoints: [number, number, number, number] = [x1, y1, x2, y2];
   lineNode?.points(nextPoints);
-  groupNode.setAttrs({ scaleX: 1, scaleY: 1 });
+  groupNode.setAttrs({ scaleX: 1, scaleY: 1, rotation: 0 });
   return nextPoints;
 }
 

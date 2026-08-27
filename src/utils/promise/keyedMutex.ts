@@ -7,6 +7,8 @@
  */
 export interface KeyedMutex {
   runExclusive<T>(key: string, task: () => Promise<T>): Promise<T>;
+  /** 現在キューにエントリが残っているキーの数（テスト・診断用） */
+  size(): number;
 }
 
 export function createKeyedMutex(): KeyedMutex {
@@ -18,14 +20,23 @@ export function createKeyedMutex(): KeyedMutex {
       const run = previous.then(task, task);
       // キューには「決着した」という事実だけを残す（成功/失敗の値は後続の待機に影響させない）。
       // そうしないと、一度失敗したキーの後続タスクが永久にPromise.reject伝播で止まってしまう
-      queues.set(
-        key,
-        run.then(
-          () => undefined,
-          () => undefined,
-        ),
+      const settled = run.then(
+        () => undefined,
+        () => undefined,
       );
+      queues.set(key, settled);
+
+      // 決着後、自分が今もそのキーの最後尾（＝後続のrunExclusive呼び出しがまだ無い）である場合に
+      // 限りエントリを削除する。使われたキーを消さずに残し続けると、多数のキー（ファイルパス等）を
+      // 使い続ける長時間稼働のアプリではqueuesが単調増加してメモリリークになるため
+      void settled.then(() => {
+        if (queues.get(key) === settled) queues.delete(key);
+      });
+
       return run;
+    },
+    size(): number {
+      return queues.size;
     },
   };
 }

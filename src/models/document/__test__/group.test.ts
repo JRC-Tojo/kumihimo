@@ -72,6 +72,14 @@ describe('AnnotationGroup', () => {
     expect(result.success).toBeFalse();
   });
 
+  it('memberIdsに重複したアノテーションIDが含まれる場合は拒否する', () => {
+    const result = AnnotationGroup.safeParse({
+      ...validGroup,
+      memberIds: [memberIdA, memberIdA],
+    });
+    expect(result.success).toBeFalse();
+  });
+
   it('パース後のmemberIdsはAnnotationID型として扱える', () => {
     const result = AnnotationGroup.parse(validGroup);
     const ids: AnnotationID[] = result.memberIds;

@@ -224,9 +224,12 @@ test.describe('アノテーショングループ化', () => {
 
     // 一旦空白領域をクリックして選択・Transformerを完全に解除してから選び直す
     // （直前の選択状態やTransformerのハンドル・アンカーの重なりがそのまま残っていることに
-    // 依存しないよう、まっさらな状態から選択をやり直す）
+    // 依存しないよう、まっさらな状態から選択をやり直す。グループの共有Transformerのデタッチが
+    // 完了しきる前に次のクリックを行うと空白扱いになり選択が0件のまま残ることがあるため、
+    // 440行目のテストと同様に一呼吸置く）
     const blank = await docPointToPagePosition(canvas, { x: 300, y: 50 }, PAGE_SIZE);
     await page.mouse.click(blank.x, blank.y);
+    await page.waitForTimeout(300);
 
     const { a } = await centers(canvas);
     await page.mouse.click(a.x, a.y);
@@ -265,9 +268,12 @@ test.describe('アノテーショングループ化', () => {
 
     // 一旦空白領域をクリックして選択・Transformerを完全に解除してから選び直す
     // （直前の選択状態が残ったままだと、同じシェイプへの再クリックがTransformerの
-    // 内部状態と干渉し意図通りに選択し直せないことがあるため、まっさらな状態から選び直す）
+    // 内部状態と干渉し意図通りに選択し直せないことがあるため、まっさらな状態から選び直す。
+    // 共有Transformerのデタッチが完了しきる前に次のクリックを行うと空白扱いになり選択が
+    // 0件のまま残ることがあるため、440行目のテストと同様に一呼吸置く）
     const blank = await docPointToPagePosition(canvas, { x: 300, y: 50 }, PAGE_SIZE);
     await page.mouse.click(blank.x, blank.y);
+    await page.waitForTimeout(300);
 
     // Aを単体クリックしても、AnnotationLayer.vueの選択展開watchによりグループ全体へ自動的に広がる
     const { a } = await centers(canvas);
@@ -470,6 +476,11 @@ test.describe('アノテーショングループ化', () => {
     // 内部状態と干渉し意図通りに選択し直せないことがあるため、まっさらな状態から選び直す）
     const blank = await docPointToPagePosition(canvas, { x: 300, y: 50 }, PAGE_SIZE);
     await page.mouse.click(blank.x, blank.y);
+    // グループの共有Transformerのデタッチ（KonvaのTransformer.nodes([])）が完了しきる前に
+    // 次のクリックを行うと、まだTransformer側にヒットテストが奪われてクリックが空白扱いになり
+    // 選択が0件のまま残ってしまうことがある（523行目の共有Transformerアタッチ待ちと対になる
+    // デタッチ側の揺らぎ）。ここも一呼吸置いて確実にデタッチを終えてから選び直す
+    await page.waitForTimeout(300);
 
     // Aを単体クリックしても、選択展開watchによりグループ全体へ自動的に広がるため、
     // これでA・B双方が削除対象になる
@@ -723,6 +734,13 @@ test.describe('アノテーショングループ化', () => {
         return res.ok ? (res.data?.length ?? -1) : -1;
       })
       .toBe(1);
+
+    // 上のpollはバックエンド（api.listAnnotationGroups）がグループを確認できた時点で
+    // 成立するが、resolvePeekTarget()が参照するフロントエンドのgroupStoreキャッシュの
+    // refreshFileはそれとは別に非同期で走るため、直後にSpaceを押すとキャッシュがまだ
+    // 追従しておらずグループを解決できないことがある（440行目・207行目のTransformer
+    // デタッチ待ちと同種の、バックエンド確定とフロントエンド反映のタイミングずれ）
+    await page.waitForTimeout(300);
 
     // グループ化直後は自動的にグループ全体（A・B）が選択された状態になっているため、
     // このままSpaceキーで関係性簡易閲覧ダイアログを開くとグループが対象になる

@@ -69,7 +69,7 @@
           dense
           color="primary"
           :label="$t('pdfEditor.peek.ruleEdit.save')"
-          :disable="selectedType === 'formula' && expression.trim() === ''"
+          :disable="formulaInvalid"
           @click="onSave"
         />
       </q-card-actions>
@@ -160,7 +160,7 @@ async function loadMemberInfos() {
 async function loadMemberPreviews(ids: AnnotationID[]): Promise<void> {
   const entries = await Promise.all(
     ids.map(async (id) => {
-      const res = await api.getAnnotationPreviewImage(id, 1);
+      const res = await api.getRelationalEndpointPreviewImage(id, 1);
       return res.ok ? ([id, res.data] as const) : undefined;
     }),
   );
@@ -206,7 +206,24 @@ const formulaPreview = computed<string | undefined>(() => {
   return result === undefined ? undefined : String(roundFormulaResult(result));
 });
 
+// 数式モードで式が不正（構文エラー・未定義変数参照・非数値メンバー等）な場合はtrue
+// `formulaPreview`（ライブプレビュー用の評価結果）をそのまま再利用し、保存ボタンの
+// 無効化・保存処理前のガードの両方で単一の判定基準として使う
+const formulaInvalid = computed(
+  () => selectedType.value === 'formula' && formulaPreview.value === undefined,
+);
+
 async function onSave() {
+  // API呼び出し前に数式の妥当性を再検証し、不正なデータが永続化されるのを防ぐ
+  // （ボタンのdisable制御と同じ判定だが、念のため保存処理側でも二重にガードする）
+  if (formulaInvalid.value) {
+    $q.notify({
+      type: 'negative',
+      message: t('pdfEditor.peek.group.aggregationDialog.formulaInvalid'),
+    });
+    return;
+  }
+
   const previous = prop.group.valueAggregation;
   const next: GroupValueAggregation =
     selectedType.value === 'formula'

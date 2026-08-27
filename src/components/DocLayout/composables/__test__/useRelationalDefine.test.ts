@@ -105,6 +105,8 @@ describe('decideRelationalOnSelectionChanged', () => {
   });
 
   it('基準（グループ）の全メンバーを除外したうえで、2件以上残る選択が既存グループ全体と一致すればそのグループを返す', () => {
+    // idAを除外対象として選択に含めておくことで、除外ロジックが実際に働いた（除外後にidB・idCの2件だけが残った）
+    // ことを検証する。idAをselectedIdsに含めないと、除外処理が何もしなくてもこのテストは通ってしまう
     const excludeGroupMembers = () => new Set([idA]);
     const resolveGroupMatch = (ids: AnnotationID[]) =>
       ids.length === 2 && ids.includes(idB) && ids.includes(idC) ? groupId : undefined;
@@ -112,7 +114,7 @@ describe('decideRelationalOnSelectionChanged', () => {
     const targetId = decideRelationalOnSelectionChanged(
       'link',
       groupId,
-      [idB, idC],
+      [idA, idB, idC],
       excludeGroupMembers,
       resolveGroupMatch,
     );

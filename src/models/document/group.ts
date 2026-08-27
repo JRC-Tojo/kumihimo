@@ -31,7 +31,14 @@ export type GroupValueAggregation = z.infer<typeof GroupValueAggregation>;
  */
 export const AnnotationGroup = z.object({
   id: AnnotationGroupID,
-  memberIds: AnnotationID.array().min(2),
+  // 重複したIDが混在すると、'sum'モードで値が重複加算されたり、
+  // 'formula'モードで同じアノテーションに複数の変数が割り当たってしまうため、
+  // 一意性を検証する
+  memberIds: AnnotationID.array()
+    .min(2)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'memberIdsに重複したアノテーションIDが含まれています',
+    }),
   // 未設定の間もグループを関係性の端点にできるが、'equal'ルールの検証は常にNGになる
   valueAggregation: GroupValueAggregation.optional(),
   createdAt: z.iso.datetime(),

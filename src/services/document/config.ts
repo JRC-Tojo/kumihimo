@@ -276,7 +276,13 @@ export async function updateConfig<T>(
  *
  * `updateConfigForNewDoc`で再追跡した（または位置追跡できず現状のまま採用する）設定内容を
  * 確定として書き込む。内容そのものの変更ではなく外部変更の追認であるため、
- * `saveConfig`と異なりバックアップの作成は行わない
+ * `saveConfig`と異なりバックアップの作成は行わない。
+ *
+ * `updateConfig`ではなく`configResource.write`を使う点に注意：`updateConfig`の内部読み込みは
+ * 既存`.kcfg`のfileHashと実ファイルの現在のハッシュが一致することを前提条件として検証するが、
+ * ここはまさにその不一致（コンフリクト）をユーザーの明示的な操作で受け入れる経路であるため、
+ * そのチェック自体を通ると常に失敗してしまう。`write`はその事前条件チェックを行わずに書き込む
+ * （ファイル単位の直列化自体は`updateConfig`と同じ仕組みで維持される）
  */
 export async function acceptExternalConfig(
   file: ContainerElementFile,
@@ -284,7 +290,11 @@ export async function acceptExternalConfig(
 ): Promise<Result<void>> {
   const annotInfos = Object.values(config.annots);
 
-  const configRes = await updateConfig(file, () => Success({ next: config, result: undefined }));
+  const configRes = await configResource.write(
+    file,
+    () => Success({ next: config, result: undefined }),
+    undefined,
+  );
   if (!configRes.ok) return configRes;
 
   // 実ファイルの内容がアプリ外で更新されたことを受け入れるため、キャッシュ済みのPDFDocumentProxyが

@@ -210,9 +210,35 @@ watch(
   { immediate: true },
 );
 
+/** 2つのファイルがcontainerID込みで同一かどうか（useAnnotationHistory.tsと同じ判定） */
+function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
+  return a.containerID === b.containerID && a.path === b.path;
+}
+
+/**
+ * グループの値算出方法の変更後、prop.fileだけでなく、関係性の相手側の端点が属する
+ * 全ファイルのrelationalStoreキャッシュも合わせて再検証する。相手側のファイルが
+ * 既にキャッシュ読み込み済みの場合、prop.fileのみ再検証すると相手側タブの表示が
+ * 古いまま（stale）になってしまうため（useAnnotationHistory.tsの
+ * refreshRelationalCachesAfterと同じ考え方）
+ */
+async function refreshRelationalCachesAfterAggregationSaved(): Promise<void> {
+  const targetEdges = edges.value;
+  await relationalStore.refreshFile(prop.file);
+
+  await Promise.all(
+    targetEdges.map(async (edge) => {
+      const otherFileRes = await api.resolveAnnotationFile(otherAnnotId(edge));
+      if (otherFileRes.ok && !isSameFile(otherFileRes.data, prop.file)) {
+        await relationalStore.refreshFile(otherFileRes.data);
+      }
+    }),
+  );
+}
+
 function onAggregationSaved(updated: AnnotationGroup) {
   groupInfo.value = updated;
-  void relationalStore.refreshFile(prop.file);
+  void refreshRelationalCachesAfterAggregationSaved();
 }
 
 const edges = computed<RelationalEdge[]>(() => relationalStore.edgesForAnnotation(targetId.value));

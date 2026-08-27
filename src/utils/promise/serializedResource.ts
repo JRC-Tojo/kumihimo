@@ -32,6 +32,22 @@ export interface SerializedResource<TItem, TState, TWriteMeta = void> {
     ) => Promise<Result<MutationOutcome<TState, T>>> | Result<MutationOutcome<TState, T>>,
     meta: TWriteMeta,
   ): Promise<Result<T>>;
+  /**
+   * `readForMutate`（事前条件チェック）を行わず、`compute`が返す新しい状態を直接書き込む。
+   * 同じ`item`への他の`read`/`mutate`/`write`呼び出しとは自動的に直列化される。
+   *
+   * `mutate`は「現在の状態を前提に次の状態を計算する」更新用で、事前条件（`.kcfg`のような
+   * バージョン・ハッシュチェック）を`readForMutate`で検証してから`fn`を呼ぶ。しかし外部で
+   * 更新された内容をユーザーの明示的な操作で受け入れる（コンフリクト解決）ような場合は、
+   * その事前条件チェック自体を意図的にバイパスする必要があるため、この専用の経路を使う
+   */
+  write<T>(
+    item: TItem,
+    compute: () =>
+      | Promise<Result<MutationOutcome<TState, T>>>
+      | Result<MutationOutcome<TState, T>>,
+    meta: TWriteMeta,
+  ): Promise<Result<T>>;
 }
 
 /**
@@ -75,6 +91,18 @@ export function createSerializedResource<TItem, TState, TWriteMeta = void>(
         if (!saveRes.ok) return saveRes;
 
         return Success(mutated.value.result);
+      });
+    },
+
+    async write(item, compute, meta) {
+      return mutex.runExclusive(keyOf(item), async () => {
+        const computed = await compute();
+        if (!computed.ok) return computed;
+
+        const saveRes = await io.write(item, computed.value.next, meta);
+        if (!saveRes.ok) return saveRes;
+
+        return Success(computed.value.result);
       });
     },
   };

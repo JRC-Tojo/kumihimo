@@ -267,8 +267,8 @@ function isPreviewLoading(endpointId: RelationalEndpointID): boolean {
  * 3. 成功すればプレビューキャッシュに格納、失敗なら null を格納
  * 4. ロード状態から削除する
  *
- * `getAnnotationPreviewImage`はアノテーション専用のAPIで、グループIDを渡した場合は
- * 取得失敗として扱われ「プレビュー利用不可」表示に自然にフォールバックする
+ * `getRelationalEndpointPreviewImage`は端点がアノテーション・グループのどちらであっても
+ * 適切にプレビューを解決できる統一的なAPIのため、こちらを利用する
  */
 async function ensurePreview(endpointId: RelationalEndpointID) {
   if (previewCache.value[endpointId] !== undefined || previewLoadingIds.value.has(endpointId)) {
@@ -276,7 +276,7 @@ async function ensurePreview(endpointId: RelationalEndpointID) {
   }
 
   previewLoadingIds.value.add(endpointId);
-  const res = await api.getAnnotationPreviewImage(endpointId as AnnotationID);
+  const res = await api.getRelationalEndpointPreviewImage(endpointId);
   previewCache.value[endpointId] = res.ok ? res.data : null;
   previewLoadingIds.value.delete(endpointId);
 }

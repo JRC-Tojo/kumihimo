@@ -45,6 +45,7 @@ class AnnotationGroupDexieDB extends Dexie {
 
 const db = new AnnotationGroupDexieDB();
 
+/** `AnnotationGroup`（ファイル情報を持たない）から、DBキャッシュ用のファイル情報付きレコードへ変換する */
 function toRecord(file: ContainerElementFile, group: AnnotationGroup): AnnotationGroupRecord {
   return {
     id: group.id,
