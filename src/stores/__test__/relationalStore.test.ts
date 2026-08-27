@@ -23,11 +23,7 @@ const idA = '00000000-0000-4000-8000-000000000001' as AnnotationID;
 const idC = '00000000-0000-4000-8000-000000000003' as AnnotationID;
 const groupId = '00000000-0000-4000-8000-0000000000aa' as AnnotationGroupID;
 
-function buildEdge(
-  srcID: string,
-  targetID: string,
-  isOK: boolean | undefined,
-): RelationalEdge {
+function buildEdge(srcID: string, targetID: string, isOK: boolean | undefined): RelationalEdge {
   const checkedRule: RelationalCheckedRule | undefined =
     isOK === undefined ? undefined : { rule: { type: 'link' }, isOK };
   return {
