@@ -19,9 +19,8 @@ import type {
 import { AnnotationGroupID as AnnotationGroupIDSchema } from 'src/models/document/group';
 import { Failure, NotFoundError, Success, type Result } from 'src/models/error/result';
 import type { AnnotationBaseAddress } from 'src/models/relational/fileSchema';
-import * as containerConfigService from 'src/services/container/config';
 import * as annotationGroupRepository from 'src/repositories/db/annotationGroup';
-import { loadConfig } from './config';
+import { loadConfig, updateConfig } from './config';
 
 /**
  * グループ化には最低これだけのメンバーが必要
@@ -120,56 +119,44 @@ export async function groupAnnotations(
   file: ContainerElementFile,
   annotationIds: AnnotationID[],
 ): Promise<Result<{ group: AnnotationGroup; dissolvedGroups: AnnotationGroup[] }>> {
-  const configRes = await loadConfig(file);
-  if (!configRes.ok) return configRes;
+  return updateConfig(file, (current) => {
+    const candidate = new Set(annotationIds);
+    const existingGroups = Object.values(current.groups);
+    const dissolvedGroups: AnnotationGroup[] = [];
 
-  const candidate = new Set(annotationIds);
-  const existingGroups = Object.values(configRes.value.groups);
-  const dissolvedGroups: AnnotationGroup[] = [];
+    existingGroups.forEach((g) => {
+      const overlaps = g.memberIds.some((id) => candidate.has(id));
+      if (!overlaps) return;
+      dissolvedGroups.push(g);
+      g.memberIds.forEach((id) => candidate.add(id));
+    });
 
-  existingGroups.forEach((g) => {
-    const overlaps = g.memberIds.some((id) => candidate.has(id));
-    if (!overlaps) return;
-    dissolvedGroups.push(g);
-    g.memberIds.forEach((id) => candidate.add(id));
+    if (candidate.size < MIN_GROUP_MEMBERS) {
+      return Failure(new Error(`グループ化には最低${MIN_GROUP_MEMBERS}件のアノテーションが必要です`));
+    }
+
+    const idRes = AnnotationGroupIDSchema.safeParse(crypto.randomUUID());
+    if (!idRes.success) return Failure(idRes.error);
+
+    const now = dayjs().toISOString();
+    const newGroup: AnnotationGroup = {
+      id: idRes.data,
+      memberIds: Array.from(candidate),
+      valueAggregation: undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const updatedGroups = {
+      ...withoutGroups(current.groups, new Set(dissolvedGroups.map((g) => g.id))),
+      [newGroup.id]: newGroup,
+    };
+
+    return Success({
+      next: { ...current, groups: updatedGroups },
+      result: { group: newGroup, dissolvedGroups },
+    });
   });
-
-  if (candidate.size < MIN_GROUP_MEMBERS) {
-    return Failure(new Error(`グループ化には最低${MIN_GROUP_MEMBERS}件のアノテーションが必要です`));
-  }
-
-  const idRes = AnnotationGroupIDSchema.safeParse(crypto.randomUUID());
-  if (!idRes.success) return Failure(idRes.error);
-
-  const now = dayjs().toISOString();
-  const newGroup: AnnotationGroup = {
-    id: idRes.data,
-    memberIds: Array.from(candidate),
-    valueAggregation: undefined,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const updatedGroups = {
-    ...withoutGroups(configRes.value.groups, new Set(dissolvedGroups.map((g) => g.id))),
-    [newGroup.id]: newGroup,
-  };
-
-  const saveRes = await containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    Object.values(configRes.value.annots),
-    configRes.value.fileHash,
-    configRes.value.bookmarks,
-    updatedGroups,
-    configRes.value.outlineImported ?? false,
-  );
-  if (!saveRes.ok) return saveRes;
-
-  const cacheRes = await annotationGroupRepository.upsertGroups(file, Object.values(updatedGroups));
-  if (!cacheRes.ok) return cacheRes;
-
-  return Success({ group: newGroup, dissolvedGroups });
 }
 
 /**
@@ -183,26 +170,12 @@ export async function restoreGroup(
   file: ContainerElementFile,
   group: AnnotationGroup,
 ): Promise<Result<AnnotationGroup>> {
-  const configRes = await loadConfig(file);
-  if (!configRes.ok) return configRes;
-
-  const updatedGroups = { ...configRes.value.groups, [group.id]: group };
-
-  const saveRes = await containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    Object.values(configRes.value.annots),
-    configRes.value.fileHash,
-    configRes.value.bookmarks,
-    updatedGroups,
-    configRes.value.outlineImported ?? false,
+  return updateConfig(file, (current) =>
+    Success({
+      next: { ...current, groups: { ...current.groups, [group.id]: group } },
+      result: group,
+    }),
   );
-  if (!saveRes.ok) return saveRes;
-
-  const cacheRes = await annotationGroupRepository.upsertGroups(file, Object.values(updatedGroups));
-  if (!cacheRes.ok) return cacheRes;
-
-  return Success(group);
 }
 
 /**
@@ -216,48 +189,33 @@ export async function removeGroupMembers(
   groupId: AnnotationGroupID,
   memberIdsToRemove: AnnotationID[],
 ): Promise<Result<AnnotationGroup>> {
-  const configRes = await loadConfig(file);
-  if (!configRes.ok) return configRes;
+  return updateConfig(file, (current) => {
+    const target = current.groups[groupId];
+    if (target === undefined) return Failure(new NotFoundError('Annotation group not found'));
 
-  const target = configRes.value.groups[groupId];
-  if (target === undefined) return Failure(new NotFoundError('Annotation group not found'));
+    const removeSet = new Set(memberIdsToRemove);
+    const remaining = target.memberIds.filter((id) => !removeSet.has(id));
+    if (remaining.length < MIN_GROUP_MEMBERS) {
+      return Failure(
+        new Error(`グループのメンバーが最低${MIN_GROUP_MEMBERS}件を下回るため部分更新できません`),
+      );
+    }
 
-  const removeSet = new Set(memberIdsToRemove);
-  const remaining = target.memberIds.filter((id) => !removeSet.has(id));
-  if (remaining.length < MIN_GROUP_MEMBERS) {
-    return Failure(
-      new Error(`グループのメンバーが最低${MIN_GROUP_MEMBERS}件を下回るため部分更新できません`),
-    );
-  }
+    // メンバーが縮小すると数式モードの変数割当（memberIdsの並び順から導出）がずれるため、
+    // 古い数式を誤ったメンバーに対して計算し続けないよう未設定に戻す（'sum'は割当に依存しないため対象外）
+    const valueAggregation =
+      target.valueAggregation?.type === 'formula' ? undefined : target.valueAggregation;
 
-  // メンバーが縮小すると数式モードの変数割当（memberIdsの並び順から導出）がずれるため、
-  // 古い数式を誤ったメンバーに対して計算し続けないよう未設定に戻す（'sum'は割当に依存しないため対象外）
-  const valueAggregation =
-    target.valueAggregation?.type === 'formula' ? undefined : target.valueAggregation;
+    const updatedGroup: AnnotationGroup = {
+      ...target,
+      memberIds: remaining,
+      valueAggregation,
+      updatedAt: dayjs().toISOString(),
+    };
+    const updatedGroups = { ...current.groups, [groupId]: updatedGroup };
 
-  const updatedGroup: AnnotationGroup = {
-    ...target,
-    memberIds: remaining,
-    valueAggregation,
-    updatedAt: dayjs().toISOString(),
-  };
-  const updatedGroups = { ...configRes.value.groups, [groupId]: updatedGroup };
-
-  const saveRes = await containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    Object.values(configRes.value.annots),
-    configRes.value.fileHash,
-    configRes.value.bookmarks,
-    updatedGroups,
-    configRes.value.outlineImported ?? false,
-  );
-  if (!saveRes.ok) return saveRes;
-
-  const cacheRes = await annotationGroupRepository.upsertGroups(file, Object.values(updatedGroups));
-  if (!cacheRes.ok) return cacheRes;
-
-  return Success(updatedGroup);
+    return Success({ next: { ...current, groups: updatedGroups }, result: updatedGroup });
+  });
 }
 
 /**
@@ -270,27 +228,14 @@ export async function ungroupAnnotations(
   file: ContainerElementFile,
   groupId: AnnotationGroupID,
 ): Promise<Result<void>> {
-  const configRes = await loadConfig(file);
-  if (!configRes.ok) return configRes;
+  return updateConfig(file, (current) => {
+    if (current.groups[groupId] === undefined) {
+      return Failure(new NotFoundError('Annotation group not found'));
+    }
 
-  if (configRes.value.groups[groupId] === undefined) {
-    return Failure(new NotFoundError('Annotation group not found'));
-  }
-
-  const updatedGroups = withoutGroups(configRes.value.groups, new Set([groupId]));
-
-  const saveRes = await containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    Object.values(configRes.value.annots),
-    configRes.value.fileHash,
-    configRes.value.bookmarks,
-    updatedGroups,
-    configRes.value.outlineImported ?? false,
-  );
-  if (!saveRes.ok) return saveRes;
-
-  return annotationGroupRepository.removeGroup(groupId);
+    const updatedGroups = withoutGroups(current.groups, new Set([groupId]));
+    return Success({ next: { ...current, groups: updatedGroups }, result: undefined });
+  });
 }
 
 /**
@@ -304,34 +249,19 @@ export async function updateGroupValueAggregation(
   groupId: AnnotationGroupID,
   aggregation: GroupValueAggregation | undefined,
 ): Promise<Result<AnnotationGroup>> {
-  const configRes = await loadConfig(file);
-  if (!configRes.ok) return configRes;
+  return updateConfig(file, (current) => {
+    const target = current.groups[groupId];
+    if (target === undefined) return Failure(new NotFoundError('Annotation group not found'));
 
-  const target = configRes.value.groups[groupId];
-  if (target === undefined) return Failure(new NotFoundError('Annotation group not found'));
+    const updatedGroup: AnnotationGroup = {
+      ...target,
+      valueAggregation: aggregation,
+      updatedAt: dayjs().toISOString(),
+    };
+    const updatedGroups = { ...current.groups, [groupId]: updatedGroup };
 
-  const updatedGroup: AnnotationGroup = {
-    ...target,
-    valueAggregation: aggregation,
-    updatedAt: dayjs().toISOString(),
-  };
-  const updatedGroups = { ...configRes.value.groups, [groupId]: updatedGroup };
-
-  const saveRes = await containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    Object.values(configRes.value.annots),
-    configRes.value.fileHash,
-    configRes.value.bookmarks,
-    updatedGroups,
-    configRes.value.outlineImported ?? false,
-  );
-  if (!saveRes.ok) return saveRes;
-
-  const cacheRes = await annotationGroupRepository.upsertGroups(file, Object.values(updatedGroups));
-  if (!cacheRes.ok) return cacheRes;
-
-  return Success(updatedGroup);
+    return Success({ next: { ...current, groups: updatedGroups }, result: updatedGroup });
+  });
 }
 
 /**

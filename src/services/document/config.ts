@@ -20,6 +20,7 @@ import { invalidateRenderCache } from 'src/repositories/document/renderCache';
 import { fileKey } from 'src/utils/document/fileKey';
 import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 import { outlineEntriesToBookmarks } from 'src/utils/document/bookmarkTree';
+import { createSerializedResource, type MutationOutcome } from 'src/utils/promise/serializedResource';
 
 /**
  * `.kcfg`のハッシュ記録と実ファイルの内容が一致しない場合（＝アプリ外でファイルが更新された場合）に
@@ -36,14 +37,37 @@ export class DocumentConfigConflictError extends Error {
 }
 
 /**
- * 指定したファイルに紐づく本システムの設定ファイルを読み込む
+ * `saveConfig`専用: PDF本体の内容自体が変わった場合の書き込みに必要な追加情報
+ *
+ * 指定するとバックアップ作成・ハッシュの`newSrc`からの再計算を行う経路
+ * （`containerConfigService.saveDocumentConfigs`）を使う。指定しない場合は`next.fileHash`を
+ * そのまま書き込む単純な経路（`saveDocumentConfigFile`）を使う
+ */
+interface ConfigWriteMeta {
+  oldSrc: DocumentSource;
+  newSrc: DocumentSource;
+}
+
+/**
+ * 指定したファイルに紐づく本システムの設定ファイルを、副作用なしで読み込む（実処理・排他制御なし）
  *
  * `.kcfg`がまだ存在しない場合（そのファイルに一度もアノテーションが保存されたことがない場合）は
  * エラーにせず、現在のファイル内容のハッシュを持つ空の設定として扱う。
  * 読み込み・パース自体の失敗（権限エラー・破損等）はアノテーション消失につながるため、
- * ファイル不存在（`NotFoundError`）と確認できた場合以外はそのままエラーとして返す
+ * ファイル不存在（`NotFoundError`）と確認できた場合以外はそのままエラーとして返す。
+ *
+ * アノテーションDB同期・グループキャッシュ同期・アウトライン初回取り込みは行わない
+ * （`loadConfigWithSideEffects`参照）。`updateConfig`の内部読み込みに使う：`updateConfig`は
+ * これから新しい状態を書き込む前提であり、呼び出し時点でDBは既に（呼び出し元の別の処理により）
+ * 正しい状態になっていることがあるため、ここで`.kcfg`の古いスナップショットをDBへ
+ * 同期してしまうと、直後の正しい書き込みで上書きされるまでの間DBが一瞬巻き戻って見えてしまう
+ * （自動保存が典型例：DB確定→`.kcfg`書き込みの間にDBを古い`.kcfg`で巻き戻してしまっていた）
+ *
+ * 直接呼び出さず、`loadConfig`（単純な読み込み）・`updateConfig`（読み込み→計算→書き込みの
+ * トランザクション）のいずれかを経由すること。両者とも`configResource`によりファイル単位で
+ * 直列化されるため、このアンロック版が並行して2重に走ることはない
  */
-export async function loadConfig(file: ContainerElementFile): Promise<Result<DocumentConfigFile>> {
+async function loadConfigRaw(file: ContainerElementFile): Promise<Result<DocumentConfigFile>> {
   // ファイルハッシュの算出（設定ファイルが無い場合の初期値としても使う）
   const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
   if (!fileSrc.ok) return fileSrc;
@@ -72,9 +96,25 @@ export async function loadConfig(file: ContainerElementFile): Promise<Result<Doc
     return Failure(new DocumentConfigConflictError());
   }
 
+  return Success(configFile);
+}
+
+/**
+ * `loadConfigRaw`に加えて、公開`loadConfig`が必要とする副作用（アウトライン初回取り込み・
+ * アノテーションDB同期・グループキャッシュ同期）を行う
+ */
+async function loadConfigWithSideEffects(
+  file: ContainerElementFile,
+): Promise<Result<DocumentConfigFile>> {
+  const rawRes = await loadConfigRaw(file);
+  if (!rawRes.ok) return rawRes;
+  let configFile = rawRes.value;
+
   // PDFに元々埋め込まれているしおり（アウトライン）を、初回読み込み時のみ自動でブックマークに
   // 取り込む。取り込み済みフラグを永続化することで、以降は同じ文書を開いても重複登録しない
   if (!configFile.outlineImported && getSupportedDocumentKind(file.path) === 'pdf') {
+    const fileSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+    if (!fileSrc.ok) return fileSrc;
     configFile = await importOutlineOnce(file, configFile, fileSrc.value);
   }
 
@@ -140,6 +180,95 @@ async function importOutlineOnce(
 }
 
 /**
+ * `.kcfg`への実際の書き込み（実処理・排他制御なし）
+ *
+ * `meta`（`oldSrc`/`newSrc`）を指定した場合はPDF本体の内容自体が変わった場合用の経路
+ * （バックアップ作成・ハッシュ再計算）を、指定しない場合は`next.fileHash`をそのまま書き込む
+ * 単純な経路を使う。書き込み成功後、DBのグループキャッシュも`next.groups`へ同期する
+ * （`loadConfig`の読み込み時と対称的に、書き込み時も常にDBキャッシュとの整合を保つ）
+ */
+async function writeConfigUnlocked(
+  file: ContainerElementFile,
+  next: DocumentConfigFile,
+  meta: ConfigWriteMeta | undefined,
+): Promise<Result<void>> {
+  const saveRes = meta
+    ? await containerConfigService.saveDocumentConfigs(
+        file.containerID,
+        file.path,
+        meta.oldSrc,
+        meta.newSrc,
+        Object.values(next.annots),
+        next.bookmarks,
+        next.groups,
+        next.outlineImported ?? false,
+      )
+    : await containerConfigService.saveDocumentConfigFile(
+        file.containerID,
+        file.path,
+        Object.values(next.annots),
+        next.fileHash,
+        next.bookmarks,
+        next.groups,
+        next.outlineImported ?? false,
+      );
+  if (!saveRes.ok) return saveRes;
+
+  return annotationGroupService.syncGroupCache(file, Object.values(next.groups));
+}
+
+/**
+ * `.kcfg`を対象ファイルごとに直列化して読み書きするリソース
+ *
+ * 複数の独立した処理（グループ化・ブックマーク登録・自動保存等）が同じ`.kcfg`へ並行して
+ * 読み込み→書き込みを行うと、後勝ちの書き込みが間の変更を消してしまう（lost update）。
+ * このリソースを経由する限り、同一ファイルへの`loadConfig`/`updateConfig`呼び出しは
+ * 自動的に直列化され、呼び出し元は排他制御の仕組みを一切意識する必要がない
+ */
+const configResource = createSerializedResource<
+  ContainerElementFile,
+  DocumentConfigFile,
+  ConfigWriteMeta | undefined
+>(fileKey, {
+  read: loadConfigWithSideEffects,
+  readForMutate: loadConfigRaw,
+  write: writeConfigUnlocked,
+});
+
+/**
+ * 指定したファイルに紐づく本システムの設定ファイルを読み込む
+ *
+ * 同一ファイルに対する他の`loadConfig`/`updateConfig`呼び出しと直列化されるため、
+ * 進行中の書き込みの途中経過を読んでしまうことはない
+ */
+export async function loadConfig(file: ContainerElementFile): Promise<Result<DocumentConfigFile>> {
+  return configResource.read(file);
+}
+
+/** `updateConfig`の`mutate`が返す、書き込む次の状態と呼び出し元へ返す結果の組 */
+export type ConfigMutationOutcome<T> = MutationOutcome<DocumentConfigFile, T>;
+
+/**
+ * `.kcfg`に対する「読み込み→計算→書き込み」をファイル単位で直列化された1トランザクションとして実行する
+ *
+ * 同一ファイルに対する呼び出しは常に1つずつ実行されるため、`mutate`が受け取る`current`は
+ * 必ずその時点の最新状態であり、他の`updateConfig`/自動保存等との間でlost updateは起きない。
+ * `mutate`はグループ等、DBキャッシュとの同期が必要な副作用を自分で行う必要はない
+ * （書き込み成功後、このヘルパーがグループキャッシュを`next.groups`へ同期する）。
+ * `sourceForBackup`を指定すると、PDF本体の内容自体が変わった場合用にバックアップを作成し
+ * ハッシュを`newSrc`から再計算する経路（`saveConfig`専用）を使う
+ */
+export async function updateConfig<T>(
+  file: ContainerElementFile,
+  mutate: (
+    current: DocumentConfigFile,
+  ) => Promise<Result<ConfigMutationOutcome<T>>> | Result<ConfigMutationOutcome<T>>,
+  sourceForBackup?: { oldSrc: DocumentSource; newSrc: DocumentSource },
+): Promise<Result<T>> {
+  return configResource.mutate(file, mutate, sourceForBackup);
+}
+
+/**
  * コンフリクト解決時、外部で更新された実ファイルの内容を正としてアノテーションDBと`.kcfg`を更新する
  *
  * `updateConfigForNewDoc`で再追跡した（または位置追跡できず現状のまま採用する）設定内容を
@@ -152,16 +281,8 @@ export async function acceptExternalConfig(
 ): Promise<Result<void>> {
   const annotInfos = Object.values(config.annots);
 
-  const saveRes = await containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    annotInfos,
-    config.fileHash,
-    config.bookmarks,
-    config.groups,
-    config.outlineImported ?? false,
-  );
-  if (!saveRes.ok) return saveRes;
+  const configRes = await updateConfig(file, () => Success({ next: config, result: undefined }));
+  if (!configRes.ok) return configRes;
 
   // 実ファイルの内容がアプリ外で更新されたことを受け入れるため、キャッシュ済みのPDFDocumentProxyが
   // あれば破棄する（次回の読み込みで新しい内容を反映させる）
@@ -239,34 +360,16 @@ export async function saveConfig(
   if (!rsWithAdrs.ok) return rsWithAdrs;
 
   // ブックマーク・グループ・しおり取り込み済みフラグはアノテーションと異なりDB経由の差分管理を
-  // 行わないため、上書きで消えないよう保存直前の`.kcfg`から現在有効な内容をそのまま読み直して引き継ぐ。
-  // 読み込み・パース自体の失敗（I/O・破損・スキーマ不整合等）を空として扱うと既存のブックマークを
-  // 消してしまうため、ファイル不存在（`NotFoundError`）と確認できた場合以外はそのままエラーとして返す
-  const currentConfigRes = await containerConfigService.getDocumentConfigFile(
-    file.containerID,
+  // 行わないため、上書きで消えないよう`current`（updateConfigが直列化して読み込んだ最新状態）から
+  // そのまま引き継ぐ。annotsのみ、今取得し直した全件で置き換える
+  const annotSavedRes = await updateConfig(
     file,
-  );
-  let bookmarks: DocumentConfigFile['bookmarks'] = {};
-  let groups: DocumentConfigFile['groups'] = {};
-  let outlineImported = false;
-  if (currentConfigRes.ok) {
-    bookmarks = currentConfigRes.value.bookmarks;
-    groups = currentConfigRes.value.groups;
-    outlineImported = currentConfigRes.value.outlineImported ?? false;
-  } else if (!(currentConfigRes.error instanceof NotFoundError)) {
-    return currentConfigRes;
-  }
-
-  // 取得した情報をマージして実ファイルに保存する
-  const annotSavedRes = await containerConfigService.saveDocumentConfigs(
-    file.containerID,
-    file.path,
-    oldSrc,
-    newSrc,
-    annotInfos.value,
-    bookmarks,
-    groups,
-    outlineImported,
+    (current) =>
+      Success({
+        next: { ...current, annots: fromEntries(annotInfos.value.map((a) => [a.style.id, a])) },
+        result: undefined,
+      }),
+    { oldSrc, newSrc },
   );
   if (!annotSavedRes.ok) return annotSavedRes;
   const relationalSavedRes = await containerConfigService.updateRelationalFile(

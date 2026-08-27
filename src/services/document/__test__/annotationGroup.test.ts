@@ -11,10 +11,12 @@ import type { AnnotationGroup, AnnotationGroupID } from 'src/models/document/gro
 import type { AnnotationID } from 'src/models/document/pdf';
 
 /**
- * `src/services/document/config`（loadConfig）・`src/services/container/config`
+ * `src/services/document/config`（loadConfig・updateConfig）・`src/services/container/config`
  * （saveDocumentConfigFile）・`src/repositories/db/annotationGroup`をモック化し、
  * annotationGroup.ts自体のマージ・解散・バリデーションロジックのみを検証する
- * （`bookmark.test.ts`と同じ方針）
+ * （`bookmark.test.ts`と同じ方針）。`updateConfig`のモックは、実装（`serializedResource`経由の
+ * 直列化）と等価な「現在のfixtureに対してmutateを実行し、成功したらsaveDocumentConfigFileMockへ
+ * 記録してfixtureを更新する」という薄いフェイクにする
  */
 const idA = '00000000-0000-4000-8000-000000000001' as AnnotationID;
 const idB = '00000000-0000-4000-8000-000000000002' as AnnotationID;
@@ -51,8 +53,36 @@ const saveDocumentConfigFileMock = mock(
   ): Promise<Result<void>> => Promise.resolve(Success()),
 );
 
+type ConfigMutationOutcome<T> = { next: DocumentConfigFile; result: T };
+
+const updateConfigMock = mock(
+  async <T>(
+    file: ContainerElementFile,
+    mutateFn: (
+      current: DocumentConfigFile,
+    ) => Promise<Result<ConfigMutationOutcome<T>>> | Result<ConfigMutationOutcome<T>>,
+  ): Promise<Result<T>> => {
+    const mutated = await mutateFn(documentConfigFileFixture);
+    if (!mutated.ok) return mutated;
+
+    await saveDocumentConfigFileMock(
+      file.containerID,
+      file.path,
+      Object.values(mutated.value.next.annots),
+      mutated.value.next.fileHash,
+      mutated.value.next.bookmarks,
+      mutated.value.next.groups,
+      mutated.value.next.outlineImported ?? false,
+    );
+    documentConfigFileFixture = mutated.value.next;
+
+    return Success(mutated.value.result);
+  },
+);
+
 void mock.module('src/services/document/config', () => ({
   loadConfig: loadConfigMock,
+  updateConfig: updateConfigMock,
 }));
 void mock.module('src/services/container/config', () => ({
   saveDocumentConfigFile: saveDocumentConfigFileMock,

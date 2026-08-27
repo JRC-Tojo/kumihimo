@@ -202,32 +202,25 @@ const groupStore = useGroupStore();
 /**
  * 選択にグループのメンバーが含まれている場合、常にそのグループの全メンバーへ展開する
  *
- * クリック・矩形選択・コンテキストメニュー・ジャンプ復元等、選択を書き換えるあらゆる箇所
- * （多数存在する）に個別対応する代わりに、書き換え結果を監視してここで一括補正する。
- * グループ化されたアノテーション群を単一のオブジェクトのように扱うための挙動であり、
- * 展開済みの選択に対しては何もしない（`expanded`が`ids`と一致すれば代入しないため、無限ループしない）
- *
- * `flush: 'sync'`が必須: `selectedAnnotIds`は`defineModel`で親（`DocumentTabView.vue`まで
- * 多段のv-model）と連結されており、既定のflush（非同期）だと「展開前の1件だけの選択」が
- * 一旦そのまま親へ伝播してしまい、親側の選択監視（関係性の確定処理等）が展開前の値を
- * 見て誤動作する（例: グループの1メンバーをクリックしただけなのに、そのメンバー単体を
- * 関係性の相手として確定してしまう）。同期にすることで、代入した関数呼び出しの中で即座に
- * 補正が完了し、親が最終的に受け取るのは常に展開済みの値になる
+ * `selectedAnnotIds`への書き込みは必ずこの関数を経由すること（直接
+ * `selectedAnnotIds.value = ids`と代入しないこと）。以前は書き換え結果を`watch`で監視して
+ * 事後的に補正する設計だったが、`selectedAnnotIds`は`defineModel`で親（`DocumentTabView.vue`まで
+ * 多段のv-model）と連結されており、`watch`（`flush: 'sync'`にしても）による事後補正では
+ * 「展開前の1件だけの選択」が一瞬でも親側のwatcher（関係性の確定処理等）から観測可能な
+ * タイミングが生じ得ることが実機検証で判明した（例: グループの1メンバーをクリックしただけ
+ * なのに、そのメンバー単体を関係性の相手として確定してしまう）。展開を代入前に済ませ、
+ * 展開前の値がそもそも一度も`selectedAnnotIds`に代入されないようにすることで、
+ * 親のwatcherがどのタイミングで実行されても必ず展開済みの値だけを観測するようにする
  */
-watch(
-  selectedAnnotIds,
-  (ids) => {
-    if (ids.length === 0) return;
-    const fk = fileKey(props.file);
-    const expanded = new Set(ids);
-    ids.forEach((id) => {
-      groupStore.memberSet(fk, id)?.forEach((memberId) => expanded.add(memberId));
-    });
-    if (expanded.size === ids.length) return;
-    selectedAnnotIds.value = Array.from(expanded);
-  },
-  { flush: 'sync' },
-);
+function expandToGroups(ids: AnnotationID[]): AnnotationID[] {
+  if (ids.length === 0) return ids;
+  const fk = fileKey(props.file);
+  const expanded = new Set(ids);
+  ids.forEach((id) => {
+    groupStore.memberSet(fk, id)?.forEach((memberId) => expanded.add(memberId));
+  });
+  return expanded.size === ids.length ? ids : Array.from(expanded);
+}
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
@@ -467,7 +460,7 @@ const editingTextStyle = computed(() => {
 function startTextEdit(annotation: TextAnnotationStyle) {
   editingTextId.value = annotation.id;
   editingTextValue.value = annotation.text;
-  selectedAnnotIds.value = [annotation.id];
+  selectedAnnotIds.value = expandToGroups([annotation.id]);
   // フォーカスは下のwatch(editingTextAnnotation)に一任する。
   // 描き終えた直後は`props.annotations`（DB購読経由）へ新規注釈がまだ反映されておらず、
   // ここで直接focusしても<textarea v-if>が実際にマウントされる前で失敗することがあるため
@@ -540,7 +533,7 @@ function handleContextMenu(e: KonvaMouseEvent) {
 
   e.evt.preventDefault();
   if (!selectedAnnotIds.value.includes(annotation.id)) {
-    selectedAnnotIds.value = [annotation.id];
+    selectedAnnotIds.value = expandToGroups([annotation.id]);
   }
   contextMenuAnnotation.value = annotation;
   contextMenuPos.value = { x: e.evt.clientX, y: e.evt.clientY };
@@ -607,7 +600,7 @@ function updateClickPointsPreview(cursorPos: Point | null) {
  * 新しい頂点の位置を制限する
  */
 function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<AnnotationStyle>) {
-  selectedAnnotIds.value = [];
+  selectedAnnotIds.value = expandToGroups([]);
 
   if (!clickPointsBuffer.value) {
     clickPointsBuffer.value = [pos];
@@ -675,7 +668,7 @@ function finishClickPointsDrawing() {
       if (shouldStartTextEdit && annotation.type === 'text') {
         startTextEdit(annotation);
       } else {
-        selectedAnnotIds.value = [annotation.id];
+        selectedAnnotIds.value = expandToGroups([annotation.id]);
       }
     });
   }
@@ -772,11 +765,13 @@ function handleMouseDown(e: KonvaMouseEvent) {
         // 発展しなければ従来通り選択解除する
         ctrlDragCandidate.value = { id: clickedId, stagePos: { x: pos.x, y: pos.y } };
       } else if (!metaPressed && !isSelected) {
-        selectedAnnotIds.value = [clickedId];
+        selectedAnnotIds.value = expandToGroups([clickedId]);
       } else if (metaPressed && isSelected) {
-        selectedAnnotIds.value = selectedAnnotIds.value.filter((id) => id !== clickedId);
+        selectedAnnotIds.value = expandToGroups(
+          selectedAnnotIds.value.filter((id) => id !== clickedId),
+        );
       } else if (metaPressed && !isSelected) {
-        selectedAnnotIds.value = [...selectedAnnotIds.value, clickedId];
+        selectedAnnotIds.value = expandToGroups([...selectedAnnotIds.value, clickedId]);
       }
 
       // クリックした形状を即時にドラッグ開始し、1回の操作で押しながら移動できるようにします。
@@ -1003,7 +998,9 @@ function handleMouseUp(e: KonvaMouseEvent) {
     pendingPointerTarget.value = null;
 
     void props.onDuplicateBatch(sources, offset, page.value, isGroup).then((created) => {
-      if (created.length > 0) selectedAnnotIds.value = created.map((a) => a.id);
+      if (created.length > 0) {
+        selectedAnnotIds.value = expandToGroups(created.map((a) => a.id));
+      }
     });
     return;
   }
@@ -1015,7 +1012,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
     pendingOverAnnotStart.value = null;
     editorStore.activeAnnotationType = undefined;
     editorStore.currentTools = 'pointer';
-    selectedAnnotIds.value = [id];
+    selectedAnnotIds.value = expandToGroups([id]);
     return;
   }
 
@@ -1023,7 +1020,9 @@ function handleMouseUp(e: KonvaMouseEvent) {
     // ドラッグへ発展しなかった単なるCtrl+クリックだったため、元々の意図通り選択解除する
     const { id } = ctrlDragCandidate.value;
     ctrlDragCandidate.value = null;
-    selectedAnnotIds.value = selectedAnnotIds.value.filter((existingId) => existingId !== id);
+    selectedAnnotIds.value = expandToGroups(
+      selectedAnnotIds.value.filter((existingId) => existingId !== id),
+    );
     pendingPointerTarget.value = null;
     return;
   }
@@ -1084,7 +1083,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
           if (shouldStartTextEdit && annotation.type === 'text') {
             startTextEdit(annotation);
           } else {
-            selectedAnnotIds.value = [annotation.id];
+            selectedAnnotIds.value = expandToGroups([annotation.id]);
           }
         });
       }
@@ -1164,9 +1163,11 @@ function handleMouseUp(e: KonvaMouseEvent) {
 
     const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
     if (!metaPressed) {
-      selectedAnnotIds.value = selectedIds;
+      selectedAnnotIds.value = expandToGroups(selectedIds);
     } else {
-      selectedAnnotIds.value = [...new Set([...selectedAnnotIds.value, ...selectedIds])];
+      selectedAnnotIds.value = expandToGroups([
+        ...new Set([...selectedAnnotIds.value, ...selectedIds]),
+      ]);
     }
   } else {
     // 単純なアノテーション以外の箇所のクリックの場合は選択を解除する

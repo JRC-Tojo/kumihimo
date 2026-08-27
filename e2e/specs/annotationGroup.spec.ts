@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   buildBoxAnnotationStyle,
+  buildLineAnnotationStyle,
   registerAnnotation,
   seedCacheContainerWithFixturePdf,
 } from '../support/seed';
@@ -367,6 +368,75 @@ test.describe('アノテーショングループ化', () => {
     expect(endpoints).not.toContain(idB);
   });
 
+  test('アノテーション→グループへの関係性登録は、クリックしたメンバーではなくグループ自身に結びつく', async ({
+    page,
+  }) => {
+    const seeded = await seedThreeBoxes(page, 'group-relational-reverse');
+    const canvas = await openFileInSelectMode(page, 'group-relational-reverse');
+
+    await selectAAndB(page, canvas);
+    await groupViaContextMenu(page, canvas);
+
+    await expect
+      .poll(async () => {
+        const res = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.listAnnotationGroups(file);
+        }, seeded.file);
+        return res.ok ? (res.data?.length ?? -1) : -1;
+      })
+      .toBe(1);
+
+    const groupsRes = await page.evaluate(async (file: TestContainerFile) => {
+      const api = window.__kumihimoTest?.api;
+      if (!api) throw new Error('__kumihimoTest hook is not available');
+      return api.listAnnotationGroups(file);
+    }, seeded.file);
+    expect(groupsRes.ok).toBe(true);
+    const groupId = groupsRes.data?.[0]?.id;
+    expect(groupId).toBeDefined();
+
+    // 一旦空白領域をクリックして選択・Transformerを完全に解除してから、Cを単体で選び直す
+    const blank = await docPointToPagePosition(canvas, { x: 300, y: 50 }, PAGE_SIZE);
+    await page.mouse.click(blank.x, blank.y);
+    const { a, c } = await centers(canvas);
+    await page.mouse.click(c.x, c.y);
+
+    // Cを起点に「リンク」の待機状態を開始する
+    await expect(page.locator('[data-testid="relational-define-link"]')).toBeVisible();
+    await page.locator('[data-testid="relational-define-link"]').click();
+
+    // グループのメンバーAをクリックする（選択展開watchによりグループ全体が選択され、
+    // 展開前の単一メンバーではなくグループ自身が相手として確定するはず）
+    await page.mouse.click(a.x, a.y);
+
+    await expect
+      .poll(async () => {
+        const res = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.getRelationalsInFile(file);
+        }, seeded.file);
+        return res.ok ? (res.data?.length ?? -1) : -1;
+      })
+      .toBeGreaterThan(0);
+
+    const relRes = await page.evaluate(async (file: TestContainerFile) => {
+      const api = window.__kumihimoTest?.api;
+      if (!api) throw new Error('__kumihimoTest hook is not available');
+      return api.getRelationalsInFile(file);
+    }, seeded.file);
+    expect(relRes.ok).toBe(true);
+    const relational = relRes.data?.[0];
+    // 端点のどちらかがグループのID、もう一方がCであること（クリックしたメンバーAではないこと）
+    const endpoints = [relational?.srcID, relational?.targetID];
+    expect(endpoints).toContain(groupId);
+    expect(endpoints).toContain(idC);
+    expect(endpoints).not.toContain(idA);
+    expect(endpoints).not.toContain(idB);
+  });
+
   test('グループごと削除すると、グループとメンバー双方が消え、Undoで両方が復元される', async ({
     page,
   }) => {
@@ -448,5 +518,218 @@ test.describe('アノテーショングループ化', () => {
         };
       })
       .toEqual({ groupMemberIds: [idA, idB].sort(), remainingIds: [idA, idB, idC].sort() });
+  });
+
+  test('交差する2本の直線をグループ化してリサイズしても、交差関係が崩れない', async ({ page }) => {
+    const seeded = await seedCacheContainerWithFixturePdf(page, { containerName: 'group-line-resize' });
+    const lineId1 = 'aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa';
+    const lineId2 = 'bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb';
+    // (50,50)-(150,150)と(150,50)-(50,150)は(100,100)で交差する
+    await registerAnnotation(
+      page,
+      seeded.file,
+      buildLineAnnotationStyle({ id: lineId1, pageNumber: 1, points: [50, 50, 150, 150] }),
+    );
+    await registerAnnotation(
+      page,
+      seeded.file,
+      buildLineAnnotationStyle({ id: lineId2, pageNumber: 1, points: [150, 50, 50, 150] }),
+    );
+
+    const canvas = await openFileInSelectMode(page, 'group-line-resize');
+
+    // 交点(100,100)を避けた、各直線上の別々の点をクリックして選択する
+    const p1 = await docPointToPagePosition(canvas, { x: 75, y: 75 }, PAGE_SIZE);
+    const p2 = await docPointToPagePosition(canvas, { x: 125, y: 75 }, PAGE_SIZE);
+    await page.mouse.click(p1.x, p1.y);
+    await page.keyboard.down('Shift');
+    await page.mouse.click(p2.x, p2.y);
+    await page.keyboard.up('Shift');
+
+    const menu = await openContextMenuAt(page, p1);
+    await menu.getByText('グループ化', { exact: true }).click();
+
+    await expect
+      .poll(async () => {
+        const res = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.listAnnotationGroups(file);
+        }, seeded.file);
+        return res.ok ? (res.data?.length ?? -1) : -1;
+      })
+      .toBe(1);
+
+    // 共有Transformerのアタッチが完了しきる前に操作すると取りこぼすことがあるため、一呼吸置く
+    await page.waitForTimeout(300);
+
+    // グループのバウンディングボックスは(50,50)-(150,150)。右下のリサイズハンドルを
+    // (250,250)まで、複数stepのマウス移動でドラッグする（1回のジャンプではなく複数tickに
+    // 分けることで、Transformerの複数tickにまたがる累積スケール計算を実際に経由させる。
+    // 単発のジャンプだとバグが再現しないおそれがある）
+    const handleStart = await docPointToPagePosition(canvas, { x: 150, y: 150 }, PAGE_SIZE);
+    const handleEnd = await docPointToPagePosition(canvas, { x: 250, y: 250 }, PAGE_SIZE);
+    await page.mouse.move(handleStart.x, handleStart.y);
+    await page.mouse.down();
+    await page.mouse.move(handleEnd.x, handleEnd.y, { steps: 10 });
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => {
+        const res = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.getAnnotationsByFile(file);
+        }, seeded.file);
+        if (!res.ok) return undefined;
+        const byId = new Map((res.data ?? []).map((info) => [info.style.id, info.style]));
+        const points1 = byId.get(lineId1)?.points as number[] | undefined;
+        return points1?.[2];
+      })
+      .not.toBe(150);
+
+    const finalRes = await page.evaluate(async (file: TestContainerFile) => {
+      const api = window.__kumihimoTest?.api;
+      if (!api) throw new Error('__kumihimoTest hook is not available');
+      return api.getAnnotationsByFile(file);
+    }, seeded.file);
+    expect(finalRes.ok).toBe(true);
+    const byId = new Map((finalRes.data ?? []).map((info) => [info.style.id, info.style]));
+    const style1 = byId.get(lineId1);
+    const style2 = byId.get(lineId2);
+    expect(style1).toBeDefined();
+    expect(style2).toBeDefined();
+
+    // x/yはグループ変形により変化しうるため、絶対座標へ戻したうえで線分の長さを比較する
+    function absoluteLength(
+      points: number[] | undefined,
+      baseX: number | undefined,
+      baseY: number | undefined,
+    ): number {
+      const bx = baseX ?? 0;
+      const by = baseY ?? 0;
+      const ax = bx + (points?.[0] ?? 0);
+      const ay = by + (points?.[1] ?? 0);
+      const cx = bx + (points?.[2] ?? 0);
+      const cy = by + (points?.[3] ?? 0);
+      return Math.hypot(cx - ax, cy - ay);
+    }
+
+    const originalLength = Math.hypot(100, 100);
+    const newLength1 = absoluteLength(style1?.points as number[] | undefined, style1?.x, style1?.y);
+    const newLength2 = absoluteLength(style2?.points as number[] | undefined, style2?.x, style2?.y);
+
+    // 両方の直線が拡大されていること
+    expect(newLength1).toBeGreaterThan(originalLength * 1.3);
+    expect(newLength2).toBeGreaterThan(originalLength * 1.3);
+    // 不具合が起きていれば、各直線の座標配置に応じてずれ方が異なり、スケール比が食い違う。
+    // 両者がほぼ同じ比率で拡大されている（＝交差関係が崩れていない）ことを検証する
+    const ratio1 = newLength1 / originalLength;
+    const ratio2 = newLength2 / originalLength;
+    expect(Math.abs(ratio1 - ratio2)).toBeLessThan(0.05);
+  });
+
+  test('グループをCtrl+ドラッグ複製すると、複製元のグループは維持されたまま新しいグループが作られる', async ({
+    page,
+  }) => {
+    const seeded = await seedThreeBoxes(page, 'group-ctrl-duplicate');
+    const canvas = await openFileInSelectMode(page, 'group-ctrl-duplicate');
+
+    await selectAAndB(page, canvas);
+    await groupViaContextMenu(page, canvas);
+
+    await expect
+      .poll(async () => {
+        const res = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.listAnnotationGroups(file);
+        }, seeded.file);
+        return res.ok ? (res.data?.length ?? -1) : -1;
+      })
+      .toBe(1);
+
+    // グループ化直後は自動的にグループ全体（A・B）が選択された状態になっている。
+    // 共有Transformerのアタッチが完了しきる前に操作すると取りこぼすことがあるため、一呼吸置く
+    await page.waitForTimeout(300);
+
+    const { a } = await centers(canvas);
+    const dragTo = { x: a.x + 60, y: a.y + 40 };
+    await page.keyboard.down('Control');
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(dragTo.x, dragTo.y, { steps: 8 });
+    await page.mouse.up();
+    await page.keyboard.up('Control');
+
+    // 複製によりグループが2件（元のグループ＋複製先の新グループ）になり、
+    // アノテーションも5件（A・B・C＋複製された2件）になることを確認する
+    await expect
+      .poll(async () => {
+        const groupsRes = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.listAnnotationGroups(file);
+        }, seeded.file);
+        const annotsRes = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.getAnnotationsByFile(file);
+        }, seeded.file);
+        if (!groupsRes.ok || !annotsRes.ok) return undefined;
+        return {
+          groupCount: groupsRes.data?.length ?? -1,
+          annotationCount: annotsRes.data?.length ?? -1,
+        };
+      })
+      .toEqual({ groupCount: 2, annotationCount: 5 });
+
+    const groupsRes = await page.evaluate(async (file: TestContainerFile) => {
+      const api = window.__kumihimoTest?.api;
+      if (!api) throw new Error('__kumihimoTest hook is not available');
+      return api.listAnnotationGroups(file);
+    }, seeded.file);
+    expect(groupsRes.ok).toBe(true);
+    const groups = groupsRes.data ?? [];
+
+    // 複製元グループ（A・Bちょうど）が引き続き存在すること
+    const originalGroup = groups.find(
+      (g) => g.memberIds.sort().join() === [idA, idB].sort().join(),
+    );
+    expect(originalGroup).toBeDefined();
+
+    // 複製先も新しいグループとして存在し、そのメンバーはA・Bのいずれとも重複しない新規IDであること
+    const duplicatedGroup = groups.find((g) => g.id !== originalGroup?.id);
+    expect(duplicatedGroup?.memberIds).toHaveLength(2);
+    expect(duplicatedGroup?.memberIds.some((id) => id === idA || id === idB)).toBe(false);
+  });
+
+  test('関係性簡易閲覧ダイアログのグループのメンバー数表示が正しい', async ({ page }) => {
+    const seeded = await seedThreeBoxes(page, 'group-peek-count');
+    const canvas = await openFileInSelectMode(page, 'group-peek-count');
+
+    await selectAAndB(page, canvas);
+    await groupViaContextMenu(page, canvas);
+
+    await expect
+      .poll(async () => {
+        const res = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.listAnnotationGroups(file);
+        }, seeded.file);
+        return res.ok ? (res.data?.length ?? -1) : -1;
+      })
+      .toBe(1);
+
+    // グループ化直後は自動的にグループ全体（A・B）が選択された状態になっているため、
+    // このままSpaceキーで関係性簡易閲覧ダイアログを開くとグループが対象になる
+    await page.keyboard.press('Space');
+
+    const dialog = page.getByRole('dialog').filter({ hasText: '関係性の一覧' });
+    await expect(dialog).toBeVisible();
+    // memberCountの表示（「{count}件のアノテーションをグループ化しています」）が
+    // 実際のメンバー数（2件）と一致すること（0件のまま固定されるバグの回帰確認）
+    await expect(dialog.getByText('2件のアノテーションをグループ化しています')).toBeVisible();
   });
 });
