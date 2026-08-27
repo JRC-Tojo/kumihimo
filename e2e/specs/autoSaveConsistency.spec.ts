@@ -1,5 +1,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { buildBoxAnnotationStyle, registerAnnotation, seedCacheContainerWithFixturePdf } from '../support/seed';
+import {
+  buildBoxAnnotationStyle,
+  registerAnnotation,
+  seedCacheContainerWithFixturePdf,
+} from '../support/seed';
 import { docPointToPagePosition, stageCanvas, waitForCanvasReady } from '../support/canvasCoords';
 import type { TestContainerFile } from '../support/testHook';
 

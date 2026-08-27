@@ -132,7 +132,9 @@ export async function groupAnnotations(
     });
 
     if (candidate.size < MIN_GROUP_MEMBERS) {
-      return Failure(new Error(`グループ化には最低${MIN_GROUP_MEMBERS}件のアノテーションが必要です`));
+      return Failure(
+        new Error(`グループ化には最低${MIN_GROUP_MEMBERS}件のアノテーションが必要です`),
+      );
     }
 
     const idRes = AnnotationGroupIDSchema.safeParse(crypto.randomUUID());

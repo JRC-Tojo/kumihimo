@@ -20,7 +20,10 @@ import { invalidateRenderCache } from 'src/repositories/document/renderCache';
 import { fileKey } from 'src/utils/document/fileKey';
 import { getSupportedDocumentKind } from 'src/utils/document/supportedTypes';
 import { outlineEntriesToBookmarks } from 'src/utils/document/bookmarkTree';
-import { createSerializedResource, type MutationOutcome } from 'src/utils/promise/serializedResource';
+import {
+  createSerializedResource,
+  type MutationOutcome,
+} from 'src/utils/promise/serializedResource';
 
 /**
  * `.kcfg`のハッシュ記録と実ファイルの内容が一致しない場合（＝アプリ外でファイルが更新された場合）に
