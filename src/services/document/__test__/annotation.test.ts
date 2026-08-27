@@ -292,6 +292,21 @@ describe('pasteAnnotations', () => {
 
     expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
   });
+
+  it('複数件を複製する場合も、DB書き込み（addAnnotationInfos）は1回にまとめて行う（1件ずつ書き込むと画面に段階的に表示されてしまうため）', async () => {
+    addAnnotationInfosMock.mockClear();
+
+    const sources = [baseStyle(idA, { zIndex: 1 }), baseStyle(idB, { zIndex: 2 })];
+    const res = await pasteAnnotations(file, sources, 1, { dx: 5, dy: 5 });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toHaveLength(2);
+
+    // 2件複製しても、DBへの書き込みは1回だけ（1回の呼び出しに2件分がまとめて渡される）
+    expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
+    expect(addAnnotationInfosMock.mock.calls[0]?.[1]).toHaveLength(2);
+  });
 });
 
 describe('annotationRepositoryへの単純な委譲関数', () => {

@@ -206,17 +206,28 @@ const groupStore = useGroupStore();
  * （多数存在する）に個別対応する代わりに、書き換え結果を監視してここで一括補正する。
  * グループ化されたアノテーション群を単一のオブジェクトのように扱うための挙動であり、
  * 展開済みの選択に対しては何もしない（`expanded`が`ids`と一致すれば代入しないため、無限ループしない）
+ *
+ * `flush: 'sync'`が必須: `selectedAnnotIds`は`defineModel`で親（`DocumentTabView.vue`まで
+ * 多段のv-model）と連結されており、既定のflush（非同期）だと「展開前の1件だけの選択」が
+ * 一旦そのまま親へ伝播してしまい、親側の選択監視（関係性の確定処理等）が展開前の値を
+ * 見て誤動作する（例: グループの1メンバーをクリックしただけなのに、そのメンバー単体を
+ * 関係性の相手として確定してしまう）。同期にすることで、代入した関数呼び出しの中で即座に
+ * 補正が完了し、親が最終的に受け取るのは常に展開済みの値になる
  */
-watch(selectedAnnotIds, (ids) => {
-  if (ids.length === 0) return;
-  const fk = fileKey(props.file);
-  const expanded = new Set(ids);
-  ids.forEach((id) => {
-    groupStore.memberSet(fk, id)?.forEach((memberId) => expanded.add(memberId));
-  });
-  if (expanded.size === ids.length) return;
-  selectedAnnotIds.value = Array.from(expanded);
-});
+watch(
+  selectedAnnotIds,
+  (ids) => {
+    if (ids.length === 0) return;
+    const fk = fileKey(props.file);
+    const expanded = new Set(ids);
+    ids.forEach((id) => {
+      groupStore.memberSet(fk, id)?.forEach((memberId) => expanded.add(memberId));
+    });
+    if (expanded.size === ids.length) return;
+    selectedAnnotIds.value = Array.from(expanded);
+  },
+  { flush: 'sync' },
+);
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);

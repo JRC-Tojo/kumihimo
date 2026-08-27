@@ -14,17 +14,28 @@
         <q-option-group v-model="selectedType" :options="typeOptions" type="radio" />
       </q-card-section>
 
-      <!-- 数式モード: 各メンバーに割り当てられた変数名の一覧と、式の入力・ライブプレビューを表示する -->
+      <!-- 数式モード: 各メンバーのプレビュー・割り当てられた変数名の一覧と、式の入力・
+           ライブプレビューを表示する。多数のアノテーションがグループ化されていても見やすいよう
+           一覧はスクロール領域にする -->
       <q-card-section v-if="selectedType === 'formula'" class="q-pt-none">
-        <q-list bordered dense class="q-mb-sm">
+        <q-list bordered dense class="q-mb-sm member-list">
           <q-item v-for="member in memberRows" :key="member.id">
             <q-item-section avatar>
-              <q-avatar rounded size="1.5rem" :style="{ backgroundColor: member.color }">
-                <q-icon :name="member.icon" size="0.9rem" color="white" />
+              <q-img
+                v-if="member.previewSrc"
+                :src="member.previewSrc"
+                class="member-preview-img"
+                fit="cover"
+              />
+              <q-avatar v-else rounded size="2rem" :style="{ backgroundColor: member.color }">
+                <q-icon :name="member.icon" size="1.1rem" color="white" />
               </q-avatar>
             </q-item-section>
-            <q-item-section side class="text-weight-bold">{{ member.letter }}</q-item-section>
-            <q-item-section>{{ member.label }}</q-item-section>
+            <q-item-section>
+              <span class="text-weight-bold">{{ member.letter }}</span>
+              <span class="text-grey-6"> = </span>
+              <span>{{ member.label }}</span>
+            </q-item-section>
           </q-item>
         </q-list>
 
@@ -82,6 +93,7 @@ import { evaluateExpression, roundFormulaResult } from 'src/utils/calculation/fo
 import { buildVariableMap, letterForMemberIndex } from 'src/utils/calculation/groupFormula';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationGroup, GroupValueAggregation } from 'src/models/document/group';
+import type { AnnotationID } from 'src/models/document/pdf';
 import type { AnnotationInfo } from 'src/models/relational/fileSchema';
 
 interface Prop {
@@ -121,17 +133,36 @@ watch(
 
 // メンバー一覧（数式モードの変数対応表示に使う。memberIds順を保つ）
 const memberInfos = ref<AnnotationInfo[]>([]);
+// メンバーごとのプレビュー画像（読み込み中・失敗時は該当IDのエントリ無し＝種別アイコンにフォールバック）
+const previewsByMemberId = ref<Map<AnnotationID, string>>(new Map());
 
 async function loadMemberInfos() {
   const res = await api.getAnnotationsByFile(prop.file);
   if (!res.ok) {
     memberInfos.value = [];
+    previewsByMemberId.value = new Map();
     return;
   }
   const byId = new Map(res.data.map((info) => [info.style.id, info]));
   memberInfos.value = prop.group.memberIds
     .map((id) => byId.get(id))
     .filter((info): info is AnnotationInfo => info !== undefined);
+  void loadMemberPreviews(memberInfos.value.map((info) => info.style.id));
+}
+
+/**
+ * どのアノテーションがどの文字に対応するか視覚的に判別できるよう、メンバーごとに
+ * 単体アノテーション用のプレビュー画像を並列取得する（多数メンバーでもダイアログを開いた
+ * 際の待ち時間を抑えるため）
+ */
+async function loadMemberPreviews(ids: AnnotationID[]): Promise<void> {
+  const entries = await Promise.all(
+    ids.map(async (id) => {
+      const res = await api.getAnnotationPreviewImage(id, 1);
+      return res.ok ? ([id, res.data] as const) : undefined;
+    }),
+  );
+  previewsByMemberId.value = new Map(entries.filter((e): e is [AnnotationID, string] => e !== undefined));
 }
 
 const memberRows = computed(() =>
@@ -140,6 +171,7 @@ const memberRows = computed(() =>
     letter: letterForMemberIndex(index),
     icon: ANNOTATION_REGISTRY[info.style.type].icon,
     color: info.style.color ?? '#9e9e9e',
+    previewSrc: previewsByMemberId.value.get(info.style.id),
     label:
       info.context.text === undefined
         ? t('pdfEditor.peek.group.aggregationDialog.memberValuePending')
@@ -192,7 +224,18 @@ async function onSave() {
 
 <style scoped lang="scss">
 .group-value-aggregation-card {
-  width: 360px;
+  width: 420px;
   max-width: 90vw;
+}
+
+.member-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.member-preview-img {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 4px;
 }
 </style>

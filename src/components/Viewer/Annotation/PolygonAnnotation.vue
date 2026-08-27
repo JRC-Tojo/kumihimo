@@ -149,13 +149,20 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
 /**
  * 複数選択の共有Transformerによるグループ変形: グループのscaleX/scaleYをpoints（グループ原点
  * からの相対座標、任意個数）へ焼き込み、scaleを1に戻す
+ *
+ * KonvaのTransformerは複数ノード変形時、各tickで「そのノードの現在のライブな状態」を基準に
+ * 増分（incremental）scaleを適用する。そのため掛け算の元になる座標は、ジェスチャー開始前の
+ * 値に固定されるVue computed（displayAnnotation.value.points）ではなく、直前のtickで実際に
+ * 書き込んだKonvaノード自身のpoints()を使う必要がある（そうしないと開始前の古い座標に
+ * 増分scaleを掛け続けることになり、tickを重ねるたびに実際の見た目とずれていく）
  */
 function syncGroupTransformGeometry(groupNode: Konva.Group): number[] {
   const scaleX = groupNode.scaleX();
   const scaleY = groupNode.scaleY();
-  const points = displayAnnotation.value.points;
+  const shapeNode = shapeRef.value?.getNode();
+  const points = shapeNode?.points() ?? displayAnnotation.value.points;
   const nextPoints = points.map((v, i) => (i % 2 === 0 ? v * scaleX : v * scaleY));
-  shapeRef.value?.getNode()?.points(nextPoints);
+  shapeNode?.points(nextPoints);
   groupNode.setAttrs({ scaleX: 1, scaleY: 1 });
   return nextPoints;
 }

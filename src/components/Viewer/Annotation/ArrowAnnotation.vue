@@ -310,18 +310,25 @@ function onDragEnd(e: Konva.KonvaEventObject<Event>) {
  * 複数選択の共有Transformerによるグループ変形: グループのscaleX/scaleYをpoints（グループ原点
  * からの相対座標）へ焼き込み、scaleを1に戻す。矢じりはシャフトとは別ノードのため、
  * 新しいpointsをもとにupdateHeadsLiveで位置・角度をライブ追従させる
+ *
+ * KonvaのTransformerは複数ノード変形時、各tickで「そのノードの現在のライブな状態」を基準に
+ * 増分（incremental）scaleを適用する。そのため掛け算の元になる座標は、ジェスチャー開始前の
+ * 値に固定されるVue computed（arrowPoints）ではなく、直前のtickで実際に書き込んだ
+ * Konvaノード自身のpoints()を使う必要がある（そうしないと開始前の古い座標に増分scaleを
+ * 掛け続けることになり、tickを重ねるたびに実際の見た目とずれていく）
  */
 function syncGroupTransformGeometry(groupNode: Konva.Group): [number, number, number, number] {
   const scaleX = groupNode.scaleX();
   const scaleY = groupNode.scaleY();
-  const points = arrowPoints.value;
+  const shaftNode = shaftRef.value?.getNode();
+  const currentPoints = shaftNode?.points() ?? arrowPoints.value;
   const nextPoints: [number, number, number, number] = [
-    points[0] * scaleX,
-    points[1] * scaleY,
-    points[2] * scaleX,
-    points[3] * scaleY,
+    currentPoints[0] * scaleX,
+    currentPoints[1] * scaleY,
+    currentPoints[2] * scaleX,
+    currentPoints[3] * scaleY,
   ];
-  shaftRef.value?.getNode()?.points(nextPoints);
+  shaftNode?.points(nextPoints);
   updateHeadsLive(nextPoints);
   groupNode.setAttrs({ scaleX: 1, scaleY: 1 });
   return nextPoints;

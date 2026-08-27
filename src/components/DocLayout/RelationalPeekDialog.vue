@@ -39,7 +39,7 @@
 
       <!-- グループが対象の場合のみ: メンバー数・値算出方法の要約と、その設定を開くボタンを
            1行で表示する（緩和ルールの行ごとの調整ボタンと視覚的に揃えたスタイル） -->
-      <q-card-section v-if="isGroup" class="q-pt-none group-value-row">
+      <q-card-section v-if="isGroup && groupInfo" class="q-pt-none group-value-row">
         <span class="text-caption text-grey-6">
           {{ $t('pdfEditor.peek.group.memberCount', { count: groupInfo?.memberIds.length ?? 0 }) }}
           ・
