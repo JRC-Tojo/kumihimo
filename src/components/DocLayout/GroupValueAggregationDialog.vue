@@ -164,7 +164,9 @@ async function loadMemberPreviews(ids: AnnotationID[]): Promise<void> {
       return res.ok ? ([id, res.data] as const) : undefined;
     }),
   );
-  previewsByMemberId.value = new Map(entries.filter((e): e is [AnnotationID, string] => e !== undefined));
+  previewsByMemberId.value = new Map(
+    entries.filter((e): e is [AnnotationID, string] => e !== undefined),
+  );
 }
 
 const memberRows = computed(() =>

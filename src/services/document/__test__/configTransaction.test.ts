@@ -37,7 +37,8 @@ if (!docSrcHashRes.ok) throw docSrcHashRes.error;
 const DOC_SRC_HASH = docSrcHashRes.value;
 
 void mock.module('src/services/container/main', () => ({
-  loadFileAsDocumentSource: (): Promise<Result<DocumentSource>> => Promise.resolve(Success(DOC_SRC)),
+  loadFileAsDocumentSource: (): Promise<Result<DocumentSource>> =>
+    Promise.resolve(Success(DOC_SRC)),
 }));
 
 function delay(ms: number): Promise<void> {
@@ -49,7 +50,10 @@ const fakeConfigStore = new Map<string, DocumentConfigFile>();
 const READ_DELAY_MS = 20;
 
 const getDocumentConfigFileMock = mock(
-  async (_cID: ContainerID, target: ContainerElementFile | string): Promise<Result<DocumentConfigFile>> => {
+  async (
+    _cID: ContainerID,
+    target: ContainerElementFile | string,
+  ): Promise<Result<DocumentConfigFile>> => {
     const path = typeof target === 'string' ? target : target.path;
     const key = `${_cID}|${path}`;
     const current = fakeConfigStore.get(key) ?? {
@@ -78,7 +82,9 @@ const saveDocumentConfigFileMock = mock(
     const key = `${cID}|${filePath}`;
     fakeConfigStore.set(key, {
       fileHash,
-      annots: Object.fromEntries((annotInfos as { style: { id: string } }[]).map((a) => [a.style.id, a])),
+      annots: Object.fromEntries(
+        (annotInfos as { style: { id: string } }[]).map((a) => [a.style.id, a]),
+      ),
       bookmarks,
       groups,
       outlineImported,
@@ -92,7 +98,9 @@ void mock.module('src/services/container/config', () => ({
   saveDocumentConfigFile: saveDocumentConfigFileMock,
 }));
 
-const registerConfigAnnotationInfosMock = mock((): Promise<Result<void>> => Promise.resolve(Success()));
+const registerConfigAnnotationInfosMock = mock((): Promise<Result<void>> =>
+  Promise.resolve(Success()),
+);
 void mock.module('src/services/document/annotation', () => ({
   registerConfigAnnotationInfos: registerConfigAnnotationInfosMock,
 }));

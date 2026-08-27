@@ -36,10 +36,10 @@ function createFakeStore(readDelayMs: number) {
 describe('createSerializedResource', () => {
   it('同じキーへの2つのmutateを同時に発火しても、両方の変更が最終状態に残る（lost updateが起きない）', async () => {
     const fake = createFakeStore(20);
-    const resource = createSerializedResource<string, FakeState, void>(
-      (key) => key,
-      { read: fake.read, write: fake.write },
-    );
+    const resource = createSerializedResource<string, FakeState, void>((key) => key, {
+      read: fake.read,
+      write: fake.write,
+    });
 
     const append = (value: string) =>
       resource.mutate(
@@ -57,10 +57,10 @@ describe('createSerializedResource', () => {
 
   it('異なるキーへのmutateは互いに影響しない', async () => {
     const fake = createFakeStore(5);
-    const resource = createSerializedResource<string, FakeState, void>(
-      (key) => key,
-      { read: fake.read, write: fake.write },
-    );
+    const resource = createSerializedResource<string, FakeState, void>((key) => key, {
+      read: fake.read,
+      write: fake.write,
+    });
 
     await Promise.all([
       resource.mutate(
@@ -81,10 +81,10 @@ describe('createSerializedResource', () => {
 
   it('mutateのfnが失敗を返した場合は書き込みを行わず、そのままFailureを返す', async () => {
     const fake = createFakeStore(1);
-    const resource = createSerializedResource<string, FakeState, void>(
-      (key) => key,
-      { read: fake.read, write: fake.write },
-    );
+    const resource = createSerializedResource<string, FakeState, void>((key) => key, {
+      read: fake.read,
+      write: fake.write,
+    });
 
     const err = new Error('invalid');
     const res = await resource.mutate('file-a', () => Failure(err), undefined);
@@ -95,10 +95,10 @@ describe('createSerializedResource', () => {
 
   it('readは直列化キューを通して最新状態を返す', async () => {
     const fake = createFakeStore(1);
-    const resource = createSerializedResource<string, FakeState, void>(
-      (key) => key,
-      { read: fake.read, write: fake.write },
-    );
+    const resource = createSerializedResource<string, FakeState, void>((key) => key, {
+      read: fake.read,
+      write: fake.write,
+    });
 
     await resource.mutate(
       'file-a',
@@ -114,16 +114,13 @@ describe('createSerializedResource', () => {
   it('write用の追加メタ情報（meta）をmutateからioの書き込みへそのまま渡せる', async () => {
     const fake = createFakeStore(1);
     let receivedMeta: string | undefined;
-    const resource = createSerializedResource<string, FakeState, string>(
-      (key) => key,
-      {
-        read: fake.read,
-        write: (key, next, meta) => {
-          receivedMeta = meta;
-          return fake.write(key, next);
-        },
+    const resource = createSerializedResource<string, FakeState, string>((key) => key, {
+      read: fake.read,
+      write: (key, next, meta) => {
+        receivedMeta = meta;
+        return fake.write(key, next);
       },
-    );
+    });
 
     await resource.mutate(
       'file-a',
@@ -138,20 +135,17 @@ describe('createSerializedResource', () => {
     const fake = createFakeStore(1);
     let readCalls = 0;
     let readForMutateCalls = 0;
-    const resource = createSerializedResource<string, FakeState, void>(
-      (key) => key,
-      {
-        read: (key) => {
-          readCalls += 1;
-          return fake.read(key);
-        },
-        readForMutate: (key) => {
-          readForMutateCalls += 1;
-          return fake.read(key);
-        },
-        write: fake.write,
+    const resource = createSerializedResource<string, FakeState, void>((key) => key, {
+      read: (key) => {
+        readCalls += 1;
+        return fake.read(key);
       },
-    );
+      readForMutate: (key) => {
+        readForMutateCalls += 1;
+        return fake.read(key);
+      },
+      write: fake.write,
+    });
 
     await resource.mutate(
       'file-a',
@@ -169,16 +163,13 @@ describe('createSerializedResource', () => {
   it('readForMutateを省略した場合はreadがmutateの内部読み込みにも使われる（既定動作）', async () => {
     const fake = createFakeStore(1);
     let readCalls = 0;
-    const resource = createSerializedResource<string, FakeState, void>(
-      (key) => key,
-      {
-        read: (key) => {
-          readCalls += 1;
-          return fake.read(key);
-        },
-        write: fake.write,
+    const resource = createSerializedResource<string, FakeState, void>((key) => key, {
+      read: (key) => {
+        readCalls += 1;
+        return fake.read(key);
       },
-    );
+      write: fake.write,
+    });
 
     await resource.mutate(
       'file-a',

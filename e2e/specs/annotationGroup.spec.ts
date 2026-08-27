@@ -521,7 +521,9 @@ test.describe('アノテーショングループ化', () => {
   });
 
   test('交差する2本の直線をグループ化してリサイズしても、交差関係が崩れない', async ({ page }) => {
-    const seeded = await seedCacheContainerWithFixturePdf(page, { containerName: 'group-line-resize' });
+    const seeded = await seedCacheContainerWithFixturePdf(page, {
+      containerName: 'group-line-resize',
+    });
     const lineId1 = 'aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa';
     const lineId2 = 'bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb';
     // (50,50)-(150,150)と(150,50)-(50,150)は(100,100)で交差する
