@@ -732,4 +732,72 @@ test.describe('アノテーショングループ化', () => {
     // 実際のメンバー数（2件）と一致すること（0件のまま固定されるバグの回帰確認）
     await expect(dialog.getByText('2件のアノテーションをグループ化しています')).toBeVisible();
   });
+
+  test('グループとアノテーションが関係性を結ぶと、グループのメンバーの見た目が検証結果に応じて変化する', async ({
+    page,
+  }) => {
+    // 具体的な色決定ロジック・OK/NG判定自体は別途単体テスト済み（relationalStyleOverride.test.ts、
+    // 今回追加のrelationalStore.test.ts）のため、ここではrelational.spec.tsの既存パターンと同様、
+    // 「グループのメンバーの見た目が実際に変化するか」のみをスクリーンショット差分で見る
+    // （グループを端点とする関係性の検証結果がstatusForAnnotationでは拾えず、メンバーの見た目が
+    // 変化しなかった不具合の回帰確認）
+    const seeded = await seedThreeBoxes(page, 'group-relational-style');
+    const canvas = await openFileInSelectMode(page, 'group-relational-style');
+
+    await selectAAndB(page, canvas);
+    await groupViaContextMenu(page, canvas);
+
+    await expect
+      .poll(async () => {
+        const res = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.listAnnotationGroups(file);
+        }, seeded.file);
+        return res.ok ? (res.data?.length ?? -1) : -1;
+      })
+      .toBe(1);
+
+    // 選択・Transformerのハイライトが差分に混ざらないよう、空白をクリックして何も選択していない
+    // 状態にしてから、関係性が存在しない時点の基準スクリーンショットを撮っておく（関係性を作った
+    // 「後」に基準を取ると、その時点で既にスタイルが適用済みになっている可能性があり、
+    // 差分が出なくなってしまうため、必ず関係性を作る「前」に基準を撮ること）
+    const blank = await docPointToPagePosition(canvas, { x: 300, y: 50 }, PAGE_SIZE);
+    await page.mouse.click(blank.x, blank.y);
+    const beforeRelation = await canvas.screenshot();
+
+    // Aを単体クリックしても、選択展開watchによりグループ全体へ自動的に広がるため、
+    // このままリンクボタンを押すとグループを起点とした関係性定義の待機状態に入る
+    const { a, c } = await centers(canvas);
+    await page.mouse.click(a.x, a.y);
+    await expect(page.locator('[data-testid="relational-define-link"]')).toBeVisible();
+    await page.locator('[data-testid="relational-define-link"]').click();
+    await page.mouse.click(c.x, c.y);
+
+    // 関係性が実際に登録されるまで待つ
+    await expect
+      .poll(async () => {
+        const res = await page.evaluate(async (file: TestContainerFile) => {
+          const api = window.__kumihimoTest?.api;
+          if (!api) throw new Error('__kumihimoTest hook is not available');
+          return api.getRelationalsInFile(file);
+        }, seeded.file);
+        return res.ok ? (res.data?.length ?? -1) : -1;
+      })
+      .toBeGreaterThan(0);
+
+    // 検証状態の枠色がグループのメンバー（A・B）へ反映され、キャンバスの見た目が
+    // 関係性登録前の基準から変化すること（選択解除済みの状態同士で比較することで、
+    // 選択状態自体の見た目変化ではなく検証結果によるスタイル変化のみを見る）
+    await expect
+      .poll(
+        async () => {
+          await page.mouse.click(blank.x, blank.y);
+          const afterLink = await canvas.screenshot();
+          return Buffer.compare(beforeRelation, afterLink) !== 0;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+  });
 });

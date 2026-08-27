@@ -51,6 +51,7 @@
 import { computed, ref, type ComputedRef } from 'vue';
 import type Konva from 'konva';
 import type { AnnotationID, ArrowAnnotationStyle, ArrowHeadType } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import { useAnnotationShape } from './composables/useAnnotationShape';
 import { useTwoPointAnchors } from './composables/useMultiPointAnchors';
 import {
@@ -80,6 +81,9 @@ interface Props {
   // 複数選択（グループ含む）の一員として共有Transformerでリサイズ中かどうか。trueの間は
   // 頂点アンカーを隠し、グループ全体のscaleをpointsへ焼き込む（onTransform/onTransformEnd参照）
   isGroupTransform?: boolean;
+  // 所属グループのID（未所属ならundefined）。グループを端点とする関係性の検証結果を
+  // このシェイプのスタイルへ反映するために使う（useAnnotationShape参照）
+  groupId?: AnnotationGroupID;
 }
 
 const props = defineProps<Props>();

@@ -32,6 +32,7 @@
           :is-group-transform="
             isMultiTransformSelection && selectedAnnotIds.includes(annotation.id)
           "
+          :group-id="groupIdFor(annotation.id)"
           :allow-drag="canDragUnselected"
           :stage-scale="props.scale"
           @update="onShapeUpdate"
@@ -104,6 +105,7 @@ import { createAnnotationFromPoints, startDrawingAnnotation } from './annotation
 import { useEditorStore } from 'src/stores/editorStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import type { ContainerElementFile } from 'src/models/container';
 import {
   ANNOTATION_GEOMETRY,
@@ -220,6 +222,16 @@ function expandToGroups(ids: AnnotationID[]): AnnotationID[] {
     groupStore.memberSet(fk, id)?.forEach((memberId) => expanded.add(memberId));
   });
   return expanded.size === ids.length ? ids : Array.from(expanded);
+}
+
+/**
+ * 指定アノテーションが所属するグループのIDを返す（未所属ならundefined）
+ *
+ * グループを端点とする関係性の検証結果を、メンバー各シェイプの表示スタイルへ反映するために
+ * 各シェイプコンポーネントの`groupId`propへ渡す（useAnnotationShape参照）
+ */
+function groupIdFor(annotId: AnnotationID): AnnotationGroupID | undefined {
+  return groupStore.groupContaining(fileKey(props.file), annotId)?.id;
 }
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);

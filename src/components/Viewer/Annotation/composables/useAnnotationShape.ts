@@ -11,6 +11,7 @@ import { computed, ref, watch, type Ref } from 'vue';
 import dayjs from 'dayjs';
 import type Konva from 'konva';
 import type { AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import { useRelationalStore } from 'src/stores/relationalStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import { getRelationalStyleOverride } from '../relationalStyleOverride';
@@ -27,15 +28,21 @@ import { hexToRgba } from 'src/utils/color/hexToRgba';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
 
-export function useAnnotationShape<T extends AnnotationStyle>(props: { annotation: T }) {
+export function useAnnotationShape<T extends AnnotationStyle>(props: {
+  annotation: T;
+  // このアノテーションが所属するグループのID（グループに属していなければundefined）。
+  // グループを端点とする関係性の検証結果も、自分自身の表示スタイルへ反映するために使う
+  groupId?: AnnotationGroupID | undefined;
+}) {
   const relationalStore = useRelationalStore();
   const settingsStore = useSettingsStore();
   const { shiftKey, ctrlKey } = useModifierKeys();
 
-  // 関係性の検証結果（OK/NG）による表示上書き。関連なし・検証保留中はundefined（元のスタイルを維持）
+  // 関係性の検証結果（OK/NG）による表示上書き。関連なし・検証保留中はundefined（元のスタイルを維持）。
+  // 自分自身を端点とする関係性だけでなく、所属グループを端点とする関係性の検証結果も合わせて見る
   const relationalOverride = computed(() =>
     getRelationalStyleOverride(
-      relationalStore.statusForAnnotation(props.annotation.id),
+      relationalStore.statusForAnnotationIncludingGroup(props.annotation.id, props.groupId),
       settingsStore.relationalVerificationStyle,
     ),
   );

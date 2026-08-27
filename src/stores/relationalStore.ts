@@ -111,6 +111,33 @@ export const useRelationalStore = defineStore('relational', {
     },
 
     /**
+     * 指定アノテーションの検証状態を、そのアノテーションが所属するグループの検証状態も
+     * あわせて集計して返す（優先度: ng > pending > ok、いずれの関連も無ければundefined）
+     *
+     * グループのメンバーとして描画される各シェイプは、自分自身を直接の端点とする関係性だけでなく、
+     * 自分の属するグループを端点とする関係性の検証結果もスタイルへ反映する必要がある
+     * （`statusForAnnotation`はアノテーションID自身に紐づくエッジしか見ないため、グループを
+     * 端点とする関係性はこれだけでは拾えず、グループに関係性を結んでもメンバーの見た目が
+     * 変わらない不具合の原因になっていた）。`groupId`はメンバーが所属するグループが無ければ
+     * `undefined`でよい
+     */
+    statusForAnnotationIncludingGroup(): (
+      annotId: RelationalEndpointID,
+      groupId: RelationalEndpointID | undefined,
+    ) => RelationalStatus {
+      const getEdgesForAnnotation = this.edgesForAnnotation;
+      return (annotId, groupId) => {
+        const edges = getEdgesForAnnotation(annotId);
+        const groupEdges = groupId ? getEdgesForAnnotation(groupId) : [];
+        if (groupEdges.length === 0) return aggregateStatus(edges);
+        const deduped = new Map(
+          [...edges, ...groupEdges].map((edge) => [edgeKey(edge.relational), edge]),
+        );
+        return aggregateStatus(Array.from(deduped.values()));
+      };
+    },
+
+    /**
      * 指定ファイル（fileKey = `${containerID}|${path}`）が関わるエッジ全体の検証状態
      *
      * 読み込み済み（＝タブを開く等で`refreshFile`済み）のファイルのみ対象で、

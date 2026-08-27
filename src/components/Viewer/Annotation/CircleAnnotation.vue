@@ -16,6 +16,7 @@
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import { useAnnotationShape } from './composables/useAnnotationShape';
 
 type KonvaEvent = Konva.KonvaEventObject<Event>;
@@ -34,6 +35,9 @@ interface Props {
   // Transformer側のcenteredScalingに任せ、シェイプ自身のCtrl中心固定・正円維持補正を適用しない
   // （scaleX!=scaleYのグループ変形では「常に正円を維持する」ことと両立しないため）
   isGroupTransform?: boolean;
+  // 所属グループのID（未所属ならundefined）。グループを端点とする関係性の検証結果を
+  // このシェイプのスタイルへ反映するために使う（useAnnotationShape参照）
+  groupId?: AnnotationGroupID;
 }
 
 const props = defineProps<Props>();

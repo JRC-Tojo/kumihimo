@@ -10,6 +10,7 @@
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import type { AnnotationID, TextAnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import { useAnnotationShape } from './composables/useAnnotationShape';
 import { hexToRgba } from 'src/utils/color/hexToRgba';
 
@@ -26,6 +27,9 @@ interface Props {
   // 複数選択（グループ含む）の一員として共有Transformerでリサイズ中かどうか。trueの間は
   // Transformer側のcenteredScalingに任せ、シェイプ自身のCtrl中心固定補正を二重適用しない
   isGroupTransform?: boolean;
+  // 所属グループのID（未所属ならundefined）。グループを端点とする関係性の検証結果を
+  // このシェイプのスタイルへ反映するために使う（useAnnotationShape参照）
+  groupId?: AnnotationGroupID;
 }
 
 const props = defineProps<Props>();
