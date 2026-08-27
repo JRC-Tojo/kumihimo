@@ -409,10 +409,7 @@ export function deleteFile(cId: ContainerID, file: ContainerElementFile): Promis
   return withSerializedContainerCache(() => deleteFileImpl(cId, file));
 }
 
-async function deleteFileImpl(
-  cId: ContainerID,
-  file: ContainerElementFile,
-): Promise<Result<void>> {
+async function deleteFileImpl(cId: ContainerID, file: ContainerElementFile): Promise<Result<void>> {
   const c = getContainer(cId);
   if (!c.ok) return c;
 

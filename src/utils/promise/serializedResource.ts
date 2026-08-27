@@ -43,9 +43,7 @@ export interface SerializedResource<TItem, TState, TWriteMeta = void> {
    */
   write<T>(
     item: TItem,
-    compute: () =>
-      | Promise<Result<MutationOutcome<TState, T>>>
-      | Result<MutationOutcome<TState, T>>,
+    compute: () => Promise<Result<MutationOutcome<TState, T>>> | Result<MutationOutcome<TState, T>>,
     meta: TWriteMeta,
   ): Promise<Result<T>>;
 }

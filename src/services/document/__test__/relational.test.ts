@@ -160,8 +160,7 @@ const loadContainerMock = mock(
 let fileSrcFixture: Result<string> = Success('dummy-source');
 const loadFileAsDocumentSourceMock = mock(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
-  (_cID: ContainerID, _path: string): Promise<Result<string>> =>
-    Promise.resolve(fileSrcFixture),
+  (_cID: ContainerID, _path: string): Promise<Result<string>> => Promise.resolve(fileSrcFixture),
 );
 void mock.module('src/services/container/main', () => ({
   getContainer: getContainerMock,
