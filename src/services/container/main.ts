@@ -22,6 +22,7 @@ import { DocumentSource } from 'src/models/document/common';
 import { v4 as uuidv4 } from 'uuid';
 import { getBase64FileSize } from 'src/utils/binary/base64';
 import { Path } from 'src/utils/binary/path';
+import { createKeyedMutex } from 'src/utils/promise/keyedMutex';
 
 export type { RenamedEntry };
 
@@ -45,6 +46,24 @@ async function switchContainerProcess<T>(
 }
 
 let cachedContainers: { [id: ContainerID]: Container | ContainerSkel } = {};
+
+/**
+ * `cachedContainers`への読み書きを直列化するミューテックス
+ *
+ * `getAllContainers`（設定のスナップショットを基にキャッシュを丸ごと入れ替える）と、
+ * `createContainer`/`loadContainer`/`unloadContainer`/`reopenContainer`/要素操作系（個別IDの
+ * 追加・更新・削除）が並行して実行されると、後から解決した`getAllContainers`が古いスナップショット
+ * のままキャッシュを丸ごと上書きし、直前に追加・読み込み済みのコンテナがキャッシュから消えてしまう
+ * （`getContainer`が`Not Found Container`を返す原因になる）。`cachedContainers`はID単位ではなく
+ * 単一の共有キャッシュなので、`createSerializedResource`（`src/services/document/config.ts`が
+ * `.kcfg`単位で使用）ではなくキー1つ固定の{@link createKeyedMutex}で直列化する
+ */
+const containerCacheMutex = createKeyedMutex();
+const CACHE_KEY = 'cachedContainers';
+
+function withSerializedContainerCache<T>(fn: () => Promise<T>): Promise<T> {
+  return containerCacheMutex.runExclusive(CACHE_KEY, fn);
+}
 
 /**
  * コンテナIDからコンテナ情報を取得する
@@ -72,7 +91,11 @@ function parseContainer(c: Container | ContainerSkel) {
  * ここでは設定の「読み込み対象のコンテナ」一覧（`settings.containerSkels`）に
  * 含まれるものだけへ絞り込むことで、閉じたコンテナが一覧に残り続けないようにする
  */
-export async function getAllContainers(): Promise<Result<ContainerSkel[]>> {
+export function getAllContainers(): Promise<Result<ContainerSkel[]>> {
+  return withSerializedContainerCache(getAllContainersImpl);
+}
+
+async function getAllContainersImpl(): Promise<Result<ContainerSkel[]>> {
   const settingsRes = await settings.getSettings();
   if (!settingsRes.ok) return settingsRes;
   const loadedIds = new Set(settingsRes.value.containerSkels.map((c) => c.id));
@@ -93,7 +116,15 @@ export async function getAllContainers(): Promise<Result<ContainerSkel[]>> {
         return cs.value.map((c) => [c.id, c] as [ContainerID, Container]);
       })
       .flat()
-      .filter(([id]) => loadedIds.has(id)),
+      .filter(([id]) => loadedIds.has(id))
+      .map(([id, c]) => {
+        // すでに要素まで読み込み済みのキャッシュがあれば、スケルトンで巻き戻さず保持する
+        // （本関数の目的は「読み込み対象一覧」への絞り込みであり、
+        //   要素読み込み済みの状態を退化させてはならない）
+        const existing = cachedContainers[id];
+        const alreadyLoaded = existing !== void 0 && parseContainer(existing).success;
+        return [id, alreadyLoaded ? existing : c] as [ContainerID, Container | ContainerSkel];
+      }),
   );
 
   return Success(Object.values(cachedContainers));
@@ -104,9 +135,16 @@ export async function getAllContainers(): Promise<Result<ContainerSkel[]>> {
  *
  * コンテナ要素まですべて読み込む
  */
-export async function loadContainer(
+export function loadContainer(
   id: ContainerID,
   forceReload: boolean = false,
+): Promise<Result<Container>> {
+  return withSerializedContainerCache(() => loadContainerImpl(id, forceReload));
+}
+
+async function loadContainerImpl(
+  id: ContainerID,
+  forceReload: boolean,
 ): Promise<Result<Container>> {
   const c = getContainer(id);
   if (!c.ok) return c;
@@ -157,7 +195,15 @@ export async function peekContainerElements(id: ContainerID): Promise<Result<Con
 /**
  * コンテナを追加する
  */
-export async function createContainer(
+export function createContainer(
+  type: ContainerType,
+  name: string,
+  path: string,
+): Promise<Result<ContainerSkel>> {
+  return withSerializedContainerCache(() => createContainerImpl(type, name, path));
+}
+
+async function createContainerImpl(
   type: ContainerType,
   name: string,
   path: string,
@@ -186,7 +232,8 @@ export async function createContainer(
   if (!settingsRes.ok) {
     // コンテナオブジェクトの削除（ロールバック）
     // 設定ファイルへの書きこみで失敗するため，戻り値は無視する
-    await unloadContainer(newContainer.id, true);
+    // （直列化キュー内から呼ぶため、ラップ済みの`unloadContainer`ではなく`Impl`を直接呼ぶ）
+    await unloadContainerImpl(newContainer.id, true);
     return settingsRes;
   }
 
@@ -200,9 +247,16 @@ export async function createContainer(
 /**
  * コンテナの読み込みを中止する
  */
-export async function unloadContainer(
+export function unloadContainer(
   cId: ContainerID,
   deleteContainer: boolean = false,
+): Promise<Result<void>> {
+  return withSerializedContainerCache(() => unloadContainerImpl(cId, deleteContainer));
+}
+
+async function unloadContainerImpl(
+  cId: ContainerID,
+  deleteContainer: boolean,
 ): Promise<Result<void>> {
   const c = getContainer(cId);
   if (!c.ok) return c;
@@ -235,7 +289,11 @@ export async function unloadContainer(
  * 「読み込み対象のコンテナ」一覧からのみ除外するため、再度読み込み対象に戻すには
  * この関数を経由して`settings.containerSkels`へ登録し直す必要がある
  */
-export async function reopenContainer(entry: ContainerSkel): Promise<Result<Container>> {
+export function reopenContainer(entry: ContainerSkel): Promise<Result<Container>> {
+  return withSerializedContainerCache(() => reopenContainerImpl(entry));
+}
+
+async function reopenContainerImpl(entry: ContainerSkel): Promise<Result<Container>> {
   cachedContainers[entry.id] = entry;
 
   const settingsRes = await settings.addLoadedContainer(entry);
@@ -245,7 +303,8 @@ export async function reopenContainer(entry: ContainerSkel): Promise<Result<Cont
     return settingsRes;
   }
 
-  return loadContainer(entry.id, true);
+  // 直列化キュー内から呼ぶため、ラップ済みの`loadContainer`ではなく`Impl`を直接呼ぶ
+  return loadContainerImpl(entry.id, true);
 }
 
 /**
@@ -310,7 +369,15 @@ async function deleteContainerElement(
 /**
  * コンテナ内にファイルを追加する
  */
-export async function createFile(
+export function createFile(
+  cId: ContainerID,
+  filePathStr: string,
+  srcData: DocumentSource,
+): Promise<Result<ContainerElementFile>> {
+  return withSerializedContainerCache(() => createFileImpl(cId, filePathStr, srcData));
+}
+
+async function createFileImpl(
   cId: ContainerID,
   filePathStr: string,
   srcData: DocumentSource,
@@ -338,7 +405,11 @@ export async function createFile(
 /**
  * コンテナ内のファイルを削除する
  */
-export async function deleteFile(
+export function deleteFile(cId: ContainerID, file: ContainerElementFile): Promise<Result<void>> {
+  return withSerializedContainerCache(() => deleteFileImpl(cId, file));
+}
+
+async function deleteFileImpl(
   cId: ContainerID,
   file: ContainerElementFile,
 ): Promise<Result<void>> {
@@ -379,7 +450,14 @@ export async function loadFileAsDocumentSource(
 /**
  * コンテナ内にフォルダを追加する
  */
-export async function createFolder(
+export function createFolder(
+  cId: ContainerID,
+  folderPathStr: string,
+): Promise<Result<ContainerElementFolder>> {
+  return withSerializedContainerCache(() => createFolderImpl(cId, folderPathStr));
+}
+
+async function createFolderImpl(
   cId: ContainerID,
   folderPathStr: string,
 ): Promise<Result<ContainerElementFolder>> {
@@ -413,7 +491,14 @@ export async function createFolder(
 /**
  * コンテナ内のフォルダを削除する（配下の全要素も合わせて削除する）
  */
-export async function deleteFolder(
+export function deleteFolder(
+  cId: ContainerID,
+  folder: ContainerElementFolder,
+): Promise<Result<void>> {
+  return withSerializedContainerCache(() => deleteFolderImpl(cId, folder));
+}
+
+async function deleteFolderImpl(
   cId: ContainerID,
   folder: ContainerElementFolder,
 ): Promise<Result<void>> {
@@ -464,7 +549,15 @@ export async function deleteFolder(
  * Fileの場合は1件、Folderの場合は配下の全要素も新パスに付け替えて返す
  * （呼び出し側で`.kcfg`・関係性キャッシュ等の副作用伝播に使えるよう、旧パスと新要素の組で返す）
  */
-export async function renamePath(
+export function renamePath(
+  cId: ContainerID,
+  elem: ContainerElement,
+  newPath: string,
+): Promise<Result<RenamedEntry[]>> {
+  return withSerializedContainerCache(() => renamePathImpl(cId, elem, newPath));
+}
+
+async function renamePathImpl(
   cId: ContainerID,
   elem: ContainerElement,
   newPath: string,
