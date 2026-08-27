@@ -1,4 +1,13 @@
 export default {
+  // 起動時ロック画面
+  lock: {
+    title: 'ロック中',
+    description: 'このアプリを利用するにはパスワードの入力が必要です。',
+    passwordLabel: 'パスワード',
+    unlock: '解除',
+    verifyFailed: 'パスワードが正しくありません。',
+  },
+
   // ページタイトル
   title: {
     app: '組紐',

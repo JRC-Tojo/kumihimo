@@ -47,6 +47,8 @@ export const AppSettings = z.object({
   ),
   // アノテーションの自動保存トグルのオン・オフ
   autoSaveAnnotations: z.boolean().default(false),
+  // 起動時ロック画面の解除済みフラグ（端末＝ブラウザプロファイル単位で保持する）
+  unlocked: z.boolean().default(false),
 });
 
 export type AppSettings = z.infer<typeof AppSettings>;
