@@ -27,14 +27,16 @@
                 class="member-preview-img"
                 fit="cover"
               />
-              <q-avatar v-else rounded size="2rem" :style="{ backgroundColor: member.color }">
-                <q-icon :name="member.icon" size="1.1rem" color="white" />
+              <q-avatar v-else rounded size="5rem" :style="{ backgroundColor: member.color }">
+                <q-icon :name="member.icon" size="3rem" color="white" />
               </q-avatar>
             </q-item-section>
             <q-item-section>
-              <span class="text-weight-bold">{{ member.letter }}</span>
-              <span class="text-grey-6"> = </span>
-              <span>{{ member.label }}</span>
+              <div class="row">
+                <span class="text-weight-bold">{{ member.letter }}</span>
+                <span class="text-grey-6 q-mx-sm"> = </span>
+                <span>{{ member.label }}</span>
+              </div>
             </q-item-section>
           </q-item>
         </q-list>
@@ -234,8 +236,8 @@ async function onSave() {
 }
 
 .member-preview-img {
-  width: 2rem;
-  height: 2rem;
+  width: 5rem;
+  height: 5rem;
   border-radius: 4px;
 }
 </style>
