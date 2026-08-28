@@ -6,11 +6,13 @@
  * `Promise`チェーンのみで実装しており、タイマーやロック解放忘れの心配がない
  */
 export interface KeyedMutex {
+  /** 指定キーの直前のタスクが決着してから`task`を実行し、その結果を返す */
   runExclusive<T>(key: string, task: () => Promise<T>): Promise<T>;
   /** 現在キューにエントリが残っているキーの数（テスト・診断用） */
   size(): number;
 }
 
+/** キーごとに直列実行を保証する{@link KeyedMutex}の実装を生成する */
 export function createKeyedMutex(): KeyedMutex {
   const queues = new Map<string, Promise<void>>();
 

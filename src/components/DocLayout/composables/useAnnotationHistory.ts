@@ -144,26 +144,37 @@ export function useAnnotationHistory() {
   /**
    * 削除対象アノテーションが所属していたグループへの影響（部分メンバー除去、または
    * 残りメンバー数がMIN_GROUP_MEMBERSを下回る場合の解散）を捕捉・適用する。
-   * 戻り値の削除前スナップショットは、undo時に`api.restoreGroup`でそっくり復元するために使う
+   * 戻り値の削除前スナップショットは、undo時に`api.restoreGroup`でそっくり復元するために使う。
+   *
+   * グループを解散する場合、`api.ungroupAnnotations`はそのグループが関係性の端点として
+   * 持っていた関係性も削除してしまう。解散前に捕捉しておかないとundoでグループを復元しても
+   * その関係性は失われたままになるため、`relationalsByGroupId`として合わせて返す
    */
   async function applyGroupImpactForRemoval(
     file: ContainerElementFile,
     removedIds: AnnotationID[],
-  ): Promise<AnnotationGroup[]> {
+  ): Promise<{
+    groups: AnnotationGroup[];
+    relationalsByGroupId: Map<AnnotationGroupID, Relational[]>;
+  }> {
     const removedSet = new Set(removedIds);
     const groups = groupStore.groupsByFileKey[fileKey(file)] ?? [];
     const affected = groups.filter((g) => g.memberIds.some((id) => removedSet.has(id)));
-    if (affected.length === 0) return [];
+    if (affected.length === 0) return { groups: [], relationalsByGroupId: new Map() };
 
     const snapshots = affected.map((g) => ({ ...g, memberIds: [...g.memberIds] }));
+    const relationalsByGroupId = new Map<AnnotationGroupID, Relational[]>();
 
     for (const g of affected) {
       const idsToRemove = g.memberIds.filter((id) => removedSet.has(id));
       const res = await api.removeGroupMembers(file, g.id, idsToRemove);
-      if (!res.ok) await api.ungroupAnnotations(file, g.id);
+      if (!res.ok) {
+        relationalsByGroupId.set(g.id, captureRelationals(g.id));
+        await api.ungroupAnnotations(file, g.id);
+      }
     }
     await groupStore.refreshFile(file);
-    return snapshots;
+    return { groups: snapshots, relationalsByGroupId };
   }
 
   /**
@@ -184,19 +195,36 @@ export function useAnnotationHistory() {
     const relationals = captureRelationals(removed.id);
     const res = await api.removeAnnotation(removed.id);
     if (res.ok) {
-      const affectedGroups = await applyGroupImpactForRemoval(file, [removed.id]);
+      const { groups: affectedGroups, relationalsByGroupId: dissolvedRelationalsByGroupId } =
+        await applyGroupImpactForRemoval(file, [removed.id]);
       historyStore.push(file, {
         undo: async () => {
           await api.registerAnnotationStyle(file, removed);
           await Promise.all(affectedGroups.map((g) => api.restoreGroup(file, g)));
           if (affectedGroups.length > 0) await groupStore.refreshFile(file);
-          await Promise.all(relationals.map((r) => api.registRelationals(r)));
+          const dissolvedGroupRelationals = affectedGroups.flatMap(
+            (g) => dissolvedRelationalsByGroupId.get(g.id) ?? [],
+          );
+          await Promise.all(
+            [...relationals, ...dissolvedGroupRelationals].map((r) => api.registRelationals(r)),
+          );
           await refreshRelationalCachesAfter(file, removed.id, relationals);
+          await Promise.all(
+            affectedGroups.map((g) =>
+              refreshRelationalCachesAfter(file, g.id, dissolvedRelationalsByGroupId.get(g.id) ?? []),
+            ),
+          );
         },
         redo: async () => {
           await api.removeAnnotation(removed.id);
-          await applyGroupImpactForRemoval(file, [removed.id]);
+          const { groups: redoneGroups, relationalsByGroupId: redoneRelationalsByGroupId } =
+            await applyGroupImpactForRemoval(file, [removed.id]);
           await refreshRelationalCachesAfter(file, removed.id, relationals);
+          await Promise.all(
+            redoneGroups.map((g) =>
+              refreshRelationalCachesAfter(file, g.id, redoneRelationalsByGroupId.get(g.id) ?? []),
+            ),
+          );
         },
       });
     }
@@ -218,10 +246,11 @@ export function useAnnotationHistory() {
     if (!results.every((res) => res.ok)) return;
 
     // 複数削除で2つ以上のグループを同時に縮小・解散させる場合も、影響適用はまとめて1回で行う
-    const affectedGroups = await applyGroupImpactForRemoval(
-      file,
-      removedList.map((a) => a.id),
-    );
+    const { groups: affectedGroups, relationalsByGroupId: dissolvedRelationalsByGroupId } =
+      await applyGroupImpactForRemoval(
+        file,
+        removedList.map((a) => a.id),
+      );
 
     historyStore.push(file, {
       undo: async () => {
@@ -231,22 +260,40 @@ export function useAnnotationHistory() {
         // 削除対象同士が互いにリンクしていた場合、両端のrelationalsByIdエントリに
         // 同じエッジが重複して含まれるため、登録前に一意化する
         const dedupedRelationals = dedupRelationals(relationalsById);
-        await Promise.all(dedupedRelationals.map((r) => api.registRelationals(r)));
+        const dissolvedGroupRelationals = affectedGroups.flatMap(
+          (g) => dissolvedRelationalsByGroupId.get(g.id) ?? [],
+        );
+        await Promise.all(
+          [...dedupedRelationals, ...dissolvedGroupRelationals].map((r) =>
+            api.registRelationals(r),
+          ),
+        );
         await Promise.all(
           removedList.map((a) =>
             refreshRelationalCachesAfter(file, a.id, relationalsById.get(a.id) ?? []),
           ),
         );
+        await Promise.all(
+          affectedGroups.map((g) =>
+            refreshRelationalCachesAfter(file, g.id, dissolvedRelationalsByGroupId.get(g.id) ?? []),
+          ),
+        );
       },
       redo: async () => {
         await Promise.all(removedList.map((a) => api.removeAnnotation(a.id)));
-        await applyGroupImpactForRemoval(
-          file,
-          removedList.map((a) => a.id),
-        );
+        const { groups: redoneGroups, relationalsByGroupId: redoneRelationalsByGroupId } =
+          await applyGroupImpactForRemoval(
+            file,
+            removedList.map((a) => a.id),
+          );
         await Promise.all(
           removedList.map((a) =>
             refreshRelationalCachesAfter(file, a.id, relationalsById.get(a.id) ?? []),
+          ),
+        );
+        await Promise.all(
+          redoneGroups.map((g) =>
+            refreshRelationalCachesAfter(file, g.id, redoneRelationalsByGroupId.get(g.id) ?? []),
           ),
         );
       },
@@ -358,6 +405,13 @@ export function useAnnotationHistory() {
         await Promise.all(dissolvedGroups.map((g) => api.ungroupAnnotations(file, g.id)));
         await api.restoreGroup(file, newGroup);
         await groupStore.refreshFile(file);
+        // undo同様、解散し直したグループの関係性キャッシュも更新しないと、相手側ファイルの
+        // タブが古い関係性・検証状態を表示し続けてしまう
+        await Promise.all(
+          dissolvedGroups.map((g) =>
+            refreshRelationalCachesAfter(file, g.id, dissolvedRelationalsByGroupId.get(g.id) ?? []),
+          ),
+        );
       },
     });
   }

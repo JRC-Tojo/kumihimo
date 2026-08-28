@@ -95,6 +95,7 @@ export function getAllContainers(): Promise<Result<ContainerSkel[]>> {
   return withSerializedContainerCache(getAllContainersImpl);
 }
 
+/** `getAllContainers`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function getAllContainersImpl(): Promise<Result<ContainerSkel[]>> {
   const settingsRes = await settings.getSettings();
   if (!settingsRes.ok) return settingsRes;
@@ -142,6 +143,7 @@ export function loadContainer(
   return withSerializedContainerCache(() => loadContainerImpl(id, forceReload));
 }
 
+/** `loadContainer`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function loadContainerImpl(
   id: ContainerID,
   forceReload: boolean,
@@ -203,6 +205,7 @@ export function createContainer(
   return withSerializedContainerCache(() => createContainerImpl(type, name, path));
 }
 
+/** `createContainer`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function createContainerImpl(
   type: ContainerType,
   name: string,
@@ -254,6 +257,7 @@ export function unloadContainer(
   return withSerializedContainerCache(() => unloadContainerImpl(cId, deleteContainer));
 }
 
+/** `unloadContainer`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function unloadContainerImpl(
   cId: ContainerID,
   deleteContainer: boolean,
@@ -293,6 +297,7 @@ export function reopenContainer(entry: ContainerSkel): Promise<Result<Container>
   return withSerializedContainerCache(() => reopenContainerImpl(entry));
 }
 
+/** `reopenContainer`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function reopenContainerImpl(entry: ContainerSkel): Promise<Result<Container>> {
   cachedContainers[entry.id] = entry;
 
@@ -377,6 +382,7 @@ export function createFile(
   return withSerializedContainerCache(() => createFileImpl(cId, filePathStr, srcData));
 }
 
+/** `createFile`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function createFileImpl(
   cId: ContainerID,
   filePathStr: string,
@@ -409,6 +415,7 @@ export function deleteFile(cId: ContainerID, file: ContainerElementFile): Promis
   return withSerializedContainerCache(() => deleteFileImpl(cId, file));
 }
 
+/** `deleteFile`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function deleteFileImpl(cId: ContainerID, file: ContainerElementFile): Promise<Result<void>> {
   const c = getContainer(cId);
   if (!c.ok) return c;
@@ -454,6 +461,7 @@ export function createFolder(
   return withSerializedContainerCache(() => createFolderImpl(cId, folderPathStr));
 }
 
+/** `createFolder`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function createFolderImpl(
   cId: ContainerID,
   folderPathStr: string,
@@ -495,6 +503,7 @@ export function deleteFolder(
   return withSerializedContainerCache(() => deleteFolderImpl(cId, folder));
 }
 
+/** `deleteFolder`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function deleteFolderImpl(
   cId: ContainerID,
   folder: ContainerElementFolder,
@@ -554,6 +563,7 @@ export function renamePath(
   return withSerializedContainerCache(() => renamePathImpl(cId, elem, newPath));
 }
 
+/** `renamePath`の実処理。`withSerializedContainerCache`で直列化された状態で呼ばれる */
 async function renamePathImpl(
   cId: ContainerID,
   elem: ContainerElement,

@@ -46,7 +46,9 @@
           {{
             groupInfo?.valueAggregation === undefined
               ? $t('pdfEditor.peek.group.aggregationUndefined')
-              : $t('pdfEditor.peek.group.aggregationSum')
+              : groupInfo.valueAggregation.type === 'formula'
+                ? $t('pdfEditor.peek.group.aggregationFormula')
+                : $t('pdfEditor.peek.group.aggregationSum')
           }}
         </span>
         <q-btn
@@ -195,6 +197,7 @@ const previewedAnnotId = ref<RelationalEndpointID>();
 const groupInfo = ref<AnnotationGroup>();
 const aggregationDialogOpen = ref(false);
 
+/** 対象がグループの場合のみ、その最新のグループ情報を取得する（アノテーション単体なら未設定に戻す） */
 async function loadGroupInfo() {
   if (prop.target.kind !== 'group') {
     groupInfo.value = undefined;
@@ -236,6 +239,7 @@ async function refreshRelationalCachesAfterAggregationSaved(): Promise<void> {
   );
 }
 
+/** 値算出方法ダイアログでの保存完了を受けて、表示中のグループ情報と関係性キャッシュを更新する */
 function onAggregationSaved(updated: AnnotationGroup) {
   groupInfo.value = updated;
   void refreshRelationalCachesAfterAggregationSaved();

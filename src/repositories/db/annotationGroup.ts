@@ -32,6 +32,7 @@ export interface AnnotationGroupCacheEntry {
   valueAggregation?: GroupValueAggregation;
 }
 
+/** グループキャッシュ用のDexie（IndexedDB）データベース定義 */
 class AnnotationGroupDexieDB extends Dexie {
   groups!: Table<AnnotationGroupRecord, string>;
 
@@ -57,6 +58,7 @@ function toRecord(file: ContainerElementFile, group: AnnotationGroup): Annotatio
   };
 }
 
+/** DBのopenを保証する（未openなら開き、失敗時はFailureとして返す） */
 async function ensureReady(): Promise<Result<void>> {
   try {
     await db.open();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createKeyedMutex } from '../keyedMutex';
 
+/** 非同期テストで指定時間の遅延を生成する */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

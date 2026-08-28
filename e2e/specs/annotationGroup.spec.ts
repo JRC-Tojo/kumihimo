@@ -739,8 +739,18 @@ test.describe('アノテーショングループ化', () => {
     // 成立するが、resolvePeekTarget()が参照するフロントエンドのgroupStoreキャッシュの
     // refreshFileはそれとは別に非同期で走るため、直後にSpaceを押すとキャッシュがまだ
     // 追従しておらずグループを解決できないことがある（440行目・207行目のTransformer
-    // デタッチ待ちと同種の、バックエンド確定とフロントエンド反映のタイミングずれ）
-    await page.waitForTimeout(300);
+    // デタッチ待ちと同種の、バックエンド確定とフロントエンド反映のタイミングずれ）。
+    // 固定時間の待機ではなく、resolvePeekTarget()自身が参照するgroupStoreキャッシュに
+    // A・Bのグループが反映されたことを直接確認する
+    await expect
+      .poll(async () => {
+        return page.evaluate(
+          ({ file, idA, idB }: { file: TestContainerFile; idA: string; idB: string }) =>
+            window.__kumihimoTest?.stores.group.matchingGroupId(file, [idA, idB]),
+          { file: seeded.file, idA, idB },
+        );
+      })
+      .not.toBeUndefined();
 
     // グループ化直後は自動的にグループ全体（A・B）が選択された状態になっているため、
     // このままSpaceキーで関係性簡易閲覧ダイアログを開くとグループが対象になる

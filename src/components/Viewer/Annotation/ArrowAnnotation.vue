@@ -351,14 +351,17 @@ function syncGroupTransformGeometry(groupNode: Konva.Group): [number, number, nu
   return nextPoints;
 }
 
+/** 共有Transformerによるグループ変形の開始。他の編集操作と同様にUndo履歴の対象として扱う */
 function onTransformStart() {
   beginInteraction();
 }
 
+/** 共有Transformerによるグループ変形中、各tickでscale・rotationをpointsへ焼き込む（確定はまだしない） */
 function onTransform(e: Konva.KonvaEventObject<Event>) {
   syncGroupTransformGeometry(e.target as Konva.Group);
 }
 
+/** 共有Transformerによるグループ変形の確定。焼き込み済みのpoints・位置を親へ通知する */
 function onTransformEnd(e: Konva.KonvaEventObject<Event>) {
   const groupNode = e.target as Konva.Group;
   const points = syncGroupTransformGeometry(groupNode);

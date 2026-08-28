@@ -91,10 +91,16 @@ export interface KumihimoTestRelationalStore {
   statusForAnnotation(annotId: string): 'ok' | 'ng' | 'pending' | undefined;
 }
 
+export interface KumihimoTestGroupStore {
+  /** 指定ID群がフロントエンドのgroupStoreキャッシュ上で既存グループとちょうど一致する場合、そのグループIDを返す */
+  matchingGroupId(file: TestContainerFile, ids: string[]): string | undefined;
+}
+
 export interface KumihimoTestHook {
   api: KumihimoTestApi;
   stores: {
     relational: KumihimoTestRelationalStore;
+    group: KumihimoTestGroupStore;
   };
 }
 

@@ -138,6 +138,10 @@ const memberInfos = ref<AnnotationInfo[]>([]);
 // メンバーごとのプレビュー画像（読み込み中・失敗時は該当IDのエントリ無し＝種別アイコンにフォールバック）
 const previewsByMemberId = ref<Map<AnnotationID, string>>(new Map());
 
+/**
+ * グループの全メンバーのアノテーション情報を取得し、`memberIds`の順序で並べて保持する。
+ * 取得後、続けて各メンバーのプレビュー画像も読み込む
+ */
 async function loadMemberInfos() {
   const res = await api.getAnnotationsByFile(prop.file);
   if (!res.ok) {
@@ -213,6 +217,10 @@ const formulaInvalid = computed(
   () => selectedType.value === 'formula' && formulaPreview.value === undefined,
 );
 
+/**
+ * 選択中の値算出方法（sum/formula）を保存し、Undo履歴に記録してダイアログを閉じる。
+ * 数式が不正な場合は保存自体を行わない
+ */
 async function onSave() {
   // API呼び出し前に数式の妥当性を再検証し、不正なデータが永続化されるのを防ぐ
   // （ボタンのdisable制御と同じ判定だが、念のため保存処理側でも二重にガードする）

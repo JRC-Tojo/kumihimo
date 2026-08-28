@@ -390,6 +390,7 @@ export default {
         aggregationUndefined:
           '値の算出方法が未設定です（このままだと「等しい」の検証は常にNGになります）',
         aggregationSum: '値の算出方法: 合計',
+        aggregationFormula: '値の算出方法: 数式',
         configureAggregation: 'グループの値の算出方法を設定',
         aggregationDialog: {
           title: 'グループの値の算出方法',

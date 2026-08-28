@@ -391,6 +391,7 @@ export default {
         aggregationUndefined:
           'No value aggregation is set (an "equal" check against this group will always fail until one is set)',
         aggregationSum: 'Value aggregation: Sum',
+        aggregationFormula: 'Value aggregation: Formula',
         configureAggregation: "Configure the group's value aggregation",
         aggregationDialog: {
           title: 'Group value aggregation',
