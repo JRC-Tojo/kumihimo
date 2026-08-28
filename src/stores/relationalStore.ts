@@ -173,24 +173,41 @@ export const useRelationalStore = defineStore('relational', {
     },
 
     /**
-     * 編集対象のエッジについて、自身のファイルだけでなく相手側アノテーションのファイルの
-     * 関係性キャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
-     * キャッシュに古い情報が残ったままにならないようにする）
+     * `selfId`を端点の一方とする複数の関係性について、自身のファイルだけでなく相手側の
+     * ファイルすべてのキャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
+     * キャッシュに古い情報が残ったままにならないようにする）。undo/redo等、影響を受けた
+     * 関係性を既に把握している呼び出し元（`useAnnotationHistory`等）から共通で使うための
+     * 汎用版で、`refreshEdgeBothEndpoints`（1本版）もこれに委譲する
      */
-    async refreshEdgeBothEndpoints(
+    async refreshEndpointAndPeers(
       file: ContainerElementFile,
-      edge: RelationalEdge,
       selfId: RelationalEndpointID,
+      relationals: Relational[],
     ): Promise<void> {
       const api = useBackendApi();
       await this.refreshFile(file);
 
-      const otherId =
-        edge.relational.srcID === selfId ? edge.relational.targetID : edge.relational.srcID;
-      const otherFileRes = await api.resolveAnnotationFile(otherId);
-      if (otherFileRes.ok && !isSameFile(otherFileRes.data, file)) {
-        await this.refreshFile(otherFileRes.data);
-      }
+      await Promise.all(
+        relationals.map(async (relational) => {
+          const otherId = relational.srcID === selfId ? relational.targetID : relational.srcID;
+          const otherFileRes = await api.resolveAnnotationFile(otherId);
+          if (otherFileRes.ok && !isSameFile(otherFileRes.data, file)) {
+            await this.refreshFile(otherFileRes.data);
+          }
+        }),
+      );
+    },
+
+    /**
+     * 編集対象のエッジ1本について、自身のファイルだけでなく相手側アノテーションのファイルの
+     * 関係性キャッシュも合わせて更新する（`refreshEndpointAndPeers`の単一エッジ版）
+     */
+    refreshEdgeBothEndpoints(
+      file: ContainerElementFile,
+      edge: RelationalEdge,
+      selfId: RelationalEndpointID,
+    ): Promise<void> {
+      return this.refreshEndpointAndPeers(file, selfId, [edge.relational]);
     },
 
     /**

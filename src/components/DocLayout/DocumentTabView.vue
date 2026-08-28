@@ -106,6 +106,7 @@ import { saveDocument } from 'src/utils/document/saveDocument';
 import { fileKey } from 'src/utils/document/fileKey';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
 import { useAnnotationActions } from './composables/useAnnotationActions';
+import { useAnnotationHistory } from './composables/useAnnotationHistory';
 import { useZoomControl } from './composables/useZoomControl';
 import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 import {
@@ -165,6 +166,7 @@ const editorStore = useEditorStore();
 const historyStore = useHistoryStore();
 const relationalStore = useRelationalStore();
 const groupStore = useGroupStore();
+const history = useAnnotationHistory();
 
 // TODO: PDFの読み込みに失敗した場合、Loading画面を抜けてエラーが起きた旨を通知する仕様に修正
 const loading = ref<boolean>(true);
@@ -506,11 +508,12 @@ async function finishRelational(targetId: RelationalEndpointID) {
   // 連続定義モードが、選択され続けているだけのこの対象を新たな起点と誤認しないための目印
   editorStore.relationalLastPairedId = targetId;
 
-  const res = await api.registRelationals({
+  const relational = {
     srcID: srcId,
     targetID: targetId,
     rule: buildRelationalRule(mode),
-  });
+  };
+  const res = await api.registRelationals(relational);
   if (!res.ok) {
     $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.registerFailed') });
     return;
@@ -522,6 +525,8 @@ async function finishRelational(targetId: RelationalEndpointID) {
   if (pendingFile !== undefined && !isSameFile(pendingFile, prop.file)) {
     void relationalStore.refreshFile(pendingFile);
   }
+  // targetId（=このタブのファイルに属する側の端点）を基準にUndo履歴へ記録する
+  history.recordRelationalCreated(prop.file, relational, targetId);
 
   // 連続定義モード（関係性ボタンのダブルクリックで開始）が有効な場合、モード自体は
   // `finishRelationalPending`により維持される。次に選択されたアノテーションを新たな

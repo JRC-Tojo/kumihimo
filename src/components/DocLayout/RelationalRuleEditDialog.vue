@@ -64,6 +64,7 @@ import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useRelationalStore, edgeValueFor, type RelationalEdge } from 'src/stores/relationalStore';
+import { useAnnotationHistory } from 'src/components/DocLayout/composables/useAnnotationHistory';
 import type { ContainerElementFile } from 'src/models/container';
 import type { RelationalEndpointID, RelationalRule } from 'src/models/relational/fileSchema';
 import {
@@ -91,6 +92,7 @@ const $q = useQuasar();
 const { t } = useI18n();
 const api = useBackendApi();
 const relationalStore = useRelationalStore();
+const history = useAnnotationHistory();
 
 const isSrcSelf = computed(() => prop.edge.relational.srcID === prop.selfAnnotId);
 
@@ -171,6 +173,7 @@ async function onSave() {
     targetFormula: isSrcSelf.value ? rule.targetFormula : ownFormula.value || undefined,
   };
 
+  const previous = prop.edge.relational;
   const ok = await relationalStore.updateRelationalRule(
     prop.file,
     prop.edge,
@@ -181,6 +184,12 @@ async function onSave() {
     $q.notify({ type: 'negative', message: t('pdfEditor.peek.ruleEdit.saveFailed') });
     return;
   }
+  history.recordRelationalRuleChanged(
+    prop.file,
+    previous,
+    { ...previous, rule: newRule },
+    prop.selfAnnotId,
+  );
   open.value = false;
 }
 </script>
