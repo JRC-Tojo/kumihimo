@@ -246,7 +246,12 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     const res = await api.groupAnnotations(deps.file, ids);
     if (!res.ok) return;
 
-    history.recordGroupCreated(deps.file, res.data.group, res.data.dissolvedGroups, dissolvedSnapshot);
+    history.recordGroupCreated(
+      deps.file,
+      res.data.group,
+      res.data.dissolvedGroups,
+      dissolvedSnapshot,
+    );
     await groupStore.refreshFile(deps.file);
     deps.selectedAnnotationIds.value = [...res.data.group.memberIds];
   }

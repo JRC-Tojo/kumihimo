@@ -259,7 +259,10 @@ export function useAnnotationHistory() {
           await api.registerAnnotationStyle(file, removed);
           await Promise.all(affectedGroups.map((g) => api.restoreGroup(file, g)));
           if (affectedGroups.length > 0) await groupStore.refreshFile(file);
-          await restoreRelationalSnapshot(file, mergeRelationalSnapshots(ownSnapshot, groupSnapshot));
+          await restoreRelationalSnapshot(
+            file,
+            mergeRelationalSnapshots(ownSnapshot, groupSnapshot),
+          );
         },
         redo: async () => {
           const redoneOwnSnapshot = captureRelationalSnapshot([removed.id]);
