@@ -7,11 +7,7 @@ import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relationa
 import * as containerService from 'src/services/container/main';
 import * as annotationRepository from 'src/repositories/db/annotation';
 import type { Observable } from 'dexie';
-import {
-  extractImageFromRegion,
-  extractAnnotationContextPreview,
-  extractTextByAnnot,
-} from 'src/repositories/document/pdf';
+import { extractImageFromRegion, extractTextByAnnot } from 'src/repositories/document/pdf';
 import { Image2Text } from 'src/utils/ocr/main';
 import {
   ANNOTATION_GEOMETRY,
@@ -41,31 +37,6 @@ export function getAnnotationAddress(
   annotID: AnnotationID,
 ): Promise<Result<AnnotationBaseAddress>> {
   return annotationRepository.getAnnotationAddress(annotID);
-}
-
-/**
- * アノテーションIDから、その周辺の文脈も確認できるプレビュー画像（PNG dataURL）を取得する
- *
- * アノテーション自体の領域のみではなく、そのページの周辺領域も含めて描画し、
- * アノテーション位置には強調枠を付与する
- */
-export async function getAnnotationPreviewImage(
-  annotID: AnnotationID,
-  scale = 2,
-): Promise<Result<string>> {
-  const info = await getAnnotationInfo(annotID);
-  if (!info.ok) return info;
-  const address = await getAnnotationAddress(annotID);
-  if (!address.ok) return address;
-
-  const fileSrc = await containerService.loadFileAsDocumentSource(
-    address.value.cID,
-    address.value.filePath,
-  );
-  if (!fileSrc.ok) return fileSrc;
-
-  const fileIdentity = { containerID: address.value.cID, path: address.value.filePath };
-  return extractAnnotationContextPreview(fileIdentity, fileSrc.value, info.value.style, scale);
 }
 
 /**
@@ -186,16 +157,14 @@ function hasGeometryChanged(previous: AnnotationStyle | undefined, next: Annotat
 }
 
 /**
- * アノテーション情報を登録する
+ * 保存前の1件分の`AnnotationInfo`を組み立てる（DBへの書き込みは行わない）
  *
- * 位置・サイズ（ページ番号込みの外接矩形）が変化した場合のみ、アノテーションされている
- * コンテンツ（テキスト抽出・OCR）を読み取り直す。色やスタイルのみの変更のたびにPDF全体の
- * 再読込・OCRを走らせるとメモリ・処理コストが大きいため、実際に内容が変わり得る場合のみに絞る
+ * `registerAnnotationStyles`が複数件をまとめて1回のDB書き込みにできるよう、
+ * 書き込みを含まない部分だけを切り出したもの
  */
-export async function registerAnnotationStyle(
-  file: ContainerElementFile,
+async function buildAnnotationInfo(
   aStyle: AnnotationStyle,
-): Promise<Result<AnnotationInfo>> {
+): Promise<{ info: AnnotationInfo; geometryChanged: boolean }> {
   const previous = await annotationRepository.getAnnotationInfo(aStyle.id);
 
   // authorが未設定の場合のみ、設定済みのユーザー名で補完する（既にセット済み＝プラグイン実行側が
@@ -213,7 +182,7 @@ export async function registerAnnotationStyle(
     resolvedStyle,
   );
 
-  const annotationInfo: AnnotationInfo = {
+  const info: AnnotationInfo = {
     style: resolvedStyle,
     context: {
       // 位置・サイズが変わった場合は内容を読み取り直すため、再読込が完了するまでは
@@ -224,28 +193,70 @@ export async function registerAnnotationStyle(
     },
   };
 
-  // アノテーション基本情報を保存
-  const saveRes = await annotationRepository.addAnnotationInfos(file, [annotationInfo]);
+  return { info, geometryChanged };
+}
+
+/**
+ * 位置・サイズが変化したアノテーションについて、内容（テキスト抽出・OCR）の再読み込みを
+ * 投げっぱなしで開始する（`registerAnnotationStyle`/`registerAnnotationStyles`共通）
+ */
+function scheduleContentReload(file: ContainerElementFile, info: AnnotationInfo): void {
+  // このアノテーションIDに対する「最新の読み込み要求」として世代番号を発行する。
+  // 完了時にこの世代が最新のままであれば書き込み、既に後発の要求に追い越されていれば
+  // 書き込みを行わない（loadAnnotContent側・失敗時フォールバックの双方で参照する）
+  const generation = (contentLoadGeneration.get(info.style.id) ?? 0) + 1;
+  contentLoadGeneration.set(info.style.id, generation);
+
+  // コンテンツの読み込みは投げっぱなしにするが、失敗時はcontext.textがundefinedのまま
+  // DBに残り続けないよう、明示的に空文字列で確定させる（ただし、この間に後発の要求が
+  // 発行されていた場合は、その要求の結果を上書きしないよう何もしない）
+  void loadAnnotContent(file, info, generation).then((res) => {
+    if (!res.ok && contentLoadGeneration.get(info.style.id) === generation) {
+      void annotationRepository.updateAnnotationContentText(info.style.id, '');
+    }
+  });
+}
+
+/**
+ * 複数のアノテーション情報を1回のDB書き込みでまとめて登録する
+ *
+ * 1件ずつ`registerAnnotationStyle`を呼ぶとDB書き込み（≒Vue側のライブクエリ再発火）が
+ * 件数分に分かれ、複製・貼り付けしたアノテーション群が画面に1件ずつ遅れて表示されてしまう。
+ * ペースト・複製など複数件を同時に確定させたい経路はこちらを使うこと
+ */
+export async function registerAnnotationStyles(
+  file: ContainerElementFile,
+  aStyles: AnnotationStyle[],
+): Promise<Result<AnnotationInfo[]>> {
+  const built = await Promise.all(aStyles.map((aStyle) => buildAnnotationInfo(aStyle)));
+
+  const saveRes = await annotationRepository.addAnnotationInfos(
+    file,
+    built.map((b) => b.info),
+  );
   if (!saveRes.ok) return saveRes;
 
-  if (geometryChanged) {
-    // このアノテーションIDに対する「最新の読み込み要求」として世代番号を発行する。
-    // 完了時にこの世代が最新のままであれば書き込み、既に後発の要求に追い越されていれば
-    // 書き込みを行わない（loadAnnotContent側・失敗時フォールバックの双方で参照する）
-    const generation = (contentLoadGeneration.get(resolvedStyle.id) ?? 0) + 1;
-    contentLoadGeneration.set(resolvedStyle.id, generation);
+  built.forEach(({ info, geometryChanged }) => {
+    if (geometryChanged) scheduleContentReload(file, info);
+  });
 
-    // コンテンツの読み込みは投げっぱなしにするが、失敗時はcontext.textがundefinedのまま
-    // DBに残り続けないよう、明示的に空文字列で確定させる（ただし、この間に後発の要求が
-    // 発行されていた場合は、その要求の結果を上書きしないよう何もしない）
-    void loadAnnotContent(file, annotationInfo, generation).then((res) => {
-      if (!res.ok && contentLoadGeneration.get(annotationInfo.style.id) === generation) {
-        void annotationRepository.updateAnnotationContentText(annotationInfo.style.id, '');
-      }
-    });
-  }
+  return Success(built.map((b) => b.info));
+}
 
-  return Success(annotationInfo);
+/**
+ * アノテーション情報を登録する
+ *
+ * 位置・サイズ（ページ番号込みの外接矩形）が変化した場合のみ、アノテーションされている
+ * コンテンツ（テキスト抽出・OCR）を読み取り直す。色やスタイルのみの変更のたびにPDF全体の
+ * 再読込・OCRを走らせるとメモリ・処理コストが大きいため、実際に内容が変わり得る場合のみに絞る
+ */
+export async function registerAnnotationStyle(
+  file: ContainerElementFile,
+  aStyle: AnnotationStyle,
+): Promise<Result<AnnotationInfo>> {
+  const res = await registerAnnotationStyles(file, [aStyle]);
+  if (!res.ok) return res;
+  return Success(res.value[0]!);
 }
 
 /**
@@ -329,8 +340,9 @@ export async function reorderAnnotationStyle(
  * 複数の注釈を複製し、指定したページへ貼り付ける（ペースト）
  *
  * 各`sources`要素を`duplicateAnnotation`で複製し、`offset`（呼び出し元が算出した文書座標系の
- * 移動量）だけ全要素を同じ量だけずらしながら`registerAnnotationStyle`で保存する（複数選択を
- * 一括ペーストした際の相対的な位置関係を保つため）。複製元の`zIndex`をそのまま引き継ぐと
+ * 移動量）だけ全要素を同じ量だけずらしながら`registerAnnotationStyles`で1回にまとめて保存する
+ * （複数選択を一括ペーストした際の相対的な位置関係を保つと同時に、1件ずつ書き込むことで
+ * 画面に段階的に表示されてしまうのを防ぐ）。複製元の`zIndex`をそのまま引き継ぐと
  * 重ね順キーが衝突するため、`zIndex`はリセットしcreatedAt基準に戻す
  */
 export async function pasteAnnotations(
@@ -339,17 +351,9 @@ export async function pasteAnnotations(
   pageNumber: number,
   offset: { dx: number; dy: number },
 ): Promise<Result<AnnotationInfo[]>> {
-  const results: AnnotationInfo[] = [];
-  for (const source of sources) {
-    const duplicated = duplicateAnnotation(
-      source,
-      pageNumber,
-      source.x + offset.dx,
-      source.y + offset.dy,
-    );
-    const res = await registerAnnotationStyle(file, { ...duplicated, zIndex: undefined });
-    if (!res.ok) return res;
-    results.push(res.value);
-  }
-  return Success(results);
+  const duplicated = sources.map((source) => ({
+    ...duplicateAnnotation(source, pageNumber, source.x + offset.dx, source.y + offset.dy),
+    zIndex: undefined,
+  }));
+  return registerAnnotationStyles(file, duplicated);
 }

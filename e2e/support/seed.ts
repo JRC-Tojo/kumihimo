@@ -131,3 +131,31 @@ export function buildBoxAnnotationStyle(opts: {
     comment: {},
   };
 }
+
+/**
+ * 直線アノテーションのスタイルオブジェクトを組み立てる。
+ * `points`は文書座標系の絶対座標（`[x1, y1, x2, y2]`）で指定する（`x`/`y`は0固定にし、
+ * pointsをそのまま絶対座標として扱えるようにする）
+ */
+export function buildLineAnnotationStyle(opts: {
+  id: string;
+  pageNumber: number;
+  points: [number, number, number, number];
+  color?: string;
+}): TestAnnotationStyle {
+  const now = new Date().toISOString();
+  return {
+    id: opts.id,
+    type: 'line',
+    pageNumber: opts.pageNumber,
+    x: 0,
+    y: 0,
+    points: opts.points,
+    color: opts.color ?? '#0000ff',
+    strokeWidth: 2,
+    strokeType: 'solid',
+    createdAt: now,
+    updatedAt: now,
+    comment: {},
+  };
+}

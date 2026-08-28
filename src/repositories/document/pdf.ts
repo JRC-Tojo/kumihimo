@@ -577,17 +577,23 @@ export async function extractImageFromRegion(
 }
 
 /**
- * アノテーションの周辺の文脈も確認できるようにするためのプレビュー画像を生成する。
- * アノテーション自体の領域のみを切り出すのではなく、そのページの一部を広めに切り出し、
- * アノテーション位置に強調枠を描画した上で返す（ページ全体ではなく、アノテーション周辺にズームする）
+ * アノテーション（複数可）の周辺の文脈も確認できるプレビュー画像を生成する共通実装。
+ * 対象範囲は全スタイルの外接矩形の和集合とし、そのページの一部を広めに切り出して
+ * スタイルごとに強調枠を描画した上で返す（ページ全体ではなく、周辺にズームする）。
+ * `extractAnnotationContextPreview`（単体）・`extractGroupContextPreview`（グループ）の
+ * どちらも本関数へ委譲する（渡す先頭要素のpageNumberでページを描画するため、
+ * 呼び出し側は同一ページのスタイルのみを渡すこと）
  */
-export async function extractAnnotationContextPreview(
+async function extractContextPreview(
   file: FileIdentity,
   src64: DocumentSource,
-  annotStyle: AnnotationStyle,
-  scale = 2,
+  styles: AnnotationStyle[],
+  scale: number,
 ): Promise<Result<string>> {
-  const tightRect = calculateBoundingBox(annotStyle);
+  const firstStyle = styles[0];
+  if (!firstStyle) return Failure(new Error('プレビュー対象のアノテーションがありません'));
+
+  const rects = styles.map((style) => calculateBoundingBox(style));
 
   const acquired = await acquirePdfDocument(file, src64);
   if (!acquired.ok) return Failure(acquired.error);
@@ -595,7 +601,7 @@ export async function extractAnnotationContextPreview(
   try {
     const rendered = await renderPageToCanvasFromDoc(
       acquired.value.document,
-      annotStyle.pageNumber,
+      firstStyle.pageNumber,
       scale,
     );
     if (!rendered.ok) return Failure(rendered.error);
@@ -603,7 +609,7 @@ export async function extractAnnotationContextPreview(
     const pageWidthPt = pageCanvas.width / scale;
     const pageHeightPt = pageCanvas.height / scale;
 
-    // アノテーション位置を強調する枠線をページ描画済みキャンバス上に描画する
+    // 各アノテーション位置を強調する枠線をページ描画済みキャンバス上に描画する
     const highlightCtx = pageCanvas.getContext('2d');
     if (highlightCtx) {
       const highlightPadding = 4;
@@ -611,14 +617,28 @@ export async function extractAnnotationContextPreview(
       highlightCtx.strokeStyle = '#2196f3';
       highlightCtx.lineWidth = 3;
       highlightCtx.setLineDash([6, 4]);
-      highlightCtx.strokeRect(
-        (tightRect.x - highlightPadding) * scale,
-        (tightRect.y - highlightPadding) * scale,
-        (tightRect.width + highlightPadding * 2) * scale,
-        (tightRect.height + highlightPadding * 2) * scale,
-      );
+      rects.forEach((rect) => {
+        highlightCtx.strokeRect(
+          (rect.x - highlightPadding) * scale,
+          (rect.y - highlightPadding) * scale,
+          (rect.width + highlightPadding * 2) * scale,
+          (rect.height + highlightPadding * 2) * scale,
+        );
+      });
       highlightCtx.restore();
     }
+
+    // 全スタイルの外接矩形の和集合（タイトな範囲）を求める
+    const unionLeft = Math.min(...rects.map((r) => r.x));
+    const unionTop = Math.min(...rects.map((r) => r.y));
+    const unionRight = Math.max(...rects.map((r) => r.x + r.width));
+    const unionBottom = Math.max(...rects.map((r) => r.y + r.height));
+    const tightRect = {
+      x: unionLeft,
+      y: unionTop,
+      width: unionRight - unionLeft,
+      height: unionBottom - unionTop,
+    };
 
     // アノテーション周辺を含む「ズームした」範囲を計算する（タイトな範囲を拡張し、ページ範囲内にクランプ）
     const zoomPaddingX = Math.max(tightRect.width * 1.5, 80);
@@ -657,6 +677,34 @@ export async function extractAnnotationContextPreview(
   } finally {
     acquired.value.release();
   }
+}
+
+/**
+ * アノテーションの周辺の文脈も確認できるようにするためのプレビュー画像を生成する。
+ * アノテーション自体の領域のみを切り出すのではなく、そのページの一部を広めに切り出し、
+ * アノテーション位置に強調枠を描画した上で返す（ページ全体ではなく、アノテーション周辺にズームする）
+ */
+export async function extractAnnotationContextPreview(
+  file: FileIdentity,
+  src64: DocumentSource,
+  annotStyle: AnnotationStyle,
+  scale = 2,
+): Promise<Result<string>> {
+  return extractContextPreview(file, src64, [annotStyle], scale);
+}
+
+/**
+ * グループ（複数アノテーション）の周辺の文脈も確認できるプレビュー画像を生成する。
+ * 全メンバーの外接矩形の和集合を対象範囲とし、メンバーごとに強調枠を描画する
+ * （メンバーは呼び出し側で同一ページのもののみに絞り込んで渡すこと）
+ */
+export async function extractGroupContextPreview(
+  file: FileIdentity,
+  src64: DocumentSource,
+  memberStyles: AnnotationStyle[],
+  scale = 2,
+): Promise<Result<string>> {
+  return extractContextPreview(file, src64, memberStyles, scale);
 }
 
 /** PDF バイナリを base64 にして返す */

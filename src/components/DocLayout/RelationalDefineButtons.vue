@@ -64,9 +64,11 @@
 /**
  * 選択中アノテーションから関係性を定義するための操作盤（常駐SubTools行に表示する）
  *
- * `AnnotationPositionSizeBtn.vue`と同じく、単一のアノテーションを選択している時だけ表示する。
- * 「等しい」「リンク」ボタンは、待機中かどうかに関わらず常に同じ位置に表示する。
- * シングルクリック時は、そのアノテーションを基準に対になるアノテーションの待機状態を開始し、
+ * 単一のアノテーションを選択している時、または選択が既存グループの全メンバーとちょうど
+ * 一致する時（この場合はグループ自身が起点になる）だけ表示する。それ以外の複数選択
+ * （部分グループ・複数のばらのアノテーション等）はどの端点を基準にするか一意に決まらないため
+ * 対象外とする。「等しい」「リンク」ボタンは、待機中かどうかに関わらず常に同じ位置に表示する。
+ * シングルクリック時は、その端点（アノテーションまたはグループ）を基準に対になる相手の待機状態を開始し、
  * 1組確定すると待機は解除される（実際のペア確定処理は`DocumentTabView.vue`が
  * `editorStore.relationalPendingId`等のグローバルな状態を見て行う）。待機中にクリックした場合は
  * 待機状態を維持したまま種別だけを切り替える（種別の確認・変更を待機中でも行えるようにするため）。
@@ -84,34 +86,46 @@
 import { computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorStore } from 'src/stores/editorStore';
+import { useGroupStore } from 'src/stores/groupStore';
+import { fileKey } from 'src/utils/document/fileKey';
 import {
   startRelationalDefine,
   showRelationalWaitingNotify,
   decideRelationalContinuousRestart,
 } from './composables/useRelationalDefine';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
-import type { AnnotationStyle } from 'src/models/document/pdf';
+import type { RelationalEndpointID } from 'src/models/relational/fileSchema';
 
 const { t } = useI18n();
 const editorStore = useEditorStore();
+const groupStore = useGroupStore();
 
-/** 単一選択時のみ対象とする（複数選択時はどのアノテーションを基準にするか一意に決まらないため対象外） */
-const target = computed<AnnotationStyle | undefined>(() => {
-  const annots = editorStore.activeSelection?.annotations;
-  return annots?.length === 1 ? annots[0] : undefined;
+/**
+ * 関係性定義の起点として一意に定まる場合のみ対象とする：選択がアノテーション1件、
+ * または選択が既存グループの全メンバーとちょうど一致する場合（この場合はグループ自身が起点になる）。
+ * それ以外の複数選択（部分グループ・複数のばらのアノテーション等）は、どの端点を基準にするか
+ * 一意に決まらないため対象外とする（`DocumentTabView.vue`のresolvePeekTargetと同じ判定方針）
+ */
+const targetId = computed<RelationalEndpointID | undefined>(() => {
+  const sel = editorStore.activeSelection;
+  if (sel === undefined) return undefined;
+  const annots = sel.annotations;
+  if (annots.length === 1) return annots[0]!.id;
+  if (annots.length > 1) {
+    return groupStore.matchingGroup(
+      fileKey(sel.file),
+      annots.map((a) => a.id),
+    )?.id;
+  }
+  return undefined;
 });
 
-// 監視対象はアノテーションのIDのみとする。`target`（アノテーションオブジェクトそのもの）を
-// 直接監視すると、選択自体は変わっていなくても、他のアノテーションの内容更新（OCR結果の反映等）
-// によって参照だけが新しくなるたびに監視コールバックが再実行されてしまう
-const targetId = computed(() => target.value?.id);
-
 const isPending = computed(() => editorStore.relationalPendingId !== undefined);
-// 待機中・連続定義モード中は、選択が外れて`target`が無くなっても操作盤を表示し続ける
+// 待機中・連続定義モード中は、選択が外れて`targetId`が無くなっても操作盤を表示し続ける
 // （種別の確認・キャンセルのため。特に連続定義モードはペア確定直後も有効であり続けるため、
 // ここに含めないと選択が外れた瞬間キャンセルボタンごと操作盤が消え、解除できなくなる）
 const visible = computed(
-  () => target.value !== undefined || isPending.value || editorStore.relationalContinuous,
+  () => targetId.value !== undefined || isPending.value || editorStore.relationalContinuous,
 );
 
 const relationalModes = [
@@ -133,10 +147,10 @@ function onDefine(mode: RelationalRuleType) {
     return;
   }
 
-  const annot = target.value;
+  const endpointId = targetId.value;
   const file = editorStore.activeSelection?.file;
-  if (!annot || !file) return;
-  startRelationalDefine(editorStore, t, mode, annot.id, file);
+  if (endpointId === undefined || !file) return;
+  startRelationalDefine(editorStore, t, mode, endpointId, file);
 }
 
 /**

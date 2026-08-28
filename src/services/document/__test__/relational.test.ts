@@ -6,8 +6,9 @@ import type {
   ContainerSkel,
 } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroupID, GroupValueAggregation } from 'src/models/document/group';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success } from 'src/models/error/result';
+import { Failure, NotFoundError, Success } from 'src/models/error/result';
 import type {
   AnnotationBaseAddress,
   AnnotationInfo,
@@ -18,6 +19,8 @@ import type {
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import type { ContainerSettingsFile } from 'src/models/relational/containerSettings';
 import type { RelaxationOptions } from 'src/models/relational/relaxation';
+import type { DocumentSource } from 'src/models/document/common';
+import type { FileIdentity } from 'src/utils/document/fileKey';
 
 /**
  * `src/services/document/annotation`・`src/services/container/main`・
@@ -64,8 +67,14 @@ const contentByAnnotId = new Map<AnnotationID, string>();
 const failedCachedLookupIds = new Set<AnnotationID>();
 // content.textが読み込み中（undefined）であることを模擬するID集合
 const pendingAnnotIds = new Set<AnnotationID>();
+// アノテーションとしては一切存在しない（＝グループIDである）ことを模擬するID集合。
+// NotFoundErrorを返すことで、relational.ts側のグループへのフォールバック解決を発火させる
+const notAnAnnotationIds = new Set<AnnotationID>();
 
 const getAnnotationInfoMock = mock((id: AnnotationID): Promise<Result<AnnotationInfo>> => {
+  if (notAnAnnotationIds.has(id)) {
+    return Promise.resolve(Failure(new NotFoundError('annotation not found')));
+  }
   if (failedCachedLookupIds.has(id)) {
     return Promise.resolve(Failure(new Error('not cached in this session')));
   }
@@ -76,10 +85,12 @@ const getAnnotationInfoMock = mock((id: AnnotationID): Promise<Result<Annotation
     }),
   );
 });
-const getAnnotationAddressMock = mock(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
-  (_id: AnnotationID): Promise<Result<AnnotationBaseAddress>> =>
-    Promise.resolve(Success<AnnotationBaseAddress>({ cID: containerID, filePath })),
+const getAnnotationAddressMock = mock((id: AnnotationID): Promise<Result<AnnotationBaseAddress>> =>
+  Promise.resolve(
+    notAnAnnotationIds.has(id)
+      ? Failure(new NotFoundError('annotation not found'))
+      : Success<AnnotationBaseAddress>({ cID: containerID, filePath }),
+  ),
 );
 const registerAnnotationInfoMock = mock((): Promise<Result<void>> => Promise.resolve(Success()));
 
@@ -87,6 +98,43 @@ void mock.module('src/services/document/annotation', () => ({
   getAnnotationInfo: getAnnotationInfoMock,
   getAnnotationAddress: getAnnotationAddressMock,
   registerAnnotationInfo: registerAnnotationInfoMock,
+}));
+
+// `relational.ts`は`annotationGroup`サービス経由でグループを端点とする関係性を解決する
+// （→ importすると`config.ts`経由でpdf.js等の重い依存も引き込むため、モック化して遮断する）。
+// 各テストの冒頭でgroupRecordFixtureを設定することで、対象IDがグループとして解決される
+// ケースを模擬できる。未設定（undefined）の場合はグループとしても見つからない（NotFoundError）
+let groupRecordFixture:
+  | {
+      address: AnnotationBaseAddress;
+      memberIds: AnnotationID[];
+      valueAggregation?: GroupValueAggregation;
+    }
+  | undefined;
+const getGroupAddressMock = mock((): Promise<Result<AnnotationBaseAddress>> =>
+  Promise.resolve(
+    groupRecordFixture !== undefined
+      ? Success(groupRecordFixture.address)
+      : Failure(new NotFoundError('annotation group not found')),
+  ),
+);
+const getGroupRecordMock = mock(
+  (): Promise<
+    Result<{
+      address: AnnotationBaseAddress;
+      memberIds: AnnotationID[];
+      valueAggregation?: GroupValueAggregation;
+    }>
+  > =>
+    Promise.resolve(
+      groupRecordFixture !== undefined
+        ? Success(groupRecordFixture)
+        : Failure(new NotFoundError('annotation group not found')),
+    ),
+);
+void mock.module('src/services/document/annotationGroup', () => ({
+  getGroupAddress: getGroupAddressMock,
+  getGroupRecord: getGroupRecordMock,
 }));
 
 // コンテナ本体（getContainer/loadContainerの戻り値）。各テストの冒頭で書き換える
@@ -107,9 +155,48 @@ const loadContainerMock = mock(
         : Failure(new Error('container not loaded')),
     ),
 );
+// プレビュー画像取得（getRelationalEndpointPreviewImage）が読み込むファイル本体。
+// 各テストの冒頭でSuccess/Failureを書き換えてから使う
+let fileSrcFixture: Result<string> = Success('dummy-source');
+const loadFileAsDocumentSourceMock = mock(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+  (_cID: ContainerID, _path: string): Promise<Result<string>> => Promise.resolve(fileSrcFixture),
+);
 void mock.module('src/services/container/main', () => ({
   getContainer: getContainerMock,
   loadContainer: loadContainerMock,
+  loadFileAsDocumentSource: loadFileAsDocumentSourceMock,
+}));
+
+// getRelationalEndpointPreviewImageが動的importで読み込むプレビュー抽出関数
+// （pdf.jsの実描画を避けるためモック化し、呼び出し引数のみ検証する）
+const extractAnnotationContextPreviewMock = mock(
+  (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _file: FileIdentity,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _src64: DocumentSource,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _annotStyle: AnnotationStyle,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _scale?: number,
+  ): Promise<Result<string>> => Promise.resolve(Success('data:image/png;base64,annotation')),
+);
+const extractGroupContextPreviewMock = mock(
+  (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _file: FileIdentity,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _src64: DocumentSource,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _memberStyles: AnnotationStyle[],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _scale?: number,
+  ): Promise<Result<string>> => Promise.resolve(Success('data:image/png;base64,group')),
+);
+void mock.module('src/repositories/document/pdf', () => ({
+  extractAnnotationContextPreview: extractAnnotationContextPreviewMock,
+  extractGroupContextPreview: extractGroupContextPreviewMock,
 }));
 
 // コンテナ設定ファイル（.kumihimo/settings.json）側の緩和ルール。各テストの冒頭で書き換えてから使う
@@ -240,6 +327,7 @@ const {
   removeRelationalsForAnnotation,
   resolveAnnotationFile,
   getAnnotationPageNumber,
+  getRelationalEndpointPreviewImage,
   saveRelationals,
   discardUnsavedRelationalsInvolvingFile,
   remapFilePath,
@@ -496,6 +584,212 @@ describe('registRelational', () => {
   });
 });
 
+describe('グループを端点とする関係性', () => {
+  const groupId = '00000000-0000-4000-8000-0000000000aa' as AnnotationGroupID;
+  const memberA = '00000000-0000-4000-8000-0000000000ab' as AnnotationID;
+  const memberB = '00000000-0000-4000-8000-0000000000ac' as AnnotationID;
+
+  it('valueAggregationが"sum"の場合、メンバーの数値を合算した値で検証する', async () => {
+    containerRelaxation = NO_RELAXATION;
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = {
+      address: dummyAddress,
+      memberIds: [memberA, memberB],
+      valueAggregation: { type: 'sum' },
+    };
+    contentByAnnotId.set(memberA, '2');
+    contentByAnnotId.set(memberB, '3');
+    contentByAnnotId.set(idTarget, '5');
+
+    const res = await checkRelational({
+      relational: { srcID: groupId, targetID: idTarget, rule: { type: 'equal' } },
+      srcAddress: dummyAddress,
+      targetAddress: dummyAddress,
+    });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.srcVal).toBe('5');
+    expect(res.value.checkedRule?.isOK).toBe(true);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  it('valueAggregationが"formula"の場合、memberIds順のA, B...を使った式の結果で検証する', async () => {
+    containerRelaxation = NO_RELAXATION;
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = {
+      address: dummyAddress,
+      memberIds: [memberA, memberB],
+      valueAggregation: { type: 'formula', expression: 'A - B + 3' },
+    };
+    contentByAnnotId.set(memberA, '10');
+    contentByAnnotId.set(memberB, '4');
+    contentByAnnotId.set(idTarget, '9');
+
+    const res = await checkRelational({
+      relational: { srcID: groupId, targetID: idTarget, rule: { type: 'equal' } },
+      srcAddress: dummyAddress,
+      targetAddress: dummyAddress,
+    });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.srcVal).toBe('9');
+    expect(res.value.checkedRule?.isOK).toBe(true);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  it('valueAggregationが"formula"でメンバーの一部が欠損・未定義変数参照の場合はNGになる（unresolvable）', async () => {
+    containerRelaxation = NO_RELAXATION;
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = {
+      address: dummyAddress,
+      memberIds: [memberA, memberB],
+      valueAggregation: { type: 'formula', expression: 'A - C' },
+    };
+    contentByAnnotId.set(memberA, '10');
+    contentByAnnotId.set(memberB, '4');
+    contentByAnnotId.set(idTarget, '5');
+
+    const res = await checkRelational({
+      relational: { srcID: groupId, targetID: idTarget, rule: { type: 'equal' } },
+      srcAddress: dummyAddress,
+      targetAddress: dummyAddress,
+    });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.checkedRule?.isOK).toBe(false);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  it('valueAggregationが未設定でも"link"ルールは通常通り成立する', async () => {
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = { address: dummyAddress, memberIds: [memberA, memberB] };
+
+    const res = await checkRelational({
+      relational: { srcID: groupId, targetID: idTarget, rule: { type: 'link' } },
+      srcAddress: dummyAddress,
+      targetAddress: dummyAddress,
+    });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.checkedRule?.isOK).toBe(true);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  it('valueAggregationが未設定の場合、"equal"ルールの検証は常にNGになる', async () => {
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = { address: dummyAddress, memberIds: [memberA, memberB] };
+    contentByAnnotId.set(idTarget, '5');
+
+    const res = await checkRelational({
+      relational: { srcID: groupId, targetID: idTarget, rule: { type: 'equal' } },
+      srcAddress: dummyAddress,
+      targetAddress: dummyAddress,
+    });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.checkedRule?.isOK).toBe(false);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  it('valueAggregationが未設定でも、registRelationalによる新規登録自体は成功する', async () => {
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = { address: dummyAddress, memberIds: [memberA, memberB] };
+    addRelationalMock.mockClear();
+
+    const res = await registRelational({
+      srcID: groupId,
+      targetID: idTarget,
+      rule: { type: 'equal' },
+    });
+
+    expect(res.ok).toBeTrue();
+    expect(addRelationalMock).toHaveBeenCalledTimes(1);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+});
+
+describe('getRelationalEndpointPreviewImage', () => {
+  const groupId = '00000000-0000-4000-8000-0000000000ba' as AnnotationGroupID;
+  const memberA = '00000000-0000-4000-8000-0000000000bb' as AnnotationID;
+  const memberB = '00000000-0000-4000-8000-0000000000bc' as AnnotationID;
+
+  beforeEach(() => {
+    fileSrcFixture = Success('dummy-source');
+    extractAnnotationContextPreviewMock.mockClear();
+    extractGroupContextPreviewMock.mockClear();
+  });
+
+  // アノテーション分岐: 端点がアノテーションとして解決できる場合はextractAnnotationContextPreviewを使う
+  it('端点がアノテーションの場合、extractAnnotationContextPreviewの結果をそのまま返す', async () => {
+    const res = await getRelationalEndpointPreviewImage(idSrc, 3);
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toBe('data:image/png;base64,annotation');
+    expect(extractAnnotationContextPreviewMock).toHaveBeenCalledTimes(1);
+    expect(extractGroupContextPreviewMock).not.toHaveBeenCalled();
+    const call = extractAnnotationContextPreviewMock.mock.calls[0];
+    expect(call?.[0]).toEqual({ containerID, path: filePath });
+    expect(call?.[3]).toBe(3);
+  });
+
+  // グループ分岐: getAnnotationAddressがNotFoundErrorを返す（＝アノテーションとしては存在しない）
+  // 場合、annotationGroupServiceへフォールバックし、同ページのメンバーでextractGroupContextPreviewを使う
+  it('端点がグループの場合、メンバー一覧でextractGroupContextPreviewを呼ぶ', async () => {
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    groupRecordFixture = { address: dummyAddress, memberIds: [memberA, memberB] };
+
+    const res = await getRelationalEndpointPreviewImage(groupId, 3);
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toBe('data:image/png;base64,group');
+    expect(extractGroupContextPreviewMock).toHaveBeenCalledTimes(1);
+    expect(extractAnnotationContextPreviewMock).not.toHaveBeenCalled();
+    const call = extractGroupContextPreviewMock.mock.calls[0];
+    expect(call?.[0]).toEqual({ containerID, path: filePath });
+    expect(call?.[2]?.map((s) => s.id)).toEqual([memberA, memberB]);
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    groupRecordFixture = undefined;
+  });
+
+  // グループのメンバーが1件も解決できない場合はプレビュー対象自体が無いため失敗を返す
+  it('グループのメンバーが1件も解決できない場合はFailureを返す', async () => {
+    notAnAnnotationIds.add(groupId as unknown as AnnotationID);
+    notAnAnnotationIds.add(memberA);
+    notAnAnnotationIds.add(memberB);
+    groupRecordFixture = { address: dummyAddress, memberIds: [memberA, memberB] };
+
+    const res = await getRelationalEndpointPreviewImage(groupId);
+
+    expect(res.ok).toBeFalse();
+    expect(extractGroupContextPreviewMock).not.toHaveBeenCalled();
+
+    notAnAnnotationIds.delete(groupId as unknown as AnnotationID);
+    notAnAnnotationIds.delete(memberA);
+    notAnAnnotationIds.delete(memberB);
+    groupRecordFixture = undefined;
+  });
+});
+
 describe('getRelationalsInvolvingFile / countTemporaryRelationalsInvolvingFile', () => {
   it('リポジトリ層へそのまま委譲する', async () => {
     await getRelationalsInvolvingFile(file);
@@ -569,6 +863,7 @@ describe('getAnnotationPageNumber', () => {
         [idTarget]: { style: baseStyle(idTarget, { pageNumber: 3 }), context: { text: 'X' } },
       },
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
 

@@ -15,6 +15,8 @@
         }}</span>
       </q-card-section>
 
+      <!-- プレビュー: 対象がグループの場合も同じ領域・同じ見た目で表示する
+           （グループの場合はメンバー全員をまとめて強調表示したプレビューになる） -->
       <q-card-section class="preview-section">
         <q-spinner v-if="previewLoading" color="primary" size="2em" />
         <q-img v-else-if="previewSrc" :src="previewSrc" class="preview-image" fit="contain" />
@@ -34,6 +36,32 @@
           @click="openPreviewedFile"
         />
       </q-card-actions>
+
+      <!-- グループが対象の場合のみ: メンバー数・値算出方法の要約と、その設定を開くボタンを
+           1行で表示する（緩和ルールの行ごとの調整ボタンと視覚的に揃えたスタイル） -->
+      <q-card-section v-if="isGroup && groupInfo" class="q-pt-none group-value-row">
+        <span class="text-caption text-grey-6">
+          {{ $t('pdfEditor.peek.group.memberCount', { count: groupInfo?.memberIds.length ?? 0 }) }}
+          ・
+          {{
+            groupInfo?.valueAggregation === undefined
+              ? $t('pdfEditor.peek.group.aggregationUndefined')
+              : groupInfo.valueAggregation.type === 'formula'
+                ? $t('pdfEditor.peek.group.aggregationFormula')
+                : $t('pdfEditor.peek.group.aggregationSum')
+          }}
+        </span>
+        <q-btn
+          flat
+          round
+          dense
+          icon="functions"
+          size="sm"
+          color="primary"
+          :title="$t('pdfEditor.peek.group.configureAggregation')"
+          @click="aggregationDialogOpen = true"
+        />
+      </q-card-section>
 
       <q-separator />
 
@@ -107,7 +135,15 @@
     v-model:open="editDialogOpen"
     :file="prop.file"
     :edge="editingEdge"
-    :self-annot-id="prop.annotId"
+    :self-annot-id="targetId"
+  />
+
+  <GroupValueAggregationDialog
+    v-if="isGroup && groupInfo"
+    v-model:open="aggregationDialogOpen"
+    :file="prop.file"
+    :group="groupInfo"
+    @saved="onAggregationSaved"
   />
 </template>
 
@@ -116,7 +152,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useQuasar } from 'quasar';
 import { useBackendApi } from 'src/apis/backendApi';
-import { useEditorStore } from 'src/stores/editorStore';
+import { useEditorStore, type PeekTarget } from 'src/stores/editorStore';
 import {
   useRelationalStore,
   edgeValueFor,
@@ -125,12 +161,15 @@ import {
 } from 'src/stores/relationalStore';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
+import type { AnnotationGroup } from 'src/models/document/group';
+import type { RelationalEndpointID } from 'src/models/relational/fileSchema';
 import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
 import { formatValueWithFormula } from 'src/utils/calculation/formula';
 import RelationalRuleEditDialog from 'src/components/DocLayout/RelationalRuleEditDialog.vue';
+import GroupValueAggregationDialog from 'src/components/DocLayout/GroupValueAggregationDialog.vue';
 
 interface Prop {
-  annotId: AnnotationID;
+  target: PeekTarget;
   file: ContainerElementFile;
 }
 const prop = defineProps<Prop>();
@@ -143,14 +182,72 @@ const editorStore = useEditorStore();
 const relationalStore = useRelationalStore();
 const { t } = useI18n();
 
+// 対象がグループの場合もアノテーションの場合も、関係性の端点としては同じIDとして扱う
+const targetId = computed<RelationalEndpointID>(() => prop.target.id);
+const isGroup = computed(() => prop.target.kind === 'group');
+
 const previewSrc = ref<string>();
 const previewLoading = ref(false);
-// 現在プレビュー表示中のアノテーションID（行のシングルクリックで切り替える。既定では先頭の相手アノテーション）
-const previewedAnnotId = ref<AnnotationID>();
+// 現在プレビュー表示中の相手側ID（行のシングルクリックで切り替える。既定では先頭の相手側）。
+// 相手側がアノテーション・グループのどちらでも、getRelationalEndpointPreviewImageが
+// 両方を解決できるため、対象の種類を区別せずそのまま渡せる
+const previewedAnnotId = ref<RelationalEndpointID>();
 
-const edges = computed<RelationalEdge[]>(() => relationalStore.edgesForAnnotation(prop.annotId));
+// グループが対象の場合の詳細情報（メンバー一覧・値算出方法）
+const groupInfo = ref<AnnotationGroup>();
+const aggregationDialogOpen = ref(false);
 
-const otherFileLabelCache = ref<Record<AnnotationID, string>>({});
+/** 対象がグループの場合のみ、その最新のグループ情報を取得する（アノテーション単体なら未設定に戻す） */
+async function loadGroupInfo() {
+  if (prop.target.kind !== 'group') {
+    groupInfo.value = undefined;
+    return;
+  }
+  const res = await api.getAnnotationGroup(prop.file, prop.target.id);
+  groupInfo.value = res.ok ? res.data : undefined;
+}
+
+watch(
+  () => prop.target,
+  () => void loadGroupInfo(),
+  { immediate: true },
+);
+
+/** 2つのファイルがcontainerID込みで同一かどうか（useAnnotationHistory.tsと同じ判定） */
+function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
+  return a.containerID === b.containerID && a.path === b.path;
+}
+
+/**
+ * グループの値算出方法の変更後、prop.fileだけでなく、関係性の相手側の端点が属する
+ * 全ファイルのrelationalStoreキャッシュも合わせて再検証する。相手側のファイルが
+ * 既にキャッシュ読み込み済みの場合、prop.fileのみ再検証すると相手側タブの表示が
+ * 古いまま（stale）になってしまうため（useAnnotationHistory.tsの
+ * refreshRelationalCachesAfterと同じ考え方）
+ */
+async function refreshRelationalCachesAfterAggregationSaved(): Promise<void> {
+  const targetEdges = edges.value;
+  await relationalStore.refreshFile(prop.file);
+
+  await Promise.all(
+    targetEdges.map(async (edge) => {
+      const otherFileRes = await api.resolveAnnotationFile(otherAnnotId(edge));
+      if (otherFileRes.ok && !isSameFile(otherFileRes.data, prop.file)) {
+        await relationalStore.refreshFile(otherFileRes.data);
+      }
+    }),
+  );
+}
+
+/** 値算出方法ダイアログでの保存完了を受けて、表示中のグループ情報と関係性キャッシュを更新する */
+function onAggregationSaved(updated: AnnotationGroup) {
+  groupInfo.value = updated;
+  void refreshRelationalCachesAfterAggregationSaved();
+}
+
+const edges = computed<RelationalEdge[]>(() => relationalStore.edgesForAnnotation(targetId.value));
+
+const otherFileLabelCache = ref<Record<RelationalEndpointID, string>>({});
 
 // アノテーション別の緩和ルール編集ダイアログの対象エッジ
 const editingEdge = ref<RelationalEdge>();
@@ -161,8 +258,10 @@ function openRuleEditDialog(edge: RelationalEdge) {
   editDialogOpen.value = true;
 }
 
-function otherAnnotId(edge: RelationalEdge): AnnotationID {
-  return edge.relational.srcID === prop.annotId ? edge.relational.targetID : edge.relational.srcID;
+function otherAnnotId(edge: RelationalEdge): RelationalEndpointID {
+  return edge.relational.srcID === targetId.value
+    ? edge.relational.targetID
+    : edge.relational.srcID;
 }
 
 function edgeKey(edge: RelationalEdge): string {
@@ -184,7 +283,7 @@ function statusColor(edge: RelationalEdge): string {
  *
  * `equal`ルールでない場合や計算式が未設定の場合はundefined
  */
-function formulaForAnnot(edge: RelationalEdge, annotId: AnnotationID): string | undefined {
+function formulaForAnnot(edge: RelationalEdge, annotId: RelationalEndpointID): string | undefined {
   const rule = edge.relational.rule;
   if (rule.type !== 'equal') return undefined;
   return edge.relational.srcID === annotId ? rule.srcFormula : rule.targetFormula;
@@ -194,7 +293,11 @@ function formulaForAnnot(edge: RelationalEdge, annotId: AnnotationID): string | 
  * 検証結果の値を表示用の文字列に変換する（検証中は明示し、空文字列は空であることが分かるように
  * したうえで、そのアノテーション側に計算式が設定されていれば式と結果も併記する）
  */
-function displayValue(rawValue: string, edge: RelationalEdge, annotId: AnnotationID): string {
+function displayValue(
+  rawValue: string,
+  edge: RelationalEdge,
+  annotId: RelationalEndpointID,
+): string {
   if (edge.checkedRule === undefined) return t('pdfEditor.peek.verifying');
   if (rawValue === '') return t('pdfEditor.peek.emptyValue');
   return formatValueWithFormula(rawValue, formulaForAnnot(edge, annotId));
@@ -204,7 +307,7 @@ function displayValue(rawValue: string, edge: RelationalEdge, annotId: Annotatio
 const selfValueDisplay = computed<string>(() => {
   const firstEdge = edges.value[0];
   if (firstEdge === undefined) return '';
-  return displayValue(edgeValueFor(firstEdge, prop.annotId), firstEdge, prop.annotId);
+  return displayValue(edgeValueFor(firstEdge, targetId.value), firstEdge, targetId.value);
 });
 
 // 自身の値がまだ読み込み中（アノテーションの移動・リサイズ直後の再読み込み待ち等）かどうか。
@@ -215,7 +318,7 @@ const isSelfValuePending = computed<boolean>(() => {
 });
 
 function otherValueDisplay(edge: RelationalEdge): string {
-  return displayValue(otherEdgeValueFor(edge, prop.annotId), edge, otherAnnotId(edge));
+  return displayValue(otherEdgeValueFor(edge, targetId.value), edge, otherAnnotId(edge));
 }
 
 function otherFileLabel(edge: RelationalEdge): string {
@@ -233,7 +336,12 @@ const ruleTypeOptions: { label: string; value: RelationalRuleType }[] = [
 async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleType) {
   if (newType === edge.relational.rule.type) return;
 
-  const ok = await relationalStore.changeRelationalRuleType(prop.file, edge, prop.annotId, newType);
+  const ok = await relationalStore.changeRelationalRuleType(
+    prop.file,
+    edge,
+    targetId.value,
+    newType,
+  );
   if (!ok) {
     $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
   }
@@ -244,7 +352,7 @@ async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleTyp
  * 残りのエッジがあれば`watch(edges, ...)`が新しい先頭エッジを自動選択する
  */
 async function onRemoveRelation(edge: RelationalEdge) {
-  const selfId = prop.annotId;
+  const selfId = targetId.value;
   const removeRes = await api.removeRelationalEdge(edge.relational.srcID, edge.relational.targetID);
   if (!removeRes.ok) {
     $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
@@ -270,15 +378,19 @@ async function resolveOtherFileLabels(targetEdges: RelationalEdge[]) {
 }
 
 /**
- * 指定したアノテーションが属するファイルを新規タブで開き、そのアノテーションが存在する
- * ページへ遷移する（先頭ページが開かれてしまわないよう、ページ番号をopenTabに渡す）
+ * 指定した端点（アノテーションまたはグループ）が属するファイルを新規タブで開き、
+ * それが存在するページへ遷移する（先頭ページが開かれてしまわないよう、ページ番号をopenTabに渡す）
+ *
+ * `openTab`の`focusAnnotId`は本来アノテーション専用だが、グループIDを渡した場合も
+ * `AnnotationLayer.vue`側の選択展開（groupStore.memberSet）によりグループ全体の選択に
+ * 解決されるため、ここでは端点の種類を区別せずそのまま渡す
  */
-async function focusAnnotationInNewTab(annotId: AnnotationID) {
-  const fileRes = await api.resolveAnnotationFile(annotId);
+async function focusAnnotationInNewTab(id: RelationalEndpointID) {
+  const fileRes = await api.resolveAnnotationFile(id);
   if (!fileRes.ok) return;
 
-  const pageRes = await api.getAnnotationPageNumber(annotId);
-  editorStore.openTab(fileRes.data, pageRes.ok ? pageRes.data : undefined, annotId);
+  const pageRes = await api.getAnnotationPageNumber(id);
+  editorStore.openTab(fileRes.data, pageRes.ok ? pageRes.data : undefined, id as AnnotationID);
   open.value = false;
 }
 
@@ -323,7 +435,7 @@ watch(
       return;
     }
     previewLoading.value = true;
-    const res = await api.getAnnotationPreviewImage(annotId);
+    const res = await api.getRelationalEndpointPreviewImage(annotId);
     previewSrc.value = res.ok ? res.data : undefined;
     previewLoading.value = false;
   },
@@ -345,7 +457,7 @@ watch(open, (isOpen) => {
 // でも「自身の値」が最新化されるよう明示的に再検証を要求する。`edgesForAnnotation`は
 // リアクティブなgetterのため、再検証完了後は自動的に画面へ反映される
 watch(
-  [open, () => prop.annotId],
+  [open, targetId],
   ([isOpen]) => {
     if (isOpen) void relationalStore.refreshFile(prop.file);
   },
@@ -425,6 +537,13 @@ onBeforeUnmount(clearPendingRetryTimer);
 
 .preview-image {
   max-height: 260px;
+}
+
+.group-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .relation-row {

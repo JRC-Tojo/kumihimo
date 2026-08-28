@@ -11,9 +11,8 @@ import { Failure, NotFoundError, Success, type Result } from 'src/models/error/r
 import type { BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
 import { BookmarkID as BookmarkIDSchema } from 'src/models/relational/fileSchema';
 import type { AnnotationID } from 'src/models/document/pdf';
-import * as containerConfigService from 'src/services/container/config';
 import { collectDescendantIds } from 'src/utils/document/bookmarkTree';
-import { loadConfig } from './config';
+import { loadConfig, updateConfig } from './config';
 
 /** ブックマーク新規登録時に指定できる追加情報 */
 export interface AddBookmarkOptions {
@@ -40,33 +39,25 @@ export async function addBookmark(
   pageNumber: number,
   options?: AddBookmarkOptions,
 ): Promise<Result<BookmarkInfo>> {
-  const configRes = await loadConfig(file);
-  if (!configRes.ok) return configRes;
-
   // レイヤー境界（サービス層）を例外で越えないよう、`parse`ではなく`safeParse`で検証する
   const idRes = BookmarkIDSchema.safeParse(crypto.randomUUID());
   if (!idRes.success) return Failure(idRes.error);
 
-  const newBookmark: BookmarkInfo = {
-    id: idRes.data,
-    title,
-    pageNumber,
-    parentId: options?.parentId,
-    annotationId: options?.annotationId,
-  };
-  const updatedBookmarks = { ...configRes.value.bookmarks, [newBookmark.id]: newBookmark };
+  return updateConfig(file, (current) => {
+    const newBookmark: BookmarkInfo = {
+      id: idRes.data,
+      title,
+      pageNumber,
+      parentId: options?.parentId,
+      annotationId: options?.annotationId,
+    };
+    const updatedBookmarks = { ...current.bookmarks, [newBookmark.id]: newBookmark };
 
-  const saveRes = await containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    Object.values(configRes.value.annots),
-    configRes.value.fileHash,
-    updatedBookmarks,
-    configRes.value.outlineImported ?? false,
-  );
-  if (!saveRes.ok) return saveRes;
-
-  return Success(newBookmark);
+    return Success({
+      next: { ...current, bookmarks: updatedBookmarks },
+      result: newBookmark,
+    });
+  });
 }
 
 /** ブックマークを削除する。子要素（子・孫...）が存在する場合はまとめて削除する（カスケード削除） */
@@ -74,23 +65,15 @@ export async function removeBookmark(
   file: ContainerElementFile,
   bookmarkId: BookmarkID,
 ): Promise<Result<void>> {
-  const configRes = await loadConfig(file);
-  if (!configRes.ok) return configRes;
+  return updateConfig(file, (current) => {
+    const allBookmarks = Object.values(current.bookmarks);
+    const idsToRemove = new Set([bookmarkId, ...collectDescendantIds(allBookmarks, bookmarkId)]);
 
-  const allBookmarks = Object.values(configRes.value.bookmarks);
-  const idsToRemove = new Set([bookmarkId, ...collectDescendantIds(allBookmarks, bookmarkId)]);
+    const updatedBookmarks = { ...current.bookmarks };
+    idsToRemove.forEach((id) => delete updatedBookmarks[id]);
 
-  const updatedBookmarks = { ...configRes.value.bookmarks };
-  idsToRemove.forEach((id) => delete updatedBookmarks[id]);
-
-  return containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    Object.values(configRes.value.annots),
-    configRes.value.fileHash,
-    updatedBookmarks,
-    configRes.value.outlineImported ?? false,
-  );
+    return Success({ next: { ...current, bookmarks: updatedBookmarks }, result: undefined });
+  });
 }
 
 /** ブックマークの名称を変更する */
@@ -99,23 +82,15 @@ export async function renameBookmark(
   bookmarkId: BookmarkID,
   newTitle: string,
 ): Promise<Result<void>> {
-  const configRes = await loadConfig(file);
-  if (!configRes.ok) return configRes;
+  return updateConfig(file, (current) => {
+    const target = current.bookmarks[bookmarkId];
+    if (target === undefined) return Failure(new NotFoundError('Bookmark not found'));
 
-  const target = configRes.value.bookmarks[bookmarkId];
-  if (target === undefined) return Failure(new NotFoundError('Bookmark not found'));
+    const updatedBookmarks = {
+      ...current.bookmarks,
+      [bookmarkId]: { ...target, title: newTitle },
+    };
 
-  const updatedBookmarks = {
-    ...configRes.value.bookmarks,
-    [bookmarkId]: { ...target, title: newTitle },
-  };
-
-  return containerConfigService.saveDocumentConfigFile(
-    file.containerID,
-    file.path,
-    Object.values(configRes.value.annots),
-    configRes.value.fileHash,
-    updatedBookmarks,
-    configRes.value.outlineImported ?? false,
-  );
+    return Success({ next: { ...current, bookmarks: updatedBookmarks }, result: undefined });
+  });
 }

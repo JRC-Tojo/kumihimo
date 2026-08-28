@@ -17,6 +17,8 @@
           v-model:page="currentPage"
           v-model:scale="scale"
           @register-annot="registAnnotation"
+          @register-annot-batch="registAnnotationBatch"
+          @duplicate-batch="duplicateAnnotationBatch"
           @remove-annot="removeAnnotation"
           @render="onRender"
           @render-tile="onRenderTile"
@@ -47,6 +49,8 @@
               v-model:selected-annot-ids="selectedAnnotIds"
               v-model:scale="scale"
               @register-annot="registAnnotation"
+              @register-annot-batch="registAnnotationBatch"
+              @duplicate-batch="duplicateAnnotationBatch"
               @remove-annot="removeAnnotation"
               @render="onRender"
               @render-tile="onRenderTile"
@@ -84,7 +88,11 @@ import PdfPage from 'src/components/Viewer/PdfPage.vue';
 import DocumentPageListView from './DocumentPageListView.vue';
 import type { ViewMode } from 'src/models/docPage';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroup } from 'src/models/document/group';
 import { useAnnotationHistory } from './composables/useAnnotationHistory';
+import { useBackendApi } from 'src/apis/backendApi';
+import { useGroupStore } from 'src/stores/groupStore';
+import { fileKey } from 'src/utils/document/fileKey';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PageSize } from 'src/components/Viewer/pdfManager';
 import type { TileDescriptor } from 'src/components/Viewer/tiling';
@@ -120,6 +128,8 @@ interface Prop {
 const prop = defineProps<Prop>();
 
 const history = useAnnotationHistory();
+const api = useBackendApi();
+const groupStore = useGroupStore();
 
 const currentPage = defineModel<number>('currentPage', { required: true });
 const zoomLevel = defineModel<number>('zoomLevel', { required: true });
@@ -323,6 +333,61 @@ async function registAnnotation(annot: AnnotationStyle): Promise<void> {
   const previous = prop.annotations.find((a) => a.id === annot.id);
   const registRes = await history.registerWithHistory(prop.file, previous, annot);
   if (!registRes.ok) console.log(registRes.error); // TODO: エラーハンドリング
+}
+
+/**
+ * 複数アノテーションの登録（グループ・複数選択の同時ドラッグ/リサイズ）を1件のUndoステップとして記録する
+ */
+async function registAnnotationBatch(annots: AnnotationStyle[]): Promise<void> {
+  const items = annots.map((annot) => ({
+    previous: prop.annotations.find((a) => a.id === annot.id) ?? annot,
+    next: annot,
+  }));
+  await history.registerManyWithHistory(prop.file, items);
+}
+
+/**
+ * Ctrl+drag複製を確定する（単一シェイプ・複数選択・グループのいずれも同じ経路で扱う）
+ *
+ * ペーストと同じ`pasteAnnotations`パイプラインを使い、複製元の選択がまるごと1つのグループ
+ * だった場合は複製後も同じ値算出方法で新しいグループを作り直す。作成結果は1件のUndoステップとして記録する
+ */
+async function duplicateAnnotationBatch(
+  sources: AnnotationStyle[],
+  offset: { dx: number; dy: number },
+  page: number,
+  isGroup: boolean,
+): Promise<AnnotationStyle[]> {
+  const res = await api.pasteAnnotations(prop.file, sources, page, offset);
+  if (!res.ok) return [];
+  const created = res.data.map((info) => info.style);
+
+  let createdGroup: AnnotationGroup | undefined;
+  if (isGroup && created.length >= 2) {
+    const sourceGroup = groupStore.matchingGroup(
+      fileKey(prop.file),
+      sources.map((s) => s.id),
+    );
+    const groupRes = await api.groupAnnotations(
+      prop.file,
+      created.map((a) => a.id),
+    );
+    if (groupRes.ok) {
+      createdGroup = groupRes.data.group;
+      if (sourceGroup?.valueAggregation) {
+        const aggRes = await api.updateGroupValueAggregation(
+          prop.file,
+          createdGroup.id,
+          sourceGroup.valueAggregation,
+        );
+        if (aggRes.ok) createdGroup = aggRes.data;
+      }
+      await groupStore.refreshFile(prop.file);
+    }
+  }
+
+  history.recordCreatedBatchWithGroup(prop.file, created, createdGroup);
+  return created;
 }
 
 /**

@@ -42,6 +42,8 @@
         v-model:page="page"
         v-model:canvas-size="canvasSize"
         @register-annot="onRegisterAnnot"
+        @register-annot-batch="onRegisterAnnotBatch"
+        @duplicate-batch="onDuplicateBatch"
         @remove-annot="onRemoveAnnot"
       />
     </div>
@@ -77,6 +79,13 @@ interface Props {
     dpr: number,
   ) => Promise<void>;
   onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
+  onRegisterAnnotBatch: (annots: AnnotationStyle[]) => Promise<void>;
+  onDuplicateBatch: (
+    sources: AnnotationStyle[],
+    offset: { dx: number; dy: number },
+    page: number,
+    isGroup: boolean,
+  ) => Promise<AnnotationStyle[]>;
   onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
 }
 const props = defineProps<Props>();

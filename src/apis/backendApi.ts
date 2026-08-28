@@ -36,13 +36,24 @@ import type {
   ColorCode,
   TextAnnotationStyle,
 } from 'src/models/document/pdf';
+import type {
+  AnnotationGroup,
+  AnnotationGroupID,
+  GroupValueAggregation,
+} from 'src/models/document/group';
 import type { AnnotationTool } from 'src/models/docPage';
 import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import { type RelationalResponce } from 'src/models/relational/common';
 import type { DocumentConfigFile } from 'src/models/relational/fileSchema';
-import type { AnnotationInfo, BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
+import type {
+  AnnotationInfo,
+  BookmarkID,
+  BookmarkInfo,
+  RelationalEndpointID,
+} from 'src/models/relational/fileSchema';
 import type { RelaxationOptions } from 'src/models/relational/relaxation';
 import * as annotationService from 'src/services/document/annotation';
+import * as annotationGroupService from 'src/services/document/annotationGroup';
 import * as bookmarkService from 'src/services/document/bookmark';
 import * as unsavedStateService from 'src/services/document/unsavedState';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
@@ -666,14 +677,160 @@ class BackendApi {
   }
 
   /**
-   * アノテーションの領域のプレビュー画像（PNG dataURL）を取得する
+   * 関係性の端点（アノテーションまたはグループ）の周辺プレビュー画像（PNG dataURL）を取得する
+   *
+   * アノテーション単体でも、未オープンの文書からアドレスを解決できる（`resolveEndpointAddress`
+   * 参照）ため、公開APIとしてはアノテーション専用のプレビューAPIを別に持たず、これに統一する
    */
-  async getAnnotationPreviewImage(
-    annotID: AnnotationID,
+  async getRelationalEndpointPreviewImage(
+    id: RelationalEndpointID,
     scale?: number,
   ): Promise<ApiResponse<string>> {
-    const res = await annotationService.getAnnotationPreviewImage(annotID, scale);
+    const res = await relationalService.getRelationalEndpointPreviewImage(id, scale);
     return toApiResponse(res, 'DOC_ANNOT_PREVIEW_FAILED');
+  }
+
+  // ============ グループ操作 ============
+
+  /**
+   * 指定ファイルに登録されているグループ一覧を取得する
+   */
+  async listAnnotationGroups(file: ContainerElementFile): Promise<ApiResponse<AnnotationGroup[]>> {
+    const res = await annotationGroupService.listAnnotationGroups(file);
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_LOAD_FAILED');
+  }
+
+  /**
+   * 指定ファイル内の特定グループを取得する
+   */
+  async getAnnotationGroup(
+    file: ContainerElementFile,
+    groupId: AnnotationGroupID,
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.getAnnotationGroup(file, groupId);
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_LOAD_FAILED');
+  }
+
+  /**
+   * 複数のアノテーションをグループ化する
+   *
+   * 選択範囲に既存グループのメンバーが含まれていた場合はそのグループを解散して統合する。
+   * 解散したグループが関係性の端点になっていた場合は、孤立させないよう関係性もあわせて削除する。
+   *
+   * グループ生成自体は成功したが関係性のクリーンアップが途中で失敗した場合、そのまま失敗を返すと
+   * 「APIは失敗と報告するが、実データ上はグループが生成・解散済み」という、呼び出し元（Undo履歴）
+   * からは取り消せない不整合状態が残ってしまう。そのため、クリーンアップ失敗時は新規グループの
+   * 取り消し・解散前グループの復元・（既にクリーンアップ済みだった分の）関係性の再登録まで
+   * ベストエフォートで補償し、操作全体を行う前の状態へ戻したうえで失敗を返す
+   */
+  async groupAnnotations(
+    file: ContainerElementFile,
+    annotationIds: AnnotationID[],
+  ): Promise<ApiResponse<{ group: AnnotationGroup; dissolvedGroups: AnnotationGroup[] }>> {
+    const res = await annotationGroupService.groupAnnotations(file, annotationIds);
+    if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_GROUP_FAILED');
+    const { group: newGroup, dissolvedGroups } = res.value;
+    if (dissolvedGroups.length === 0) return toApiResponse(Success(res.value));
+
+    // クリーンアップで削除される可能性のある関係性を、削除前にすべて捕捉しておく
+    // （ロールバック時にこの中から「実際に削除済みだった分」だけを選んで再登録する）
+    const dissolvedIds = new Set<string>(dissolvedGroups.map((g) => g.id));
+    const involvingRes = await relationalService.getRelationalsInvolvingFile(file);
+    const capturedRelationals = involvingRes.ok
+      ? involvingRes.value
+          .map((r) => r.relational)
+          .filter((r) => dissolvedIds.has(r.srcID) || dissolvedIds.has(r.targetID))
+      : [];
+
+    const cleanedGroupIds: AnnotationGroupID[] = [];
+    for (const dissolved of dissolvedGroups) {
+      const cleanupRes = await relationalService.removeRelationalsForAnnotation(dissolved.id);
+      if (!cleanupRes.ok) {
+        await rollbackGroupAnnotations(file, newGroup, dissolvedGroups, {
+          cleanedGroupIds,
+          capturedRelationals,
+        });
+        return toApiResponse(cleanupRes, 'RELATIONAL_REMOVE_FAILED');
+      }
+      cleanedGroupIds.push(dissolved.id);
+    }
+
+    return toApiResponse(Success(res.value));
+  }
+
+  /**
+   * キャプチャ済みのグループ記録をそのままの内容で復元する（Undo/Redoのリプレイ専用）
+   */
+  async restoreGroup(
+    file: ContainerElementFile,
+    group: AnnotationGroup,
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.restoreGroup(file, group);
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_FAILED');
+  }
+
+  /**
+   * 既存グループから特定のメンバーを取り除く（グループ自体は解散しない部分更新）
+   */
+  async removeGroupMembers(
+    file: ContainerElementFile,
+    groupId: AnnotationGroupID,
+    memberIdsToRemove: AnnotationID[],
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.removeGroupMembers(file, groupId, memberIdsToRemove);
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_FAILED');
+  }
+
+  /**
+   * グループを解除する
+   *
+   * グループが関係性の端点になっていた場合は、孤立させないよう関係性もあわせて削除する。
+   * グループの解除自体は成功したが関係性のクリーンアップが失敗した場合、そのまま失敗を返すと
+   * 「APIは失敗と報告するが、実データ上はグループが解除済み」という不整合状態が残ってしまうため、
+   * `groupAnnotations`と同様に解除前グループ・関係性をベストエフォートで復元してから失敗を返す
+   */
+  async ungroupAnnotations(
+    file: ContainerElementFile,
+    groupId: AnnotationGroupID,
+  ): Promise<ApiResponse<void>> {
+    const groupRes = await annotationGroupService.getAnnotationGroup(file, groupId);
+    if (!groupRes.ok) return toApiResponse(groupRes, 'DOC_ANNOT_UNGROUP_FAILED');
+    const removedGroup = groupRes.value;
+
+    const res = await annotationGroupService.ungroupAnnotations(file, groupId);
+    if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_UNGROUP_FAILED');
+
+    const involvingRes = await relationalService.getRelationalsInvolvingFile(file);
+    const capturedRelationals = involvingRes.ok
+      ? involvingRes.value
+          .map((r) => r.relational)
+          .filter((r) => r.srcID === groupId || r.targetID === groupId)
+      : [];
+
+    const cleanupRes = await relationalService.removeRelationalsForAnnotation(groupId);
+    if (!cleanupRes.ok) {
+      await annotationGroupService.restoreGroup(file, removedGroup);
+      await Promise.all(capturedRelationals.map((r) => relationalService.registRelational(r)));
+      return toApiResponse(cleanupRes, 'RELATIONAL_REMOVE_FAILED');
+    }
+
+    return toApiResponse(res, 'DOC_ANNOT_UNGROUP_FAILED');
+  }
+
+  /**
+   * グループ全体を代表する値の算出方法を設定・変更する
+   */
+  async updateGroupValueAggregation(
+    file: ContainerElementFile,
+    groupId: AnnotationGroupID,
+    aggregation: GroupValueAggregation | undefined,
+  ): Promise<ApiResponse<AnnotationGroup>> {
+    const res = await annotationGroupService.updateGroupValueAggregation(
+      file,
+      groupId,
+      aggregation,
+    );
+    return toApiResponse(res, 'DOC_ANNOT_GROUP_VALUE_SAVE_FAILED');
   }
 
   // ============ 関係性操作 ============
@@ -740,10 +897,10 @@ class BackendApi {
   }
 
   /**
-   * 指定したアノテーションに紐づく関係性（src側）をすべて削除する
+   * 指定した端点（アノテーションまたはグループ）に紐づく関係性（src側）をすべて削除する
    */
-  async removeRelationals(sourceAnnotID: AnnotationID): Promise<ApiResponse<void>> {
-    const res = await relationalService.removeRelationals(sourceAnnotID);
+  async removeRelationals(sourceID: RelationalEndpointID): Promise<ApiResponse<void>> {
+    const res = await relationalService.removeRelationals(sourceID);
     return toApiResponse(res, 'RELATIONAL_REMOVE_FAILED');
   }
 
@@ -751,26 +908,28 @@ class BackendApi {
    * srcID・targetIDが一致する1本の関係性のみを削除する（リンクの変更・個別削除用）
    */
   async removeRelationalEdge(
-    srcID: AnnotationID,
-    targetID: AnnotationID,
+    srcID: RelationalEndpointID,
+    targetID: RelationalEndpointID,
   ): Promise<ApiResponse<void>> {
     const res = await relationalService.removeRelationalEdge(srcID, targetID);
     return toApiResponse(res, 'RELATIONAL_REMOVE_FAILED');
   }
 
   /**
-   * アノテーションIDから、そのアノテーションが属するファイル情報を解決する
+   * 端点（アノテーションまたはグループ）のIDから、それが属するファイル情報を解決する
    */
-  async resolveAnnotationFile(annotID: AnnotationID): Promise<ApiResponse<ContainerElementFile>> {
-    const res = await relationalService.resolveAnnotationFile(annotID);
+  async resolveAnnotationFile(
+    id: RelationalEndpointID,
+  ): Promise<ApiResponse<ContainerElementFile>> {
+    const res = await relationalService.resolveAnnotationFile(id);
     return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
   }
 
   /**
-   * アノテーションIDから、そのアノテーションが存在するページ番号を解決する
+   * 端点（アノテーションまたはグループ）のIDから、それが存在するページ番号を解決する
    */
-  async getAnnotationPageNumber(annotID: AnnotationID): Promise<ApiResponse<number>> {
-    const res = await relationalService.getAnnotationPageNumber(annotID);
+  async getAnnotationPageNumber(id: RelationalEndpointID): Promise<ApiResponse<number>> {
+    const res = await relationalService.getAnnotationPageNumber(id);
     return toApiResponse(res, 'RELATIONAL_RESOLVE_FAILED');
   }
 
@@ -1069,6 +1228,29 @@ class BackendApi {
     const res = await pluginSubmissionService.dismissSubmission(prNumber);
     return toApiResponse(res, 'PLUGIN_DISMISS_SUBMISSION_FAILED');
   }
+}
+
+/**
+ * `groupAnnotations`の関係性クリーンアップが途中で失敗した際、新規グループの取り消し・
+ * 解散前グループの復元・関係性の再登録をベストエフォートで行い、操作前の状態へ戻す
+ *
+ * 個々の復元処理自体が失敗しても（コンテナオブジェクトのロールバック等、他箇所の既存の補償処理と
+ * 同様に）これ以上できることはないため、戻り値は無視して他の復元処理を続行する
+ */
+async function rollbackGroupAnnotations(
+  file: ContainerElementFile,
+  createdGroup: AnnotationGroup,
+  dissolvedGroups: AnnotationGroup[],
+  cleaned: { cleanedGroupIds: AnnotationGroupID[]; capturedRelationals: Relational[] },
+): Promise<void> {
+  await annotationGroupService.ungroupAnnotations(file, createdGroup.id);
+  await Promise.all(dissolvedGroups.map((g) => annotationGroupService.restoreGroup(file, g)));
+
+  const cleanedSet = new Set<string>(cleaned.cleanedGroupIds);
+  const toRestore = cleaned.capturedRelationals.filter(
+    (r) => cleanedSet.has(r.srcID) || cleanedSet.has(r.targetID),
+  );
+  await Promise.all(toRestore.map((r) => relationalService.registRelational(r)));
 }
 
 // グローバルAPIインスタンス

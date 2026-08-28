@@ -11,10 +11,18 @@ import { type Ref } from 'vue';
 import dayjs from 'dayjs';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useEditorStore } from 'src/stores/editorStore';
+import { useGroupStore } from 'src/stores/groupStore';
 import { useAnnotationHistory } from './useAnnotationHistory';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type {
+  AnnotationGroup,
+  AnnotationGroupID,
+  GroupValueAggregation,
+} from 'src/models/document/group';
+import type { Relational } from 'src/models/relational/common';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
+import { fileKey } from 'src/utils/document/fileKey';
 
 /** 連続ペースト・複製時に位置をずらす基準量（px、文書座標） */
 const PASTE_OFFSET_STEP = 20;
@@ -29,6 +37,7 @@ export interface UseAnnotationActionsDeps {
 export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
   const api = useBackendApi();
   const editorStore = useEditorStore();
+  const groupStore = useGroupStore();
   const history = useAnnotationHistory();
 
   /** 選択中の注釈IDを実体（AnnotationStyle）に解決する */
@@ -72,11 +81,46 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     );
   }
 
-  /** 選択中の注釈をアプリ内クリップボードにコピーする（Ctrl+C。OSクリップボードは使わない） */
+  /**
+   * 選択中の注釈をアプリ内クリップボードにコピーする（Ctrl+C。OSクリップボードは使わない）
+   *
+   * 選択範囲がまるごと1つの既存グループと一致する場合のみ、貼り付け時にグループを
+   * 再作成するための情報（値算出方法）もあわせて記録する（部分選択のコピーはバラのアノテーション扱い）
+   */
   function copySelected(): void {
     const targets = resolveSelected();
     if (targets.length === 0) return;
-    editorStore.setAnnotationClipboard(targets);
+    const group = groupStore.matchingGroup(fileKey(deps.file), deps.selectedAnnotationIds.value);
+    editorStore.setAnnotationClipboard(
+      targets,
+      group ? { valueAggregation: group.valueAggregation } : undefined,
+    );
+  }
+
+  /**
+   * ペースト・複製で作成したアノテーション群に対し、元の選択がグループだった場合は
+   * 同じ値算出方法を持つ新しいグループを作り直す（`copySelected`/その場複製で共用）
+   */
+  async function recreateGroupIfNeeded(
+    createdIds: AnnotationID[],
+    groupInfo: { valueAggregation?: GroupValueAggregation | undefined } | undefined,
+  ): Promise<AnnotationGroup | undefined> {
+    if (!groupInfo || createdIds.length < 2) return undefined;
+
+    const groupRes = await api.groupAnnotations(deps.file, createdIds);
+    if (!groupRes.ok) return undefined;
+
+    let group = groupRes.data.group;
+    if (groupInfo.valueAggregation) {
+      const aggRes = await api.updateGroupValueAggregation(
+        deps.file,
+        group.id,
+        groupInfo.valueAggregation,
+      );
+      if (aggRes.ok) group = aggRes.data;
+    }
+    await groupStore.refreshFile(deps.file);
+    return group;
   }
 
   /**
@@ -119,21 +163,26 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     const res = await api.pasteAnnotations(deps.file, clipboard, target.page, offset);
     if (!res.ok) return;
 
-    history.recordCreatedBatch(
-      deps.file,
-      res.data.map((info) => info.style),
+    const created = res.data.map((info) => info.style);
+    const createdGroup = await recreateGroupIfNeeded(
+      created.map((a) => a.id),
+      editorStore.annotationClipboardGroupInfo,
     );
-    deps.selectedAnnotationIds.value = res.data.map((info) => info.style.id);
+    history.recordCreatedBatchWithGroup(deps.file, created, createdGroup);
+    deps.selectedAnnotationIds.value = created.map((a) => a.id);
   }
 
   /**
    * 選択中の注釈をその場複製する（将来の右クリックメニュー「複製」用）
    *
-   * Ctrl+drag複製とは呼び出し経路が異なるが、同じ`pasteAnnotations`（=`duplicateAnnotation`）を利用する
+   * Ctrl+drag複製とは呼び出し経路が異なるが、同じ`pasteAnnotations`（=`duplicateAnnotation`）を利用する。
+   * 選択がまるごと1つのグループだった場合は、複製後も同じ値算出方法を持つ新しいグループを作り直す
    */
   async function duplicateSelected(): Promise<void> {
     const targets = resolveSelected();
     if (targets.length === 0) return;
+
+    const group = groupStore.matchingGroup(fileKey(deps.file), deps.selectedAnnotationIds.value);
 
     const res = await api.pasteAnnotations(deps.file, targets, deps.currentPage.value, {
       dx: PASTE_OFFSET_STEP,
@@ -141,11 +190,13 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     });
     if (!res.ok) return;
 
-    history.recordCreatedBatch(
-      deps.file,
-      res.data.map((info) => info.style),
+    const created = res.data.map((info) => info.style);
+    const createdGroup = await recreateGroupIfNeeded(
+      created.map((a) => a.id),
+      group ? { valueAggregation: group.valueAggregation } : undefined,
     );
-    deps.selectedAnnotationIds.value = res.data.map((info) => info.style.id);
+    history.recordCreatedBatchWithGroup(deps.file, created, createdGroup);
+    deps.selectedAnnotationIds.value = created.map((a) => a.id);
   }
 
   /**
@@ -173,6 +224,58 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     history.recordChangedBatch(deps.file, pairs);
   }
 
+  /**
+   * 選択中のアノテーションをグループ化する（右クリックメニュー「グループ化」から使う）
+   *
+   * 選択範囲に既存グループのメンバーが含まれていた場合、サービス層側でそのグループを解散して
+   * 統合する（ネストは発生させない）。グループ化後は新しいグループの全メンバーを選択状態にする。
+   * 解散される既存グループの関係性は、サーバー側での孤立除去（api.groupAnnotations内部）が
+   * 起きる前でなければ捕捉できないため、groupStoreのキャッシュから予測して先にキャプチャしておく
+   */
+  async function groupSelected(): Promise<void> {
+    const ids = deps.selectedAnnotationIds.value;
+    if (ids.length < 2) return;
+
+    const fk = fileKey(deps.file);
+    const predicted = new Map<AnnotationGroupID, AnnotationGroup>();
+    for (const id of ids) {
+      const g = groupStore.groupContaining(fk, id);
+      if (g) predicted.set(g.id, g);
+    }
+    const dissolvedRelationalsByGroupId = new Map<AnnotationGroupID, Relational[]>(
+      Array.from(predicted.values()).map((g) => [g.id, history.captureRelationals(g.id)]),
+    );
+
+    const res = await api.groupAnnotations(deps.file, ids);
+    if (!res.ok) return;
+
+    history.recordGroupCreated(
+      deps.file,
+      res.data.group,
+      res.data.dissolvedGroups,
+      dissolvedRelationalsByGroupId,
+    );
+    await groupStore.refreshFile(deps.file);
+    deps.selectedAnnotationIds.value = [...res.data.group.memberIds];
+  }
+
+  /**
+   * 選択中のアノテーションのグループ化を解除する（右クリックメニュー「グループ化を解除」から使う）
+   *
+   * 選択が既存グループの全メンバーとちょうど一致する場合のみ解除する（部分選択では何もしない）
+   */
+  async function ungroupSelected(): Promise<void> {
+    const group = groupStore.matchingGroup(fileKey(deps.file), deps.selectedAnnotationIds.value);
+    if (group === undefined) return;
+
+    const relationals = history.captureRelationals(group.id);
+    const res = await api.ungroupAnnotations(deps.file, group.id);
+    if (!res.ok) return;
+
+    history.recordGroupRemoved(deps.file, group, relationals);
+    await groupStore.refreshFile(deps.file);
+  }
+
   return {
     deleteSelected,
     nudgeSelected,
@@ -180,5 +283,7 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     pasteClipboard,
     duplicateSelected,
     reorderSelected,
+    groupSelected,
+    ungroupSelected,
   };
 }

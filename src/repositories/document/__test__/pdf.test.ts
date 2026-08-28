@@ -90,6 +90,7 @@ const {
   embedBookmarksIntoPdf,
   extractImageFromRegion,
   extractAnnotationContextPreview,
+  extractGroupContextPreview,
   getOutline,
   anyTextWillFallbackToStandardFont,
 } = await import('../pdf');
@@ -1055,6 +1056,26 @@ describe('renderPageToCanvasFromDoc / renderPageToCanvas / extractImageFromRegio
     if (!res.ok) return;
     expect(res.value.startsWith('data:image/png')).toBeTrue();
     expect(releaseSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('extractGroupContextPreview: 複数メンバーの和集合範囲でdata:image/pngのdataURLを返す', async () => {
+    const releaseSpy = mock(() => {});
+    const fakeDoc = buildFakeDoc([buildFakePage({ viewport: { width: 200, height: 200 } })]);
+    fakeAcquireImpl = () => Promise.resolve(Success({ document: fakeDoc, release: releaseSpy }));
+
+    const memberA = buildSmallBoxAnnotation(1);
+    const memberB = { ...buildSmallBoxAnnotation(1), x: 100, y: 100 };
+
+    const res = await extractGroupContextPreview(testFile, DUMMY_SRC, [memberA, memberB]);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value.startsWith('data:image/png')).toBeTrue();
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('extractGroupContextPreview: メンバーが空の場合はFailureを返す', async () => {
+    const res = await extractGroupContextPreview(testFile, DUMMY_SRC, []);
+    expect(res.ok).toBeFalse();
   });
 });
 

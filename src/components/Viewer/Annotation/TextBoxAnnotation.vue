@@ -10,6 +10,7 @@
 import { computed, ref } from 'vue';
 import type Konva from 'konva';
 import type { AnnotationID, TextAnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import { useAnnotationShape } from './composables/useAnnotationShape';
 import { hexToRgba } from 'src/utils/color/hexToRgba';
 
@@ -23,6 +24,12 @@ interface Props {
   // text自体では未使用（頂点アンカーを持つline/arrow/polyline/polygon向けのprop）。
   // AnnotationLayer.vueが全種別共通で渡すため、KonvaのscaleとFallthroughで衝突しないよう宣言だけしておく
   stageScale?: number;
+  // 複数選択（グループ含む）の一員として共有Transformerでリサイズ中かどうか。trueの間は
+  // Transformer側のcenteredScalingに任せ、シェイプ自身のCtrl中心固定補正を二重適用しない
+  isGroupTransform?: boolean;
+  // 所属グループのID（未所属ならundefined）。グループを端点とする関係性の検証結果を
+  // このシェイプのスタイルへ反映するために使う（useAnnotationShape参照）
+  groupId?: AnnotationGroupID;
 }
 
 const props = defineProps<Props>();
@@ -160,13 +167,13 @@ function onTransformStart(e: Konva.KonvaEventObject<Event>) {
 function onTransform(e: Konva.KonvaEventObject<Event>) {
   const groupNode = e.target as Konva.Group;
   const { width, height } = syncNodeGeometry(groupNode);
-  applyCenteredCorrection(groupNode, { width, height });
+  if (!props.isGroupTransform) applyCenteredCorrection(groupNode, { width, height });
 }
 
 function onTransformEnd(e: Konva.KonvaEventObject<Event>) {
   const groupNode = e.target as Konva.Group;
   const { width, height } = syncNodeGeometry(groupNode);
-  applyCenteredCorrection(groupNode, { width, height });
+  if (!props.isGroupTransform) applyCenteredCorrection(groupNode, { width, height });
 
   const updated = withUpdatedTimestamp({ x: groupNode.x(), y: groupNode.y(), width, height });
   emit('update', updated);

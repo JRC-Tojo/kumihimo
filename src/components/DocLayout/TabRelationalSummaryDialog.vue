@@ -126,6 +126,7 @@ import { useEditorStore } from 'src/stores/editorStore';
 import { useRelationalStore, fileKey, type RelationalEdge } from 'src/stores/relationalStore';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
+import type { RelationalEndpointID } from 'src/models/relational/fileSchema';
 import { formatValueWithFormula } from 'src/utils/calculation/formula';
 import { Path } from 'src/utils/binary/path';
 
@@ -141,7 +142,7 @@ const editorStore = useEditorStore();
 const relationalStore = useRelationalStore();
 
 const loading = ref(false);
-const endpointLabelCache = ref<Record<AnnotationID, string>>({});
+const endpointLabelCache = ref<Record<RelationalEndpointID, string>>({});
 
 // このファイルが関わる関係性一覧（src・target問わず）。ファイル単位のキャッシュをそのまま参照する
 const edges = computed<RelationalEdge[]>(
@@ -180,8 +181,8 @@ function statusColor(edge: RelationalEdge): string {
  * キャッシュからアノテーションの属するファイル名ラベルを取得する
  * 未解決の場合は '...' を返す
  */
-function endpointLabel(annotId: AnnotationID): string {
-  return endpointLabelCache.value[annotId] ?? '...';
+function endpointLabel(endpointId: RelationalEndpointID): string {
+  return endpointLabelCache.value[endpointId] ?? '...';
 }
 
 /**
@@ -239,40 +240,45 @@ async function resolveEndpointLabels(targetEdges: RelationalEdge[]) {
 // 展開中の項目（edgeKey）。展開時のみ両端のプレビューを取得する（一覧表示だけで全件分の
 // プレビューを先読みすると、関係性が多いファイルで無駄なAPI呼び出しが増えるため）
 const expandedKeys = ref<Set<string>>(new Set());
-// アノテーションIDごとのプレビュー画像。undefined=未取得、null=取得済みだが利用不可
-const previewCache = ref<Record<AnnotationID, string | null>>({});
-const previewLoadingIds = ref<Set<AnnotationID>>(new Set());
+// アノテーション・グループIDごとのプレビュー画像。undefined=未取得、null=取得済みだが利用不可
+const previewCache = ref<Record<RelationalEndpointID, string | null>>({});
+const previewLoadingIds = ref<Set<RelationalEndpointID>>(new Set());
 
 /**
  * プレビューキャッシュから画像URLを取得する（未取得なら undefined）
  */
-function previewSrc(annotId: AnnotationID): string | undefined {
-  return previewCache.value[annotId] ?? undefined;
+function previewSrc(endpointId: RelationalEndpointID): string | undefined {
+  return previewCache.value[endpointId] ?? undefined;
 }
 
 /**
- * 指定アノテーションのプレビューがロード中かを返す
+ * 指定端点のプレビューがロード中かを返す
  */
-function isPreviewLoading(annotId: AnnotationID): boolean {
-  return previewLoadingIds.value.has(annotId);
+function isPreviewLoading(endpointId: RelationalEndpointID): boolean {
+  return previewLoadingIds.value.has(endpointId);
 }
 
 /**
- * 指定アノテーションのプレビュー画像を、未取得の場合のみ取得してキャッシュする
+ * 指定端点のプレビュー画像を、未取得の場合のみ取得してキャッシュする
  *
  * 流れ:
  * 1. 既にキャッシュが存在するかロード中であれば何もしない
  * 2. ロード状態を追加し、APIから画像を取得
  * 3. 成功すればプレビューキャッシュに格納、失敗なら null を格納
  * 4. ロード状態から削除する
+ *
+ * `getRelationalEndpointPreviewImage`は端点がアノテーション・グループのどちらであっても
+ * 適切にプレビューを解決できる統一的なAPIのため、こちらを利用する
  */
-async function ensurePreview(annotId: AnnotationID) {
-  if (previewCache.value[annotId] !== undefined || previewLoadingIds.value.has(annotId)) return;
+async function ensurePreview(endpointId: RelationalEndpointID) {
+  if (previewCache.value[endpointId] !== undefined || previewLoadingIds.value.has(endpointId)) {
+    return;
+  }
 
-  previewLoadingIds.value.add(annotId);
-  const res = await api.getAnnotationPreviewImage(annotId);
-  previewCache.value[annotId] = res.ok ? res.data : null;
-  previewLoadingIds.value.delete(annotId);
+  previewLoadingIds.value.add(endpointId);
+  const res = await api.getRelationalEndpointPreviewImage(endpointId);
+  previewCache.value[endpointId] = res.ok ? res.data : null;
+  previewLoadingIds.value.delete(endpointId);
 }
 
 /**
@@ -293,19 +299,28 @@ function onToggleExpand(edge: RelationalEdge, isOpen: boolean) {
 }
 
 /**
- * クリックされたアノテーションが属するファイルを新規タブで開き、そのページへ遷移する
+ * クリックされた端点（アノテーションまたはグループ）が属するファイルを新規タブで開き、
+ * そのページへ遷移する
  *
  * 流れ:
- * 1. api.resolveAnnotationFile でアノテーションの所属ファイルを解決
+ * 1. api.resolveAnnotationFile で端点の所属ファイルを解決
  * 2. api.getAnnotationPageNumber でページ番号を取得（無ければ undefined）
  * 3. editorStore.openTab で新規タブを開き、選択状態を設定してダイアログを閉じる
+ *
+ * `openTab`の`focusAnnotId`は本来アノテーション専用だが、グループIDを渡した場合も
+ * `AnnotationLayer.vue`側の選択展開（groupStore.memberSet）によりグループ全体の選択に
+ * 解決されるため、ここでは端点の種類を区別せずそのまま渡す
  */
-async function openAnnotation(annotId: AnnotationID) {
-  const fileRes = await api.resolveAnnotationFile(annotId);
+async function openAnnotation(endpointId: RelationalEndpointID) {
+  const fileRes = await api.resolveAnnotationFile(endpointId);
   if (!fileRes.ok) return;
 
-  const pageRes = await api.getAnnotationPageNumber(annotId);
-  editorStore.openTab(fileRes.data, pageRes.ok ? pageRes.data : undefined, annotId);
+  const pageRes = await api.getAnnotationPageNumber(endpointId);
+  editorStore.openTab(
+    fileRes.data,
+    pageRes.ok ? pageRes.data : undefined,
+    endpointId as AnnotationID,
+  );
   open.value = false;
 }
 

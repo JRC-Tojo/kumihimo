@@ -171,7 +171,6 @@ const {
   saveAnnotationInfo,
   removeAnnotationInfo,
   remapFilePath,
-  getAnnotationPreviewImage,
 } = await import('../annotation');
 
 const containerID = '00000000-0000-4000-8000-000000000000' as ContainerID;
@@ -291,6 +290,21 @@ describe('pasteAnnotations', () => {
     expect(pasted?.y).toBe(sources[0]!.y + 40);
 
     expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('複数件を複製する場合も、DB書き込み（addAnnotationInfos）は1回にまとめて行う（1件ずつ書き込むと画面に段階的に表示されてしまうため）', async () => {
+    addAnnotationInfosMock.mockClear();
+
+    const sources = [baseStyle(idA, { zIndex: 1 }), baseStyle(idB, { zIndex: 2 })];
+    const res = await pasteAnnotations(file, sources, 1, { dx: 5, dy: 5 });
+
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    expect(res.value).toHaveLength(2);
+
+    // 2件複製しても、DBへの書き込みは1回だけ（1回の呼び出しに2件分がまとめて渡される）
+    expect(addAnnotationInfosMock).toHaveBeenCalledTimes(1);
+    expect(addAnnotationInfosMock.mock.calls[0]?.[1]).toHaveLength(2);
   });
 });
 
@@ -425,79 +439,6 @@ describe('annotationRepositoryへの単純な委譲関数', () => {
     expect(remapFilePathMock).toHaveBeenCalledTimes(1);
     expect(remapFilePathMock.mock.calls[0]).toEqual([containerID, 'old.pdf', 'new.pdf']);
     expect(res.ok).toBeTrue();
-  });
-});
-
-describe('getAnnotationPreviewImage', () => {
-  it('getAnnotationInfoが失敗した場合、そのままFailureを返し後続処理は呼ばれない', async () => {
-    getAnnotationInfoMock.mockClear();
-    getAnnotationAddressMock.mockClear();
-    loadFileAsDocumentSourceMock.mockClear();
-    extractAnnotationContextPreviewMock.mockClear();
-
-    getAnnotationInfoMock.mockImplementationOnce(() =>
-      Promise.resolve(Failure(new Error('info not found'))),
-    );
-
-    const res = await getAnnotationPreviewImage(idA);
-
-    expect(res.ok).toBeFalse();
-    expect(getAnnotationAddressMock).not.toHaveBeenCalled();
-    expect(loadFileAsDocumentSourceMock).not.toHaveBeenCalled();
-    expect(extractAnnotationContextPreviewMock).not.toHaveBeenCalled();
-  });
-
-  it('getAnnotationAddressが失敗した場合、そのままFailureを返し後続処理は呼ばれない', async () => {
-    getAnnotationAddressMock.mockClear();
-    loadFileAsDocumentSourceMock.mockClear();
-    extractAnnotationContextPreviewMock.mockClear();
-
-    getAnnotationAddressMock.mockImplementationOnce(() =>
-      Promise.resolve(Failure(new Error('address not found'))),
-    );
-
-    const res = await getAnnotationPreviewImage(idA);
-
-    expect(res.ok).toBeFalse();
-    expect(loadFileAsDocumentSourceMock).not.toHaveBeenCalled();
-    expect(extractAnnotationContextPreviewMock).not.toHaveBeenCalled();
-  });
-
-  it('loadFileAsDocumentSourceが失敗した場合、そのままFailureを返す', async () => {
-    loadFileAsDocumentSourceMock.mockClear();
-    extractAnnotationContextPreviewMock.mockClear();
-
-    // デフォルトのモックが常にFailureを返すため、明示的な上書きは不要
-    const res = await getAnnotationPreviewImage(idA);
-
-    expect(res.ok).toBeFalse();
-    expect(loadFileAsDocumentSourceMock).toHaveBeenCalledTimes(1);
-    expect(extractAnnotationContextPreviewMock).not.toHaveBeenCalled();
-  });
-
-  it('全て成功した場合、fileIdentityとstyleを渡してextractAnnotationContextPreviewを呼び、結果をそのまま返す', async () => {
-    loadFileAsDocumentSourceMock.mockClear();
-    extractAnnotationContextPreviewMock.mockClear();
-
-    loadFileAsDocumentSourceMock.mockImplementationOnce(() =>
-      Promise.resolve(Success('dummy-source' as never)),
-    );
-    extractAnnotationContextPreviewMock.mockImplementationOnce(() =>
-      Promise.resolve(Success('data:image/png;base64,dummy')),
-    );
-
-    const res = await getAnnotationPreviewImage(idA, 3);
-
-    expect(res.ok).toBeTrue();
-    if (!res.ok) return;
-    expect(res.value).toBe('data:image/png;base64,dummy');
-
-    expect(extractAnnotationContextPreviewMock).toHaveBeenCalledTimes(1);
-    const call = extractAnnotationContextPreviewMock.mock.calls[0];
-    expect(call?.[0]).toEqual({ containerID, path: 'doc.pdf' });
-    expect(call?.[1]).toBe('dummy-source');
-    expect(call?.[2]).toEqual(baseStyle(idA));
-    expect(call?.[3]).toBe(3);
   });
 });
 

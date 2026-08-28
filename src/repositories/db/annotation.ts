@@ -3,7 +3,7 @@ import Dexie, { liveQuery, type Table } from 'dexie';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import type { Result } from 'src/models/error/result';
-import { Failure, Success, toError } from 'src/models/error/result';
+import { Failure, NotFoundError, Success, toError } from 'src/models/error/result';
 import type { AnnotationBaseAddress, AnnotationInfo } from 'src/models/relational/fileSchema';
 
 interface AnnotationRecord {
@@ -70,7 +70,7 @@ async function getAnnotationRecord(annotID: AnnotationID): Promise<Result<Annota
 
   try {
     const record = await db.annotations.get(annotID);
-    if (!record || record.isDeleted) return Failure(new Error('annotation not found'));
+    if (!record || record.isDeleted) return Failure(new NotFoundError('annotation not found'));
     return Success(record);
   } catch (error) {
     return Failure(toError(error));

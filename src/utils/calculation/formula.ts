@@ -2,8 +2,11 @@
  * アノテーションの抽出値に単位変換等の計算を適用するための、四則演算のみをサポートする
  * 軽量な数式パーサ・評価器
  *
- * 構文エラー・0除算・非有限な結果は例外を投げず`undefined`を返す（呼び出し側は生値のまま
- * 比較へフォールバックする）
+ * 中核は`evaluateExpression`（名前付き変数を任意個数扱える）。単一変数`x`のみを使う
+ * 既存呼び出し元向けに`evaluateFormula`を薄いラッパーとして提供する（グループの値算出方法
+ * の数式モードのように複数変数が必要な場合は`evaluateExpression`を直接使うこと）。
+ * 構文エラー・未定義変数参照・0除算・非有限な結果はいずれも例外を投げず`undefined`を返す
+ * （呼び出し側は生値のまま比較へフォールバックする、またはunresolvable扱いにする）
  */
 
 /**
@@ -54,12 +57,18 @@ export function roundFormulaResult(value: number): number {
 }
 
 /**
- * `+ - * / ( )` と変数`x`のみからなる数式を評価する
+ * `+ - * / ( )` と名前付き変数（英字1文字以上）のみからなる数式を評価する
  *
  * 文法: expr := term (('+'|'-') term)* ; term := unary (('*'|'/') unary)* ;
- *       unary := ('+'|'-') unary | primary ; primary := number | 'x' | '(' expr ')'
+ *       unary := ('+'|'-') unary | primary ; primary := number | identifier | '(' expr ')'
+ *
+ * 未定義の変数を参照した場合・0除算・非有限な結果はいずれも例外経由で`undefined`に落ちる
+ * （呼び出し側の安全側フォールバックはそのまま、これが同時にバリデーションとしても機能する）
  */
-export function evaluateFormula(formula: string, x: number): number | undefined {
+export function evaluateExpression(
+  formula: string,
+  variables: Record<string, number>,
+): number | undefined {
   const state = { pos: 0, text: formula };
 
   function skipSpaces(): void {
@@ -81,6 +90,16 @@ export function evaluateFormula(formula: string, x: number): number | undefined 
     return Number(match[0]);
   }
 
+  function parseIdentifier(): number {
+    skipSpaces();
+    const match = /^[A-Za-z]+/.exec(state.text.slice(state.pos));
+    if (match === null) throw new Error('invalid identifier');
+    state.pos += match[0].length;
+    const name = match[0];
+    if (!(name in variables)) throw new Error(`undefined variable: ${name}`);
+    return variables[name]!;
+  }
+
   function parsePrimary(): number {
     const ch = peek();
     if (ch === '(') {
@@ -91,10 +110,7 @@ export function evaluateFormula(formula: string, x: number): number | undefined 
       state.pos += 1;
       return value;
     }
-    if (ch === 'x') {
-      state.pos += 1;
-      return x;
-    }
+    if (ch !== undefined && /[A-Za-z]/.test(ch)) return parseIdentifier();
     if (ch !== undefined && /[0-9.]/.test(ch)) return parseNumber();
     throw new Error('unexpected token');
   }
@@ -156,6 +172,16 @@ export function evaluateFormula(formula: string, x: number): number | undefined 
   } catch {
     return undefined;
   }
+}
+
+/**
+ * `evaluateExpression`の単一変数`x`版（後方互換用の薄いラッパー）
+ *
+ * `RelationalRuleEditDialog.vue`の辺ごとの単位変換式など、既存の呼び出し元は
+ * 変更不要のままこちらを使い続けられる
+ */
+export function evaluateFormula(formula: string, x: number): number | undefined {
+  return evaluateExpression(formula, { x });
 }
 
 /**

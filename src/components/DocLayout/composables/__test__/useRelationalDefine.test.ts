@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { AnnotationID } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
+import type { RelationalEndpointID } from 'src/models/relational/fileSchema';
 import {
   decideRelationalOnAnnotationsAdded,
   decideRelationalOnSelectionChanged,
@@ -9,6 +11,17 @@ import {
 const idA = '00000000-0000-4000-8000-000000000001' as AnnotationID;
 const idB = '00000000-0000-4000-8000-000000000002' as AnnotationID;
 const idC = '00000000-0000-4000-8000-000000000003' as AnnotationID;
+const groupId = '00000000-0000-4000-8000-0000000000aa' as AnnotationGroupID;
+
+/** pendingIdをそのまま除外対象1件として扱う（グループ非対応の単純なコールバック） */
+function excludeSelfOnly(id: RelationalEndpointID): Set<AnnotationID> {
+  return new Set([id as AnnotationID]);
+}
+
+/** 常にグループへ一致しないものとして扱うコールバック */
+function neverMatchesGroup(): RelationalEndpointID | undefined {
+  return undefined;
+}
 
 describe('decideRelationalOnAnnotationsAdded', () => {
   it('関係性モードが未設定の場合は何もしない（非連続・連続いずれでもモード自体が無ければ対象外）', () => {
@@ -51,20 +64,73 @@ describe('decideRelationalOnAnnotationsAdded', () => {
 
 describe('decideRelationalOnSelectionChanged', () => {
   it('関係性モードが未設定なら何もしない', () => {
-    expect(decideRelationalOnSelectionChanged(undefined, idA, [idA, idB])).toBeUndefined();
+    expect(
+      decideRelationalOnSelectionChanged(
+        undefined,
+        idA,
+        [idA, idB],
+        excludeSelfOnly,
+        neverMatchesGroup,
+      ),
+    ).toBeUndefined();
   });
 
   it('待機中でなければ何もしない', () => {
-    expect(decideRelationalOnSelectionChanged('link', undefined, [idA, idB])).toBeUndefined();
+    expect(
+      decideRelationalOnSelectionChanged(
+        'link',
+        undefined,
+        [idA, idB],
+        excludeSelfOnly,
+        neverMatchesGroup,
+      ),
+    ).toBeUndefined();
   });
 
   it('待機中の基準アノテーション以外が選択されていれば、それを対象として返す（既存アノテーションを選んでペア確定する場合）', () => {
-    const targetId = decideRelationalOnSelectionChanged('link', idA, [idA, idB]);
+    const targetId = decideRelationalOnSelectionChanged(
+      'link',
+      idA,
+      [idA, idB],
+      excludeSelfOnly,
+      neverMatchesGroup,
+    );
     expect(targetId).toBe(idB);
   });
 
   it('基準アノテーションしか選択されていなければ何もしない', () => {
-    expect(decideRelationalOnSelectionChanged('link', idA, [idA])).toBeUndefined();
+    expect(
+      decideRelationalOnSelectionChanged('link', idA, [idA], excludeSelfOnly, neverMatchesGroup),
+    ).toBeUndefined();
+  });
+
+  it('基準（グループ）の全メンバーを除外したうえで、2件以上残る選択が既存グループ全体と一致すればそのグループを返す', () => {
+    // idAを除外対象として選択に含めておくことで、除外ロジックが実際に働いた（除外後にidB・idCの2件だけが残った）
+    // ことを検証する。idAをselectedIdsに含めないと、除外処理が何もしなくてもこのテストは通ってしまう
+    const excludeGroupMembers = () => new Set([idA]);
+    const resolveGroupMatch = (ids: AnnotationID[]) =>
+      ids.length === 2 && ids.includes(idB) && ids.includes(idC) ? groupId : undefined;
+
+    const targetId = decideRelationalOnSelectionChanged(
+      'link',
+      groupId,
+      [idA, idB, idC],
+      excludeGroupMembers,
+      resolveGroupMatch,
+    );
+    expect(targetId).toBe(groupId);
+  });
+
+  it('除外後に2件以上残るが、既存グループ全体と一致しない場合は何もしない（相手が一意に定まらない）', () => {
+    const excludeGroupMembers = () => new Set([idA]);
+    const targetId = decideRelationalOnSelectionChanged(
+      'link',
+      groupId,
+      [idB, idC],
+      excludeGroupMembers,
+      neverMatchesGroup,
+    );
+    expect(targetId).toBeUndefined();
   });
 });
 

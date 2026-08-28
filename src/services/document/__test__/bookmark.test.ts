@@ -7,15 +7,21 @@ import type {
   BookmarkInfo,
   DocumentConfigFile,
 } from 'src/models/relational/fileSchema';
+import type { AnnotationGroup, AnnotationGroupID } from 'src/models/document/group';
 
 /**
- * `src/services/document/config`（loadConfig）と`src/services/container/config`
+ * `src/services/document/config`（loadConfig・updateConfig）と`src/services/container/config`
  * （saveDocumentConfigFile）をモック化し、bookmark.ts自体のマージ・削除・改名ロジックのみを
  * 検証する。両モジュールの内部実装（ファイルハッシュ計算、アノテーションDB同期等）は
- * 別ファイルの責務であり、ここでは検証しない
+ * 別ファイルの責務であり、ここでは検証しない。`updateConfig`のモックは、実装
+ * （`serializedResource`経由の直列化）と等価な「`loadConfigMock`で読み込み、mutateを実行して
+ * 成功したらsaveDocumentConfigFileMockへ記録する」という薄いフェイクにする（各テストは
+ * これまで通り`loadConfigMock.mockImplementationOnce`で読み込み内容を差し替えられる）
  */
 const loadConfigMock = mock((): Promise<Result<DocumentConfigFile>> =>
-  Promise.resolve(Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false })),
+  Promise.resolve(
+    Success({ fileHash: 'hash', annots: {}, bookmarks: {}, groups: {}, outlineImported: false }),
+  ),
 );
 const saveDocumentConfigFileMock = mock(
   (
@@ -30,12 +36,44 @@ const saveDocumentConfigFileMock = mock(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
     _bookmarks: Record<BookmarkID, BookmarkInfo>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _groups: Record<AnnotationGroupID, AnnotationGroup>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
     _outlineImported: boolean,
   ): Promise<Result<void>> => Promise.resolve(Success()),
 );
 
+type ConfigMutationOutcome<T> = { next: DocumentConfigFile; result: T };
+
+const updateConfigMock = mock(
+  async <T>(
+    file: ContainerElementFile,
+    mutateFn: (
+      current: DocumentConfigFile,
+    ) => Promise<Result<ConfigMutationOutcome<T>>> | Result<ConfigMutationOutcome<T>>,
+  ): Promise<Result<T>> => {
+    const current = await loadConfigMock();
+    if (!current.ok) return current;
+
+    const mutated = await mutateFn(current.value);
+    if (!mutated.ok) return mutated;
+
+    await saveDocumentConfigFileMock(
+      file.containerID,
+      file.path,
+      Object.values(mutated.value.next.annots),
+      mutated.value.next.fileHash,
+      mutated.value.next.bookmarks,
+      mutated.value.next.groups,
+      mutated.value.next.outlineImported ?? false,
+    );
+
+    return Success(mutated.value.result);
+  },
+);
+
 void mock.module('src/services/document/config', () => ({
   loadConfig: loadConfigMock,
+  updateConfig: updateConfigMock,
 }));
 void mock.module('src/services/container/config', () => ({
   saveDocumentConfigFile: saveDocumentConfigFileMock,
@@ -72,6 +110,7 @@ describe('listBookmarks', () => {
             b2: { id: 'b2' as BookmarkID, title: 'Two', pageNumber: 5 },
             b1: { id: 'b1' as BookmarkID, title: 'One', pageNumber: 2 },
           },
+          groups: {},
           outlineImported: false,
         }),
       ),
@@ -94,7 +133,13 @@ describe('addBookmark', () => {
   it('新規ブックマークを既存のfileHashを維持したまま追加保存する', async () => {
     loadConfigMock.mockImplementationOnce(() =>
       Promise.resolve(
-        Success({ fileHash: 'hash1', annots: {}, bookmarks: {}, outlineImported: false }),
+        Success({
+          fileHash: 'hash1',
+          annots: {},
+          bookmarks: {},
+          groups: {},
+          outlineImported: false,
+        }),
       ),
     );
 
@@ -119,6 +164,7 @@ describe('addBookmark', () => {
           fileHash: 'hash',
           annots: {},
           bookmarks: { [existingId]: { id: existingId, title: '既存', pageNumber: 1 } },
+          groups: {},
           outlineImported: false,
         }),
       ),
@@ -141,6 +187,7 @@ describe('addBookmark', () => {
           fileHash: 'hash',
           annots: {},
           bookmarks: { [parentId]: { id: parentId, title: '親', pageNumber: 1 } },
+          groups: {},
           outlineImported: false,
         }),
       ),
@@ -156,7 +203,13 @@ describe('addBookmark', () => {
   it('annotationIdを指定すると保存されるブックマークに反映される', async () => {
     loadConfigMock.mockImplementationOnce(() =>
       Promise.resolve(
-        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false }),
+        Success({
+          fileHash: 'hash',
+          annots: {},
+          bookmarks: {},
+          groups: {},
+          outlineImported: false,
+        }),
       ),
     );
 
@@ -170,12 +223,12 @@ describe('addBookmark', () => {
   it('保存時に既存のoutlineImportedの値を維持する', async () => {
     loadConfigMock.mockImplementationOnce(() =>
       Promise.resolve(
-        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: true }),
+        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, groups: {}, outlineImported: true }),
       ),
     );
 
     await addBookmark(file, 'タイトル', 1);
-    const [, , , , , outlineImportedArg] = saveDocumentConfigFileMock.mock.calls.at(-1)!;
+    const [, , , , , , outlineImportedArg] = saveDocumentConfigFileMock.mock.calls.at(-1)!;
     expect(outlineImportedArg).toBe(true);
   });
 });
@@ -193,6 +246,7 @@ describe('removeBookmark', () => {
             [keepId]: { id: keepId, title: 'Keep', pageNumber: 1 },
             [removeId]: { id: removeId, title: 'Remove', pageNumber: 2 },
           },
+          groups: {},
           outlineImported: false,
         }),
       ),
@@ -206,7 +260,13 @@ describe('removeBookmark', () => {
   it('存在しないIDを指定した場合もエラーにせず、現状のまま保存する', async () => {
     loadConfigMock.mockImplementationOnce(() =>
       Promise.resolve(
-        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false }),
+        Success({
+          fileHash: 'hash',
+          annots: {},
+          bookmarks: {},
+          groups: {},
+          outlineImported: false,
+        }),
       ),
     );
 
@@ -236,6 +296,7 @@ describe('removeBookmark', () => {
             },
             [unrelatedId]: { id: unrelatedId, title: 'Unrelated', pageNumber: 4 },
           },
+          groups: {},
           outlineImported: false,
         }),
       ),
@@ -256,6 +317,7 @@ describe('renameBookmark', () => {
           fileHash: 'hash',
           annots: {},
           bookmarks: { [id]: { id, title: '旧名前', pageNumber: 4 } },
+          groups: {},
           outlineImported: false,
         }),
       ),
@@ -269,7 +331,13 @@ describe('renameBookmark', () => {
   it('存在しないIDを指定した場合はNotFoundErrorで失敗する', async () => {
     loadConfigMock.mockImplementationOnce(() =>
       Promise.resolve(
-        Success({ fileHash: 'hash', annots: {}, bookmarks: {}, outlineImported: false }),
+        Success({
+          fileHash: 'hash',
+          annots: {},
+          bookmarks: {},
+          groups: {},
+          outlineImported: false,
+        }),
       ),
     );
 

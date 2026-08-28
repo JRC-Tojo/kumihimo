@@ -63,6 +63,8 @@ const saveDocumentConfigFileMock = mock(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
     _bookmarks: unknown,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
+    _groups: unknown,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mock.calls[N]の型付けのためだけに引数を宣言する
     _outlineImported: boolean,
   ): Promise<Result<void>> => Promise.resolve(Success()),
 );
@@ -84,6 +86,13 @@ const registerConfigAnnotationInfosMock = mock(
 );
 void mock.module('src/services/document/annotation', () => ({
   registerConfigAnnotationInfos: registerConfigAnnotationInfosMock,
+}));
+
+// グループのグローバルキャッシュ同期（`registerConfigAnnotationInfos`のグループ版）も同様にモック化する
+const syncGroupCacheMock = mock((): Promise<Result<void>> => Promise.resolve(Success()));
+void mock.module('src/services/document/annotationGroup', () => ({
+  syncGroupCache: syncGroupCacheMock,
+  remapFilePath: (): Promise<Result<void>> => Promise.resolve(Success()),
 }));
 
 void mock.module('src/repositories/document/pdfDocumentCache', () => ({
@@ -113,7 +122,7 @@ const DOC_SRC_HASH = docSrcHashRes.value;
 function savedArgs(): { bookmarks: Record<string, unknown>; outlineImported: boolean } {
   const call = saveDocumentConfigFileMock.mock.calls.at(-1);
   if (!call) throw new Error('saveDocumentConfigFile was not called');
-  return { bookmarks: call[4] as Record<string, unknown>, outlineImported: call[5] };
+  return { bookmarks: call[4] as Record<string, unknown>, outlineImported: call[6] };
 }
 
 describe('loadConfig（PDFしおりの自動取り込み）', () => {
@@ -122,6 +131,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
     outlineFixture = Success([
@@ -147,6 +157,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: true,
     };
     getOutlineMock.mockClear();
@@ -163,6 +174,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
     getOutlineMock.mockClear();
@@ -177,6 +189,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
     outlineFixture = Success([]);
@@ -193,6 +206,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       fileHash: DOC_SRC_HASH,
       annots: {},
       bookmarks: {},
+      groups: {},
       outlineImported: false,
     };
     outlineFixture = Failure(new Error('corrupted pdf'));
@@ -211,6 +225,7 @@ describe('loadConfig（PDFしおりの自動取り込み）', () => {
       bookmarks: {
         [existingId]: { id: existingId, title: '既存', pageNumber: 1 },
       },
+      groups: {},
       outlineImported: false,
     };
     outlineFixture = Success([{ title: '新規', level: 0, pageNumber: 3 }]);
@@ -262,6 +277,7 @@ describe('loadConfig（未保存のローカル編集を.kcfgで上書きしな�
         [idB]: buildAnnotInfo(idB),
       },
       bookmarks: {},
+      groups: {},
       outlineImported: true, // しおり取り込み処理を素通りさせ、このテストの対象に絞る
     };
     registerConfigAnnotationInfosMock.mockClear();
@@ -285,6 +301,7 @@ describe('loadConfig（未保存のローカル編集を.kcfgで上書きしな�
       fileHash: DOC_SRC_HASH,
       annots: { [idOnly]: buildAnnotInfo(idOnly) },
       bookmarks: {},
+      groups: {},
       outlineImported: true,
     };
     registerConfigAnnotationInfosMock.mockClear();

@@ -102,14 +102,35 @@ test.describe('PDF文書のレンダリング', () => {
     await page.locator('.exp-container-row .container-name', { hasText: 'pdf-zoom' }).click();
     await page.locator('.exp-file .file-name', { hasText: seeded.file.path }).click();
 
-    await page.locator('.zoom-input input').fill('200');
-    await page.locator('.zoom-input input').press('Enter');
-
     // セレクタの選定理由は1つ目のテストのコメントを参照
     const pdfCanvas = page.locator('.pdf-canvas:not(.tile-canvas)').first();
     const annotationCanvas = stageCanvas(page);
     await waitForCanvasReady(pdfCanvas);
     await waitForCanvasReady(annotationCanvas);
+
+    // ズーム操作前の基準サイズを記録しておく（後続のポーリングで「実際にズームが
+    // 反映されたか」を判定する基準にする）
+    const beforeBox = await pdfCanvas.boundingBox();
+    expect(beforeBox).not.toBeNull();
+    if (!beforeBox) return;
+
+    await page.locator('.zoom-input input').fill('200');
+    await page.locator('.zoom-input input').press('Enter');
+
+    // ズーム入力の確定（Enter）自体は即座に完了するが、実際の再描画（canvas要素の
+    // 新しいズーム倍率でのリサイズ・pdf.jsによる再ラスタライズ・高ズーム時のタイル分割）は
+    // 非同期に続く。入力確定直後にboundingBoxを読むと、まだ旧ズーム時点のサイズのままの
+    // canvasを捉えてしまい、以降のアサーションが偶然一致する／しないの水物になりうるため、
+    // 実際に表示サイズが変化する（200%指定でおよそ倍になる）までポーリングしてから進める
+    await expect
+      .poll(
+        async () => {
+          const box = await pdfCanvas.boundingBox();
+          return box?.width ?? 0;
+        },
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(beforeBox.width * 1.5);
 
     const pdfBox = await pdfCanvas.boundingBox();
     const annotationBox = await annotationCanvas.boundingBox();

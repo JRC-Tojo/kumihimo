@@ -60,9 +60,9 @@
 
     <!-- 関係性の簡易閲覧ダイアログ（Spaceキーで表示） -->
     <RelationalPeekDialog
-      v-if="peekAnnotId"
+      v-if="peekTarget"
       v-model:open="peekDialogOpen"
-      :annot-id="peekAnnotId"
+      :target="peekTarget"
       :file="prop.file"
     />
   </div>
@@ -86,12 +86,14 @@ import {
 import type { TileDescriptor } from '../Viewer/tiling';
 import type { ViewMode } from 'src/models/docPage';
 import { useEditorStore } from 'src/stores/editorStore';
-import type { LayoutSide } from 'src/stores/editorStore';
+import type { LayoutSide, PeekTarget } from 'src/stores/editorStore';
 import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
+import { useGroupStore } from 'src/stores/groupStore';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
+import type { RelationalEndpointID } from 'src/models/relational/fileSchema';
 import RelationalPeekDialog from 'src/components/DocLayout/RelationalPeekDialog.vue';
 import {
   RELATIONAL_STATUS_MESSAGE_KEY,
@@ -162,6 +164,7 @@ const { t } = useI18n();
 const editorStore = useEditorStore();
 const historyStore = useHistoryStore();
 const relationalStore = useRelationalStore();
+const groupStore = useGroupStore();
 
 // TODO: PDFの読み込みに失敗した場合、Loading画面を抜けてエラーが起きた旨を通知する仕様に修正
 const loading = ref<boolean>(true);
@@ -267,8 +270,24 @@ const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZ
 if (storedTabViewState !== undefined) zoomLevel.value = storedTabViewState.zoomLevel;
 
 // for relational peek dialog
-const peekAnnotId = ref<AnnotationID>();
+const peekTarget = ref<PeekTarget>();
 const peekDialogOpen = ref(false);
+
+/**
+ * 現在の選択から、関係性の簡易閲覧ダイアログを開く対象を決定する
+ *
+ * 選択が1件の場合はそのアノテーション、選択が既存グループの全メンバーとちょうど一致する場合は
+ * そのグループを対象にする。それ以外（未選択・部分選択）はundefined（ダイアログを開かない）
+ */
+function resolvePeekTarget(): PeekTarget | undefined {
+  const ids = selectedAnnotationIds.value;
+  if (ids.length === 1) return { kind: 'annotation', id: ids[0]! };
+  if (ids.length > 1) {
+    const group = groupStore.matchingGroup(fileKey(prop.file), ids);
+    if (group !== undefined) return { kind: 'group', id: group.id };
+  }
+  return undefined;
+}
 
 // ================================
 
@@ -471,9 +490,9 @@ async function scrollToAnnotation(annotId: AnnotationID) {
 // ================================
 
 /**
- * 待機中の基準アノテーションと対象アノテーションの間に関係性を登録する
+ * 待機中の基準端点と対象端点（いずれもアノテーションまたはグループ）の間に関係性を登録する
  */
-async function finishRelational(targetId: AnnotationID) {
+async function finishRelational(targetId: RelationalEndpointID) {
   const srcId = editorStore.relationalPendingId;
   const mode = editorStore.relationalMode;
   const pendingFile = editorStore.relationalPendingFile;
@@ -590,6 +609,8 @@ async function registRelationalBySelect(
     editorStore.relationalMode,
     editorStore.relationalPendingId,
     selectedIds,
+    (id) => groupStore.memberSet(fileKey(prop.file), id) ?? new Set([id as AnnotationID]),
+    (ids) => groupStore.matchingGroup(fileKey(prop.file), ids)?.id,
   );
   if (targetId === undefined) return;
 
@@ -604,12 +625,21 @@ async function handleAnnotationsChanged(
   oldAnnots: AnnotationStyle[],
   originSide: LayoutSide,
 ) {
-  // 待機中の基準アノテーションが（このファイル内で）削除された場合は待機を解除する
-  if (
-    editorStore.relationalPendingId !== undefined &&
-    isRelationalPendingFile() &&
-    !newAnnots.some((annot) => annot.id === editorStore.relationalPendingId)
-  ) {
+  // 待機中の基準端点（アノテーションまたはグループ）が（このファイル内で）削除された場合は
+  // 待機を解除する。基準がグループの場合、そのグループのIDはnewAnnotsのどのアノテーションの
+  // idとも一致しないため、アノテーション一覧だけでなくgroupStoreのキャッシュも確認する
+  // （groupStore側の判定に頼るため、実際の基準端点の削除だけでなく、グループの解散・
+  // メンバー変更によるgroupStore更新のタイミング次第でここに来る点に注意）
+  const pendingId = editorStore.relationalPendingId;
+  const pendingEndpointStillExists =
+    pendingId === undefined ||
+    newAnnots.some((annot) => annot.id === pendingId) ||
+    // pendingIdがグループ自身のIDである場合の判定。groupContainingはメンバーシップ一致でも
+    // trueを返すため使わず、グループID自体の完全一致のみを見る（メンバー一致で判定すると、
+    // アノテーション削除〜groupStore.refreshFile完了までの間、削除済みメンバーがまだ
+    // 古いグループレコードのmemberIdsに残っていることで誤って「存在する」と判定してしまう）
+    groupStore.groupsByFileKey[fileKey(prop.file)]?.some((g) => g.id === pendingId) === true;
+  if (pendingId !== undefined && isRelationalPendingFile() && !pendingEndpointStillExists) {
     editorStore.cancelRelationalPending();
     return;
   }
@@ -674,9 +704,10 @@ function handleGlobalKeydown(e: KeyboardEvent) {
   if (isTextInput) return;
 
   if (e.code === 'Space') {
-    if (selectedAnnotationIds.value.length !== 1) return;
+    const target = resolvePeekTarget();
+    if (target === undefined) return;
     e.preventDefault();
-    peekAnnotId.value = selectedAnnotationIds.value[0];
+    peekTarget.value = target;
     peekDialogOpen.value = true;
     return;
   }
@@ -746,6 +777,7 @@ onMounted(async () => {
   // メインツールの注入・撤去はアクティブタブの種別に応じてEditorPage.vueが一元管理する
   await loadDocument();
   void relationalStore.refreshFile(prop.file);
+  void groupStore.refreshFile(prop.file);
   window.addEventListener('keydown', handleGlobalKeydown);
 
   if (initialTabFocus !== undefined) {
@@ -874,14 +906,43 @@ watch(
 // アノテーション右クリックメニューの「関係性ダイアログを開く」からの意図をここで実行する。
 // メニュー自体は選択状態を持たないため、選択状態を持つこの場所でwatchして実処理を行う
 watch(
-  () => editorStore.peekRequestedAnnotId,
-  (annotId) => {
-    if (annotId === undefined) return;
+  () => editorStore.peekRequestedTarget,
+  (target) => {
+    if (target === undefined) return;
     if (editorStore.activeSide !== prop.layoutSide) return;
-    if (!annotations.value.some((a) => a.id === annotId)) return; // 他ペインの誤反応防止
-    peekAnnotId.value = annotId;
+    // 他ペインの誤反応防止: 対象がこのファイルに実在するか確認する
+    const existsHere =
+      target.kind === 'annotation'
+        ? annotations.value.some((a) => a.id === target.id)
+        : groupStore.groupContaining(fileKey(prop.file), target.id) !== undefined;
+    if (!existsHere) return;
+    peekTarget.value = target;
     peekDialogOpen.value = true;
     editorStore.clearPeekRequest();
+  },
+);
+// アノテーション右クリックメニューの「グループ化」からの意図をここで実行する
+// （deleteRequestedと同じパターン）
+watch(
+  () => editorStore.groupRequested,
+  (requested) => {
+    if (!requested) return;
+    if (editorStore.activeSide !== prop.layoutSide) return;
+    void annotationActions.groupSelected().finally(() => {
+      editorStore.clearGroupRequest();
+    });
+  },
+);
+// アノテーション右クリックメニューの「グループ化を解除」からの意図をここで実行する
+// （groupRequestedと同じパターン）
+watch(
+  () => editorStore.ungroupRequested,
+  (requested) => {
+    if (!requested) return;
+    if (editorStore.activeSide !== prop.layoutSide) return;
+    void annotationActions.ungroupSelected().finally(() => {
+      editorStore.clearUngroupRequest();
+    });
   },
 );
 // 関係性ダイアログの「文書を開く」等、既にこのファイルが開かれている状態で新たに

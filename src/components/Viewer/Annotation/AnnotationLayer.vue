@@ -12,11 +12,10 @@
     >
       <!-- 合成モードが他の注釈やスタイルパネルの現在値に引きずられず注釈自身の値で文書と
            合成されるよう、専用レイヤー（＝専用canvas）へ割り当てる。ただし1注釈1レイヤーだと
-           Konvaのレイヤー数上限警告（推奨3〜5枚）に達しやすいため、z順（visibleAnnotationsの並び順）で
-           隣接し合成モードが'normal'（未設定含む）の注釈同士だけを同一レイヤーへまとめる（'normal'は
-           背景と合成せず通常の重ね描きのため同一canvasにまとめても結果が変わらない）。'multiply'/'screen'
-           等の非'normal'は各注釈が個別に背景と合成される必要があるため、同一canvasにまとめると
-           結果が変わってしまい、常に1注釈1レイヤーのまま分離する -->
+           Konvaのレイヤー数上限警告（推奨3〜5枚）に達しやすいため、annotationBlendGrouping.tsの
+           groupAnnotationsByBlendModeでz順（visibleAnnotationsの並び順）を保ったまま複数の注釈を
+           同一レイヤーへまとめる（詳細な条件はそちらのコメント参照。'normal'同士は常にまとめてよく、
+           同一の非'normal'ブレンドモード同士は外接矩形が重なっていない場合のみまとめる） -->
       <AnnotationBlendLayer
         v-for="group in annotationBlendGroups"
         :key="group.key"
@@ -30,9 +29,13 @@
           :annotation="annotation"
           :is-editing="isEditing"
           :is-selected="selectedAnnotIds.includes(annotation.id)"
+          :is-group-transform="
+            isMultiTransformSelection && selectedAnnotIds.includes(annotation.id)
+          "
+          :group-id="groupIdFor(annotation.id)"
           :allow-drag="canDragUnselected"
           :stage-scale="props.scale"
-          @update="onRegisterAnnot"
+          @update="onShapeUpdate"
           @delete="onRemoveAnnot"
         />
       </AnnotationBlendLayer>
@@ -50,11 +53,16 @@
         <v-rect v-if="selectionBox.visible" :config="selectionBoxConfig" />
 
         <!-- Ctrl+drag複製のプレビュー: 複製元は一切変更せず、ドラッグ解除位置に複製されるまでの
-             見た目上のプレビューのみをここに重ねて表示する（非対話・半透明） -->
-        <v-group v-if="duplicatePreviewAnnotation" :config="{ opacity: 0.55, listening: false }">
+             見た目上のプレビューのみをここに重ねて表示する（非対話・半透明）。複数選択・グループの
+             複製時はソースごとに個別のゴーストを重ねる近似表示とする（結合バウンディングボックスではない） -->
+        <v-group
+          v-for="previewAnnotation in duplicatePreviewAnnotations"
+          :key="previewAnnotation.id"
+          :config="{ opacity: 0.55, listening: false }"
+        >
           <component
-            :is="ANNOTATION_REGISTRY[duplicatePreviewAnnotation.type].component"
-            :annotation="duplicatePreviewAnnotation"
+            :is="ANNOTATION_REGISTRY[previewAnnotation.type].component"
+            :annotation="previewAnnotation"
             :is-editing="false"
             :is-selected="false"
             :allow-drag="false"
@@ -97,10 +105,10 @@ import { createAnnotationFromPoints, startDrawingAnnotation } from './annotation
 import { useEditorStore } from 'src/stores/editorStore';
 import { useBackendApi } from 'src/apis/backendApi';
 import type { AnnotationID, AnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationGroupID } from 'src/models/document/group';
 import type { ContainerElementFile } from 'src/models/container';
 import {
   ANNOTATION_GEOMETRY,
-  duplicateAnnotation,
   type ClickPointsDrawModule,
   type Point,
 } from 'src/components/Viewer/Annotation/annotationGeometry';
@@ -115,6 +123,9 @@ import {
   type ContextMenuHitAttrs,
 } from './annotationContextMenuHitTest';
 import { bindGroupDragSync } from './composables/useGroupDragSync';
+import { groupAnnotationsByBlendMode } from './annotationBlendGrouping';
+import { useGroupStore } from 'src/stores/groupStore';
+import { fileKey } from 'src/utils/document/fileKey';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
 type AnnotationNodeHandle = { getNode: () => Konva.Node | null };
@@ -126,13 +137,24 @@ interface Props {
   // 見た目上のズーム倍率そのものではない点に注意（PdfPage.vueのrenderScaleを参照）
   scale: number;
   onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
+  // 複数シェイプの同時ドラッグ/リサイズ（グループ・複数選択）をまとめて1件の
+  // Undoステップとして記録するためのバッチ登録コールバック（onShapeUpdate参照）
+  onRegisterAnnotBatch: (annots: AnnotationStyle[]) => Promise<void>;
+  // Ctrl+drag複製の確定処理（貼り付けと同じパイプラインで新規作成・グループ再作成・
+  // Undo記録までを行い、実際に作成されたアノテーション一覧を返す）
+  onDuplicateBatch: (
+    sources: AnnotationStyle[],
+    offset: { dx: number; dy: number },
+    page: number,
+    isGroup: boolean,
+  ) => Promise<AnnotationStyle[]>;
   onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
 }
 
 const props = defineProps<Props>();
 const editorStore = useEditorStore();
 const api = useBackendApi();
-const { shiftKey } = useModifierKeys();
+const { shiftKey, ctrlKey } = useModifierKeys();
 
 /**
  * Shiftキー押下中のみ、基準点からの水平・垂直方向に移動を制限する
@@ -143,9 +165,74 @@ function applyShiftAxisLock(basePoint: Point | undefined | null, pos: Point): Po
   return lockToDominantAxis(basePoint, pos);
 }
 
+// 複数選択（グループ含む）のドラッグ/リサイズは、対象シェイプの数だけ個別にonUpdateが
+// 発火する。1回のジェスチャーで動いた分をまとめて1件のUndoステップにするため、
+// 同一tick内に届いたupdateを一旦バッファし、nextTickでまとめてonRegisterAnnotBatchへ渡す
+// （リーダー・フォロワーいずれのdragend/transformendも同一のmouseup内で同期的に発火するため、
+// 1回のnextTickフラッシュで1ジェスチャー分を漏れなく拾える）
+const pendingBatchUpdates = new Map<AnnotationID, AnnotationStyle>();
+let batchFlushScheduled = false;
+
+function flushBatchUpdates(): void {
+  batchFlushScheduled = false;
+  if (pendingBatchUpdates.size === 0) return;
+  const batch = Array.from(pendingBatchUpdates.values());
+  pendingBatchUpdates.clear();
+  if (batch.length === 1) void props.onRegisterAnnot(batch[0]!);
+  else void props.onRegisterAnnotBatch(batch);
+}
+
+function onShapeUpdate(annot: AnnotationStyle): void {
+  const ids = selectedAnnotIds.value;
+  if (ids.length > 1 && ids.includes(annot.id)) {
+    pendingBatchUpdates.set(annot.id, annot);
+    if (!batchFlushScheduled) {
+      batchFlushScheduled = true;
+      void nextTick(flushBatchUpdates);
+    }
+  } else {
+    void props.onRegisterAnnot(annot);
+  }
+}
+
 const page = defineModel<number>('page', { required: true });
 const canvasSize = defineModel<{ width: number; height: number }>('canvasSize', { required: true });
 const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
+
+const groupStore = useGroupStore();
+
+/**
+ * 選択にグループのメンバーが含まれている場合、常にそのグループの全メンバーへ展開する
+ *
+ * `selectedAnnotIds`への書き込みは必ずこの関数を経由すること（直接
+ * `selectedAnnotIds.value = ids`と代入しないこと）。以前は書き換え結果を`watch`で監視して
+ * 事後的に補正する設計だったが、`selectedAnnotIds`は`defineModel`で親（`DocumentTabView.vue`まで
+ * 多段のv-model）と連結されており、`watch`（`flush: 'sync'`にしても）による事後補正では
+ * 「展開前の1件だけの選択」が一瞬でも親側のwatcher（関係性の確定処理等）から観測可能な
+ * タイミングが生じ得ることが実機検証で判明した（例: グループの1メンバーをクリックしただけ
+ * なのに、そのメンバー単体を関係性の相手として確定してしまう）。展開を代入前に済ませ、
+ * 展開前の値がそもそも一度も`selectedAnnotIds`に代入されないようにすることで、
+ * 親のwatcherがどのタイミングで実行されても必ず展開済みの値だけを観測するようにする
+ */
+function expandToGroups(ids: AnnotationID[]): AnnotationID[] {
+  if (ids.length === 0) return ids;
+  const fk = fileKey(props.file);
+  const expanded = new Set(ids);
+  ids.forEach((id) => {
+    groupStore.memberSet(fk, id)?.forEach((memberId) => expanded.add(memberId));
+  });
+  return expanded.size === ids.length ? ids : Array.from(expanded);
+}
+
+/**
+ * 指定アノテーションが所属するグループのIDを返す（未所属ならundefined）
+ *
+ * グループを端点とする関係性の検証結果を、メンバー各シェイプの表示スタイルへ反映するために
+ * 各シェイプコンポーネントの`groupId`propへ渡す（useAnnotationShape参照）
+ */
+function groupIdFor(annotId: AnnotationID): AnnotationGroupID | undefined {
+  return groupStore.groupContaining(fileKey(props.file), annotId)?.id;
+}
 
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
@@ -202,18 +289,23 @@ const TWO_POINT_DRAG_MIN_DURATION_MS = 150;
 const ctrlDragCandidate = ref<{ id: AnnotationID; stagePos: { x: number; y: number } } | null>(
   null,
 );
-const duplicateDragSource = ref<AnnotationStyle | null>(null);
+// Ctrl+drag複製の対象。複製開始時点で複数選択（グループ含む）の一部だった場合は選択範囲全体を、
+// そうでなければクリックされた1件のみを保持する
+const duplicateDragSources = ref<AnnotationStyle[] | null>(null);
+// 複製元の選択がまるごと1つのグループだった場合、複製後に同じ値算出方法で新しいグループを作り直す
+const duplicateDragWasGroup = ref(false);
 const duplicateDragStageStart = ref<{ x: number; y: number } | null>(null);
 const duplicateDragOffsetDoc = ref<Point>({ x: 0, y: 0 });
 // 複製元は一切変更せず、ドラッグ位置に追従する見た目上のプレビューのみを別途描画する
-const duplicatePreviewAnnotation = computed<AnnotationStyle | null>(() => {
-  const source = duplicateDragSource.value;
-  if (!source) return null;
-  return {
+// （結合バウンディングボックスではなく、ソースごとの簡易プレビューを重ねる近似表示とする）
+const duplicatePreviewAnnotations = computed<AnnotationStyle[]>(() => {
+  const sources = duplicateDragSources.value;
+  if (!sources) return [];
+  return sources.map((source) => ({
     ...source,
     x: source.x + duplicateDragOffsetDoc.value.x,
     y: source.y + duplicateDragOffsetDoc.value.y,
-  };
+  }));
 });
 
 const isDrawing = ref(false);
@@ -269,6 +361,9 @@ watch(
   },
   { immediate: true },
 );
+// 複数選択（グループ含む）かどうか。共有Transformerの対応可否判定（canJoinGroupTransformer vs
+// supportsTransformer）とCtrl中心固定リサイズの両方で使う
+const isMultiTransformSelection = computed(() => selectedAnnotIds.value.length > 1);
 const transformerConfig = computed(() => ({
   ignoreStroke: true,
   rotationSnaps: [
@@ -278,6 +373,9 @@ const transformerConfig = computed(() => ({
   // コーナードラッグは既定で自由変形にする（要件5）。Konva標準の`keepRatio() || e.shiftKey`により、
   // Shift押下時のみ縦横比維持に自動的に切り替わる（要件6。追加実装不要）
   keepRatio: false,
+  // 複数選択（グループ含む）のリサイズ中、Ctrl押下で選択範囲全体の中心を固定してスケールする
+  // （単一選択時のCtrl中心固定は各シェイプ自身のuseAnnotationShape.ts等の補正に任せるため無効のまま）
+  centeredScaling: isMultiTransformSelection.value && ctrlKey.value,
 }));
 const selectedTransformableIds = computed(() =>
   props.annotations
@@ -333,33 +431,10 @@ const visibleAnnotations = computed(() => {
   return [...filtered].sort((a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b));
 });
 
-// z順を保ったまま、隣接し合成モードが'normal'（未設定含む）の注釈同士だけを1レイヤーへまとめる。
-// 'normal'は背景と合成せず通常の重ね描きのため同一canvasにまとめても結果が変わらないが、
-// 'multiply'/'screen'等は各注釈が個別に背景と合成される必要があり、同一canvasにまとめると
-// 注釈同士が先に合成されてから背景と合成されてしまう（結果が異なる）ため、1注釈1レイヤーに分離する
-// （AnnotationBlendLayerのレイヤー数を抑えるため。詳細はテンプレート側のコメント参照）
-const annotationBlendGroups = computed(() => {
-  const groups: {
-    key: AnnotationID;
-    blendMode: AnnotationStyle['blendMode'];
-    annotations: AnnotationStyle[];
-  }[] = [];
-  const isNormal = (blendMode: AnnotationStyle['blendMode']) =>
-    blendMode === undefined || blendMode === 'normal';
-  for (const annotation of visibleAnnotations.value) {
-    const last = groups.at(-1);
-    if (last && isNormal(last.blendMode) && isNormal(annotation.blendMode)) {
-      last.annotations.push(annotation);
-    } else {
-      groups.push({
-        key: annotation.id,
-        blendMode: annotation.blendMode,
-        annotations: [annotation],
-      });
-    }
-  }
-  return groups;
-});
+// z順を保ったまま、Konva.Layer（AnnotationBlendLayer）の数を最小化するようグルーピングする。
+// グルーピング条件の詳細はannotationBlendGrouping.ts参照
+// （AnnotationBlendLayerのレイヤー数を抑えるため。合成の考え方はテンプレート側のコメントも参照）
+const annotationBlendGroups = computed(() => groupAnnotationsByBlendMode(visibleAnnotations.value));
 
 const editingTextStyle = computed(() => {
   const annotation = editingTextAnnotation.value;
@@ -397,7 +472,7 @@ const editingTextStyle = computed(() => {
 function startTextEdit(annotation: TextAnnotationStyle) {
   editingTextId.value = annotation.id;
   editingTextValue.value = annotation.text;
-  selectedAnnotIds.value = [annotation.id];
+  selectedAnnotIds.value = expandToGroups([annotation.id]);
   // フォーカスは下のwatch(editingTextAnnotation)に一任する。
   // 描き終えた直後は`props.annotations`（DB購読経由）へ新規注釈がまだ反映されておらず、
   // ここで直接focusしても<textarea v-if>が実際にマウントされる前で失敗することがあるため
@@ -470,7 +545,7 @@ function handleContextMenu(e: KonvaMouseEvent) {
 
   e.evt.preventDefault();
   if (!selectedAnnotIds.value.includes(annotation.id)) {
-    selectedAnnotIds.value = [annotation.id];
+    selectedAnnotIds.value = expandToGroups([annotation.id]);
   }
   contextMenuAnnotation.value = annotation;
   contextMenuPos.value = { x: e.evt.clientX, y: e.evt.clientY };
@@ -537,7 +612,7 @@ function updateClickPointsPreview(cursorPos: Point | null) {
  * 新しい頂点の位置を制限する
  */
 function handleClickPointsMouseDown(pos: Point, geometry: ClickPointsDrawModule<AnnotationStyle>) {
-  selectedAnnotIds.value = [];
+  selectedAnnotIds.value = expandToGroups([]);
 
   if (!clickPointsBuffer.value) {
     clickPointsBuffer.value = [pos];
@@ -605,7 +680,7 @@ function finishClickPointsDrawing() {
       if (shouldStartTextEdit && annotation.type === 'text') {
         startTextEdit(annotation);
       } else {
-        selectedAnnotIds.value = [annotation.id];
+        selectedAnnotIds.value = expandToGroups([annotation.id]);
       }
     });
   }
@@ -702,11 +777,13 @@ function handleMouseDown(e: KonvaMouseEvent) {
         // 発展しなければ従来通り選択解除する
         ctrlDragCandidate.value = { id: clickedId, stagePos: { x: pos.x, y: pos.y } };
       } else if (!metaPressed && !isSelected) {
-        selectedAnnotIds.value = [clickedId];
+        selectedAnnotIds.value = expandToGroups([clickedId]);
       } else if (metaPressed && isSelected) {
-        selectedAnnotIds.value = selectedAnnotIds.value.filter((id) => id !== clickedId);
+        selectedAnnotIds.value = expandToGroups(
+          selectedAnnotIds.value.filter((id) => id !== clickedId),
+        );
       } else if (metaPressed && !isSelected) {
-        selectedAnnotIds.value = [...selectedAnnotIds.value, clickedId];
+        selectedAnnotIds.value = expandToGroups([...selectedAnnotIds.value, clickedId]);
       }
 
       // クリックした形状を即時にドラッグ開始し、1回の操作で押しながら移動できるようにします。
@@ -781,8 +858,10 @@ function handleMouseMove(e: KonvaMouseEvent) {
     });
   }
 
-  // Ctrl+クリック候補がしきい値を超えて動いたら、複製プレビューへ昇格させる
-  if (ctrlDragCandidate.value && !duplicateDragSource.value) {
+  // Ctrl+クリック候補がしきい値を超えて動いたら、複製プレビューへ昇格させる。
+  // クリックされたシェイプが現在の複数選択（グループ含む）に含まれている場合は選択範囲全体を、
+  // そうでなければクリックされた1件のみを複製対象にする
+  if (ctrlDragCandidate.value && !duplicateDragSources.value) {
     const stage = e.target?.getStage();
     const pos = stage?.getPointerPosition();
     if (pos) {
@@ -790,17 +869,23 @@ function handleMouseMove(e: KonvaMouseEvent) {
       const dx = pos.x - candidate.stagePos.x;
       const dy = pos.y - candidate.stagePos.y;
       if (Math.hypot(dx, dy) > DUPLICATE_DRAG_THRESHOLD_PX) {
-        const source = props.annotations.find((a) => a.id === candidate.id);
+        const ids = selectedAnnotIds.value;
+        const sources =
+          ids.length > 1 && ids.includes(candidate.id)
+            ? props.annotations.filter((a) => ids.includes(a.id))
+            : props.annotations.filter((a) => a.id === candidate.id);
         ctrlDragCandidate.value = null;
-        if (source) {
-          duplicateDragSource.value = source;
+        if (sources.length > 0) {
+          duplicateDragSources.value = sources;
+          duplicateDragWasGroup.value =
+            groupStore.matchingGroup(fileKey(props.file), ids) !== undefined;
           duplicateDragStageStart.value = candidate.stagePos;
         }
       }
     }
   }
 
-  if (duplicateDragSource.value && duplicateDragStageStart.value) {
+  if (duplicateDragSources.value && duplicateDragStageStart.value) {
     const stage = e.target?.getStage();
     const pos = stage?.getPointerPosition();
     if (pos) {
@@ -914,22 +999,20 @@ function handleMouseMove(e: KonvaMouseEvent) {
 }
 
 function handleMouseUp(e: KonvaMouseEvent) {
-  if (duplicateDragSource.value) {
-    const source = duplicateDragSource.value;
-    const offset = duplicateDragOffsetDoc.value;
-    duplicateDragSource.value = null;
+  if (duplicateDragSources.value) {
+    const sources = duplicateDragSources.value;
+    const isGroup = duplicateDragWasGroup.value;
+    const offset = { dx: duplicateDragOffsetDoc.value.x, dy: duplicateDragOffsetDoc.value.y };
+    duplicateDragSources.value = null;
+    duplicateDragWasGroup.value = false;
     duplicateDragStageStart.value = null;
     duplicateDragOffsetDoc.value = { x: 0, y: 0 };
     pendingPointerTarget.value = null;
 
-    const duplicated = duplicateAnnotation(
-      source,
-      page.value,
-      source.x + offset.x,
-      source.y + offset.y,
-    );
-    void props.onRegisterAnnot(duplicated).then(() => {
-      selectedAnnotIds.value = [duplicated.id];
+    void props.onDuplicateBatch(sources, offset, page.value, isGroup).then((created) => {
+      if (created.length > 0) {
+        selectedAnnotIds.value = expandToGroups(created.map((a) => a.id));
+      }
     });
     return;
   }
@@ -941,7 +1024,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
     pendingOverAnnotStart.value = null;
     editorStore.activeAnnotationType = undefined;
     editorStore.currentTools = 'pointer';
-    selectedAnnotIds.value = [id];
+    selectedAnnotIds.value = expandToGroups([id]);
     return;
   }
 
@@ -949,7 +1032,9 @@ function handleMouseUp(e: KonvaMouseEvent) {
     // ドラッグへ発展しなかった単なるCtrl+クリックだったため、元々の意図通り選択解除する
     const { id } = ctrlDragCandidate.value;
     ctrlDragCandidate.value = null;
-    selectedAnnotIds.value = selectedAnnotIds.value.filter((existingId) => existingId !== id);
+    selectedAnnotIds.value = expandToGroups(
+      selectedAnnotIds.value.filter((existingId) => existingId !== id),
+    );
     pendingPointerTarget.value = null;
     return;
   }
@@ -1010,7 +1095,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
           if (shouldStartTextEdit && annotation.type === 'text') {
             startTextEdit(annotation);
           } else {
-            selectedAnnotIds.value = [annotation.id];
+            selectedAnnotIds.value = expandToGroups([annotation.id]);
           }
         });
       }
@@ -1090,9 +1175,11 @@ function handleMouseUp(e: KonvaMouseEvent) {
 
     const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
     if (!metaPressed) {
-      selectedAnnotIds.value = selectedIds;
+      selectedAnnotIds.value = expandToGroups(selectedIds);
     } else {
-      selectedAnnotIds.value = [...new Set([...selectedAnnotIds.value, ...selectedIds])];
+      selectedAnnotIds.value = expandToGroups([
+        ...new Set([...selectedAnnotIds.value, ...selectedIds]),
+      ]);
     }
   } else {
     // 単純なアノテーション以外の箇所のクリックの場合は選択を解除する
@@ -1125,10 +1212,13 @@ function syncTransformerSelection() {
   const transformer = transformerRef.value?.getNode();
   if (!transformer) return;
 
+  const isMulti = isMultiTransformSelection.value;
   const nodes = selectedTransformableIds.value
     .filter((id) => {
       const annotation = props.annotations.find((a) => a.id === id);
-      return annotation !== undefined && ANNOTATION_REGISTRY[annotation.type].supportsTransformer;
+      if (annotation === undefined) return false;
+      const module = ANNOTATION_REGISTRY[annotation.type];
+      return isMulti ? module.canJoinGroupTransformer : module.supportsTransformer;
     })
     .map((id) => annotationRefs.get(id)?.getNode())
     .filter((node): node is Konva.Node => Boolean(node));

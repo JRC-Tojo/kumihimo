@@ -1,0 +1,289 @@
+/**
+ * アノテーションのグループ化に関する処理
+ *
+ * 複数のアノテーションをまとめて単一のオブジェクトのように扱えるようにする。ブックマークと
+ * 同様、アノテーションと異なりセッション中の仮登録・明示的な保存操作を経由せず、
+ * グループ化・グループ解除・値算出方法の変更のたびに`.kcfg`へ直接反映する。
+ *
+ * グループのネストは許可しない（1階層のみ）。既存グループを含む選択を再度グループ化した場合は、
+ * 対象グループを解散してメンバーを展開し、新しい1つのフラットなグループとして作り直す
+ */
+import dayjs from 'dayjs';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
+import type { AnnotationID } from 'src/models/document/pdf';
+import type {
+  AnnotationGroup,
+  AnnotationGroupID,
+  GroupValueAggregation,
+} from 'src/models/document/group';
+import { AnnotationGroupID as AnnotationGroupIDSchema } from 'src/models/document/group';
+import { Failure, NotFoundError, Success, type Result } from 'src/models/error/result';
+import type { AnnotationBaseAddress } from 'src/models/relational/fileSchema';
+import * as annotationGroupRepository from 'src/repositories/db/annotationGroup';
+import { loadConfig, updateConfig } from './config';
+
+/**
+ * グループ化には最低これだけのメンバーが必要
+ */
+const MIN_GROUP_MEMBERS = 2;
+
+/**
+ * 指定ファイルに登録されているグループ一覧を取得する
+ */
+export async function listAnnotationGroups(
+  file: ContainerElementFile,
+): Promise<Result<AnnotationGroup[]>> {
+  const configRes = await loadConfig(file);
+  if (!configRes.ok) return configRes;
+
+  return Success(Object.values(configRes.value.groups));
+}
+
+/**
+ * 指定ファイル内の特定グループを取得する
+ */
+export async function getAnnotationGroup(
+  file: ContainerElementFile,
+  groupId: AnnotationGroupID,
+): Promise<Result<AnnotationGroup>> {
+  const configRes = await loadConfig(file);
+  if (!configRes.ok) return configRes;
+
+  const group = configRes.value.groups[groupId];
+  if (group === undefined) return Failure(new NotFoundError('Annotation group not found'));
+
+  return Success(group);
+}
+
+/**
+ * 指定したアノテーションが所属するグループを探す（所属していない場合は`undefined`）
+ */
+export async function getGroupContaining(
+  file: ContainerElementFile,
+  annotId: AnnotationID,
+): Promise<Result<AnnotationGroup | undefined>> {
+  const configRes = await loadConfig(file);
+  if (!configRes.ok) return configRes;
+
+  const found = Object.values(configRes.value.groups).find((g) => g.memberIds.includes(annotId));
+  return Success(found);
+}
+
+/**
+ * グループIDからそのグループが保存されているファイルのアドレスを取得する
+ *
+ * `annotationService.getAnnotationAddress`のグループ版。関係性（Relational）が
+ * グループを端点とする場合のアドレス解決に使う
+ */
+export async function getGroupAddress(
+  groupId: AnnotationGroupID,
+): Promise<Result<AnnotationBaseAddress>> {
+  const entry = await annotationGroupRepository.getGroup(groupId);
+  if (!entry.ok) return entry;
+  return Success(entry.value.address);
+}
+
+/**
+ * グループIDから、アドレス・メンバー・値算出方法をまとめて取得する
+ *
+ * 関係性の検証（`resolveEndpointRawValue`）で、グループの代表値を算出するために使う
+ */
+export async function getGroupRecord(
+  groupId: AnnotationGroupID,
+): Promise<Result<annotationGroupRepository.AnnotationGroupCacheEntry>> {
+  return annotationGroupRepository.getGroup(groupId);
+}
+
+/**
+ * 設定ファイルの`groups`から指定したグループ群を取り除いた内容を返す（純粋関数）
+ */
+function withoutGroups(
+  groups: Record<string, AnnotationGroup>,
+  idsToRemove: Set<string>,
+): Record<string, AnnotationGroup> {
+  const result = { ...groups };
+  idsToRemove.forEach((id) => delete result[id]);
+  return result;
+}
+
+/**
+ * 複数のアノテーションをグループ化する
+ *
+ * 選択範囲に既存グループのメンバーが含まれていた場合、そのグループは解散して
+ * メンバーを新しいグループへ統合する（ネストは発生させない）。呼び出し側は戻り値の
+ * `dissolvedGroups`について、関係性の孤立除去（`relationalService.removeRelationalsForAnnotation`）
+ * を実行すること（レイヤー境界を越えた呼び出しになるため、循環importを避けてここでは行わない）。
+ * Undo/Redoが解散したグループを正確に復元できるよう、IDだけでなく完全なレコードを返す
+ */
+export async function groupAnnotations(
+  file: ContainerElementFile,
+  annotationIds: AnnotationID[],
+): Promise<Result<{ group: AnnotationGroup; dissolvedGroups: AnnotationGroup[] }>> {
+  return updateConfig(file, (current) => {
+    const candidate = new Set(annotationIds);
+    const existingGroups = Object.values(current.groups);
+    const dissolvedGroups: AnnotationGroup[] = [];
+
+    existingGroups.forEach((g) => {
+      const overlaps = g.memberIds.some((id) => candidate.has(id));
+      if (!overlaps) return;
+      dissolvedGroups.push(g);
+      g.memberIds.forEach((id) => candidate.add(id));
+    });
+
+    if (candidate.size < MIN_GROUP_MEMBERS) {
+      return Failure(
+        new Error(`グループ化には最低${MIN_GROUP_MEMBERS}件のアノテーションが必要です`),
+      );
+    }
+
+    const idRes = AnnotationGroupIDSchema.safeParse(crypto.randomUUID());
+    if (!idRes.success) return Failure(idRes.error);
+
+    const now = dayjs().toISOString();
+    const newGroup: AnnotationGroup = {
+      id: idRes.data,
+      memberIds: Array.from(candidate),
+      valueAggregation: undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const updatedGroups = {
+      ...withoutGroups(current.groups, new Set(dissolvedGroups.map((g) => g.id))),
+      [newGroup.id]: newGroup,
+    };
+
+    return Success({
+      next: { ...current, groups: updatedGroups },
+      result: { group: newGroup, dissolvedGroups },
+    });
+  });
+}
+
+/**
+ * キャプチャ済みのグループ記録をそのままの内容で復元する（新しいidやtimestampは発行しない）
+ *
+ * `groupAnnotations`は呼び出すたびに新しいid・timestampを発行するため、
+ * Undo/Redoで「以前存在したグループをそっくり復元する」用途には使えない。
+ * その代わりに使う、状態のリプレイ専用の基本操作
+ */
+export async function restoreGroup(
+  file: ContainerElementFile,
+  group: AnnotationGroup,
+): Promise<Result<AnnotationGroup>> {
+  return updateConfig(file, (current) =>
+    Success({
+      next: { ...current, groups: { ...current.groups, [group.id]: group } },
+      result: group,
+    }),
+  );
+}
+
+/**
+ * 既存グループから特定のメンバーを取り除く（グループ自体は解散しない部分更新）
+ *
+ * 残りメンバー数が`MIN_GROUP_MEMBERS`を下回る場合はFailureを返す。呼び出し側はその場合、
+ * `ungroupAnnotations`でグループ自体を解散すること（アノテーション削除時の整合性維持に使う）
+ */
+export async function removeGroupMembers(
+  file: ContainerElementFile,
+  groupId: AnnotationGroupID,
+  memberIdsToRemove: AnnotationID[],
+): Promise<Result<AnnotationGroup>> {
+  return updateConfig(file, (current) => {
+    const target = current.groups[groupId];
+    if (target === undefined) return Failure(new NotFoundError('Annotation group not found'));
+
+    const removeSet = new Set(memberIdsToRemove);
+    const remaining = target.memberIds.filter((id) => !removeSet.has(id));
+    if (remaining.length < MIN_GROUP_MEMBERS) {
+      return Failure(
+        new Error(`グループのメンバーが最低${MIN_GROUP_MEMBERS}件を下回るため部分更新できません`),
+      );
+    }
+
+    // メンバーが縮小すると数式モードの変数割当（memberIdsの並び順から導出）がずれるため、
+    // 古い数式を誤ったメンバーに対して計算し続けないよう未設定に戻す（'sum'は割当に依存しないため対象外）
+    const valueAggregation =
+      target.valueAggregation?.type === 'formula' ? undefined : target.valueAggregation;
+
+    const updatedGroup: AnnotationGroup = {
+      ...target,
+      memberIds: remaining,
+      valueAggregation,
+      updatedAt: dayjs().toISOString(),
+    };
+    const updatedGroups = { ...current.groups, [groupId]: updatedGroup };
+
+    return Success({ next: { ...current, groups: updatedGroups }, result: updatedGroup });
+  });
+}
+
+/**
+ * グループを解除する
+ *
+ * 呼び出し側は、このグループが関係性の端点になっていた場合の孤立除去
+ * （`relationalService.removeRelationalsForAnnotation(groupId)`）を実行すること
+ */
+export async function ungroupAnnotations(
+  file: ContainerElementFile,
+  groupId: AnnotationGroupID,
+): Promise<Result<void>> {
+  return updateConfig(file, (current) => {
+    if (current.groups[groupId] === undefined) {
+      return Failure(new NotFoundError('Annotation group not found'));
+    }
+
+    const updatedGroups = withoutGroups(current.groups, new Set([groupId]));
+    return Success({ next: { ...current, groups: updatedGroups }, result: undefined });
+  });
+}
+
+/**
+ * グループ全体を代表する値の算出方法を設定・変更する
+ *
+ * `aggregation`に`undefined`を渡すと「未設定」状態に戻す（Undoで算出方法変更前の
+ * 状態を復元する場合に使う）
+ */
+export async function updateGroupValueAggregation(
+  file: ContainerElementFile,
+  groupId: AnnotationGroupID,
+  aggregation: GroupValueAggregation | undefined,
+): Promise<Result<AnnotationGroup>> {
+  return updateConfig(file, (current) => {
+    const target = current.groups[groupId];
+    if (target === undefined) return Failure(new NotFoundError('Annotation group not found'));
+
+    const updatedGroup: AnnotationGroup = {
+      ...target,
+      valueAggregation: aggregation,
+      updatedAt: dayjs().toISOString(),
+    };
+    const updatedGroups = { ...current.groups, [groupId]: updatedGroup };
+
+    return Success({ next: { ...current, groups: updatedGroups }, result: updatedGroup });
+  });
+}
+
+/**
+ * `.kcfg`から読み込んだグループ一覧を、グローバルキャッシュ（関係性のアドレス解決に使う）へ
+ * 同期する（`annotationService.registerConfigAnnotationInfos`のグループ版）
+ */
+export function syncGroupCache(
+  file: ContainerElementFile,
+  groups: AnnotationGroup[],
+): Promise<Result<void>> {
+  return annotationGroupRepository.upsertGroups(file, groups);
+}
+
+/**
+ * ファイルのリネーム・移動に伴い、キャッシュ済みグループ記録のfilePathを付け替える
+ */
+export function remapFilePath(
+  containerID: ContainerID,
+  oldPath: string,
+  newPath: string,
+): Promise<Result<void>> {
+  return annotationGroupRepository.remapFilePath(containerID, oldPath, newPath);
+}
