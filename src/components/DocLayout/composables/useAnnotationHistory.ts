@@ -211,7 +211,11 @@ export function useAnnotationHistory() {
           await refreshRelationalCachesAfter(file, removed.id, relationals);
           await Promise.all(
             affectedGroups.map((g) =>
-              refreshRelationalCachesAfter(file, g.id, dissolvedRelationalsByGroupId.get(g.id) ?? []),
+              refreshRelationalCachesAfter(
+                file,
+                g.id,
+                dissolvedRelationalsByGroupId.get(g.id) ?? [],
+              ),
             ),
           );
         },
