@@ -191,7 +191,7 @@ export const useRelationalStore = defineStore('relational', {
       const key = fileKey(file);
 
       return refreshFileMutex.runExclusive(key, async () => {
-          const relRes = await api.getRelationalsForFile(file);
+        const relRes = await api.getRelationalsForFile(file);
         if (!relRes.ok) {
           // 一覧取得自体が失敗した場合、このファイルに関わる注釈が実際に関係性を持つかどうかも
           // 判定できなくなる。$q.notifyのような一過性の通知はせず、関係性ダイアログを開いた時に
