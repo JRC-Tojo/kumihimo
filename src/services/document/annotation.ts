@@ -15,6 +15,22 @@ import {
 } from 'src/components/Viewer/Annotation/annotationGeometry';
 import { computeReorderedZIndex, type LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { getSettings } from 'src/settings/main';
+import { createKeyedMutex } from 'src/utils/promise/keyedMutex';
+import { fileKey } from 'src/utils/document/fileKey';
+
+/**
+ * アノテーションDBへの読み込み→計算→書き込みをファイル単位で直列化するミューテックス
+ *
+ * UIから高速に連続して発生する登録・削除・並べ替え（矢印キーの微調整連打、スライダー操作、
+ * ドラッグ確定の連続実行等）は、いずれも「既存レコードを読む→内容を計算する→書き込む」という
+ * 非同期処理になっている。これを直列化せずに複数同時実行させると、後から発生した呼び出しの
+ * 読み込みが先に完了した場合、その書き込みトランザクションが先発の呼び出しより先に実行され、
+ * 結果として後から書き込まれる先発（＝内容が古い）の呼び出しが最新の状態を上書きしてしまう
+ * （lost update）。`.kcfg`書き込み側の`configResource`（`services/document/config.ts`）と
+ * 同じ`createKeyedMutex`をここでも使い、同一ファイルに対するアノテーションDBの読み書きを
+ * すべてこの順序で直列化することで、呼び出しの完了順ではなく呼び出しの発生順で確実に反映されるようにする
+ */
+const annotationFileMutex = createKeyedMutex();
 
 /**
  * 読み込み中の文書におけるアノテーション一覧を格納するDBを初期化する
@@ -81,9 +97,12 @@ export function registerConfigAnnotationInfos(
   file: ContainerElementFile,
   aInfo: AnnotationInfo[],
 ): Promise<Result<void>> {
-  // 仮登録IDの判定・除外はリポジトリ側のトランザクション内で行うため、ここでは引数と
-  // 戻り値のResultをそのままリポジトリへ委譲する
-  return annotationRepository.registerConfigAnnotationInfos(file, aInfo);
+  // 仮登録IDの判定・除外はリポジトリ側のトランザクション内で行うため実処理はそのまま委譲するが、
+  // `registerAnnotationStyles`等の他の書き込みと同じファイル単位ロックを通すことで、
+  // サービス層の読み込み〜書き込みの間に別の登録・削除が割り込む競合を防ぐ
+  return annotationFileMutex.runExclusive(fileKey(file), () =>
+    annotationRepository.registerConfigAnnotationInfos(file, aInfo),
+  );
 }
 
 /**
@@ -228,19 +247,24 @@ export async function registerAnnotationStyles(
   file: ContainerElementFile,
   aStyles: AnnotationStyle[],
 ): Promise<Result<AnnotationInfo[]>> {
-  const built = await Promise.all(aStyles.map((aStyle) => buildAnnotationInfo(aStyle)));
+  // 同一ファイルへの他の登録・削除・並べ替え呼び出しと直列化する（`annotationFileMutex`参照）。
+  // ロック区間は「既存内容の読み込み→書き込み」までに限り、fire-and-forgetの内容再読み込み
+  // （`scheduleContentReload`）は待たない
+  return annotationFileMutex.runExclusive(fileKey(file), async () => {
+    const built = await Promise.all(aStyles.map((aStyle) => buildAnnotationInfo(aStyle)));
 
-  const saveRes = await annotationRepository.addAnnotationInfos(
-    file,
-    built.map((b) => b.info),
-  );
-  if (!saveRes.ok) return saveRes;
+    const saveRes = await annotationRepository.addAnnotationInfos(
+      file,
+      built.map((b) => b.info),
+    );
+    if (!saveRes.ok) return saveRes;
 
-  built.forEach(({ info, geometryChanged }) => {
-    if (geometryChanged) scheduleContentReload(file, info);
+    built.forEach(({ info, geometryChanged }) => {
+      if (geometryChanged) scheduleContentReload(file, info);
+    });
+
+    return Success(built.map((b) => b.info));
   });
-
-  return Success(built.map((b) => b.info));
 }
 
 /**
@@ -270,14 +294,18 @@ export function registerAnnotationInfo(
   file: ContainerElementFile,
   isTemporary: boolean,
 ): Promise<Result<void>> {
-  return annotationRepository.addAnnotationInfos(file, aInfo, isTemporary);
+  return annotationFileMutex.runExclusive(fileKey(file), () =>
+    annotationRepository.addAnnotationInfos(file, aInfo, isTemporary),
+  );
 }
 
 /**
  * 特定ファイルのアノテーションDBレコードをすべて削除する（未保存破棄時の再構築用）
  */
 export function clearAnnotationsForFile(file: ContainerElementFile): Promise<Result<void>> {
-  return annotationRepository.deleteAnnotationsForFile(file);
+  return annotationFileMutex.runExclusive(fileKey(file), () =>
+    annotationRepository.deleteAnnotationsForFile(file),
+  );
 }
 
 /**
@@ -286,14 +314,45 @@ export function clearAnnotationsForFile(file: ContainerElementFile): Promise<Res
  * 保存したアノテーション一覧を返す
  */
 export function saveAnnotationInfo(file?: ContainerElementFile): Promise<Result<AnnotationInfo[]>> {
-  return annotationRepository.commitAnnotations(file);
+  if (!file) return annotationRepository.commitAnnotations();
+  return annotationFileMutex.runExclusive(fileKey(file), () =>
+    annotationRepository.commitAnnotations(file),
+  );
 }
 
 /**
  * 指定したアノテーションを仮フラグ付きで削除する
+ *
+ * 削除先のファイルを解決したうえで、そのファイルに対する他の登録・並べ替え呼び出しと
+ * 直列化する（削除と、たまたま同時に進行中の編集の書き込みが入れ替わって、削除したはずの
+ * アノテーションが編集内容ごと復活してしまう競合を防ぐ）。既に存在しない・削除済みで
+ * アドレスを解決できない場合は競合の余地がないため、ロックなしでそのまま委譲する
  */
-export function removeAnnotationInfo(annotID: AnnotationID): Promise<Result<void>> {
-  return annotationRepository.softRemoveAnnotation(annotID);
+export async function removeAnnotationInfo(annotID: AnnotationID): Promise<Result<void>> {
+  const addressRes = await annotationRepository.getAnnotationAddress(annotID);
+  if (!addressRes.ok) return annotationRepository.softRemoveAnnotation(annotID);
+
+  const key = fileKey({ containerID: addressRes.value.cID, path: addressRes.value.filePath });
+  return annotationFileMutex.runExclusive(key, () =>
+    annotationRepository.softRemoveAnnotation(annotID),
+  );
+}
+
+/**
+ * 複数のアノテーションを1回のDB書き込みでまとめて仮フラグ付きで削除する
+ *
+ * `removeAnnotationInfo`を件数分呼ぶと、ファイル単位の直列化（`annotationFileMutex`）を
+ * 経由する都合上、書き込みが呼び出し順に1件ずつ直列実行されることになり、まとめて削除した
+ * はずの複数選択・グループが画面上で1件ずつ遅れて消えていくように見えてしまう。
+ * 複数選択・グループの削除はこちらを使うこと（対象がすべて同一ファイルに属することが前提）
+ */
+export function removeAnnotationInfos(
+  file: ContainerElementFile,
+  annotIDs: AnnotationID[],
+): Promise<Result<void>> {
+  return annotationFileMutex.runExclusive(fileKey(file), () =>
+    annotationRepository.softRemoveAnnotations(annotIDs),
+  );
 }
 
 /**
@@ -320,20 +379,23 @@ export async function reorderAnnotationStyle(
   targetId: AnnotationID,
   action: LayerOrderAction,
 ): Promise<Result<AnnotationInfo>> {
-  const target = annotations.find((a) => a.id === targetId);
-  if (!target) return Failure(new Error('対象のアノテーションが見つかりません'));
+  // 同一ファイルへの他の登録・削除呼び出しと直列化する（`annotationFileMutex`参照）
+  return annotationFileMutex.runExclusive(fileKey(file), async () => {
+    const target = annotations.find((a) => a.id === targetId);
+    if (!target) return Failure(new Error('対象のアノテーションが見つかりません'));
 
-  const zIndex = computeReorderedZIndex(annotations, targetId, action);
-  if (zIndex === null) return Failure(new Error('重ね順の算出に失敗しました'));
+    const zIndex = computeReorderedZIndex(annotations, targetId, action);
+    if (zIndex === null) return Failure(new Error('重ね順の算出に失敗しました'));
 
-  const existingInfo = await getAnnotationInfo(targetId);
-  if (!existingInfo.ok) return existingInfo;
+    const existingInfo = await getAnnotationInfo(targetId);
+    if (!existingInfo.ok) return existingInfo;
 
-  const updatedStyle: AnnotationStyle = { ...target, zIndex, updatedAt: dayjs().toISOString() };
-  const saveRes = await annotationRepository.updateAnnotationStyle(updatedStyle);
-  if (!saveRes.ok) return saveRes;
+    const updatedStyle: AnnotationStyle = { ...target, zIndex, updatedAt: dayjs().toISOString() };
+    const saveRes = await annotationRepository.updateAnnotationStyle(updatedStyle);
+    if (!saveRes.ok) return saveRes;
 
-  return Success({ style: updatedStyle, context: existingInfo.value.context });
+    return Success({ style: updatedStyle, context: existingInfo.value.context });
+  });
 }
 
 /**

@@ -72,6 +72,9 @@ interface Props {
   // 所属グループのID（未所属ならundefined）。グループを端点とする関係性の検証結果を
   // このシェイプのスタイルへ反映するために使う（useAnnotationShape参照）
   groupId?: AnnotationGroupID;
+  // このアノテーションが属するファイルの関係性一覧読み込みが失敗しているか（trueの間はNGと
+  // 同じスタイルで警告表示する。useAnnotationShape参照）
+  relationalLoadError?: boolean;
 }
 
 const props = defineProps<Props>();

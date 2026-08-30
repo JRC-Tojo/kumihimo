@@ -411,3 +411,31 @@ export async function softRemoveAnnotation(annotID: AnnotationID): Promise<Resul
     return Failure(error instanceof Error ? error : new Error(String(error)));
   }
 }
+
+/**
+ * 複数のアノテーションを1回のDBトランザクションでまとめて仮フラグ付きで削除する
+ *
+ * `softRemoveAnnotation`を件数分呼ぶと書き込みトランザクションも件数分に分かれ、
+ * まとめて削除したはずの複数選択がliveQuery経由で画面上に1件ずつ遅れて反映されてしまう。
+ * 単一のトランザクション内でまとめて更新することで、liveQueryの再発火も1回にまとめる
+ * （既に存在しない・削除済みのIDに対する`update`は何もせず0件のまま成功するため、
+ * `softRemoveAnnotation`のような事前の存在チェックは不要）
+ */
+export async function softRemoveAnnotations(annotIDs: AnnotationID[]): Promise<Result<void>> {
+  const ready = await ensureReady();
+  if (!ready.ok) return ready;
+
+  try {
+    await db.transaction('rw', db.annotations, async () => {
+      const updatedAt = new Date().toISOString();
+      await Promise.all(
+        annotIDs.map((id) =>
+          db.annotations.update(id, { isDeleted: true, isTemporary: true, updatedAt }),
+        ),
+      );
+    });
+    return Success();
+  } catch (error) {
+    return Failure(toError(error));
+  }
+}

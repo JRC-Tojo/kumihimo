@@ -634,6 +634,22 @@ class BackendApi {
   }
 
   /**
+   * 複数のアノテーションを1回のDB書き込みでまとめて登録する
+   *
+   * 複数選択（グループ含む）の同時ドラッグ/リサイズ・矢印キーでの一括微調整・スタイルパネルでの
+   * 一括編集など、複数件を同時に確定させたい経路はこちらを使うこと。`registerAnnotationStyle`を
+   * 件数分呼ぶと、DB書き込み（≒UI側のライブクエリ再発火）も件数分に分かれてしまい、
+   * まとめて動かしたはずの複数要素が画面上で1件ずつ遅れて動くように見えてしまう
+   */
+  async registerAnnotationStyles(
+    file: ContainerElementFile,
+    aStyles: AnnotationStyle[],
+  ): Promise<ApiResponse<AnnotationInfo[]>> {
+    const res = await annotationService.registerAnnotationStyles(file, aStyles);
+    return toApiResponse(res, 'DOC_ANNOT_REGIST_FAILED');
+  }
+
+  /**
    * 指定したアノテーションを削除する
    *
    * 紐づく関係性（src・target問わず）もあわせて削除し、孤立した関係性が残らないようにする
@@ -644,6 +660,30 @@ class BackendApi {
 
     const relRes = await relationalService.removeRelationalsForAnnotation(annotID);
     if (!relRes.ok) return toApiResponse(relRes, 'RELATIONAL_REMOVE_FAILED');
+
+    return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
+  }
+
+  /**
+   * 複数のアノテーションをまとめて削除する（対象はすべて同一ファイルに属すること）
+   *
+   * 紐づく関係性（src・target問わず）もあわせて削除する。`removeAnnotation`を件数分呼ぶと
+   * DB書き込み（≒UI側のライブクエリ再発火）も件数分に分かれ、まとめて削除したはずの複数選択・
+   * グループが画面上で1件ずつ遅れて消えていくように見えてしまうため、複数選択・グループの削除・
+   * Undo/Redoでの一括復元/再削除はこちらを使うこと
+   */
+  async removeAnnotations(
+    file: ContainerElementFile,
+    annotIDs: AnnotationID[],
+  ): Promise<ApiResponse<void>> {
+    const res = await annotationService.removeAnnotationInfos(file, annotIDs);
+    if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
+
+    const relResults = await Promise.all(
+      annotIDs.map((id) => relationalService.removeRelationalsForAnnotation(id)),
+    );
+    const failed = relResults.find((r): r is typeof r & { ok: false } => !r.ok);
+    if (failed) return toApiResponse(failed, 'RELATIONAL_REMOVE_FAILED');
 
     return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
   }

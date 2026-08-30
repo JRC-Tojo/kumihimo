@@ -17,9 +17,11 @@ import { Path } from 'src/utils/binary/path';
 /**
  * 関係性の検証状態
  *
- * 'pending' はOCR未完了等により検証がまだ完了していないことを表す
+ * 'pending' はOCR未完了等により検証がまだ完了していないことを表す。
+ * 'error' はそのアノテーションが属するファイルの関係性一覧の読み込み自体が失敗しており、
+ * 実際に関係性を持つかどうかも含めて判定できないことを表す（`fileLoadErrors`参照）
  */
-export type RelationalStatus = 'ok' | 'ng' | 'pending' | undefined;
+export type RelationalStatus = 'ok' | 'ng' | 'pending' | 'error' | undefined;
 
 export interface RelationalEdge {
   relational: Relational;
@@ -95,6 +97,10 @@ export const useRelationalStore = defineStore('relational', {
   state: () => ({
     // ファイル単位で読み込んだ関係性エッジ（src・target問わずそのファイルが関わるもの）
     edgesByFileKey: {} as Record<string, RelationalEdge[]>,
+    // ファイル単位で、直近の関係性一覧読み込み（refreshFile内のgetRelationalsForFile）が
+    // 失敗したままになっているかどうか。$q.notifyのような一過性の通知ではなく、関係性ダイアログを
+    // 開いた時点・アノテーションの描画スタイルの両方から常に参照できるよう状態として保持する
+    fileLoadErrors: {} as Record<string, boolean>,
   }),
 
   getters: {
@@ -161,6 +167,16 @@ export const useRelationalStore = defineStore('relational', {
     statusForFile(state): (fileKey: string) => RelationalStatus {
       return (fileKey: string) => aggregateStatus(state.edgesByFileKey[fileKey] ?? []);
     },
+
+    /**
+     * 指定ファイルの関係性一覧読み込みが、直近の`refreshFile`で失敗したままになっているか
+     *
+     * 関係性ダイアログのエラー表示・アノテーションの描画スタイル（NG相当への上書き）の
+     * 両方から参照する単一の判定源
+     */
+    hasLoadError(state): (file: ContainerElementFile) => boolean {
+      return (file: ContainerElementFile) => state.fileLoadErrors[fileKey(file)] === true;
+    },
   },
 
   actions: {
@@ -175,9 +191,17 @@ export const useRelationalStore = defineStore('relational', {
       const key = fileKey(file);
 
       return refreshFileMutex.runExclusive(key, async () => {
-        // TODO: エラーハンドリング
-        const relRes = await api.getRelationalsForFile(file);
-        if (!relRes.ok) return;
+          const relRes = await api.getRelationalsForFile(file);
+        if (!relRes.ok) {
+          // 一覧取得自体が失敗した場合、このファイルに関わる注釈が実際に関係性を持つかどうかも
+          // 判定できなくなる。$q.notifyのような一過性の通知はせず、関係性ダイアログを開いた時に
+          // 気づける・該当ファイルの注釈がNG相当のスタイルで警告表示されるよう、状態として残す
+          // （直前まで読み込めていたedgesByFileKeyの内容はあえて消さず、次の成功まで最後の
+          // 既知の状態として保持しておく）
+          this.fileLoadErrors[key] = true;
+          return;
+        }
+        this.fileLoadErrors[key] = false;
 
         const edgeCheckers = relRes.data.map((edge) => async (): Promise<RelationalEdge> => {
           const checkedRes = await api.checkRelationalsSafe(edge);
@@ -317,20 +341,25 @@ export const useRelationalStore = defineStore('relational', {
     /**
      * リネーム・移動されたファイルのキャッシュキーを付け替える
      *
-     * `edgesByFileKey`は`containerID|path`をキーにしているため、リネーム後もキャッシュを
-     * 再利用できるようにキーだけ新パスへ書き換える（内容の再検証は不要）
+     * `edgesByFileKey`・`fileLoadErrors`はいずれも`containerID|path`をキーにしているため、
+     * リネーム後もキャッシュを再利用できるようキーだけ新パスへ書き換える（内容の再検証は不要）
      */
     remapFileKeys(containerID: ContainerID, pathMap: Record<string, string>): void {
-      const updated: Record<string, RelationalEdge[]> = {};
-      for (const [key, edges] of Object.entries(this.edgesByFileKey)) {
-        const [cID, path] = key.split('|');
-        if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
-          updated[`${cID}|${pathMap[path]}`] = edges;
-        } else {
-          updated[key] = edges;
+      function remapKeys<T>(source: Record<string, T>): Record<string, T> {
+        const updated: Record<string, T> = {};
+        for (const [key, value] of Object.entries(source)) {
+          const [cID, path] = key.split('|');
+          if (cID === containerID && path !== undefined && pathMap[path] !== undefined) {
+            updated[`${cID}|${pathMap[path]}`] = value;
+          } else {
+            updated[key] = value;
+          }
         }
+        return updated;
       }
-      this.edgesByFileKey = updated;
+
+      this.edgesByFileKey = remapKeys(this.edgesByFileKey);
+      this.fileLoadErrors = remapKeys(this.fileLoadErrors);
     },
   },
 });

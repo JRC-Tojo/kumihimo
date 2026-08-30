@@ -33,6 +33,10 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: {
   // このアノテーションが所属するグループのID（グループに属していなければundefined）。
   // グループを端点とする関係性の検証結果も、自分自身の表示スタイルへ反映するために使う
   groupId?: AnnotationGroupID | undefined;
+  // このアノテーションが属するファイルの関係性一覧読み込みが直近で失敗しているか
+  // （`relationalStore.hasLoadError`参照）。trueの間は、実際にこのアノテーションが関係性を
+  // 持つかどうかを判定できないため、通常の検証状態に関わらずNGと同じスタイルで警告表示する
+  relationalLoadError?: boolean | undefined;
 }) {
   const relationalStore = useRelationalStore();
   const settingsStore = useSettingsStore();
@@ -40,12 +44,12 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: {
 
   // 関係性の検証結果（OK/NG）による表示上書き。関連なし・検証保留中はundefined（元のスタイルを維持）。
   // 自分自身を端点とする関係性だけでなく、所属グループを端点とする関係性の検証結果も合わせて見る
-  const relationalOverride = computed(() =>
-    getRelationalStyleOverride(
-      relationalStore.statusForAnnotationIncludingGroup(props.annotation.id, props.groupId),
-      settingsStore.relationalVerificationStyle,
-    ),
-  );
+  const relationalOverride = computed(() => {
+    const status = props.relationalLoadError
+      ? 'error'
+      : relationalStore.statusForAnnotationIncludingGroup(props.annotation.id, props.groupId);
+    return getRelationalStyleOverride(status, settingsStore.relationalVerificationStyle);
+  });
 
   /** 現在のannotationにpatchを反映し、updatedAtを更新した新しいオブジェクトを返す */
   function withUpdatedTimestamp<P extends object>(patch: P): T & P {

@@ -7,6 +7,14 @@
         <q-btn icon="close" flat round dense v-close-popup />
       </q-card-section>
 
+      <!-- このファイルの関係性一覧読み込みが失敗している間の警告。$q.notifyのような一過性の
+           通知ではなく、ダイアログを開いた時に必ず気づけるようここに常設で表示する -->
+      <q-card-section v-if="hasLoadError" class="q-pt-none">
+        <q-banner dense class="bg-negative text-white">
+          {{ $t('pdfEditor.peek.loadError') }}
+        </q-banner>
+      </q-card-section>
+
       <!-- 自身の値（比較のもう一方の基準として表示） -->
       <q-card-section class="q-py-none">
         <span class="text-caption text-grey-6"> {{ $t('pdfEditor.peek.selfValue') }}: </span>
@@ -188,6 +196,10 @@ const { t } = useI18n();
 // 対象がグループの場合もアノテーションの場合も、関係性の端点としては同じIDとして扱う
 const targetId = computed<RelationalEndpointID>(() => prop.target.id);
 const isGroup = computed(() => prop.target.kind === 'group');
+
+// このファイルの関係性一覧読み込みが直近で失敗しているかどうか（下のwatchでダイアログを
+// 開くたびにrefreshFileしているため、開いている間は常に最新の状態を反映する）
+const hasLoadError = computed(() => relationalStore.hasLoadError(prop.file));
 
 const previewSrc = ref<string>();
 const previewLoading = ref(false);
