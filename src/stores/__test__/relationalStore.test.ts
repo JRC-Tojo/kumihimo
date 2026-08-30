@@ -2,6 +2,8 @@ import { describe, expect, it, beforeEach, mock } from 'bun:test';
 import { createPinia, setActivePinia } from 'pinia';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { AnnotationGroupID } from 'src/models/document/group';
+import type { ContainerElementFile, ContainerID } from 'src/models/container';
+import type { Relational } from 'src/models/relational/common';
 import type { RelationalCheckedRule } from 'src/models/relational/fileSchema';
 import type { RelationalEdge } from '../relationalStore';
 
@@ -13,12 +15,35 @@ import type { RelationalEdge } from '../relationalStore';
  *
  * `relationalStore.ts`は`useBackendApi`（`src/apis/backendApi.ts`）を静的importしており、
  * これは全サービス（pdf.js等を含む）を束ねる巨大なファサードのため、実体のまま読み込むと
- * Bunのテスト環境ではDOMMatrix等のブラウザAPI依存で失敗する。このテストでは
- * `refreshFile`等のAPI呼び出しを一切使わず`edgesByFileKey`を直接操作するだけのため、空でモック化する
+ * Bunのテスト環境ではDOMMatrix等のブラウザAPI依存で失敗する。このテストでは大半のケースで
+ * `refreshFile`等のAPI呼び出しを一切使わず`edgesByFileKey`を直接操作するだけのため、
+ * `getRelationalsForFile`・`checkRelationalsSafe`のみモック化する（`refreshFile`の直列化を
+ * 検証する`describe`ブロックでのみ実際に使う）
  */
-void mock.module('src/apis/backendApi', () => ({ useBackendApi: () => ({}) }));
+const apiMock = {
+  getRelationalsForFile: mock((): Promise<{ ok: true; data: { relational: Relational }[] }> =>
+    Promise.resolve({ ok: true, data: [] }),
+  ),
+  checkRelationalsSafe: mock(
+    (edge: {
+      relational: Relational;
+    }): Promise<{
+      ok: true;
+      data: { checkedRule: undefined; srcVal: string; targetVal: string };
+    }> =>
+      Promise.resolve({
+        ok: true,
+        data: {
+          checkedRule: undefined,
+          srcVal: edge.relational.srcID,
+          targetVal: edge.relational.targetID,
+        },
+      }),
+  ),
+};
+void mock.module('src/apis/backendApi', () => ({ useBackendApi: () => apiMock }));
 
-const { useRelationalStore } = await import('../relationalStore');
+const { useRelationalStore, fileKey } = await import('../relationalStore');
 const idA = '00000000-0000-4000-8000-000000000001' as AnnotationID;
 const idC = '00000000-0000-4000-8000-000000000003' as AnnotationID;
 const groupId = '00000000-0000-4000-8000-0000000000aa' as AnnotationGroupID;
@@ -92,5 +117,63 @@ describe('relationalStore.statusForAnnotationIncludingGroup', () => {
     store.edgesByFileKey = {};
 
     expect(store.statusForAnnotationIncludingGroup(idA, groupId)).toBeUndefined();
+  });
+});
+
+describe('relationalStore.refreshFile（同一ファイルへの並行呼び出しの直列化）', () => {
+  const file: ContainerElementFile = {
+    containerID: '00000000-0000-4000-8000-000000000000' as ContainerID,
+    type: 'File' as const,
+    path: 'doc.pdf',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    description: '',
+    genre: '',
+    tags: [],
+  };
+  const staleRelational: Relational = { srcID: idA, targetID: idC, rule: { type: 'link' } };
+  const freshRelational: Relational = { srcID: idA, targetID: idC, rule: { type: 'equal' } };
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    apiMock.getRelationalsForFile.mockClear();
+    apiMock.checkRelationalsSafe.mockClear();
+  });
+
+  it('先に呼ばれた（完了が遅い）refreshFileが、後に呼ばれた（完了が早いはずの）refreshFileの結果を後追いで上書きしない', async () => {
+    const store = useRelationalStore();
+
+    // 呼び出し#1（削除前に古い状態を読みに行った側を模す）は、任意のタイミングまで完了を止める
+    let releaseFirstCall: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseFirstCall = resolve;
+    });
+    apiMock.getRelationalsForFile
+      .mockImplementationOnce(async () => {
+        await gate;
+        return { ok: true, data: [{ relational: staleRelational }] };
+      })
+      // 呼び出し#2（関係性登録直後の最新状態を読みに行った側を模す）は即座に解決する
+      .mockImplementationOnce(() =>
+        Promise.resolve({ ok: true, data: [{ relational: freshRelational }] }),
+      );
+
+    const first = store.refreshFile(file);
+    const second = store.refreshFile(file);
+
+    // 呼び出し#1をまだ完了させていない時点では、直列化されていれば呼び出し#2はまだ
+    // getRelationalsForFileにすら到達していないはず（直列化されていなければ、#2が先に解決して
+    // キャッシュへ書き込んでしまう）
+    await Promise.resolve();
+    expect(apiMock.getRelationalsForFile).toHaveBeenCalledTimes(1);
+
+    releaseFirstCall();
+    await Promise.all([first, second]);
+
+    // 直列化により、後に呼ばれた#2の結果が最終的にキャッシュへ残る
+    // （直列化していない実装では、後から解決した#1の古い状態で上書きされ、ここがstaleRelationalになる）
+    const cached = store.edgesByFileKey[fileKey(file)];
+    expect(cached).toHaveLength(1);
+    expect(cached?.[0]?.relational).toEqual(freshRelational);
   });
 });

@@ -265,6 +265,8 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     const group = groupStore.matchingGroup(fileKey(deps.file), deps.selectedAnnotationIds.value);
     if (group === undefined) return;
 
+    // api.ungroupAnnotationsはグループを関係性の端点として持っていた関係性も削除してしまうため、
+    // 解除前に捕捉しておかないとundoでグループを復元してもその関係性が失われたままになる
     const snapshot = history.captureRelationalSnapshot([group.id]);
     const res = await api.ungroupAnnotations(deps.file, group.id);
     if (!res.ok) return;

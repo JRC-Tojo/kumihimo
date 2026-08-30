@@ -4,7 +4,7 @@ import type { AnnotationID } from 'src/models/document/pdf';
 import type { AnnotationGroupID } from 'src/models/document/group';
 import type { AnnotationStyle } from 'src/models/document/pdf';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
-import type { Relational } from 'src/models/relational/common';
+import type { Relational, RelationalWithAddress } from 'src/models/relational/common';
 import type { RelationalEdge } from 'src/stores/relationalStore';
 
 /**
@@ -22,6 +22,7 @@ import type { RelationalEdge } from 'src/stores/relationalStore';
  */
 type MockApiResult<T = undefined> = { ok: true; data: T } | { ok: false; error: unknown };
 
+/** 成功結果（`{ ok: true, data }`）をそのまま返すApiResponseモックを組み立てる */
 function ok<T>(data: T): Promise<MockApiResult<T>> {
   return Promise.resolve({ ok: true, data });
 }
@@ -36,7 +37,14 @@ const apiMock = {
   removeRelationalEdge: mock((): Promise<MockApiResult> => ok(undefined)),
   updateGroupValueAggregation: mock((): Promise<MockApiResult> => ok(undefined)),
   resolveAnnotationFile: mock((): Promise<MockApiResult<ContainerElementFile>> => ok(file)),
-  getRelationalsForFile: mock((): Promise<MockApiResult<never[]>> => ok([])),
+  getRelationalsForFile: mock((): Promise<MockApiResult<RelationalWithAddress[]>> => ok([])),
+  // getRelationalsForFileが空配列を返す既定のままだとrefreshFile内のedgeCheckersが空になり
+  // 呼ばれないが、シグネチャを揃えるためモック自体は用意しておく（個別テストでgetRelationalsForFile
+  // の戻り値を差し替える場合に必要）
+  checkRelationalsSafe: mock(
+    (): Promise<MockApiResult<{ checkedRule: undefined; srcVal: string; targetVal: string }>> =>
+      ok({ checkedRule: undefined, srcVal: '', targetVal: '' }),
+  ),
   listAnnotationGroups: mock((): Promise<MockApiResult<never[]>> => ok([])),
 };
 void mock.module('src/apis/backendApi', () => ({ useBackendApi: () => apiMock }));
@@ -64,6 +72,7 @@ const idB = '00000000-0000-4000-8000-000000000002' as AnnotationID;
 const idC = '00000000-0000-4000-8000-000000000003' as AnnotationID;
 const groupId = '00000000-0000-4000-8000-0000000000aa' as AnnotationGroupID;
 
+/** テストで使う最小限のフィールドだけを埋めたAnnotationStyle（box種別）を組み立てる */
 function buildStyle(id: AnnotationID): AnnotationStyle {
   return {
     id,
@@ -82,8 +91,20 @@ function buildStyle(id: AnnotationID): AnnotationStyle {
   };
 }
 
+/** relationalStoreのキャッシュへそのままシードできる形に、関係性を最小限のRelationalEdgeへ包む */
 function buildEdge(relational: Relational): RelationalEdge {
   return { relational, checkedRule: undefined, srcVal: '', targetVal: '' };
+}
+
+/**
+ * `api.getRelationalsForFile`のモック実装から返す最小限のRelationalWithAddressを組み立てる
+ *
+ * `srcAddress`・`targetAddress`（アドレス解決結果）は`refreshFile`内では参照されないため、
+ * 型を満たすためだけのダミー値でよい
+ */
+function buildRelationalWithAddress(relational: Relational): RelationalWithAddress {
+  const dummyAddress = { cID: containerID, filePath: 'doc.pdf' };
+  return { relational, srcAddress: dummyAddress, targetAddress: dummyAddress };
 }
 
 beforeEach(() => {
@@ -191,11 +212,19 @@ describe('recordGroupCreated', () => {
 
     // redo時にapplyされる再キャプチャが読みに行くキャッシュ（undo後もこの状態のまま）
     relationalStore.edgesByFileKey[key] = [buildEdge(groupRelational)];
+    // getRelationalsForFileの既定モックは空配列を返すため、undo内のrefreshFileでキャッシュが
+    // 空に上書きされてしまう。groupRelationalがバックエンドに存在し続ける状態を模して、
+    // undo・redoどちらのrefreshFileでも一貫してこの関係性が返るようにする
+    apiMock.getRelationalsForFile.mockImplementation(() =>
+      ok([buildRelationalWithAddress(groupRelational)]),
+    );
 
     const dissolvedSnapshot = history.captureRelationalSnapshot([groupId]);
     history.recordGroupCreated(file, newGroup, [dissolvedGroup], dissolvedSnapshot);
 
     await historyStore.undo(file);
+    // undo側の呼び出しを消し、直後のアサーションがredo単体の挙動だけを見るようにする
+    for (const fn of Object.values(apiMock)) fn.mockClear();
     await historyStore.redo(file);
 
     // redo内でrefreshRelationalSnapshotCachesがgroupRelationalの相手側(idC)のファイルを

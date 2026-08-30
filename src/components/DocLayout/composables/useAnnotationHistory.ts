@@ -120,14 +120,18 @@ export function useAnnotationHistory() {
   /**
    * スナップショットが参照する関係性の相手先ファイルのキャッシュだけを再検証する
    * （関係性データ自体の再登録は行わない）。redo側：改めて破棄した直後の後始末に使う
+   *
+   * スナップショットに含まれる端点（アノテーション・グループ）は複数ありうるが、自ファイルの
+   * 再検証は1回にまとめ、相手側ファイルも一意化してからそれぞれ1回だけ`refreshFile`する
+   * （端点ごとに`refreshRelationalCachesAfter`を個別に呼ぶと、同じファイルへの再検証が
+   * 選択件数に比例して重複実行され、undo/redoの応答が遅くなるため。
+   * `relationalStore.refreshEndpointsAndPeers`参照）
    */
   async function refreshRelationalSnapshotCaches(
     file: ContainerElementFile,
     snapshot: RelationalSnapshot,
   ): Promise<void> {
-    await Promise.all(
-      [...snapshot].map(([id, relationals]) => refreshRelationalCachesAfter(file, id, relationals)),
-    );
+    await relationalStore.refreshEndpointsAndPeers(file, [...snapshot]);
   }
 
   /** 単一アノテーションの登録（作成/更新）を履歴付きで行う */
