@@ -20,7 +20,6 @@ import type {
   AnnotationGroupID,
   GroupValueAggregation,
 } from 'src/models/document/group';
-import type { Relational } from 'src/models/relational/common';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { fileKey } from 'src/utils/document/fileKey';
 
@@ -242,9 +241,7 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
       const g = groupStore.groupContaining(fk, id);
       if (g) predicted.set(g.id, g);
     }
-    const dissolvedRelationalsByGroupId = new Map<AnnotationGroupID, Relational[]>(
-      Array.from(predicted.values()).map((g) => [g.id, history.captureRelationals(g.id)]),
-    );
+    const dissolvedSnapshot = history.captureRelationalSnapshot(Array.from(predicted.keys()));
 
     const res = await api.groupAnnotations(deps.file, ids);
     if (!res.ok) return;
@@ -253,7 +250,7 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
       deps.file,
       res.data.group,
       res.data.dissolvedGroups,
-      dissolvedRelationalsByGroupId,
+      dissolvedSnapshot,
     );
     await groupStore.refreshFile(deps.file);
     deps.selectedAnnotationIds.value = [...res.data.group.memberIds];
@@ -268,11 +265,13 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
     const group = groupStore.matchingGroup(fileKey(deps.file), deps.selectedAnnotationIds.value);
     if (group === undefined) return;
 
-    const relationals = history.captureRelationals(group.id);
+    // api.ungroupAnnotationsはグループを関係性の端点として持っていた関係性も削除してしまうため、
+    // 解除前に捕捉しておかないとundoでグループを復元してもその関係性が失われたままになる
+    const snapshot = history.captureRelationalSnapshot([group.id]);
     const res = await api.ungroupAnnotations(deps.file, group.id);
     if (!res.ok) return;
 
-    history.recordGroupRemoved(deps.file, group, relationals);
+    history.recordGroupRemoved(deps.file, group, snapshot);
     await groupStore.refreshFile(deps.file);
   }
 

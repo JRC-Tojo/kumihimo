@@ -163,8 +163,10 @@ import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID } from 'src/models/document/pdf';
 import type { AnnotationGroup } from 'src/models/document/group';
 import type { RelationalEndpointID } from 'src/models/relational/fileSchema';
-import type { RelationalRuleType } from 'src/models/relational/ruleUtils';
+import type { Relational } from 'src/models/relational/common';
+import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
 import { formatValueWithFormula } from 'src/utils/calculation/formula';
+import { useAnnotationHistory } from 'src/components/DocLayout/composables/useAnnotationHistory';
 import RelationalRuleEditDialog from 'src/components/DocLayout/RelationalRuleEditDialog.vue';
 import GroupValueAggregationDialog from 'src/components/DocLayout/GroupValueAggregationDialog.vue';
 
@@ -180,6 +182,7 @@ const $q = useQuasar();
 const api = useBackendApi();
 const editorStore = useEditorStore();
 const relationalStore = useRelationalStore();
+const history = useAnnotationHistory();
 const { t } = useI18n();
 
 // 対象がグループの場合もアノテーションの場合も、関係性の端点としては同じIDとして扱う
@@ -213,36 +216,17 @@ watch(
   { immediate: true },
 );
 
-/** 2つのファイルがcontainerID込みで同一かどうか（useAnnotationHistory.tsと同じ判定） */
-function isSameFile(a: ContainerElementFile, b: ContainerElementFile): boolean {
-  return a.containerID === b.containerID && a.path === b.path;
-}
-
-/**
- * グループの値算出方法の変更後、prop.fileだけでなく、関係性の相手側の端点が属する
- * 全ファイルのrelationalStoreキャッシュも合わせて再検証する。相手側のファイルが
- * 既にキャッシュ読み込み済みの場合、prop.fileのみ再検証すると相手側タブの表示が
- * 古いまま（stale）になってしまうため（useAnnotationHistory.tsの
- * refreshRelationalCachesAfterと同じ考え方）
- */
-async function refreshRelationalCachesAfterAggregationSaved(): Promise<void> {
-  const targetEdges = edges.value;
-  await relationalStore.refreshFile(prop.file);
-
-  await Promise.all(
-    targetEdges.map(async (edge) => {
-      const otherFileRes = await api.resolveAnnotationFile(otherAnnotId(edge));
-      if (otherFileRes.ok && !isSameFile(otherFileRes.data, prop.file)) {
-        await relationalStore.refreshFile(otherFileRes.data);
-      }
-    }),
-  );
-}
-
 /** 値算出方法ダイアログでの保存完了を受けて、表示中のグループ情報と関係性キャッシュを更新する */
 function onAggregationSaved(updated: AnnotationGroup) {
   groupInfo.value = updated;
-  void refreshRelationalCachesAfterAggregationSaved();
+  // グループの値算出方法の変更は端点自身の検証値を変えるため、prop.fileだけでなく
+  // 関係性の相手側が属する全ファイルのキャッシュも合わせて再検証する（相手側タブが
+  // 既にキャッシュ読み込み済みの場合、そちらを再検証しないと古い表示のまま残ってしまう）
+  void relationalStore.refreshEndpointAndPeers(
+    prop.file,
+    targetId.value,
+    edges.value.map((edge) => edge.relational),
+  );
 }
 
 const edges = computed<RelationalEdge[]>(() => relationalStore.edgesForAnnotation(targetId.value));
@@ -336,6 +320,8 @@ const ruleTypeOptions: { label: string; value: RelationalRuleType }[] = [
 async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleType) {
   if (newType === edge.relational.rule.type) return;
 
+  const previous = edge.relational;
+  const next: Relational = { ...previous, rule: buildRelationalRule(newType) };
   const ok = await relationalStore.changeRelationalRuleType(
     prop.file,
     edge,
@@ -344,7 +330,9 @@ async function onChangeRuleType(edge: RelationalEdge, newType: RelationalRuleTyp
   );
   if (!ok) {
     $q.notify({ type: 'negative', message: t('pdfEditor.tools.relational.changeFailed') });
+    return;
   }
+  history.recordRelationalRuleChanged(prop.file, previous, next, targetId.value);
 }
 
 /**
@@ -360,6 +348,7 @@ async function onRemoveRelation(edge: RelationalEdge) {
   }
   if (previewedAnnotId.value === otherAnnotId(edge)) previewedAnnotId.value = undefined;
   await relationalStore.refreshEdgeBothEndpoints(prop.file, edge, selfId);
+  history.recordRelationalRemoved(prop.file, edge.relational, selfId);
 }
 
 /**

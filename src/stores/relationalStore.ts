@@ -10,6 +10,7 @@ import type {
 } from 'src/models/relational/fileSchema';
 import { buildRelationalRule, type RelationalRuleType } from 'src/models/relational/ruleUtils';
 import { runConcurrently } from 'src/utils/promise/concurrent';
+import { createKeyedMutex } from 'src/utils/promise/keyedMutex';
 import { fileKey } from 'src/utils/document/fileKey';
 import { Path } from 'src/utils/binary/path';
 
@@ -29,6 +30,20 @@ export interface RelationalEdge {
 }
 
 export { fileKey };
+
+/**
+ * `edgesByFileKey[fileKey]`への書き込みをファイル単位で直列化するミューテックス
+ *
+ * `refreshFile`は「DocumentTabViewのアノテーション変化watcher（`handleAnnotationsChanged`、
+ * 検証待ち→OK/NG遷移用の再検証としてawaitせず呼ぶ）」と「undo/redoの関係性復元処理
+ * （`useAnnotationHistory`の`restoreRelationalSnapshot`等）」の双方から、同じファイルに対して
+ * 並行して呼ばれうる。直列化しないと、後から開始した呼び出し（＝関係性登録直後の最新状態を
+ * 意図したもの）より先に開始した呼び出し（＝登録前の古い状態を読みに行ったもの）の方が後に
+ * 完了してキャッシュを上書きしてしまうことがあり、「Undoしたのに関係性がキャッシュ上は
+ * 復元されないまま（画面に反映されない）」不具合の原因になっていた。呼び出し順=完了順を
+ * 保証することで、常に最後に呼ばれた（＝最新の状態を意図した）結果が残るようにする
+ */
+const refreshFileMutex = createKeyedMutex();
 
 /**
  * 関係性の同一性を判定するキー
@@ -151,46 +166,96 @@ export const useRelationalStore = defineStore('relational', {
   actions: {
     /**
      * 指定ファイルが関わる関係性を読み込み、それぞれ検証してキャッシュを更新する
+     *
+     * 同一ファイルに対する呼び出しは`refreshFileMutex`で直列化される（理由は同ミューテックスの
+     * docstring参照）
      */
-    async refreshFile(file: ContainerElementFile): Promise<void> {
+    refreshFile(file: ContainerElementFile): Promise<void> {
       const api = useBackendApi();
+      const key = fileKey(file);
 
-      // TODO: エラーハンドリング
-      const relRes = await api.getRelationalsForFile(file);
-      if (!relRes.ok) return;
+      return refreshFileMutex.runExclusive(key, async () => {
+        // TODO: エラーハンドリング
+        const relRes = await api.getRelationalsForFile(file);
+        if (!relRes.ok) return;
 
-      const edgeCheckers = relRes.data.map((edge) => async (): Promise<RelationalEdge> => {
-        const checkedRes = await api.checkRelationalsSafe(edge);
-        return {
-          relational: edge.relational,
-          checkedRule: checkedRes.ok ? checkedRes.data.checkedRule : undefined,
-          srcVal: checkedRes.ok ? checkedRes.data.srcVal : '',
-          targetVal: checkedRes.ok ? checkedRes.data.targetVal : '',
-        };
+        const edgeCheckers = relRes.data.map((edge) => async (): Promise<RelationalEdge> => {
+          const checkedRes = await api.checkRelationalsSafe(edge);
+          return {
+            relational: edge.relational,
+            checkedRule: checkedRes.ok ? checkedRes.data.checkedRule : undefined,
+            srcVal: checkedRes.ok ? checkedRes.data.srcVal : '',
+            targetVal: checkedRes.ok ? checkedRes.data.targetVal : '',
+          };
+        });
+
+        this.edgesByFileKey[key] = await runConcurrently(edgeCheckers, 5);
       });
-
-      this.edgesByFileKey[fileKey(file)] = await runConcurrently(edgeCheckers, 5);
     },
 
     /**
-     * 編集対象のエッジについて、自身のファイルだけでなく相手側アノテーションのファイルの
-     * 関係性キャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
-     * キャッシュに古い情報が残ったままにならないようにする）
+     * 複数の端点（それぞれの所有関係性の組）について、自身のファイルは1回だけ、相手側の
+     * ファイルも`fileKey`で一意化したうえでそれぞれ1回だけ`refreshFile`する
+     *
+     * `refreshFile`はファイル内の全エッジに`checkRelationalsSafe`を掛けるため、端点・関係性ごとに
+     * 重複して呼ぶと同じファイルに対する再検証が選択件数に比例して繰り返され、undo/redoの応答が
+     * 遅くなる。複数端点をまとめて扱う呼び出し元（`useAnnotationHistory`の
+     * `refreshRelationalSnapshotCaches`等）はこちらを使うこと。単一端点の場合は
+     * `refreshEndpointAndPeers`を使う
      */
-    async refreshEdgeBothEndpoints(
+    async refreshEndpointsAndPeers(
       file: ContainerElementFile,
-      edge: RelationalEdge,
-      selfId: RelationalEndpointID,
+      ownerRelationals: [RelationalEndpointID, Relational[]][],
     ): Promise<void> {
       const api = useBackendApi();
       await this.refreshFile(file);
 
-      const otherId =
-        edge.relational.srcID === selfId ? edge.relational.targetID : edge.relational.srcID;
-      const otherFileRes = await api.resolveAnnotationFile(otherId);
-      if (otherFileRes.ok && !isSameFile(otherFileRes.data, file)) {
-        await this.refreshFile(otherFileRes.data);
+      const otherIds = new Set<RelationalEndpointID>();
+      for (const [ownerId, relationals] of ownerRelationals) {
+        for (const relational of relationals) {
+          otherIds.add(relational.srcID === ownerId ? relational.targetID : relational.srcID);
+        }
       }
+
+      const otherFileResults = await Promise.all(
+        [...otherIds].map((id) => api.resolveAnnotationFile(id)),
+      );
+      const filesToRefresh = new Map<string, ContainerElementFile>();
+      for (const res of otherFileResults) {
+        if (res.ok && !isSameFile(res.data, file)) {
+          filesToRefresh.set(fileKey(res.data), res.data);
+        }
+      }
+
+      await Promise.all([...filesToRefresh.values()].map((f) => this.refreshFile(f)));
+    },
+
+    /**
+     * `selfId`を端点の一方とする複数の関係性について、自身のファイルだけでなく相手側の
+     * ファイルすべてのキャッシュも合わせて更新する（別ファイル間の関係性が、開いていないタブ側の
+     * キャッシュに古い情報が残ったままにならないようにする）。undo/redo等、影響を受けた
+     * 関係性を既に把握している呼び出し元（`useAnnotationHistory`等）から共通で使うための
+     * 単一端点版で、実体は`refreshEndpointsAndPeers`に委譲する。`refreshEdgeBothEndpoints`
+     * （1本版）もこれに委譲する
+     */
+    refreshEndpointAndPeers(
+      file: ContainerElementFile,
+      selfId: RelationalEndpointID,
+      relationals: Relational[],
+    ): Promise<void> {
+      return this.refreshEndpointsAndPeers(file, [[selfId, relationals]]);
+    },
+
+    /**
+     * 編集対象のエッジ1本について、自身のファイルだけでなく相手側アノテーションのファイルの
+     * 関係性キャッシュも合わせて更新する（`refreshEndpointAndPeers`の単一エッジ版）
+     */
+    refreshEdgeBothEndpoints(
+      file: ContainerElementFile,
+      edge: RelationalEdge,
+      selfId: RelationalEndpointID,
+    ): Promise<void> {
+      return this.refreshEndpointAndPeers(file, selfId, [edge.relational]);
     },
 
     /**
