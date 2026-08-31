@@ -35,6 +35,10 @@ import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
 import { useGroupStore } from 'src/stores/groupStore';
 import { fileKey } from 'src/utils/document/fileKey';
+import {
+  markAnnotationWriteIntent,
+  cancelAnnotationWriteIntent,
+} from 'src/utils/document/annotationWritePending';
 import type { ApiResponse } from 'src/models/error/api';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
@@ -62,6 +66,36 @@ export function useAnnotationHistory() {
   const historyStore = useHistoryStore();
   const relationalStore = useRelationalStore();
   const groupStore = useGroupStore();
+
+  /**
+   * `api.registerAnnotationStyle`を、対象IDの「ローカルで意図した内容」の目印
+   * （`annotationWritePending.ts`）を立てた状態で呼ぶ
+   *
+   * このファイル内の登録系関数はUndo/Redoのコールバックも含め、必ずこのラッパー経由で
+   * `api.registerAnnotationStyle(s)`を呼ぶこと。素の`api`を直接呼ぶと、DB購読側の反映
+   * （liveQuery）が書き込みの完了より遅れて届いた場合に、確定直後の画面が一時的に古い状態へ
+   * 巻き戻って見える（`useAnnotationShape.ts`のdisplayAnnotation・resolveAnnotationEcho参照）
+   */
+  async function registerStyleTracked(
+    file: ContainerElementFile,
+    style: AnnotationStyle,
+  ): Promise<ApiResponse<AnnotationInfo>> {
+    markAnnotationWriteIntent(style.id, style.updatedAt);
+    const res = await api.registerAnnotationStyle(file, style);
+    if (!res.ok) cancelAnnotationWriteIntent(style.id, style.updatedAt);
+    return res;
+  }
+
+  /** `registerStyleTracked`の複数件版（`api.registerAnnotationStyles`用） */
+  async function registerStylesTracked(
+    file: ContainerElementFile,
+    styles: AnnotationStyle[],
+  ): Promise<ApiResponse<AnnotationInfo[]>> {
+    styles.forEach((s) => markAnnotationWriteIntent(s.id, s.updatedAt));
+    const res = await api.registerAnnotationStyles(file, styles);
+    if (!res.ok) styles.forEach((s) => cancelAnnotationWriteIntent(s.id, s.updatedAt));
+    return res;
+  }
 
   /**
    * 指定端点（アノテーションまたはグループ）がsrc・target問わず関わる関係性一覧を捕捉する
@@ -140,15 +174,15 @@ export function useAnnotationHistory() {
     previous: AnnotationStyle | undefined,
     next: AnnotationStyle,
   ): Promise<ApiResponse<AnnotationInfo>> {
-    const res = await api.registerAnnotationStyle(file, next);
+    const res = await registerStyleTracked(file, next);
     if (res.ok) {
       historyStore.push(file, {
         undo: async () => {
-          if (previous) await api.registerAnnotationStyle(file, previous);
+          if (previous) await registerStyleTracked(file, previous);
           else await api.removeAnnotation(next.id);
         },
         redo: async () => {
-          await api.registerAnnotationStyle(file, next);
+          await registerStyleTracked(file, next);
         },
       });
     }
@@ -171,7 +205,7 @@ export function useAnnotationHistory() {
   ): Promise<void> {
     if (items.length === 0) return;
 
-    const res = await api.registerAnnotationStyles(
+    const res = await registerStylesTracked(
       file,
       items.map((item) => item.next),
     );
@@ -179,13 +213,13 @@ export function useAnnotationHistory() {
 
     historyStore.push(file, {
       undo: async () => {
-        await api.registerAnnotationStyles(
+        await registerStylesTracked(
           file,
           items.map((item) => item.previous),
         );
       },
       redo: async () => {
-        await api.registerAnnotationStyles(
+        await registerStylesTracked(
           file,
           items.map((item) => item.next),
         );
@@ -275,7 +309,7 @@ export function useAnnotationHistory() {
       );
       historyStore.push(file, {
         undo: async () => {
-          await api.registerAnnotationStyle(file, removed);
+          await registerStyleTracked(file, removed);
           await Promise.all(affectedGroups.map((g) => api.restoreGroup(file, g)));
           if (affectedGroups.length > 0) await groupStore.refreshFile(file);
           await restoreRelationalSnapshot(
@@ -326,7 +360,7 @@ export function useAnnotationHistory() {
 
     historyStore.push(file, {
       undo: async () => {
-        await api.registerAnnotationStyles(file, removedList);
+        await registerStylesTracked(file, removedList);
         await Promise.all(affectedGroups.map((g) => api.restoreGroup(file, g)));
         if (affectedGroups.length > 0) await groupStore.refreshFile(file);
         await restoreRelationalSnapshot(file, mergeRelationalSnapshots(ownSnapshot, groupSnapshot));
@@ -362,7 +396,7 @@ export function useAnnotationHistory() {
         );
       },
       redo: async () => {
-        await api.registerAnnotationStyles(file, created);
+        await registerStylesTracked(file, created);
       },
     });
   }
@@ -379,13 +413,13 @@ export function useAnnotationHistory() {
 
     historyStore.push(file, {
       undo: async () => {
-        await api.registerAnnotationStyles(
+        await registerStylesTracked(
           file,
           pairs.map((p) => p.before),
         );
       },
       redo: async () => {
-        await api.registerAnnotationStyles(
+        await registerStylesTracked(
           file,
           pairs.map((p) => p.after),
         );
@@ -418,7 +452,7 @@ export function useAnnotationHistory() {
         if (createdGroup) await groupStore.refreshFile(file);
       },
       redo: async () => {
-        await api.registerAnnotationStyles(file, created);
+        await registerStylesTracked(file, created);
         if (createdGroup) {
           await api.restoreGroup(file, createdGroup);
           await groupStore.refreshFile(file);

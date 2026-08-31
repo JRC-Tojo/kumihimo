@@ -22,6 +22,7 @@ import type {
 } from 'src/models/document/group';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { fileKey } from 'src/utils/document/fileKey';
+import { markAnnotationWriteIntent } from 'src/utils/document/annotationWritePending';
 
 /** 連続ペースト・複製時に位置をずらす基準量（px、文書座標） */
 const PASTE_OFFSET_STEP = 20;
@@ -217,6 +218,10 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
       const before = workingAnnotations.find((a) => a.id === id);
       const res = await api.reorderAnnotation(deps.file, workingAnnotations, id, action);
       if (!res.ok || !before) continue;
+      // zIndex・updatedAtはサービス層側で計算されるため、呼び出し前には内容が分からず
+      // 事前に目印を立てられない。解決直後に立てるため、書き込み確定からDB購読側の反映までの
+      // ごく短い間はガード対象外になる（重ね順のみの変更で位置・形状は動かないため実害は小さい）
+      markAnnotationWriteIntent(id, res.data.style.updatedAt);
       pairs.push({ before, after: res.data.style });
       workingAnnotations = workingAnnotations.map((a) => (a.id === id ? res.data.style : a));
     }

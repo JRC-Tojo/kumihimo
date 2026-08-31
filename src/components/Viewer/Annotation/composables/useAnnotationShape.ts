@@ -16,6 +16,7 @@ import { useRelationalStore } from 'src/stores/relationalStore';
 import { useSettingsStore } from 'src/stores/settingsStore';
 import { getRelationalStyleOverride } from '../relationalStyleOverride';
 import { useModifierKeys } from './useModifierKeys';
+import { resolveAnnotationEcho } from 'src/utils/document/annotationWritePending';
 import {
   lockToDominantAxis,
   applyCenteredResize,
@@ -59,12 +60,22 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: {
   // ドラッグ/変形/頂点編集などのジェスチャー中かどうか
   const isInteracting = ref(false);
   // 実際にkonvaノードへ渡すannotation。ジェスチャー中はpropsの更新を無視し、
-  // 自動保存やOCR結果反映などによるDexie/liveQueryの再emitで座標が巻き戻る（ガタつく）のを防ぐ
+  // 自動保存やOCR結果反映などによるDexie/liveQueryの再emitで座標が巻き戻る（ガタつく）のを防ぐ。
+  // ジェスチャー終了後も、resolveAnnotationEchoが「自分が最後にローカルで書き込もうとした
+  // 内容とちょうど一致するエコーか」を判定し、一致するまでは古い/中間状態のpropsの更新を
+  // 無視する。DBへの書き込み自体はファイル単位で発行順に確定するが、DB購読（liveQuery）側の
+  // 反映はその確定から幾らか遅れて非同期に届くため、「自分の書き込みのPromiseが解決した」
+  // だけで判定してしまうと、実際にはまだ古い内容のままのpropsを一度受け入れてしまい、
+  // 一度確定して見えた変更が古い状態へ巻き戻ってから再度追いつく（ちらつく）ことがある。
+  // 内容が一致するエコーそのものを待つことで、書き込みの完了タイミングに関わらず
+  // 中間状態を一切表示しないようにする（annotationWritePending.ts参照）
   const displayAnnotation: Ref<T> = ref(props.annotation) as Ref<T>;
   watch(
     () => props.annotation,
     (next) => {
-      if (!isInteracting.value) displayAnnotation.value = next;
+      if (isInteracting.value) return;
+      if (!resolveAnnotationEcho(next)) return;
+      displayAnnotation.value = next;
     },
     { immediate: true },
   );

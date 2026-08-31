@@ -138,7 +138,9 @@ interface Props {
   // Konvaステージの座標系のスケール（PdfPage側で解像度上限にクランプされた「実描画スケール」）。
   // 見た目上のズーム倍率そのものではない点に注意（PdfPage.vueのrenderScaleを参照）
   scale: number;
-  onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
+  // 戻り値は登録が成功したかどうか（confirmNewAnnotation参照。失敗時は確定待ち表示を
+  // DB購読の反映を待たずその場で片付けるために使う）
+  onRegisterAnnot: (annot: AnnotationStyle) => Promise<boolean>;
   // 複数シェイプの同時ドラッグ/リサイズ（グループ・複数選択）をまとめて1件の
   // Undoステップとして記録するためのバッチ登録コールバック（onShapeUpdate参照）
   onRegisterAnnotBatch: (annots: AnnotationStyle[]) => Promise<void>;
@@ -472,20 +474,22 @@ const displayedAnnotations = computed(() => {
 });
 
 /**
- * 新規描画（ドラッグ確定・クリック点確定）で作成した注釈を登録しつつ、登録完了（＝DB購読への
- * 反映）までの間もこの注釈を確定済みの見た目のまま表示し続ける
+ * 新規描画（ドラッグ確定・クリック点確定）で作成した注釈を登録しつつ、登録完了までの間も
+ * この注釈を確定済みの見た目のまま表示し続ける
  *
- * 通常はDB購読側の反映（上のwatch）が先に確定待ち表示を片付けるが、登録に失敗した場合等、
- * いつまでもprops.annotations側に現れないケースに備えて、登録処理の完了後にも
- * （まだこの注釈が確定待ちのままであれば）フォールバックとして片付ける。`nextTick`を挟むのは、
- * 登録が成功して同じタイミングでDB購読側の反映が届いていた場合に、そちらのwatchを
- * 優先して先に処理させるため（片付けが二重に走っても実害はない）
+ * 登録が成功した場合、DBへの書き込み自体は`onRegisterAnnot`のawaitが解決した時点で既に
+ * 完了している。あとはDB購読（liveQuery）側がその変更を検知してprops.annotationsへ反映する
+ * のを待つだけであり、それは上のwatchが検知した瞬間に確定待ち表示を片付ける。反映までの
+ * 所要時間を`nextTick`等で見積もって片付けを急ぐと、実際の反映がそれより遅れた場合に
+ * 「まだprops.annotations側に現れていないのに確定待ち表示だけ消える」瞬間が生じ、注釈が
+ * 一瞬消えてから再び現れるちらつきになる。そのため成功時は上のwatchにすべて任せ、ここでは
+ * 何もしない。登録が失敗した場合はprops.annotations側に現れることが無いため、
+ * いつまでも確定待ちに残り続けないようここで直接片付ける
  */
 async function confirmNewAnnotation(annotation: AnnotationStyle): Promise<void> {
   pendingConfirmAnnotations.value = [...pendingConfirmAnnotations.value, annotation];
-  await props.onRegisterAnnot(annotation);
-  await nextTick();
-  clearPendingConfirm(new Set([annotation.id]));
+  const registered = await props.onRegisterAnnot(annotation);
+  if (!registered) clearPendingConfirm(new Set([annotation.id]));
 }
 
 /**
@@ -495,13 +499,15 @@ async function confirmNewAnnotation(annotation: AnnotationStyle): Promise<void> 
  * 異なりAPI呼び出しが解決する（＝`created`が判明する）までは確定後の見た目を組み立てられない。
  * そのため呼び出し元（`handleMouseUp`）で半透明のゴーストプレビューをAPI解決まで残しておき、
  * `created`が判明した瞬間（＝ゴーストを消すのと同一tick）にこちらを呼んで確定済みの見た目へ
- * 引き継ぐことで、「ゴーストは消えたが確定図形はまだ現れていない」間隙が生じないようにする
+ * 引き継ぐ。呼び出し元は`created`が空でない場合のみ呼ぶため、ここに来た時点で登録は既に成功して
+ * おり、DBへの書き込みも完了済み。あとはDB購読側の反映を待つだけなので、`confirmNewAnnotation`と
+ * 同じ理由で片付けは上のwatch（props.annotationsの到着検知）に任せ、ここでは確定待ちに
+ * 加えるだけにする（`nextTick`等で反映を待ち構えて片付けを急ぐと、実際の反映がそれより
+ * 遅れた場合に注釈が一瞬消えてから再び現れるちらつきになる）
  */
-async function confirmDuplicatedAnnotations(created: AnnotationStyle[]): Promise<void> {
+function confirmDuplicatedAnnotations(created: AnnotationStyle[]): void {
   if (created.length === 0) return;
   pendingConfirmAnnotations.value = [...pendingConfirmAnnotations.value, ...created];
-  await nextTick();
-  clearPendingConfirm(new Set(created.map((a) => a.id)));
 }
 
 // テキスト編集中のアノテーションはKonva側の描画から除外する。
@@ -1086,7 +1092,14 @@ function handleMouseMove(e: KonvaMouseEvent) {
 }
 
 function handleMouseUp(e: KonvaMouseEvent) {
-  if (duplicateDragSources.value) {
+  // duplicateDragSourcesは、確定APIが解決してゴーストを消すまでの間わざと保持し続けている
+  // （ゴーストをドロップ位置に固定表示し続けるため）。そのため、直前の複製がまだ確定待ち
+  // （duplicateDragConfirming）の間に発生した後続のmouseup（新しいCtrl+drag・単なるクリック等、
+  // どの経路であっても）をここで素通りさせてしまうと、まだ残っている古いsources/offsetのまま
+  // props.onDuplicateBatchが再度呼ばれ、直前と全く同じ複製が同じ場所にもう1件作られてしまう
+  // （同一アノテーションが同じ位置に複数貼り付けられる不具合の原因）。確定待ちの間はこの分岐へ
+  // 入らないようにガードする
+  if (duplicateDragSources.value && !duplicateDragConfirming.value) {
     const sources = duplicateDragSources.value;
     const isGroup = duplicateDragWasGroup.value;
     const offset = { dx: duplicateDragOffsetDoc.value.x, dy: duplicateDragOffsetDoc.value.y };
@@ -1104,7 +1117,7 @@ function handleMouseUp(e: KonvaMouseEvent) {
       duplicateDragStageStart.value = null;
       duplicateDragOffsetDoc.value = { x: 0, y: 0 };
       duplicateDragConfirming.value = false;
-      void confirmDuplicatedAnnotations(created);
+      confirmDuplicatedAnnotations(created);
       if (created.length > 0) {
         selectedAnnotIds.value = expandToGroups(created.map((a) => a.id));
       }
