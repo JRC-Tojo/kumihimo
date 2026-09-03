@@ -211,6 +211,7 @@ export default {
       annotationToggle: 'Show / Hide Annotations',
       handMode: 'Hand Mode',
       selectMode: 'Select Mode',
+      textSelectMode: 'Text Select Mode',
       save: {
         title: 'Save',
         overwrite: 'Save Changes',
@@ -357,6 +358,17 @@ export default {
         'This file has changed since its annotation data was last recorded. Update to the latest content now? (Annotation positions may shift.)',
       conflictTrackFailed:
         'Could not re-track annotation positions. Opening with the existing annotation data, which may not match the current content.',
+    },
+    search: {
+      placeholder: 'Search in document',
+      matchCount: '{current} / {total}',
+      noMatches: 'No matches',
+      next: 'Find next',
+      previous: 'Find previous',
+      close: 'Close search',
+      searchContainer: 'Search entire container',
+      containerNoMatches: 'No matching documents',
+      pageLabel: 'Page {page}',
     },
     peek: {
       title: 'Relational Peek',

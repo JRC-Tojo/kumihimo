@@ -30,6 +30,7 @@ import type {
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
+import type { ContainerTextSearchResult, TextSearchMatch } from 'src/models/document/search';
 import type {
   AnnotationID,
   AnnotationStyle,
@@ -259,6 +260,54 @@ class BackendApi {
     if (!docSrc.ok) return toApiResponse(docSrc, 'INVALID_DOCUMENT');
     const textRes = textRepo.loadTextContents(docSrc.value);
     return toApiResponse(textRes, 'INVALID_DOCUMENT');
+  }
+
+  /**
+   * 文書内テキスト検索（Ctrl+F）: 指定ファイルの全ページからクエリにマッチする箇所を位置情報付きで返す
+   *
+   * ビューア表示中の文書自体に対する検索は、既に取得済みのPDFDocumentProxyを再利用できる
+   * `src/components/Viewer/pdfManager.ts`の`searchDocumentText`を直接使う方が効率的なため、
+   * こちらは「開いていない文書」も対象にできるコンテナ横断検索（`searchContainerText`）から使う想定
+   */
+  async searchDocumentText(
+    file: ContainerElementFile,
+    query: string,
+  ): Promise<ApiResponse<TextSearchMatch[]>> {
+    const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+    if (!docSrc.ok) return toApiResponse(docSrc, 'INVALID_DOCUMENT');
+    const res = await pdfRepo.searchTextByFile(file, docSrc.value, query);
+    return toApiResponse(res, 'DOC_SEARCH_FAILED');
+  }
+
+  /**
+   * コンテナ横断のテキスト検索: コンテナ内の全PDF文書を対象にクエリを検索する
+   *
+   * 1文書ずつ順に読み込んで検索するため、文書数が多いコンテナでは相応の時間がかかる
+   * （将来的な改善余地として、並列化やインデックス作成が考えられる）。
+   * 個別文書の読み込み・検索に失敗した場合はその文書だけスキップし、コンテナ全体の検索は継続する
+   */
+  async searchContainerText(
+    cId: ContainerID,
+    query: string,
+  ): Promise<ApiResponse<ContainerTextSearchResult[]>> {
+    const containerRes = await containerService.loadContainer(cId, false);
+    if (!containerRes.ok) return toApiResponse(containerRes, 'CONTAINER_SEARCH_FAILED');
+
+    const pdfFiles = Object.values(containerRes.value.elements).filter(
+      (el): el is ContainerElementFile =>
+        el.type === 'File' && el.path.toLowerCase().endsWith('.pdf'),
+    );
+
+    const results: ContainerTextSearchResult[] = [];
+    for (const file of pdfFiles) {
+      const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+      if (!docSrc.ok) continue;
+      const matchesRes = await pdfRepo.searchTextByFile(file, docSrc.value, query);
+      if (matchesRes.ok && matchesRes.value.length > 0) {
+        results.push({ file, matches: matchesRes.value });
+      }
+    }
+    return toApiResponse(Success(results), 'CONTAINER_SEARCH_FAILED');
   }
 
   /**

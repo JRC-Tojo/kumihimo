@@ -306,6 +306,19 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
         editorStore.currentTools = 'pointer';
       },
     },
+    {
+      id: 'text-select-mode',
+      icon: 'text_fields',
+      label: t('pdfEditor.tools.textSelectMode'),
+      noMenu: true,
+      isActive: () => {
+        return editorStore.currentTools === 'text-select';
+      },
+      isDisable: () => editorStore.activeViewMode === 'pageList',
+      onClicked: () => {
+        editorStore.currentTools = 'text-select';
+      },
+    },
   ];
   return tools;
 }

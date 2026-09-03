@@ -211,6 +211,7 @@ export default {
       annotationToggle: 'アノテーションの表示切替',
       handMode: 'ハンドモード',
       selectMode: '選択モード',
+      textSelectMode: 'テキスト選択モード',
       save: {
         title: '保存',
         overwrite: '上書き保存',
@@ -356,6 +357,17 @@ export default {
         'このファイルは、アノテーション情報を記録した時点から内容が変更されています。最新の内容を反映しますか？（アノテーションの位置がずれる場合があります）',
       conflictTrackFailed:
         'アノテーション位置の再追跡に失敗しました。既存のアノテーション情報のまま開きます（現在の内容と一致していない可能性があります）。',
+    },
+    search: {
+      placeholder: '文書内を検索',
+      matchCount: '{current} / {total} 件',
+      noMatches: '見つかりません',
+      next: '次を検索',
+      previous: '前を検索',
+      close: '検索を終了',
+      searchContainer: 'コンテナ全体を検索',
+      containerNoMatches: '一致する文書がありません',
+      pageLabel: '{page}ページ',
     },
     peek: {
       title: '関係性の一覧',

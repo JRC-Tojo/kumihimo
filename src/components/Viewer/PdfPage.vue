@@ -46,6 +46,24 @@
         @duplicate-batch="onDuplicateBatch"
         @remove-annot="onRemoveAnnot"
       />
+
+      <!-- Ctrl+F検索のマッチハイライト（issue #33）。常にpointer-events: noneのため、
+           上記Konvaレイヤーの操作性には一切影響しない -->
+      <SearchHighlightLayer
+        v-if="canvasRendered && currentPageSearchMatches.length > 0"
+        :matches="currentPageSearchMatches"
+        :active-match-id="props.activeSearchMatchId"
+        :scale="lastRenderedScale"
+      />
+
+      <!-- 選択可能なテキストレイヤー（issue #33）。テキスト選択ツール選択時のみ
+           pointer-eventsを受け付け、それ以外は完全に透過してアノテーション操作を妨げない -->
+      <TextLayer
+        v-if="canvasRendered"
+        :boxes="pageTextBlocks"
+        :scale="lastRenderedScale"
+        :interactive="isTextSelectMode"
+      />
     </div>
   </div>
 </template>
@@ -53,8 +71,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AnnotationLayer from './Annotation/AnnotationLayer.vue';
+import TextLayer from './TextLayer.vue';
+import SearchHighlightLayer from './SearchHighlightLayer.vue';
 import { debounce, useQuasar } from 'quasar';
-import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf.js';
+import type { AnnotationID, AnnotationStyle, TextItemBox } from 'src/models/document/pdf.js';
+import type { TextSearchMatch } from 'src/models/document/search';
 import type { ContainerElementFile } from 'src/models/container';
 import type { PageSize } from './pdfManager';
 import {
@@ -64,6 +85,7 @@ import {
   type TileDescriptor,
 } from './tiling';
 import { cancelPendingRenderForCanvas, isRenderCancelledError } from './pdfManager';
+import { useEditorStore } from 'src/stores/editorStore';
 
 interface Props {
   file: ContainerElementFile;
@@ -87,8 +109,18 @@ interface Props {
     isGroup: boolean,
   ) => Promise<AnnotationStyle[]>;
   onRemoveAnnot: (annotID: AnnotationID) => Promise<void>;
+  /** 指定ページのテキストアイテム一覧を取得する（選択可能テキストレイヤー用、issue #33） */
+  onGetPageTextBlocks: (pageNumber: number) => Promise<TextItemBox[]>;
+  /** 文書全体の検索マッチ一覧（このコンポーネントは自身のページ番号でフィルタして使う） */
+  searchMatches: TextSearchMatch[];
+  /** 現在アクティブな検索マッチのDOM id */
+  activeSearchMatchId?: string;
 }
 const props = defineProps<Props>();
+
+const editorStore = useEditorStore();
+/** テキスト選択ツールが選択されている間のみ、TextLayerがポインタ操作を受け付ける */
+const isTextSelectMode = computed(() => editorStore.currentTools === 'text-select');
 const page = defineModel<number>('page', { required: true });
 const scale = defineModel<number>('scale', { required: true });
 const selectedAnnotIds = defineModel<AnnotationID[]>('selectedAnnotIds', { required: true });
@@ -139,6 +171,26 @@ const innerStyle = computed(() => {
 const currentPageAnnotations = computed(() => {
   return props.annotations.filter((a) => a.pageNumber === page.value);
 });
+
+// ============ テキストレイヤー・検索ハイライト（issue #33） ============
+
+/** 現在ページのテキストアイテム一覧（TextLayer用）。ページ番号は変わるがスケールには依存しないため、
+ * ページ切り替え時のみ取得し直す（ズームでは再取得しない） */
+const pageTextBlocks = ref<TextItemBox[]>([]);
+/** 現在ページに属する検索マッチのみ（他ページ分はSearchHighlightLayerへ渡さない） */
+const currentPageSearchMatches = computed(() => {
+  return props.searchMatches.filter((m) => m.pageNumber === page.value);
+});
+
+/** 現在ページのテキストアイテムを取得し直す。取得中にページが切り替わっていた場合は結果を捨てる */
+async function refreshPageTextBlocks(): Promise<void> {
+  const requestedPage = page.value;
+  const blocks = await props.onGetPageTextBlocks(requestedPage);
+  if (requestedPage !== page.value) return;
+  pageTextBlocks.value = blocks;
+}
+
+watch(page, () => void refreshPageTextBlocks());
 
 // ============ タイル分割レンダリング（巨大ページ×高倍率のみ） ============
 // 通常サイズのページ・通常倍率では`tilingActive`は常にfalseのままで、上のbackdrop
@@ -447,6 +499,7 @@ onMounted(async () => {
   } catch (error) {
     notifyRenderFailure(error);
   }
+  void refreshPageTextBlocks();
 });
 
 onBeforeUnmount(() => {

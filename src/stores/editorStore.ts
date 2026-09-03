@@ -17,7 +17,9 @@ import { useHistoryStore } from './historyStore';
 import type { PluginID } from 'src/models/plugin/manifest';
 import type { PluginInstallSource } from 'src/models/plugin/installation';
 
-export type PointerType = DrawingAnnotationType | 'hand' | 'pointer';
+// 'text-select'はテキスト選択モード（issue #33）: 描画・選択は行わず、AnnotationLayerは
+// 'hand'と同じ読み取り専用として扱い、代わりにTextLayer.vueへポインタ操作を明け渡す
+export type PointerType = DrawingAnnotationType | 'hand' | 'pointer' | 'text-select';
 const sides = ['ul', 'ur', 'll', 'lr'] as const;
 export type LayoutSide = (typeof sides)[number];
 export type Layouts<T> = { [side in LayoutSide]: T };

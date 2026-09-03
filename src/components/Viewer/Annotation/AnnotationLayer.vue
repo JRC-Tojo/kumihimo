@@ -347,8 +347,10 @@ const drawingPreviewComponent = computed(() => {
   return ANNOTATION_REGISTRY[drawingType.value as AnnotationStyle['type']].previewComponent;
 });
 const isDrawingTool = computed(() => drawingType.value in ANNOTATION_REGISTRY);
-// 編集は明示的な 'hand'（読み取り専用）モード以外で許可されます。
-const isEditingMode = computed(() => drawingType.value !== 'hand');
+// 編集は明示的な 'hand'（読み取り専用）・'text-select'（テキスト選択モード）以外で許可されます。
+const isEditingMode = computed(
+  () => drawingType.value !== 'hand' && drawingType.value !== 'text-select',
+);
 const isEditing = computed(() => isEditingMode.value);
 // カーソル状態はモードに基づき動的に変化します。編集可能な注釈上にホバーした場合は切り替わります。
 const cursor = ref('default');
