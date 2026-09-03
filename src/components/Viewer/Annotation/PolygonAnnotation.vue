@@ -99,6 +99,11 @@ const shapeConfig = computed(() => {
     points: annotation.points,
     closed: true,
     fill: resolveFill(annotation.fillColor, annotation.fillOpacity),
+    // Konvaは既定でfillEnabled=trueのため、fill未設定（'transparent'）でも当たり判定は
+    // 面全体に及んでしまう。塗りを持たないポリゴンは「延長方向のみ制御可能」な線・折れ線と
+    // 同様、輪郭線付近のみを選択対象としたいため、実際に塗りがある場合（関係性の検証結果に
+    // よる上書き表示中も含む）だけ面全体の当たり判定を有効にする（Issue #82）
+    fillEnabled: !!(relationalOverride.value || annotation.fillColor),
     stroke: resolvedStroke.value,
     strokeWidth: relationalOverride.value?.strokeWidth ?? (annotation.strokeWidth || 2),
     dash: strokeDash.value,

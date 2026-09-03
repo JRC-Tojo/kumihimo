@@ -675,6 +675,146 @@ describe('boundingBox（残りの種別）', () => {
   });
 });
 
+/** containsPointテスト用の共通ベースフィールド（strokeWidthのみ呼び出し側で変える） */
+function containsPointBaseFields(strokeWidth: number) {
+  return {
+    id: '00000000-0000-4000-8000-000000000000' as never,
+    pageNumber: 1,
+    color: '#000000' as never,
+    strokeWidth,
+    strokeType: 'solid' as const,
+    blendMode: 'normal' as never,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    comment: {},
+  };
+}
+
+describe('containsPoint（実形状に基づく点の内外判定。関係性のテキスト読み取り範囲や当たり判定の厳密化に使う。Issue #82）', () => {
+  it('box: 面方向全体が制御可能なため、矩形の内側（境界含む）はtrueを返す', () => {
+    const style = {
+      ...containsPointBaseFields(2),
+      type: 'box' as const,
+      x: 10,
+      y: 10,
+      width: 20,
+      height: 10,
+    };
+    expect(ANNOTATION_GEOMETRY.box.containsPoint(style, { x: 20, y: 15 })).toBeTrue();
+    expect(ANNOTATION_GEOMETRY.box.containsPoint(style, { x: 10, y: 10 })).toBeTrue();
+    expect(ANNOTATION_GEOMETRY.box.containsPoint(style, { x: 31, y: 15 })).toBeFalse();
+  });
+
+  it('circle: 面方向全体が制御可能なため、楕円の内側のみtrueを返す', () => {
+    const style = {
+      ...containsPointBaseFields(2),
+      type: 'circle' as const,
+      x: 0,
+      y: 0,
+      radius: 10,
+    };
+    expect(ANNOTATION_GEOMETRY.circle.containsPoint(style, { x: 5, y: 5 })).toBeTrue();
+    expect(ANNOTATION_GEOMETRY.circle.containsPoint(style, { x: 9, y: 9 })).toBeFalse();
+  });
+
+  it('line: 外接矩形（AABB）の内側でも、実際の太さを超えて線から離れた点はfalseを返す', () => {
+    // strokeWidth 6 → halfStroke = 6/2 + BOUNDING_BOX_PADDING(2) = 5
+    const style = {
+      ...containsPointBaseFields(6),
+      type: 'line' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 100, 100],
+    };
+
+    // 線分の中点は当然含まれる
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 50, y: 50 })).toBeTrue();
+
+    // (95, 5)は外接矩形の内側だが、斜めの線からは大きく離れている
+    // （旧実装のAABB判定ではここも「範囲内」とみなされ、誤ってテキストを拾ってしまっていた）
+    const bbox = ANNOTATION_GEOMETRY.line.boundingBox(style);
+    const farButInsideBBox = { x: 95, y: 5 };
+    expect(farButInsideBBox.x).toBeLessThanOrEqual(bbox.x + bbox.width);
+    expect(farButInsideBBox.y).toBeGreaterThanOrEqual(bbox.y);
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, farButInsideBBox)).toBeFalse();
+  });
+
+  it('arrow: lineと同じくシャフトの帯からの距離で判定する', () => {
+    const style = {
+      ...containsPointBaseFields(6),
+      type: 'arrow' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 100, 100],
+      startHead: 'none' as const,
+      endHead: 'triangle' as const,
+      headSize: 12,
+    };
+    expect(ANNOTATION_GEOMETRY.arrow.containsPoint(style, { x: 50, y: 50 })).toBeTrue();
+    expect(ANNOTATION_GEOMETRY.arrow.containsPoint(style, { x: 95, y: 5 })).toBeFalse();
+  });
+
+  it('polyline: 各線分から実際の太さ分だけ離れた範囲のみtrueを返す', () => {
+    // strokeWidth 4 → halfStroke = 4/2 + 2 = 4
+    const style = {
+      ...containsPointBaseFields(4),
+      type: 'polyline' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 20, 0, 20, 30],
+      startHead: 'none' as const,
+      endHead: 'none' as const,
+      headSize: 12,
+    };
+    // 1本目の線分（0,0)-(20,0)）上の点
+    expect(ANNOTATION_GEOMETRY.polyline.containsPoint(style, { x: 10, y: 0 })).toBeTrue();
+    // どちらの線分からも離れた、外接矩形内の点
+    expect(ANNOTATION_GEOMETRY.polyline.containsPoint(style, { x: 10, y: 20 })).toBeFalse();
+  });
+
+  it('polygon: 塗りがある場合は面の内側も対象に含み、塗りが無い場合は輪郭線付近のみが対象になる', () => {
+    // strokeWidth 2 → halfStroke = 2/2 + 2 = 3
+    const filled = {
+      ...containsPointBaseFields(2),
+      type: 'polygon' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 20, 0, 10, 20],
+      fillColor: '#9900cc' as never,
+    };
+    const unfilled = { ...filled, fillColor: undefined };
+
+    // 三角形の重心付近（いずれの辺からも離れた内部の点）
+    const insidePoint = { x: 10, y: 8 };
+    expect(ANNOTATION_GEOMETRY.polygon.containsPoint(filled, insidePoint)).toBeTrue();
+    expect(ANNOTATION_GEOMETRY.polygon.containsPoint(unfilled, insidePoint)).toBeFalse();
+
+    // 輪郭線上の点は、塗りの有無に関わらず対象に含む
+    const edgePoint = { x: 10, y: 0 };
+    expect(ANNOTATION_GEOMETRY.polygon.containsPoint(filled, edgePoint)).toBeTrue();
+    expect(ANNOTATION_GEOMETRY.polygon.containsPoint(unfilled, edgePoint)).toBeTrue();
+  });
+
+  it('text: boxと同じく矩形の内側（境界含む）のみtrueを返す', () => {
+    const style = {
+      ...containsPointBaseFields(0),
+      type: 'text' as const,
+      x: 10,
+      y: 10,
+      width: 20,
+      height: 10,
+      text: 'hello',
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 400,
+      textColor: '#000000' as never,
+      textAlign: 'left' as const,
+    };
+    expect(ANNOTATION_GEOMETRY.text.containsPoint(style, { x: 20, y: 15 })).toBeTrue();
+    expect(ANNOTATION_GEOMETRY.text.containsPoint(style, { x: 100, y: 100 })).toBeFalse();
+  });
+});
+
 describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中のプレビュー形状）', () => {
   it('box: fill/strokeにstrokeOpacity/fillOpacityをrgba合成して返す', () => {
     const preview = asClickPointsModule(ANNOTATION_GEOMETRY.box).previewFromPoints(

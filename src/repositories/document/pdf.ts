@@ -374,7 +374,10 @@ export async function extractTextByAnnot(
   try {
     const page = await acquired.value.document.getPage(style.pageNumber);
     const textContent = await page.getTextContent();
+    // 実形状（containsPoint）による厳密な判定の前に、明らかに対象外のブロックを
+    // 早期に除外するための大まかな外接矩形（実形状は必ずこの内側に収まる）
     const bbox = calculateBoundingBox(style);
+    const geometry = ANNOTATION_GEOMETRY[style.type];
     // PDF のテキスト座標系（左下原点・Y軸上向き）を bbox の座標系（左上原点・Y軸下向き）に揃えるために使用
     const viewport = page.getViewport({ scale: 1 });
     // 文字ごとの幅の内訳推定に使う（pdf.js の TextLayer 自体が採用している手法に準拠）
@@ -388,6 +391,15 @@ export async function extractTextByAnnot(
         viewport,
       );
       if (!box || !('str' in item)) continue;
+
+      // ブロック自体の外接矩形がアノテーションの外接矩形と重ならなければ、
+      // 内部のどの文字も実形状に含まれ得ないため、文字単位の判定をスキップする
+      const overlapsBoundingBox =
+        box.x + box.width >= bbox.x &&
+        box.x <= bbox.x + bbox.width &&
+        box.y + box.height >= bbox.y &&
+        box.y <= bbox.y + bbox.height;
+      if (!overlapsBoundingBox) continue;
 
       const tx = box.x;
       const itemWidth = box.width;
@@ -409,11 +421,11 @@ export async function extractTextByAnnot(
         const centerX = tx + offsetX + charWidth / 2;
         const centerY = itemTopY + itemHeight / 2;
 
-        // 中心点がアノテーションの内部にあるか判定
-        const isInsideX = centerX >= bbox.x && centerX <= bbox.x + bbox.width;
-        const isInsideY = centerY >= bbox.y && centerY <= bbox.y + bbox.height;
-
-        if (isInsideX && isInsideY) matchedChars.push(char);
+        // 中心点がアノテーションの実形状（線幅・塗りの有無を考慮した実際の図形）に
+        // 含まれるか判定する。外接矩形（AABB）だけでの判定だと、斜めの直線などで
+        // 図形から離れた場所のテキストまで誤って拾ってしまうため、種別ごとの
+        // 実形状に基づいた判定（ANNOTATION_GEOMETRY[type].containsPoint）を使う（Issue #82）
+        if (geometry.containsPoint(style, { x: centerX, y: centerY })) matchedChars.push(char);
         offsetX += charWidth;
       });
 

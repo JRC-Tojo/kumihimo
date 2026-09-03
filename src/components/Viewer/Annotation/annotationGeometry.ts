@@ -142,6 +142,82 @@ function ellipseIntersectsRect(
   return nx * nx + ny * ny <= 1;
 }
 
+/** 点と線分（a-b）の最短距離を求める（線分外なら最近傍の端点までの距離になる） */
+function distancePointToSegment(p: Point, a: Point, b: Point): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const lengthSq = abx * abx + aby * aby;
+  // 端点a・bが一致する（長さ0の）線分は単純に点aまでの距離として扱う
+  if (lengthSq < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
+
+  // pをa-b上へ正射影した位置（0〜1にクランプし、線分の範囲外にはみ出さないようにする）
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSq));
+  const projX = a.x + t * abx;
+  const projY = a.y + t * aby;
+  return Math.hypot(p.x - projX, p.y - projY);
+}
+
+/**
+ * 直線・矢印・折れ線共通: 実際の太さを考慮した帯（カプセル形状）に点が含まれるかどうかを判定する
+ *
+ * `halfStroke`は線の中心から帯の縁までの距離（線幅の半分）。`points`は相対座標の頂点列
+ * （`polylineIntersectsRect`と同じ規約）、`closed`がtrueの場合は終点-始点間の辺も対象に含める
+ * （塗りを持たないポリゴンの枠線判定に使う）
+ */
+function pointNearPolyline(
+  originX: number,
+  originY: number,
+  points: number[],
+  point: Point,
+  halfStroke: number,
+  closed: boolean,
+): boolean {
+  const abs: Point[] = [];
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    abs.push({ x: originX + points[i]!, y: originY + points[i + 1]! });
+  }
+  if (abs.length === 0) return false;
+  // 頂点が1つしかない退化ケースは、その頂点を中心とした円として扱う
+  if (abs.length === 1) return Math.hypot(point.x - abs[0]!.x, point.y - abs[0]!.y) <= halfStroke;
+
+  for (let i = 0; i + 1 < abs.length; i++) {
+    if (distancePointToSegment(point, abs[i]!, abs[i + 1]!) <= halfStroke) return true;
+  }
+  if (closed && abs.length >= 3) {
+    if (distancePointToSegment(point, abs[abs.length - 1]!, abs[0]!) <= halfStroke) return true;
+  }
+  return false;
+}
+
+/** 多角形共通: 点が多角形の内側（塗りつぶし面）にあるかどうかを偶奇則（レイキャスト法）で判定する */
+function pointInPolygon(originX: number, originY: number, points: number[], point: Point): boolean {
+  const abs: Point[] = [];
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    abs.push({ x: originX + points[i]!, y: originY + points[i + 1]! });
+  }
+  if (abs.length < 3) return false;
+
+  let inside = false;
+  for (let i = 0, j = abs.length - 1; i < abs.length; j = i++) {
+    const pi = abs[i]!;
+    const pj = abs[j]!;
+    const intersects =
+      pi.y > point.y !== pj.y > point.y &&
+      point.x < ((pj.x - pi.x) * (point.y - pi.y)) / (pj.y - pi.y) + pi.x;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * 直線・矢印・折れ線・塗りなしポリゴン共通: 当たり判定用の帯の半幅（strokeWidth/2）を求める。
+ * `boundingBox`計算（`lineLikeBoundingBox`/`multiPointBoundingBox`）と同じ`BOUNDING_BOX_PADDING`を
+ * 加えることで、外接矩形のギリギリ内側にある点まで一貫して拾えるようにする
+ */
+function lineLikeHalfStroke(strokeWidth: number | undefined): number {
+  return (strokeWidth ?? 2) / 2 + BOUNDING_BOX_PADDING;
+}
+
 /** 初期設定として投入されるプリセット1件分の元データ（id/表示順はsettings層で採番する） */
 export interface AnnotationDefaultPreset {
   name: string;
@@ -170,6 +246,14 @@ interface AnnotationGeometryModuleCommon<T extends AnnotationStyle> {
    * 選択されてしまうため、型ごとの実形状に基づいた判定をここに集約する
    */
   intersectsRect(style: T, rect: RectLike): boolean;
+  /**
+   * 点が図形の実形状に含まれるかどうかを判定する（関係性のテキスト読み取り範囲・OCR照合向け）。
+   * `point`はstyleと同じドキュメント座標系（scale未適用）で渡すこと。
+   * 外接矩形（boundingBox）だけで判定すると、斜めの直線・折れ線では図形から離れた場所まで
+   * 含んでしまうため、直線・矢印・折れ線は実際の太さを考慮した帯（カプセル形状）との距離判定、
+   * 塗りを持つ図形（box/circle/塗りありのpolygon）は面としての内外判定で行う（Issue #82）
+   */
+  containsPoint(style: T, point: Point): boolean;
   /** 初期設定（初回起動時・既存設定への補完時）に投入するこの種別のデフォルトプリセット。1件以上必須 */
   defaultPresets: AnnotationDefaultPreset[];
 }
@@ -371,6 +455,16 @@ const boxGeometry: AnnotationGeometryModule = {
       style.x <= rect.x + rect.width &&
       style.y + style.height >= rect.y &&
       style.y <= rect.y + rect.height
+    );
+  },
+  containsPoint(style, point) {
+    if (style.type !== 'box') return false;
+    // 面方向全体が制御可能な種別のため、塗りの有無に関わらず矩形全体を対象とする
+    return (
+      point.x >= style.x &&
+      point.x <= style.x + style.width &&
+      point.y >= style.y &&
+      point.y <= style.y + style.height
     );
   },
   defaultPresets: [
@@ -588,6 +682,18 @@ const lineGeometry: AnnotationGeometryModule = {
       rect,
     );
   },
+  containsPoint(style, point) {
+    if (style.type !== 'line') return false;
+    // 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する
+    return pointNearPolyline(
+      style.x,
+      style.y,
+      style.points,
+      point,
+      lineLikeHalfStroke(style.strokeWidth),
+      false,
+    );
+  },
   defaultPresets: [
     {
       name: '実線（黒）',
@@ -695,6 +801,16 @@ const circleGeometry: AnnotationGeometryModule = {
     const radiusY = style.radiusY ?? style.radius;
     return ellipseIntersectsRect(style.x, style.y, radiusX, radiusY, rect);
   },
+  containsPoint(style, point) {
+    if (style.type !== 'circle') return false;
+    // 面方向全体が制御可能な種別のため、塗りの有無に関わらず楕円の内側全体を対象とする
+    const radiusX = style.radiusX ?? style.radius;
+    const radiusY = style.radiusY ?? style.radius;
+    if (radiusX <= 0 || radiusY <= 0) return false;
+    const nx = (point.x - style.x) / radiusX;
+    const ny = (point.y - style.y) / radiusY;
+    return nx * nx + ny * ny <= 1;
+  },
   defaultPresets: [
     {
       name: '円（緑枠）',
@@ -776,6 +892,19 @@ const arrowGeometry: AnnotationGeometryModule = {
       rect,
     );
   },
+  containsPoint(style, point) {
+    if (style.type !== 'arrow') return false;
+    // 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する
+    // （矢じり部分は軸方向の延長に含まれるとみなし、シャフトの帯のみで判定する）
+    return pointNearPolyline(
+      style.x,
+      style.y,
+      style.points,
+      point,
+      lineLikeHalfStroke(style.strokeWidth),
+      false,
+    );
+  },
   defaultPresets: [
     {
       name: '矢印（黒）',
@@ -853,6 +982,18 @@ const polylineGeometry: AnnotationGeometryModule = {
   intersectsRect(style, rect) {
     if (style.type !== 'polyline') return false;
     return polylineIntersectsRect(style.x, style.y, style.points, rect, false);
+  },
+  containsPoint(style, point) {
+    if (style.type !== 'polyline') return false;
+    // 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する
+    return pointNearPolyline(
+      style.x,
+      style.y,
+      style.points,
+      point,
+      lineLikeHalfStroke(style.strokeWidth),
+      false,
+    );
   },
   defaultPresets: [
     {
@@ -951,6 +1092,23 @@ const polygonGeometry: AnnotationGeometryModule = {
   intersectsRect(style, rect) {
     if (style.type !== 'polygon') return false;
     return polylineIntersectsRect(style.x, style.y, style.points, rect, true);
+  },
+  containsPoint(style, point) {
+    if (style.type !== 'polygon') return false;
+    // 塗りの有無に関わらず、輪郭線付近（実際の太さを考慮した帯、終点-始点間の辺も含む）は
+    // 常に対象に含める（偶奇則による内外判定だけでは境界上の点を安定して拾えないため）。
+    // 加えて塗りを持つ場合は面方向全体が制御可能とみなし、面の内外判定（偶奇則）も対象に含める
+    const nearEdge = pointNearPolyline(
+      style.x,
+      style.y,
+      style.points,
+      point,
+      lineLikeHalfStroke(style.strokeWidth),
+      true,
+    );
+    if (nearEdge) return true;
+    if (!style.fillColor) return false;
+    return pointInPolygon(style.x, style.y, style.points, point);
   },
   defaultPresets: [
     {
@@ -1051,6 +1209,16 @@ const textGeometry: AnnotationGeometryModule = {
       style.x <= rect.x + rect.width &&
       style.y + style.height >= rect.y &&
       style.y <= rect.y + rect.height
+    );
+  },
+  containsPoint(style, point) {
+    if (style.type !== 'text') return false;
+    // boxと同じく矩形全体が実体のため、矩形の内外判定のみで良い
+    return (
+      point.x >= style.x &&
+      point.x <= style.x + style.width &&
+      point.y >= style.y &&
+      point.y <= style.y + style.height
     );
   },
   defaultPresets: [
