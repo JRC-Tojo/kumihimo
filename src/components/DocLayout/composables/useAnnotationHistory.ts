@@ -27,6 +27,19 @@
  * （スタックの構造上、より新しい操作から順にundoされることが保証されているため）。
  * 巻き添え解散のように「エンティティ自体を対象としたUndoステップが存在しないまま関係性ごと
  * 消える」パターンにだけ、上記のスナップショット捕捉が必要になる
+ *
+ * ## Undo/Redo中の関係性キャッシュ再検証について
+ * `DocumentTabView.vue`の`handleAnnotationsChanged`はアノテーション一覧の変化を検知するたび
+ * `relationalStore.refreshFile`を呼び、OCR結果読み込み完了等による「検証保留→OK/NG」遷移を
+ * 拾っている。この汎用パスは`historyStore.isBusy(file)`がtrueの間（＝Undo/Redo実行中）は
+ * スキップされる。1ファイル分の関係性検証は全エッジをOCR照合し直す重い処理のため、Undo/Redoの
+ * 完了自体で発火するアノテーション一覧の変化と汎用watcherの両方で毎回検証すると、関係性を
+ * 多く持つ文書ほどUndo/Redoが遅く感じられる原因になっていたため。したがって、アノテーション
+ * 本体を書き換えるundo/redoコマンド（`registerWithHistory`・`registerManyWithHistory`等）は、
+ * 自分の変更が関係性の検証結果に影響しうる場合、必ず自分のundo/redoの最後で
+ * `relationalStore.refreshFile`（または`restoreRelationalSnapshot`等）を呼んで再検証を
+ * 保証すること。呼び忘れると、汎用watcherに再検証を頼れないままUndo/Redo後の関係性表示が
+ * 古いままになる
  */
 
 import dayjs from 'dayjs';
@@ -180,9 +193,12 @@ export function useAnnotationHistory() {
         undo: async () => {
           if (previous) await registerStyleTracked(file, previous);
           else await api.removeAnnotation(next.id);
+          // ファイル冒頭「Undo/Redo中の関係性キャッシュ再検証について」参照
+          await relationalStore.refreshFile(file);
         },
         redo: async () => {
           await registerStyleTracked(file, next);
+          await relationalStore.refreshFile(file);
         },
       });
     }
@@ -217,12 +233,15 @@ export function useAnnotationHistory() {
           file,
           items.map((item) => item.previous),
         );
+        // registerWithHistoryのundo/redoと同じ理由（ファイル冒頭コメント参照）で再検証する
+        await relationalStore.refreshFile(file);
       },
       redo: async () => {
         await registerStylesTracked(
           file,
           items.map((item) => item.next),
         );
+        await relationalStore.refreshFile(file);
       },
     });
   }
