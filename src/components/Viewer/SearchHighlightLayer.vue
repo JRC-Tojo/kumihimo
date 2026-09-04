@@ -13,7 +13,9 @@
         v-for="(box, boxIndex) in match.boxes"
         :key="boxIndex"
         class="search-highlight-layer__box"
-        :class="{ 'search-highlight-layer__box--active': searchMatchDomId(match) === activeMatchId }"
+        :class="{
+          'search-highlight-layer__box--active': searchMatchDomId(match) === activeMatchId,
+        }"
         :style="boxStyle(box)"
       />
     </div>
