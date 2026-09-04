@@ -137,7 +137,7 @@ interface Prop {
   /** 文書内検索（Ctrl+F）のマッチ一覧（文書全体分。各PdfPageが自身のページ番号でフィルタする） */
   searchMatches: TextSearchMatch[];
   /** 現在アクティブな検索マッチのDOM id */
-  activeSearchMatchId?: string;
+  activeSearchMatchId?: string | undefined;
 }
 const prop = defineProps<Prop>();
 

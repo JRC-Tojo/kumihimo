@@ -31,7 +31,7 @@ interface Props {
   /** このページに属するマッチのみを渡す想定（呼び出し側でpageNumberフィルタ済み） */
   matches: TextSearchMatch[];
   /** 現在アクティブなマッチのDOM id（`searchMatchDomId`）。一致する矩形だけ強調表示する */
-  activeMatchId?: string;
+  activeMatchId?: string | undefined;
   /** スケール1（PDF自体の座標系）から、このレイヤーが実際に描画されるpxへの倍率 */
   scale: number;
 }

@@ -114,7 +114,7 @@ interface Props {
   /** 文書全体の検索マッチ一覧（このコンポーネントは自身のページ番号でフィルタして使う） */
   searchMatches: TextSearchMatch[];
   /** 現在アクティブな検索マッチのDOM id */
-  activeSearchMatchId?: string;
+  activeSearchMatchId?: string | undefined;
 }
 const props = defineProps<Props>();
 

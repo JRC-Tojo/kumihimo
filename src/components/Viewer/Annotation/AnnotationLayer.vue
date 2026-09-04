@@ -797,7 +797,7 @@ function handleMouseDown(e: KonvaMouseEvent) {
   if (!isEditing.value || drawingType.value === 'hand') return;
   if (!(drawingType.value in ANNOTATION_REGISTRY)) return;
 
-  const module = ANNOTATION_REGISTRY[drawingType.value];
+  const module = ANNOTATION_REGISTRY[drawingType.value as AnnotationStyle['type']];
   const pos = stage.getPointerPosition();
   if (!pos) return;
   const adjustedPos = { x: pos.x / props.scale, y: pos.y / props.scale };
