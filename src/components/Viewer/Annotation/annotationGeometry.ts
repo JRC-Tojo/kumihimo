@@ -308,7 +308,9 @@ function pointInHead(
   const radius = getHeadRadius(headType, headSize);
   if (radius !== null) {
     const resolved = resolveHeadTransform(originX, originY, points, end);
-    return resolved !== null && Math.hypot(point.x - resolved.tip.x, point.y - resolved.tip.y) <= radius;
+    return (
+      resolved !== null && Math.hypot(point.x - resolved.tip.x, point.y - resolved.tip.y) <= radius
+    );
   }
 
   const abs = resolveHeadAbsolutePoints(originX, originY, points, end, headType, headSize);
@@ -631,7 +633,8 @@ function lineLikeBoundingBox(
   if (heads) {
     for (const end of ['start', 'end'] as const) {
       const headType = end === 'start' ? heads.startHead : heads.endHead;
-      const headPoints = resolveHeadAbsolutePoints(x, y, points, end, headType, heads.headSize) ?? [];
+      const headPoints =
+        resolveHeadAbsolutePoints(x, y, points, end, headType, heads.headSize) ?? [];
       for (const p of headPoints) {
         minX = Math.min(minX, p.x);
         maxX = Math.max(maxX, p.x);
@@ -1034,7 +1037,16 @@ const arrowGeometry: AnnotationGeometryModule = {
 
     const headSize = style.headSize ?? 10;
     return (
-      pointInHead(style.x, style.y, style.points, 'start', style.startHead, headSize, point, halfStroke) ||
+      pointInHead(
+        style.x,
+        style.y,
+        style.points,
+        'start',
+        style.startHead,
+        headSize,
+        point,
+        halfStroke,
+      ) ||
       pointInHead(style.x, style.y, style.points, 'end', style.endHead, headSize, point, halfStroke)
     );
   },
