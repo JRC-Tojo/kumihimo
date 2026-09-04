@@ -24,41 +24,9 @@
       </q-input>
     </div>
 
-    <!-- 検索オプション（大文字小文字・半角全角・正規表現）。文書内検索と同じ3種のトグルボタン -->
+    <!-- 検索オプション（大文字小文字・半角全角・正規表現）。文書内検索と同じ共通コンポーネント -->
     <div class="search-view-options q-px-sm q-pb-sm">
-      <q-btn
-        flat
-        dense
-        round
-        size="sm"
-        label="Aa"
-        class="search-view-option-btn"
-        :class="{ 'search-view-option-btn--active': options.caseSensitive }"
-        :title="$t('pdfEditor.search.matchCase')"
-        @click="toggleOption('caseSensitive')"
-      />
-      <q-btn
-        flat
-        dense
-        round
-        size="sm"
-        label="全/半"
-        class="search-view-option-btn"
-        :class="{ 'search-view-option-btn--active': options.ignoreWidth }"
-        :title="$t('pdfEditor.search.ignoreWidth')"
-        @click="toggleOption('ignoreWidth')"
-      />
-      <q-btn
-        flat
-        dense
-        round
-        size="sm"
-        label=".*"
-        class="search-view-option-btn"
-        :class="{ 'search-view-option-btn--active': options.useRegex }"
-        :title="$t('pdfEditor.search.useRegex')"
-        @click="toggleOption('useRegex')"
-      />
+      <SearchOptionToggles :options="options" @update:options="onUpdateOptions" />
     </div>
 
     <q-separator />
@@ -73,25 +41,50 @@
       >
         {{ $t('searchPanel.noResults') }}
       </div>
+      <!-- ファイルごとにq-expansion-itemで畳み、既定では開いた状態で表示する -->
       <q-list v-else dense>
-        <template v-for="result in results" :key="fileKey(result.file)">
-          <q-item-label header class="search-view-file-header">
-            {{ containerNameOf(result.file.containerID) }} › {{ result.file.path }}
-          </q-item-label>
+        <q-expansion-item
+          v-for="result in results"
+          :key="fileKey(result.file)"
+          dense
+          default-opened
+          header-class="search-view-file-header"
+        >
+          <template #header>
+            <q-item-section>
+              {{ containerNameOf(result.file.containerID) }} › {{ result.file.path }}
+            </q-item-section>
+            <q-item-section side>
+              <q-badge outline color="primary">{{ result.matches.length }}</q-badge>
+            </q-item-section>
+          </template>
+
           <q-item
             v-for="(match, idx) in result.matches"
             :key="`${fileKey(result.file)}-${idx}`"
             clickable
             dense
+            :title="$t('searchPanel.pageLabel', { page: match.pageNumber })"
             @click="openResult(result.file, match.pageNumber)"
           >
             <q-item-section>
-              <q-item-label caption>
-                {{ $t('searchPanel.pageLabel', { page: match.pageNumber }) }} — {{ match.text }}
-              </q-item-label>
+              <!-- ヒット文字とその前後（同一行のみ）をハイライト表示する。ファイル単位検索の
+                   PDF上ハイライトと同じ配色（$search-highlight）を使い、表示の一貫性を保つ -->
+              <q-item-label class="search-view-snippet"
+                ><span class="search-view-snippet__context">{{
+                  match.contextBefore
+                }}</span
+                ><mark class="search-view-snippet__hit">{{ match.text }}</mark
+                ><span class="search-view-snippet__context">{{
+                  match.contextAfter
+                }}</span></q-item-label
+              >
+            </q-item-section>
+            <q-item-section side>
+              <q-item-label caption>{{ match.pageNumber }}</q-item-label>
             </q-item-section>
           </q-item>
-        </template>
+        </q-expansion-item>
       </q-list>
     </div>
   </div>
@@ -102,6 +95,7 @@ import { onMounted, ref } from 'vue';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useEditorStore } from 'src/stores/editorStore';
 import { fileKey } from 'src/utils/document/fileKey';
+import SearchOptionToggles from 'src/components/Search/SearchOptionToggles.vue';
 import type { ContainerElementFile, ContainerID, ContainerSkel } from 'src/models/container';
 import type { ContainerTextSearchResult, TextSearchOptions } from 'src/models/document/search';
 
@@ -111,13 +105,19 @@ const editorStore = useEditorStore();
 const query = ref('');
 const options = ref<TextSearchOptions>({
   caseSensitive: false,
-  ignoreWidth: false,
+  distinguishWidth: false,
   useRegex: false,
 });
 const results = ref<ContainerTextSearchResult[]>([]);
 const isSearching = ref(false);
 const hasSearched = ref(false);
 const containers = ref<ContainerSkel[]>([]);
+
+/** SearchOptionTogglesからのオプション変更を反映し、現在のqueryで即座に再検索する */
+function onUpdateOptions(v: TextSearchOptions): void {
+  options.value = v;
+  void runSearch();
+}
 
 /** キーストロークのたびの自動検索は行わない（全コンテナ×全文書の走査は重いため、Enter/オプション変更でのみ実行する） */
 async function runSearch(): Promise<void> {
@@ -148,12 +148,6 @@ async function runSearch(): Promise<void> {
   }
 }
 
-/** 検索オプションの1項目を反転させ、即座に（現在のqueryで）再検索する */
-function toggleOption(key: keyof TextSearchOptions): void {
-  options.value = { ...options.value, [key]: !options.value[key] };
-  void runSearch();
-}
-
 function containerNameOf(cId: ContainerID): string {
   return containers.value.find((c) => c.id === cId)?.name ?? cId;
 }
@@ -182,23 +176,6 @@ onMounted(async () => {
   align-items: center;
 }
 
-.search-view-options {
-  display: flex;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
-.search-view-option-btn {
-  font-size: 11px;
-  font-weight: 700;
-  width: 28px;
-}
-
-.search-view-option-btn--active {
-  color: $primary;
-  background: rgba($primary, 0.12);
-}
-
 .search-view-results {
   flex: 1 1 0;
   min-height: 0;
@@ -208,5 +185,26 @@ onMounted(async () => {
 .search-view-file-header {
   font-weight: 500;
   word-break: break-all;
+}
+
+.search-view-snippet {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-view-snippet__context {
+  color: $grey-7;
+}
+
+.body--dark .search-view-snippet__context {
+  color: $grey-5;
+}
+
+.search-view-snippet__hit {
+  background: $search-highlight;
+  color: inherit;
+  border-radius: 2px;
+  font-weight: 700;
 }
 </style>

@@ -115,34 +115,66 @@ describe('findMatchesOnPage', () => {
   });
 });
 
+describe('findMatchesOnPage（contextBefore/contextAfter: 一覧表示用スニペット）', () => {
+  it('マッチ前後の同一行内の文字列を返す', () => {
+    const items = [box('the quick brown fox jumps')];
+    const matches = findMatchesOnPage(items, 1, 'brown');
+    expect(matches[0]?.contextBefore).toBe('the quick ');
+    expect(matches[0]?.contextAfter).toBe(' fox jumps');
+  });
+
+  it('Y座標が異なる（＝改行された）アイテムをまたいでは文脈を取得しない', () => {
+    // item0とitem1はY座標が離れており別行とみなされる
+    const item0 = box('foo bar', { y: 0, height: 10 });
+    const item1 = box('bar baz', { y: 20, height: 10 });
+    const matches = findMatchesOnPage([item0, item1], 1, 'bar');
+    expect(matches).toHaveLength(2);
+    // item0内の'bar'（末尾）: 直後に文字がなく、改行先item1へは跨がない
+    expect(matches[0]?.contextBefore).toBe('foo ');
+    expect(matches[0]?.contextAfter).toBe('');
+    // item1内の'bar'（先頭）: 直前に文字がなく、改行元item0へは跨がない
+    expect(matches[1]?.contextBefore).toBe('');
+    expect(matches[1]?.contextAfter).toBe(' baz');
+  });
+
+  it('文脈は最大24文字まで（それを超える分は切り詰める）', () => {
+    const items = [box(`${'a'.repeat(40)}TARGET${'b'.repeat(40)}`)];
+    const matches = findMatchesOnPage(items, 1, 'TARGET');
+    expect(matches[0]?.contextBefore).toBe('a'.repeat(24));
+    expect(matches[0]?.contextAfter).toBe('b'.repeat(24));
+  });
+});
+
 describe('searchMatchDomId', () => {
   it('page/matchIndexの組から一意な文字列を生成する', () => {
     const id = searchMatchDomId({
       pageNumber: 2,
       matchIndex: 5,
       text: 'foo',
+      contextBefore: '',
+      contextAfter: '',
       boxes: [{ x: 0, y: 0, width: 0, height: 0 }],
     });
     expect(id).toBe('search-match-p2-m5');
   });
 });
 
-describe('findMatchesOnPage（ignoreWidth: 半角全角を区別しない）', () => {
-  it('既定（ignoreWidth未指定）では全角と半角は別物としてマッチしない', () => {
+describe('findMatchesOnPage（distinguishWidth: 半角全角を区別する）', () => {
+  it('既定（distinguishWidth未指定）では全角・半角の違いを無視してマッチする', () => {
     const items = [box('ABC１２３')]; // 全角数字
-    expect(findMatchesOnPage(items, 1, '123')).toHaveLength(0);
-  });
-
-  it('ignoreWidth: trueの場合、全角数字・全角英字にも半角クエリでマッチする', () => {
-    const items = [box('ABC１２３')];
-    const matches = findMatchesOnPage(items, 1, '123', { ignoreWidth: true });
+    const matches = findMatchesOnPage(items, 1, '123');
     expect(matches).toHaveLength(1);
     expect(matches[0]?.text).toBe('１２３');
   });
 
-  it('ignoreWidth: trueかつ全角クエリでも、半角本文にマッチする', () => {
+  it('distinguishWidth: trueの場合、全角と半角は別物としてマッチしない', () => {
+    const items = [box('ABC１２３')];
+    expect(findMatchesOnPage(items, 1, '123', { distinguishWidth: true })).toHaveLength(0);
+  });
+
+  it('distinguishWidth: trueでも、表記が完全一致すればマッチする', () => {
     const items = [box('ABC123')];
-    const matches = findMatchesOnPage(items, 1, '１２３', { ignoreWidth: true });
+    const matches = findMatchesOnPage(items, 1, '123', { distinguishWidth: true });
     expect(matches).toHaveLength(1);
     expect(matches[0]?.text).toBe('123');
   });

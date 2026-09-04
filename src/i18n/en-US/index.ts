@@ -367,7 +367,7 @@ export default {
       previous: 'Find previous',
       close: 'Close search',
       matchCase: 'Match case',
-      ignoreWidth: 'Ignore full/half-width',
+      distinguishWidth: 'Match full/half-width',
       useRegex: 'Use regular expression',
     },
     peek: {

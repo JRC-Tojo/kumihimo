@@ -54,38 +54,9 @@
       <!-- 検索オプション（大文字小文字・半角全角・正規表現）: VSCodeの検索ウィジェットに倣い、
            トグルボタンで切り替える。切り替えるとすぐに現在のクエリで再検索される -->
       <div class="search-bar__options-row">
-        <q-btn
-          flat
-          dense
-          round
-          size="sm"
-          label="Aa"
-          class="search-bar__option-btn"
-          :class="{ 'search-bar__option-btn--active': options.caseSensitive }"
-          :title="$t('pdfEditor.search.matchCase')"
-          @click="toggleOption('caseSensitive')"
-        />
-        <q-btn
-          flat
-          dense
-          round
-          size="sm"
-          label="全/半"
-          class="search-bar__option-btn"
-          :class="{ 'search-bar__option-btn--active': options.ignoreWidth }"
-          :title="$t('pdfEditor.search.ignoreWidth')"
-          @click="toggleOption('ignoreWidth')"
-        />
-        <q-btn
-          flat
-          dense
-          round
-          size="sm"
-          label=".*"
-          class="search-bar__option-btn"
-          :class="{ 'search-bar__option-btn--active': options.useRegex }"
-          :title="$t('pdfEditor.search.useRegex')"
-          @click="toggleOption('useRegex')"
+        <SearchOptionToggles
+          :options="options"
+          @update:options="(v) => emit('update:options', v)"
         />
       </div>
     </q-card>
@@ -95,6 +66,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import SearchOptionToggles from 'src/components/Search/SearchOptionToggles.vue';
 import type { TextSearchOptions } from 'src/models/document/search';
 
 interface Props {
@@ -126,11 +98,6 @@ onMounted(() => {
 
 function onInput(e: Event): void {
   emit('update:query', (e.target as HTMLInputElement).value);
-}
-
-/** 検索オプションの1項目を反転させて emit する */
-function toggleOption(key: keyof TextSearchOptions): void {
-  emit('update:options', { ...props.options, [key]: !props.options[key] });
 }
 
 /** Enter/Shift+Enterでのマッチ間ナビゲーション、Escでの検索バー終了をまとめて扱う */
@@ -199,20 +166,6 @@ const matchCountLabel = computed(() => {
 }
 
 .search-bar__options-row {
-  display: flex;
-  justify-content: flex-end;
-  gap: 2px;
   padding-top: 2px;
-}
-
-.search-bar__option-btn {
-  font-size: 11px;
-  font-weight: 700;
-  width: 28px;
-}
-
-.search-bar__option-btn--active {
-  color: $primary;
-  background: rgba($primary, 0.12);
 }
 </style>

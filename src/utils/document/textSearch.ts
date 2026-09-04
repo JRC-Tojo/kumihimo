@@ -24,15 +24,16 @@ interface NormalizedText {
 /**
  * オプションに従ってテキストを検索用に正規化し、正規化後位置→元位置の対応表とともに返す
  *
- * `ignoreWidth`時は半角・全角の吸収（NFKC正規化）を1文字ずつ行う（`String.prototype.normalize`を
- * 文字列全体に対して呼ぶと、結合文字等で長さが変わった際に元位置との対応が取れなくなるため）。
- * `useRegex`時の大文字小文字は`RegExp`の`i`フラグ側に任せるため、ここでは折りたたまない
+ * `distinguishWidth`が偽（既定）の場合、半角・全角の吸収（NFKC正規化）を1文字ずつ行う
+ * （`String.prototype.normalize`を文字列全体に対して呼ぶと、結合文字等で長さが変わった際に
+ * 元位置との対応が取れなくなるため）。`useRegex`時の大文字小文字は`RegExp`の`i`フラグ側に
+ * 任せるため、ここでは折りたたまない
  */
 function normalizeForSearch(text: string, options: Partial<TextSearchOptions>): NormalizedText {
   const foldCase = !options.caseSensitive && !options.useRegex;
 
-  if (!options.ignoreWidth) {
-    // 半角全角を吸収しない場合は1文字=1文字の対応が保証されるため、単純な変換で済む
+  if (options.distinguishWidth) {
+    // 半角全角を区別する場合は1文字=1文字の対応が保証されるため、単純な変換で済む
     const normalized = foldCase ? text.toLowerCase() : text;
     const originalIndexOf = Array.from({ length: normalized.length }, (_, i) => i);
     return { normalized, originalIndexOf };
@@ -128,6 +129,62 @@ function buildLogicalText(items: TextItemBox[]): { text: string; positioned: Pos
   return { text, positioned };
 }
 
+/** 一覧表示のスニペットとして前後に取得する文脈の最大文字数 */
+const MAX_CONTEXT_CHARS = 24;
+
+/**
+ * 論理テキストの各文字が何行目（同じ行とみなせるテキストアイテムの集まり）に属するかを求める
+ *
+ * pdf.jsのテキストアイテムには明示的な行区切り文字がないため、隣接するアイテムのY座標が
+ * 大きく変わった箇所を行の境界とみなす近似（`アイテム高さの半分`を閾値とする）で判定する。
+ * 一覧表示のスニペット（`contextBefore`/`contextAfter`）がこの境界をまたいで表示されないようにする
+ */
+function buildLineIndex(positioned: PositionedItem[], textLength: number): number[] {
+  const lineIndex = new Array<number>(textLength);
+  let currentLine = 0;
+  let prevItem: TextItemBox | undefined;
+  for (const { item, start, end } of positioned) {
+    if (prevItem !== undefined) {
+      const threshold = Math.max(prevItem.height, item.height) / 2;
+      if (Math.abs(item.y - prevItem.y) > threshold) currentLine++;
+    }
+    for (let i = start; i < end; i++) lineIndex[i] = currentLine;
+    prevItem = item;
+  }
+  return lineIndex;
+}
+
+/**
+ * マッチ範囲`[start, end)`の前後の文脈を、同じ行の範囲・`MAX_CONTEXT_CHARS`文字数を上限に取得する
+ *
+ * 一覧表示（コンテナ横断検索の結果リスト）でマッチ箇所を周辺文字とともにスニペット表示する用途
+ */
+function extractContext(
+  text: string,
+  lineIndex: number[],
+  start: number,
+  end: number,
+): { before: string; after: string } {
+  const startLine = lineIndex[start] ?? lineIndex[start - 1] ?? 0;
+  const endLine = lineIndex[end - 1] ?? startLine;
+
+  let beforeStart = start;
+  while (
+    beforeStart > 0 &&
+    start - beforeStart < MAX_CONTEXT_CHARS &&
+    lineIndex[beforeStart - 1] === startLine
+  ) {
+    beforeStart--;
+  }
+
+  let afterEnd = end;
+  while (afterEnd < text.length && afterEnd - end < MAX_CONTEXT_CHARS && lineIndex[afterEnd] === endLine) {
+    afterEnd++;
+  }
+
+  return { before: text.slice(beforeStart, start), after: text.slice(end, afterEnd) };
+}
+
 /**
  * 論理テキスト上のマッチ範囲`[startOffset, endOffset)`を、寄与した各アイテムのサブ矩形へ割り戻す
  *
@@ -177,13 +234,19 @@ export function findMatchesOnPage(
   if (query === '') return [];
   const { text, positioned } = buildLogicalText(items);
   const ranges = findOccurrenceRanges(text, query, options);
+  const lineIndex = buildLineIndex(positioned, text.length);
 
-  return ranges.map(({ start, end }, matchIndex) => ({
-    pageNumber,
-    matchIndex,
-    text: text.slice(start, end),
-    boxes: boxesForRange(positioned, start, end),
-  }));
+  return ranges.map(({ start, end }, matchIndex) => {
+    const { before, after } = extractContext(text, lineIndex, start, end);
+    return {
+      pageNumber,
+      matchIndex,
+      text: text.slice(start, end),
+      contextBefore: before,
+      contextAfter: after,
+      boxes: boxesForRange(positioned, start, end),
+    };
+  });
 }
 
 /**

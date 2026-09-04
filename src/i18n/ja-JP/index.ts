@@ -366,7 +366,7 @@ export default {
       previous: '前を検索',
       close: '検索を終了',
       matchCase: '大文字と小文字を区別',
-      ignoreWidth: '半角・全角を区別しない',
+      distinguishWidth: '半角・全角を区別',
       useRegex: '正規表現を使用',
     },
     peek: {
