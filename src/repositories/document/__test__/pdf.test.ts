@@ -78,6 +78,7 @@ const {
   getPageSize,
   getNumPages,
   extractTextByPage,
+  extractTextByAnnot,
   extractAllText,
   extractAnnotationsFromPdf,
   renderPageToCanvasFromDoc,
@@ -1117,6 +1118,71 @@ describe('renderPageToCanvasFromDoc / renderPageToCanvas / extractImageFromRegio
   it('extractGroupContextPreview: メンバーが空の場合はFailureを返す', async () => {
     const res = await extractGroupContextPreview(testFile, DUMMY_SRC, []);
     expect(res.ok).toBeFalse();
+  });
+});
+
+describe('extractTextByAnnot（pdfDocumentCacheをモック。実形状（containsPoint）に基づく読み取り範囲の検証。Issue #82）', () => {
+  setupCanvasDom();
+
+  const testFile: FileIdentity = {
+    containerID: ContainerID.parse('33333333-3333-4333-8333-333333333333'),
+    path: 'b.pdf',
+  };
+
+  /**
+   * 斜めの直線アノテーション（(0,0)-(100,100)、strokeWidth 6）の外接矩形の内側に、
+   * 「線上の文字」と「外接矩形には収まるが線からは大きく離れた文字」を1文字ずつ配置した
+   * フェイクページを返す。viewportは恒等変換（scale=1・回転無し）にすることで、
+   * pdfItemToBoxの計算結果（box.x/y/width/height）がitem.transformのtx/ty・width/heightと
+   * そのまま一致するようにし、文字中心座標を計算しやすくしている
+   */
+  function buildFakeDocForDiagonalLine() {
+    const identityViewport = { transform: [1, 0, 0, 1, 0, 0] };
+    // 中心が(50, 50)になる文字（線分の中点上）
+    const onLineChar = {
+      str: 'A',
+      transform: [1, 0, 0, 1, 45, 55],
+      width: 10,
+      height: 10,
+      fontName: 'f1',
+    };
+    // 中心が(95, 5)になる文字（線の外接矩形には収まるが、斜めの線からは大きく離れている）
+    const offLineChar = {
+      str: 'B',
+      transform: [1, 0, 0, 1, 90, 10],
+      width: 10,
+      height: 10,
+      fontName: 'f1',
+    };
+    return buildFakeDoc([
+      {
+        getTextContent: () => Promise.resolve({ items: [onLineChar, offLineChar], styles: {} }),
+        getViewport: () => identityViewport,
+      },
+    ]);
+  }
+
+  it('斜めの直線: 外接矩形の内側でも実際の線から離れた文字は抽出されない', async () => {
+    const releaseSpy = mock(() => {});
+    fakeAcquireImpl = () =>
+      Promise.resolve(Success({ document: buildFakeDocForDiagonalLine(), release: releaseSpy }));
+
+    const lineAnnotation: AnnotationStyle = {
+      ...buildAnnotationBase(1),
+      type: 'line',
+      x: 0,
+      y: 0,
+      strokeWidth: 6,
+      points: [0, 0, 100, 100],
+    };
+
+    const res = await extractTextByAnnot(testFile, DUMMY_SRC, lineAnnotation);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+    // 線上の'A'のみが抽出され、外接矩形の内側だが線から離れた'B'は抽出されない
+    // （旧実装は外接矩形（AABB）のみで判定していたため、両方とも抽出されてしまっていた）
+    expect(res.value).toBe('A');
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
   });
 });
 

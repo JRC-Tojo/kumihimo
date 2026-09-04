@@ -88,7 +88,7 @@ export interface KumihimoTestApi {
 }
 
 export interface KumihimoTestRelationalStore {
-  statusForAnnotation(annotId: string): 'ok' | 'ng' | 'pending' | undefined;
+  statusForAnnotation(annotId: string): 'ok' | 'ng' | 'pending' | 'error' | undefined;
 }
 
 export interface KumihimoTestGroupStore {

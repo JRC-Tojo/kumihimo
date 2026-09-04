@@ -42,15 +42,18 @@ export function useAnnotationStylePanel() {
     return 'none';
   });
 
-  /** 選択中アノテーションが関係性検証結果（OK/NG）のスタイルで上書き描画されているかどうか。
-   * 上書き中は「線色」「塗り色」「塗りの不透明度」「線の太さ」を編集してもここでは何をしても
-   * 画面に反映されない（`relationalStyleOverride.ts`が優先されるため）ので、編集不可にする判定に使う。
-   * 一方、線の不透明度・線種・合成モードは上書きの対象外のため、そちらは対象にしない */
+  /** 選択中アノテーションが関係性検証結果（OK/NG、または一覧読み込み失敗によるNG相当扱い）の
+   * スタイルで上書き描画されているかどうか。上書き中は「線色」「塗り色」「塗りの不透明度」
+   * 「線の太さ」を編集してもここでは何をしても画面に反映されない（`relationalStyleOverride.ts`が
+   * 優先されるため）ので、編集不可にする判定に使う。一方、線の不透明度・線種・合成モードは
+   * 上書きの対象外のため、そちらは対象にしない */
   const relationalOverrideActive = computed<boolean>(() => {
-    const selection = editorStore.activeSelection?.annotations;
-    if (mode.value !== 'selection' || selection === undefined || selection.length !== 1)
+    const selection = editorStore.activeSelection;
+    const annotations = selection?.annotations;
+    if (mode.value !== 'selection' || selection === undefined || annotations?.length !== 1)
       return false;
-    const status = relationalStore.statusForAnnotation((selection[0] as AnnotationStyle).id);
+    if (relationalStore.hasLoadError(selection.file)) return true;
+    const status = relationalStore.statusForAnnotation((annotations[0] as AnnotationStyle).id);
     return status === 'ok' || status === 'ng';
   });
 

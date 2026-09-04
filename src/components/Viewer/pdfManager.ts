@@ -12,6 +12,7 @@ import {
   acquirePdfDocument,
   type AcquiredPdfDocument,
 } from 'src/repositories/document/pdfDocumentCache';
+import { extractTextBlocksByPageFromDoc, searchTextInDoc } from 'src/repositories/document/pdf';
 import {
   extractTextBlocksByPageFromDoc,
   searchTextInDoc,

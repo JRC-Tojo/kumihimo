@@ -377,6 +377,8 @@ export default {
       openDocument: 'Open Document',
       rowHint: 'Click to preview, double-click to open in a new tab',
       noRelations: 'No relations',
+      loadError:
+        'Could not load the relations for this file. The information shown may be out of date.',
       selfValue: 'Own value',
       otherValue: 'Other value',
       verifying: 'Verifying...',

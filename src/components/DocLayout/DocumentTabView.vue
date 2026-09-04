@@ -46,10 +46,10 @@
       <SearchBar
         v-if="searchOpen"
         v-model:query="searchQuery"
-        v-model:options="searchOptions"
         :match-count="searchMatchCount"
         :active-index="searchActiveIndex"
         :is-searching="searchIsSearching"
+        :container-i-d="prop.file.containerID"
         @next="searchGoToNext"
         @previous="searchGoToPrevious"
         @close="closeSearch"
@@ -732,8 +732,15 @@ async function handleAnnotationsChanged(
   }
 
   // アノテーション内容（OCR結果）の読み込み完了時にもこのイベントが発火するため、
-  // ここで再検証しておくことで「検証保留」から自動的にOK/NGへ遷移する
-  void relationalStore.refreshFile(prop.file);
+  // ここで再検証しておくことで「検証保留」から自動的にOK/NGへ遷移する。
+  // ただし、Undo/Redo実行中（historyStore.isBusy）はuseAnnotationHistory側の各コマンドが
+  // 処理の最後に必ず自分で関係性キャッシュを再検証してから完了するため、ここで重ねて
+  // 呼ぶと同じファイルの全関係性（OCR照合を含む）を1回のUndo/Redoにつき2回検証してしまい、
+  // 関係性を多く持つ文書ほどUndo/Redoがもっさりする原因になっていた。isBusy中はスキップし、
+  // Undo/Redoに由来しない変化（他ユーザー・OCR非同期読み込み等）の場合のみ実行する
+  if (!historyStore.isBusy(prop.file)) {
+    void relationalStore.refreshFile(prop.file);
+  }
 
   scheduleAutoSave();
 }

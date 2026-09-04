@@ -211,9 +211,17 @@ describe('reorderAnnotationStyle', () => {
   it('registerAnnotationStyleを経由せず、既存のOCR抽出結果（context）を保持したまま返す', async () => {
     updateAnnotationStyleMock.mockClear();
     addAnnotationInfosMock.mockClear();
+    getAnnotationsByFileMock.mockClear();
+    getAnnotationsByFileMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        Success<AnnotationInfo[]>([
+          { style: baseStyle(idA, { zIndex: 1 }), context: { text: 'OCRで抽出済みのテキスト' } },
+          { style: baseStyle(idB, { zIndex: 2 }), context: {} },
+        ]),
+      ),
+    );
 
-    const annotations = [baseStyle(idA, { zIndex: 1 }), baseStyle(idB, { zIndex: 2 })];
-    const res = await reorderAnnotationStyle(file, annotations, idA, 'front');
+    const res = await reorderAnnotationStyle(file, idA, 'front');
 
     expect(res.ok).toBeTrue();
     if (!res.ok) return;
@@ -224,12 +232,17 @@ describe('reorderAnnotationStyle', () => {
     // 新規登録用のaddAnnotationInfos（bulkPut）は呼ばれず、部分更新のみが呼ばれること
     expect(updateAnnotationStyleMock).toHaveBeenCalledTimes(1);
     expect(addAnnotationInfosMock).not.toHaveBeenCalled();
+    // ロック内でDBから対象ファイルの最新一覧を読み直していること
+    expect(getAnnotationsByFileMock).toHaveBeenCalledTimes(1);
   });
 
   it('対象の注釈が見つからない場合はFailureを返す', async () => {
-    const annotations = [baseStyle(idA)];
+    getAnnotationsByFileMock.mockClear();
+    getAnnotationsByFileMock.mockImplementationOnce(() =>
+      Promise.resolve(Success<AnnotationInfo[]>([{ style: baseStyle(idA), context: {} }])),
+    );
     const missingId = '00000000-0000-4000-8000-000000000099' as AnnotationID;
-    const res = await reorderAnnotationStyle(file, annotations, missingId, 'front');
+    const res = await reorderAnnotationStyle(file, missingId, 'front');
     expect(res.ok).toBeFalse();
   });
 });

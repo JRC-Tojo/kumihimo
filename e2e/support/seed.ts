@@ -142,6 +142,7 @@ export function buildLineAnnotationStyle(opts: {
   pageNumber: number;
   points: [number, number, number, number];
   color?: string;
+  strokeWidth?: number;
 }): TestAnnotationStyle {
   const now = new Date().toISOString();
   return {
@@ -152,7 +153,7 @@ export function buildLineAnnotationStyle(opts: {
     y: 0,
     points: opts.points,
     color: opts.color ?? '#0000ff',
-    strokeWidth: 2,
+    strokeWidth: opts.strokeWidth ?? 2,
     strokeType: 'solid',
     createdAt: now,
     updatedAt: now,
