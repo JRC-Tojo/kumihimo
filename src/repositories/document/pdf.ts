@@ -316,6 +316,18 @@ function pdfItemToBox(
 }
 
 /**
+ * `extractTextBlocksByPageFromDoc`のページ単位の抽出結果キャッシュ
+ *
+ * `page.getTextContent()`はページ数の多い・内容の重いPDFほどコストが大きく、文書内検索は
+ * クエリを打ち直すたびに全ページへこれを呼び直していた（コンテナ横断検索の再実行でも同様）。
+ * `PDFDocumentProxy`インスタンス自体をキーにすることで、同一文書に対する再抽出を省略しつつ、
+ * 文書が保存等で再読み込みされ新しいインスタンスに置き換わった場合は自然に別キーとなり
+ * 明示的な無効化処理が不要になる（WeakMapのため、古いインスタンスがどこからも参照されなく
+ * なれば自動的にGCされる）
+ */
+const textBlockCache = new WeakMap<PDFDocumentProxy, Map<number, TextItemBox[]>>();
+
+/**
  * 指定ページの全テキストを、位置情報（左上原点のバウンディングボックス）付きで抽出する
  *
  * `extractTextByAnnot`と異なりアノテーション範囲でのフィルタは行わず、ページ内の全アイテムを
@@ -326,6 +338,9 @@ export async function extractTextBlocksByPageFromDoc(
   pdf: PDFDocumentProxy,
   pageNumber: number,
 ): Promise<Result<TextItemBox[]>> {
+  const cached = textBlockCache.get(pdf)?.get(pageNumber);
+  if (cached) return Success(cached);
+
   try {
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
@@ -339,6 +354,14 @@ export async function extractTextBlocksByPageFromDoc(
       );
       if (box) blocks.push(box);
     }
+
+    let pageCache = textBlockCache.get(pdf);
+    if (!pageCache) {
+      pageCache = new Map();
+      textBlockCache.set(pdf, pageCache);
+    }
+    pageCache.set(pageNumber, blocks);
+
     return Success(blocks);
   } catch (e) {
     return Failure(toError(e));

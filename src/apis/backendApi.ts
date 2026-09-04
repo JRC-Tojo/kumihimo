@@ -17,6 +17,7 @@ import * as pdfRepo from 'src/repositories/document/pdf';
 import * as localFontAccessRepo from 'src/repositories/document/localFontAccess';
 import * as textRepo from 'src/repositories/document/text';
 import * as documentService from 'src/services/document/config';
+import { runConcurrently } from 'src/utils/promise/concurrent';
 import type {
   Container,
   ContainerElement,
@@ -74,6 +75,15 @@ import * as pluginRunService from 'src/services/plugin/run';
 import * as pluginSubmissionService from 'src/services/plugin/submissionGithub';
 import * as githubAuthService from 'src/services/plugin/githubAuth';
 import { parseSubmissionDraft } from 'src/services/plugin/manifest';
+
+/**
+ * コンテナ横断のテキスト検索（`searchContainerText`）で同時に検索するPDF文書数の上限
+ *
+ * 各文書の検索はpdf.js文書ごとに専用のWorkerスレッドを使うため、無制限に並列化すると
+ * 大きなファイルが多いコンテナでメモリ・CPUを圧迫しかねない（`PdfPage.vue`の
+ * `MAX_CONCURRENT_TILE_RENDERS`と同じ考え方）
+ */
+const CONTAINER_SEARCH_CONCURRENCY = 3;
 
 /**
  * バックエンド統合 API層
@@ -282,13 +292,16 @@ class BackendApi {
   /**
    * コンテナ横断のテキスト検索: コンテナ内の全PDF文書を対象にクエリを検索する
    *
-   * 1文書ずつ順に読み込んで検索するため、文書数が多いコンテナでは相応の時間がかかる
-   * （将来的な改善余地として、並列化やインデックス作成が考えられる）。
-   * 個別文書の読み込み・検索に失敗した場合はその文書だけスキップし、コンテナ全体の検索は継続する
+   * 文書ごとの読み込み・検索は`CONTAINER_SEARCH_CONCURRENCY`件まで並列化する（issue #91と
+   * 同根の「重いファイルが多いコンテナで遅い」問題への対応）。`onResult`を渡すと、各文書の
+   * 検索が完了するたび（＝全件揃うのを待たず）に随時呼ばれるため、呼び出し側はUIを
+   * ブロックせず結果が出た文書から順次表示できる。個別文書の読み込み・検索に失敗した場合は
+   * その文書だけスキップし、コンテナ全体の検索は継続する
    */
   async searchContainerText(
     cId: ContainerID,
     query: string,
+    onResult?: (result: ContainerTextSearchResult) => void,
   ): Promise<ApiResponse<ContainerTextSearchResult[]>> {
     const containerRes = await containerService.loadContainer(cId, false);
     if (!containerRes.ok) return toApiResponse(containerRes, 'CONTAINER_SEARCH_FAILED');
@@ -298,15 +311,21 @@ class BackendApi {
         el.type === 'File' && el.path.toLowerCase().endsWith('.pdf'),
     );
 
-    const results: ContainerTextSearchResult[] = [];
-    for (const file of pdfFiles) {
-      const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
-      if (!docSrc.ok) continue;
-      const matchesRes = await pdfRepo.searchTextByFile(file, docSrc.value, query);
-      if (matchesRes.ok && matchesRes.value.length > 0) {
-        results.push({ file, matches: matchesRes.value });
-      }
-    }
+    const searchTasks = pdfFiles.map(
+      (file) => async (): Promise<ContainerTextSearchResult | undefined> => {
+        const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
+        if (!docSrc.ok) return undefined;
+        const matchesRes = await pdfRepo.searchTextByFile(file, docSrc.value, query);
+        if (!matchesRes.ok || matchesRes.value.length === 0) return undefined;
+
+        const result: ContainerTextSearchResult = { file, matches: matchesRes.value };
+        onResult?.(result);
+        return result;
+      },
+    );
+
+    const settled = await runConcurrently(searchTasks, CONTAINER_SEARCH_CONCURRENCY);
+    const results = settled.filter((r): r is ContainerTextSearchResult => r !== undefined);
     return toApiResponse(Success(results), 'CONTAINER_SEARCH_FAILED');
   }
 

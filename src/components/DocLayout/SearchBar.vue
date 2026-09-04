@@ -163,20 +163,26 @@ function fileKeyOf(file: ContainerElementFile): string {
   return fileKey(file);
 }
 
-/** 現在のqueryでコンテナ内の全PDF文書を検索する（issue #33の「できれば」要件） */
+/**
+ * 現在のqueryでコンテナ内の全PDF文書を検索する（issue #33の「できれば」要件）
+ *
+ * `searchContainerText`は文書ごとの検索を並列実行しつつ、1文書分が完了するたびに
+ * `onResult`を呼ぶ（issue #91と同根の「重いファイルが多いコンテナで遅い」対応）。全文書分の
+ * 完了を待たず、結果が出た文書から順次一覧に追加することで、UIをブロックせず体感を改善する
+ */
 async function runContainerSearch(): Promise<void> {
   const searchStartQuery = props.query.trim();
   if (searchStartQuery === '') return;
 
   isContainerSearching.value = true;
   containerResultsVisible.value = true;
+  containerResults.value = [];
   try {
-    const res = await api.searchContainerText(props.containerID, searchStartQuery);
-    // 検索中にユーザーがqueryを変更していた場合、この結果は既に古いため反映しない
-    // （変更された時点で下のwatchが結果をクリア済みのはずだが、念のため二重にガードする）
-    if (props.query.trim() === searchStartQuery) {
-      containerResults.value = res.ok ? res.data : [];
-    }
+    await api.searchContainerText(props.containerID, searchStartQuery, (result) => {
+      // 検索中にユーザーがqueryを変更していた場合、この結果は既に古いため反映しない
+      // （クエリ変更時は下のwatchが同時にcontainerResultsVisibleを落とすため、それと同じ条件で判定する）
+      if (props.query.trim() === searchStartQuery) containerResults.value.push(result);
+    });
   } finally {
     isContainerSearching.value = false;
   }
