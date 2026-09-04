@@ -485,11 +485,15 @@ const displayedAnnotations = computed(() => {
  * 一瞬消えてから再び現れるちらつきになる。そのため成功時は上のwatchにすべて任せ、ここでは
  * 何もしない。登録が失敗した場合はprops.annotations側に現れることが無いため、
  * いつまでも確定待ちに残り続けないようここで直接片付ける
+ *
+ * @returns 登録が成功したかどうか。呼び出し元は失敗時、存在しない注釈に対して選択状態や
+ * テキスト編集状態を設定してしまわないよう、この戻り値を見て後続処理を切り替えること
  */
-async function confirmNewAnnotation(annotation: AnnotationStyle): Promise<void> {
+async function confirmNewAnnotation(annotation: AnnotationStyle): Promise<boolean> {
   pendingConfirmAnnotations.value = [...pendingConfirmAnnotations.value, annotation];
   const registered = await props.onRegisterAnnot(annotation);
   if (!registered) clearPendingConfirm(new Set([annotation.id]));
+  return registered;
 }
 
 /**
@@ -760,7 +764,10 @@ function finishClickPointsDrawing() {
   const annotation = createAnnotationFromPoints(page.value, points, style);
   if (annotation) {
     const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
-    void confirmNewAnnotation(annotation).then(() => {
+    void confirmNewAnnotation(annotation).then((registered) => {
+      // 登録が失敗した注釈はprops.annotationsに存在しないため、選択状態・テキスト編集状態を
+      // 設定してしまうと実在しない注釈を指す無効な状態が残ってしまう
+      if (!registered) return;
       // 描き終えたら選択モードへ自動的に戻る（テキストは直後にインライン編集へ入るため対象外。
       // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）。
       // 選択状態自体は連続描画モードかどうかに関わらず常に描いたアノテーションへ移す
@@ -1194,7 +1201,10 @@ function handleMouseUp(e: KonvaMouseEvent) {
       const annotation = endDrawingAnnotation(adjustedPos.x, adjustedPos.y);
       if (annotation) {
         const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
-        void confirmNewAnnotation(annotation).then(() => {
+        void confirmNewAnnotation(annotation).then((registered) => {
+          // 登録が失敗した注釈はprops.annotationsに存在しないため、選択状態・テキスト編集状態を
+          // 設定してしまうと実在しない注釈を指す無効な状態が残ってしまう
+          if (!registered) return;
           // 描き終えたら選択モードへ自動的に戻る（テキストは直後にインライン編集へ入るため対象外。
           // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）。
           // 選択状態自体は連続描画モードかどうかに関わらず常に描いたアノテーションへ移す

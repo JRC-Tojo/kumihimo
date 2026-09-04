@@ -671,11 +671,23 @@ class BackendApi {
    * DB書き込み（≒UI側のライブクエリ再発火）も件数分に分かれ、まとめて削除したはずの複数選択・
    * グループが画面上で1件ずつ遅れて消えていくように見えてしまうため、複数選択・グループの削除・
    * Undo/Redoでの一括復元/再削除はこちらを使うこと
+   *
+   * アノテーション削除後に関係性削除が一部でも失敗した場合、この呼び出し自体がFailureを
+   * 返すため、Undo履歴には積まれない（呼び出し元は失敗時に履歴を残さない設計）。それにも
+   * かかわらずアノテーションだけ削除済みのまま残ると、ユーザーがUndoで復旧する手段を
+   * 失ってしまうため、削除前のスタイルを保持しておき、関係性削除の失敗時はアノテーションを
+   * 再登録して呼び出し前の状態へ戻してから失敗を返す
    */
   async removeAnnotations(
     file: ContainerElementFile,
     annotIDs: AnnotationID[],
   ): Promise<ApiResponse<void>> {
+    const idSet = new Set(annotIDs);
+    const beforeRes = await annotationService.getAnnotationsByFile(file);
+    const stylesToRestoreOnFailure = beforeRes.ok
+      ? beforeRes.value.filter((info) => idSet.has(info.style.id)).map((info) => info.style)
+      : [];
+
     const res = await annotationService.removeAnnotationInfos(file, annotIDs);
     if (!res.ok) return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
 
@@ -683,23 +695,25 @@ class BackendApi {
       annotIDs.map((id) => relationalService.removeRelationalsForAnnotation(id)),
     );
     const failed = relResults.find((r): r is typeof r & { ok: false } => !r.ok);
-    if (failed) return toApiResponse(failed, 'RELATIONAL_REMOVE_FAILED');
+    if (failed) {
+      if (stylesToRestoreOnFailure.length > 0) {
+        await annotationService.registerAnnotationStyles(file, stylesToRestoreOnFailure);
+      }
+      return toApiResponse(failed, 'RELATIONAL_REMOVE_FAILED');
+    }
 
     return toApiResponse(res, 'DOC_ANNOT_REMOVE_FAILED');
   }
 
   /**
    * 指定したアノテーションの重ね順（最前面/前面/背面/最背面）を変更する
-   *
-   * `annotations`には対象と同じファイルの注釈一覧を渡す
    */
   async reorderAnnotation(
     file: ContainerElementFile,
-    annotations: AnnotationStyle[],
     annotID: AnnotationID,
     action: LayerOrderAction,
   ): Promise<ApiResponse<AnnotationInfo>> {
-    const res = await annotationService.reorderAnnotationStyle(file, annotations, annotID, action);
+    const res = await annotationService.reorderAnnotationStyle(file, annotID, action);
     return toApiResponse(res, 'DOC_ANNOT_REORDER_FAILED');
   }
 

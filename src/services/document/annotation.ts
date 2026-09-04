@@ -369,32 +369,40 @@ export function remapFilePath(
 /**
  * 指定した注釈の重ね順（zIndex）を変更する
  *
- * `annotations`には対象と同じページ（同じファイル）の注釈一覧を渡す。ソートキー順の
- * 前後関係から新しいzIndexを算出し、`style`のみを部分更新する（`registerAnnotationStyle`は
+ * 呼び出し元が保持する注釈一覧は、直前の登録・並べ替え（他タブ・同一バッチ内の連続操作等）を
+ * 反映できていない場合があるため使わず、ロック内でDBから対象ファイルの最新一覧を読み直してから
+ * ソートキー順の前後関係を算出する。`style`のみを部分更新する（`registerAnnotationStyle`は
  * 新規登録用でcontextを巻き戻してしまうため使わない。既存のOCR抽出結果はそのまま返す）
  */
 export async function reorderAnnotationStyle(
   file: ContainerElementFile,
-  annotations: AnnotationStyle[],
   targetId: AnnotationID,
   action: LayerOrderAction,
 ): Promise<Result<AnnotationInfo>> {
   // 同一ファイルへの他の登録・削除呼び出しと直列化する（`annotationFileMutex`参照）
   return annotationFileMutex.runExclusive(fileKey(file), async () => {
-    const target = annotations.find((a) => a.id === targetId);
-    if (!target) return Failure(new Error('対象のアノテーションが見つかりません'));
+    const latestRes = await annotationRepository.getAnnotationsByFile(file);
+    if (!latestRes.ok) return latestRes;
 
-    const zIndex = computeReorderedZIndex(annotations, targetId, action);
+    const targetInfo = latestRes.value.find((info) => info.style.id === targetId);
+    if (!targetInfo) return Failure(new Error('対象のアノテーションが見つかりません'));
+
+    const zIndex = computeReorderedZIndex(
+      latestRes.value.map((info) => info.style),
+      targetId,
+      action,
+    );
     if (zIndex === null) return Failure(new Error('重ね順の算出に失敗しました'));
 
-    const existingInfo = await getAnnotationInfo(targetId);
-    if (!existingInfo.ok) return existingInfo;
-
-    const updatedStyle: AnnotationStyle = { ...target, zIndex, updatedAt: dayjs().toISOString() };
+    const updatedStyle: AnnotationStyle = {
+      ...targetInfo.style,
+      zIndex,
+      updatedAt: dayjs().toISOString(),
+    };
     const saveRes = await annotationRepository.updateAnnotationStyle(updatedStyle);
     if (!saveRes.ok) return saveRes;
 
-    return Success({ style: updatedStyle, context: existingInfo.value.context });
+    return Success({ style: updatedStyle, context: targetInfo.context });
   });
 }
 
