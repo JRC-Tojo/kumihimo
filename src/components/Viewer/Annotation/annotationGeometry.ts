@@ -153,27 +153,69 @@ function ellipseIntersectsRect(
   return nx * nx + ny * ny <= 1;
 }
 
-/** 点と線分（a-b）の最短距離を求める（線分外なら最近傍の端点までの距離になる） */
-function distancePointToSegment(p: Point, a: Point, b: Point): number {
+/**
+ * 点(point)が線分（a-b、半幅halfStrokeの帯）に含まれるかどうかを判定する。
+ *
+ * 進行方向（a→b）の端部は丸めキャップを設けず厳密に切る（線分の延長線上にある点は、
+ * 直交距離に関わらず常にfalse）。これは大判文書（A1等）で文字サイズが線幅に対して
+ * 小さくなる場合でも、線の両端では隣接する行・列の文字を誤って拾わないようにするための挙動
+ *
+ * `pointSize`（判定対象の実サイズ。文字要素の幅・高さなど）を渡した場合、その矩形を進行方向に
+ * 直交する軸へ投影した全体サイズ（SAT法）が線幅（halfStroke*2）に収まるときは、投影範囲全体が
+ * 帯へ完全に収まっているかどうかで判定する（拡張を考慮しない厳密判定）。線幅に収まらない場合・
+ * `pointSize`省略時は、従来通りpoint自体と帯中心線との直交距離のみで判定する（多少の拡張を許容）
+ */
+function pointNearSegment(
+  p: Point,
+  a: Point,
+  b: Point,
+  halfStroke: number,
+  pointSize?: { width: number; height: number },
+): boolean {
   const abx = b.x - a.x;
   const aby = b.y - a.y;
   const lengthSq = abx * abx + aby * aby;
-  // 端点a・bが一致する（長さ0の）線分は単純に点aまでの距離として扱う
-  if (lengthSq < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
+  // 端点a・bが一致する（長さ0の）線分は進行方向を定義できないため、単純に点aからの距離で扱う
+  if (lengthSq < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y) <= halfStroke;
 
-  // pをa-b上へ正射影した位置（0〜1にクランプし、線分の範囲外にはみ出さないようにする）
-  const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSq));
-  const projX = a.x + t * abx;
-  const projY = a.y + t * aby;
-  return Math.hypot(p.x - projX, p.y - projY);
+  const length = Math.sqrt(lengthSq);
+  const ux = abx / length;
+  const uy = aby / length;
+  // 進行方向を90°回転した直交方向の単位ベクトル
+  const perpX = -uy;
+  const perpY = ux;
+
+  const relX = p.x - a.x;
+  const relY = p.y - a.y;
+  const along = relX * ux + relY * uy;
+  const perp = relX * perpX + relY * perpY;
+
+  if (pointSize) {
+    const alongHalfExtent =
+      (pointSize.width / 2) * Math.abs(ux) + (pointSize.height / 2) * Math.abs(uy);
+    // 矩形の半幅・半高を直交軸へ投影し、進行方向に直交する向きの実サイズを求める（分離軸定理）
+    const crossHalfExtent =
+      (pointSize.width / 2) * Math.abs(perpX) + (pointSize.height / 2) * Math.abs(perpY);
+    if (crossHalfExtent <= halfStroke) {
+      return (
+        along - alongHalfExtent >= 0 &&
+        along + alongHalfExtent <= length &&
+        Math.abs(perp) + crossHalfExtent <= halfStroke
+      );
+    }
+  }
+
+  if (along < 0 || along > length) return false;
+  return Math.abs(perp) <= halfStroke;
 }
 
 /**
- * 直線・矢印・折れ線共通: 実際の太さを考慮した帯（カプセル形状）に点が含まれるかどうかを判定する
+ * 直線・矢印・折れ線共通: 実際の太さを考慮した帯（進行方向の端部は丸めキャップを設けない形状）に
+ * 点が含まれるかどうかを判定する
  *
  * `halfStroke`は線の中心から帯の縁までの距離（線幅の半分）。`points`は相対座標の頂点列
  * （`polylineIntersectsRect`と同じ規約）、`closed`がtrueの場合は終点-始点間の辺も対象に含める
- * （塗りを持たないポリゴンの枠線判定に使う）
+ * （塗りを持たないポリゴンの枠線判定に使う）。`pointSize`は`pointNearSegment`参照
  */
 function pointNearPolyline(
   originX: number,
@@ -182,6 +224,7 @@ function pointNearPolyline(
   point: Point,
   halfStroke: number,
   closed: boolean,
+  pointSize?: { width: number; height: number },
 ): boolean {
   const abs: Point[] = [];
   for (let i = 0; i + 1 < points.length; i += 2) {
@@ -192,10 +235,10 @@ function pointNearPolyline(
   if (abs.length === 1) return Math.hypot(point.x - abs[0]!.x, point.y - abs[0]!.y) <= halfStroke;
 
   for (let i = 0; i + 1 < abs.length; i++) {
-    if (distancePointToSegment(point, abs[i]!, abs[i + 1]!) <= halfStroke) return true;
+    if (pointNearSegment(point, abs[i]!, abs[i + 1]!, halfStroke, pointSize)) return true;
   }
   if (closed && abs.length >= 3) {
-    if (distancePointToSegment(point, abs[abs.length - 1]!, abs[0]!) <= halfStroke) return true;
+    if (pointNearSegment(point, abs[abs.length - 1]!, abs[0]!, halfStroke, pointSize)) return true;
   }
   return false;
 }
@@ -302,6 +345,7 @@ function pointInHead(
   headSize: number,
   point: Point,
   halfStroke: number,
+  pointSize?: { width: number; height: number },
 ): boolean {
   if (headType === 'none') return false;
 
@@ -318,7 +362,7 @@ function pointInHead(
   const flat = abs.flatMap((p) => [p.x, p.y]);
   return isClosedHead(headType)
     ? pointInPolygon(0, 0, flat, point)
-    : pointNearPolyline(0, 0, flat, point, halfStroke, false);
+    : pointNearPolyline(0, 0, flat, point, halfStroke, false, pointSize);
 }
 
 /**
@@ -364,9 +408,16 @@ interface AnnotationGeometryModuleCommon<T extends AnnotationStyle> {
    * `point`はstyleと同じドキュメント座標系（scale未適用）で渡すこと。
    * 外接矩形（boundingBox）だけで判定すると、斜めの直線・折れ線では図形から離れた場所まで
    * 含んでしまうため、直線・矢印・折れ線は実際の太さを考慮した帯（カプセル形状）との距離判定、
-   * 塗りを持つ図形（box/circle/塗りありのpolygon）は面としての内外判定で行う（Issue #82）
+   * 塗りを持つ図形（box/circle/塗りありのpolygon）は面としての内外判定で行う（Issue #82）。
+   *
+   * 直線・矢印・折れ線は`pointSize`（`point`の実サイズ。文字要素の幅・高さなど）を渡すこともできる。
+   * 大判文書（A1等）で文字サイズが線幅に対して小さくなる場合でも、線幅に文字が収まる範囲では
+   * 拡張を考慮しない厳密な判定に切り替わり、隣接する行・列の文字を誤って拾わないようにする
+   * （収まらない場合は`pointSize`省略時と同じ、従来通りの多少の拡張を許容する判定になる）。
+   * また進行方向の端部は`pointSize`の有無に関わらず常に厳密に切る（丸めキャップを設けない）ため、
+   * 線分の延長線上にある点は対象外となる
    */
-  containsPoint(style: T, point: Point): boolean;
+  containsPoint(style: T, point: Point, pointSize?: { width: number; height: number }): boolean;
   /** 初期設定（初回起動時・既存設定への補完時）に投入するこの種別のデフォルトプリセット。1件以上必須 */
   defaultPresets: AnnotationDefaultPreset[];
 }
@@ -816,7 +867,7 @@ const lineGeometry: AnnotationGeometryModule = {
     );
   },
   /** line: 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する */
-  containsPoint(style, point) {
+  containsPoint(style, point, pointSize) {
     if (style.type !== 'line') return false;
     return pointNearPolyline(
       style.x,
@@ -825,6 +876,7 @@ const lineGeometry: AnnotationGeometryModule = {
       point,
       lineLikeHalfStroke(style.strokeWidth),
       false,
+      pointSize,
     );
   },
   defaultPresets: [
@@ -1030,10 +1082,12 @@ const arrowGeometry: AnnotationGeometryModule = {
     );
   },
   /** arrow: シャフトは実際の太さを考慮した帯（カプセル形状）との距離で、矢じりはその実形状で判定する */
-  containsPoint(style, point) {
+  containsPoint(style, point, pointSize) {
     if (style.type !== 'arrow') return false;
     const halfStroke = lineLikeHalfStroke(style.strokeWidth);
-    if (pointNearPolyline(style.x, style.y, style.points, point, halfStroke, false)) return true;
+    if (pointNearPolyline(style.x, style.y, style.points, point, halfStroke, false, pointSize)) {
+      return true;
+    }
 
     const headSize = style.headSize ?? 10;
     return (
@@ -1046,8 +1100,19 @@ const arrowGeometry: AnnotationGeometryModule = {
         headSize,
         point,
         halfStroke,
+        pointSize,
       ) ||
-      pointInHead(style.x, style.y, style.points, 'end', style.endHead, headSize, point, halfStroke)
+      pointInHead(
+        style.x,
+        style.y,
+        style.points,
+        'end',
+        style.endHead,
+        headSize,
+        point,
+        halfStroke,
+        pointSize,
+      )
     );
   },
   defaultPresets: [
@@ -1129,7 +1194,7 @@ const polylineGeometry: AnnotationGeometryModule = {
     return polylineIntersectsRect(style.x, style.y, style.points, rect, false);
   },
   /** polyline: 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する */
-  containsPoint(style, point) {
+  containsPoint(style, point, pointSize) {
     if (style.type !== 'polyline') return false;
     return pointNearPolyline(
       style.x,
@@ -1138,6 +1203,7 @@ const polylineGeometry: AnnotationGeometryModule = {
       point,
       lineLikeHalfStroke(style.strokeWidth),
       false,
+      pointSize,
     );
   },
   defaultPresets: [
@@ -1243,7 +1309,7 @@ const polygonGeometry: AnnotationGeometryModule = {
    * 常に対象に含める（偶奇則による内外判定だけでは境界上の点を安定して拾えないため）。
    * 加えて塗りを持つ場合は面方向全体が制御可能とみなし、面の内外判定（偶奇則）も対象に含める
    */
-  containsPoint(style, point) {
+  containsPoint(style, point, pointSize) {
     if (style.type !== 'polygon') return false;
     const nearEdge = pointNearPolyline(
       style.x,
@@ -1252,6 +1318,7 @@ const polygonGeometry: AnnotationGeometryModule = {
       point,
       lineLikeHalfStroke(style.strokeWidth),
       true,
+      pointSize,
     );
     if (nearEdge) return true;
     if (!style.fillColor) return false;

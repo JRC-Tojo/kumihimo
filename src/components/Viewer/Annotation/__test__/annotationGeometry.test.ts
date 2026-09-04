@@ -837,6 +837,79 @@ describe('containsPoint（実形状に基づく点の内外判定。関係性の
   });
 });
 
+describe('containsPoint（大判文書での誤認識対策: 進行方向の端部の厳密カット・pointSize指定時の直交方向の厳密判定）', () => {
+  it('line: 進行方向の延長線上にある点は、旧実装なら丸めキャップ内に収まる場合でも常にfalseを返す', () => {
+    // 水平線 (0,0)-(100,0)、strokeWidth 6 → halfStroke = 3
+    const style = {
+      ...containsPointBaseFields(6),
+      type: 'line' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 100, 0],
+    };
+
+    // (102, 2): 終点(100,0)からの直線距離は約2.83で旧実装（丸めキャップ）ならhalfStroke(3)以内だが、
+    // 進行方向では終点を2だけ超えているため、端部を厳密に切る新実装ではfalseを返すべき
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 102, y: 2 })).toBeFalse();
+    // 対照として、同じ直交距離2でも進行方向が線分の範囲内（x=98）ならtrueを返す
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 98, y: 2 })).toBeTrue();
+  });
+
+  it('line: pointSizeを渡し、直交方向のサイズが線幅に収まる場合は実形状が帯へ完全に収まっているかで厳密に判定する', () => {
+    // 水平線 (0,0)-(100,0)、strokeWidth 10 → halfStroke = 5
+    const style = {
+      ...containsPointBaseFields(10),
+      type: 'line' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 100, 0],
+    };
+
+    // 高さ6（<= strokeWidth 10なので「線幅に収まる」）の文字要素。中心は帯の中心線から3離れている
+    // だけで、pointSizeを渡さない場合は|perp|<=5を満たすためtrueになってしまうが、
+    // 文字の上端（perp + height/2 = 3 + 3 = 6）は帯（halfStroke=5）からはみ出しているため、
+    // 拡張を考慮しない厳密判定ではfalseを返すべき（隣接する行の文字を誤って拾わないための挙動）
+    const pointSize = { width: 4, height: 6 };
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 50, y: 3 }, pointSize)).toBeFalse();
+    // 中心が帯の中心線から2の位置なら、上端(2+3=5)がちょうど帯に収まるためtrueを返す
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 50, y: 2 }, pointSize)).toBeTrue();
+  });
+
+  it('line: pointSize指定時は文字矩形の進行方向の端も線分範囲内に収める', () => {
+    // 水平線 (0,0)-(100,0)、strokeWidth 10 → halfStroke = 5
+    const style = {
+      ...containsPointBaseFields(10),
+      type: 'line' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 100, 0],
+    };
+
+    const pointSize = { width: 4, height: 6 };
+    // 中心は終点から内側にあるが、文字矩形の右端が線分の終点を越えるためfalse
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 99, y: 0 }, pointSize)).toBeFalse();
+    // 文字矩形の右端が終点にちょうど接する場合はtrue
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 98, y: 0 }, pointSize)).toBeTrue();
+  });
+
+  it('line: pointSizeを渡しても、直交方向のサイズが線幅に収まらない場合はpointSize省略時と同じ（多少の拡張を許容する）判定になる', () => {
+    // 水平線 (0,0)-(100,0)、strokeWidth 4 → halfStroke = 2
+    const style = {
+      ...containsPointBaseFields(4),
+      type: 'line' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 100, 0],
+    };
+
+    // 高さ10（> strokeWidth 4なので「線幅に収まらない」、A4文書の大きな文字を想定）の文字要素。
+    // 中心が帯の中心線から1.5（halfStroke 2以内）の位置なら、文字全体は帯に収まっていなくても
+    // 現状と同じ拡張ありの判定でtrueを返すべき
+    const pointSize = { width: 8, height: 10 };
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 50, y: 1.5 }, pointSize)).toBeTrue();
+  });
+});
+
 describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中のプレビュー形状）', () => {
   it('box: fill/strokeにstrokeOpacity/fillOpacityをrgba合成して返す', () => {
     const preview = asClickPointsModule(ANNOTATION_GEOMETRY.box).previewFromPoints(
