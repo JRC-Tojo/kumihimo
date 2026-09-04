@@ -31,7 +31,6 @@ import type {
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
-import type { ContainerTextSearchResult, TextSearchMatch } from 'src/models/document/search';
 import type {
   ContainerTextSearchResult,
   TextSearchMatch,
@@ -919,8 +918,8 @@ class BackendApi {
     const involvingRes = await relationalService.getRelationalsInvolvingFile(file);
     const capturedRelationals = involvingRes.ok
       ? involvingRes.value
-          .map((r) => r.relational)
-          .filter((r) => dissolvedIds.has(r.srcID) || dissolvedIds.has(r.targetID))
+        .map((r) => r.relational)
+        .filter((r) => dissolvedIds.has(r.srcID) || dissolvedIds.has(r.targetID))
       : [];
 
     const cleanedGroupIds: AnnotationGroupID[] = [];
@@ -984,8 +983,8 @@ class BackendApi {
     const involvingRes = await relationalService.getRelationalsInvolvingFile(file);
     const capturedRelationals = involvingRes.ok
       ? involvingRes.value
-          .map((r) => r.relational)
-          .filter((r) => r.srcID === groupId || r.targetID === groupId)
+        .map((r) => r.relational)
+        .filter((r) => r.srcID === groupId || r.targetID === groupId)
       : [];
 
     const cleanupRes = await relationalService.removeRelationalsForAnnotation(groupId);

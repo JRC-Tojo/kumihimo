@@ -46,6 +46,7 @@
       <SearchBar
         v-if="searchOpen"
         v-model:query="searchQuery"
+        v-model:options="searchOptions"
         :match-count="searchMatchCount"
         :active-index="searchActiveIndex"
         :is-searching="searchIsSearching"
