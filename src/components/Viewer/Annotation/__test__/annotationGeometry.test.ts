@@ -875,6 +875,23 @@ describe('containsPoint（大判文書での誤認識対策: 進行方向の端�
     expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 50, y: 2 }, pointSize)).toBeTrue();
   });
 
+  it('line: pointSize指定時は文字矩形の進行方向の端も線分範囲内に収める', () => {
+    // 水平線 (0,0)-(100,0)、strokeWidth 10 → halfStroke = 5
+    const style = {
+      ...containsPointBaseFields(10),
+      type: 'line' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 100, 0],
+    };
+
+    const pointSize = { width: 4, height: 6 };
+    // 中心は終点から内側にあるが、文字矩形の右端が線分の終点を越えるためfalse
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 99, y: 0 }, pointSize)).toBeFalse();
+    // 文字矩形の右端が終点にちょうど接する場合はtrue
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 98, y: 0 }, pointSize)).toBeTrue();
+  });
+
   it('line: pointSizeを渡しても、直交方向のサイズが線幅に収まらない場合はpointSize省略時と同じ（多少の拡張を許容する）判定になる', () => {
     // 水平線 (0,0)-(100,0)、strokeWidth 4 → halfStroke = 2
     const style = {

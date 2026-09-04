@@ -188,19 +188,24 @@ function pointNearSegment(
   const relX = p.x - a.x;
   const relY = p.y - a.y;
   const along = relX * ux + relY * uy;
-  if (along < 0 || along > length) return false;
-
   const perp = relX * perpX + relY * perpY;
 
   if (pointSize) {
+    const alongHalfExtent =
+      (pointSize.width / 2) * Math.abs(ux) + (pointSize.height / 2) * Math.abs(uy);
     // 矩形の半幅・半高を直交軸へ投影し、進行方向に直交する向きの実サイズを求める（分離軸定理）
     const crossHalfExtent =
       (pointSize.width / 2) * Math.abs(perpX) + (pointSize.height / 2) * Math.abs(perpY);
     if (crossHalfExtent <= halfStroke) {
-      return Math.abs(perp) + crossHalfExtent <= halfStroke;
+      return (
+        along - alongHalfExtent >= 0 &&
+        along + alongHalfExtent <= length &&
+        Math.abs(perp) + crossHalfExtent <= halfStroke
+      );
     }
   }
 
+  if (along < 0 || along > length) return false;
   return Math.abs(perp) <= halfStroke;
 }
 
