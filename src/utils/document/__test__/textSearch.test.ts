@@ -170,9 +170,7 @@ describe('findMatchesOnPage（useRegex: 正規表現検索）', () => {
 
   it('不正な正規表現（入力途中の状態を含む）はエラーを投げずマッチ0件になる', () => {
     const items = [box('Hello World')];
-    expect(() =>
-      findMatchesOnPage(items, 1, '[unterminated', { useRegex: true }),
-    ).not.toThrow();
+    expect(() => findMatchesOnPage(items, 1, '[unterminated', { useRegex: true })).not.toThrow();
     expect(findMatchesOnPage(items, 1, '[unterminated', { useRegex: true })).toHaveLength(0);
   });
 
@@ -236,9 +234,9 @@ describe('annotationTextItemsByPage', () => {
 
   it('アノテーションのテキストもfindMatchesOnPageでPDFテキストと同様に検索できる', () => {
     const pdfItems = [box('apple', { x: 0 })];
-    const annotationItems = annotationTextItemsByPage([textAnnotation('banana', 1, { x: 200 })]).get(
-      1,
-    )!;
+    const annotationItems = annotationTextItemsByPage([
+      textAnnotation('banana', 1, { x: 200 }),
+    ]).get(1)!;
     const matches = findMatchesOnPage([...pdfItems, ...annotationItems], 1, 'banana');
     expect(matches).toHaveLength(1);
     expect(matches[0]?.boxes[0]?.x).toBe(200);

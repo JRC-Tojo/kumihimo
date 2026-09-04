@@ -109,7 +109,11 @@ const api = useBackendApi();
 const editorStore = useEditorStore();
 
 const query = ref('');
-const options = ref<TextSearchOptions>({ caseSensitive: false, ignoreWidth: false, useRegex: false });
+const options = ref<TextSearchOptions>({
+  caseSensitive: false,
+  ignoreWidth: false,
+  useRegex: false,
+});
 const results = ref<ContainerTextSearchResult[]>([]);
 const isSearching = ref(false);
 const hasSearched = ref(false);
