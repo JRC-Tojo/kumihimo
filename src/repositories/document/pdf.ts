@@ -424,8 +424,18 @@ export async function extractTextByAnnot(
         // 中心点がアノテーションの実形状（線幅・塗りの有無を考慮した実際の図形）に
         // 含まれるか判定する。外接矩形（AABB）だけでの判定だと、斜めの直線などで
         // 図形から離れた場所のテキストまで誤って拾ってしまうため、種別ごとの
-        // 実形状に基づいた判定（ANNOTATION_GEOMETRY[type].containsPoint）を使う（Issue #82）
-        if (geometry.containsPoint(style, { x: centerX, y: centerY })) matchedChars.push(char);
+        // 実形状に基づいた判定（ANNOTATION_GEOMETRY[type].containsPoint）を使う（Issue #82）。
+        // 文字の実サイズ（幅・高さ）も渡すことで、大判文書（A1等）で文字サイズが線幅に対して
+        // 小さい場合に、線の直交方向へ隣接する行・列の文字まで誤って拾わないようにする
+        if (
+          geometry.containsPoint(
+            style,
+            { x: centerX, y: centerY },
+            { width: charWidth, height: itemHeight },
+          )
+        ) {
+          matchedChars.push(char);
+        }
         offsetX += charWidth;
       });
 
