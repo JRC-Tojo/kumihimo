@@ -90,10 +90,14 @@ export function useAnnotationShape<T extends AnnotationStyle>(props: {
     blendModeToComposite(displayAnnotation.value.blendMode),
   );
 
-  // 見た目の線幅より当たり判定を広げ、細い線・形状でもつかみやすくする。
-  // line/arrow/polyline/polygonの各描画コンポーネントで共通利用する
-  const hitStrokeWidth = computed(() =>
-    Math.max(12, (displayAnnotation.value.strokeWidth || 2) * 4),
+  // 当たり判定の太さ。以前は見た目の線幅を最大4倍・最低12pxまで広げていたため、
+  // 近接する別のアノテーションを誤って選択してしまう問題があった（Issue #82）。
+  // 延長方向のみ制御可能な種別（line/arrow/polyline/polygon）は実際の太さを参照できるため、
+  // 見た目の線幅（strokeWidth）とそのまま一致させる。strokeWidthが取得できない場合のみ、
+  // 誤選択が起きにくいよう以前より細めの定数へフォールバックする
+  const HIT_STROKE_WIDTH_FALLBACK = 4;
+  const hitStrokeWidth = computed(
+    () => displayAnnotation.value.strokeWidth || HIT_STROKE_WIDTH_FALLBACK,
   );
 
   /**
