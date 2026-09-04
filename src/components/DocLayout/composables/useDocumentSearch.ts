@@ -36,8 +36,17 @@ export function useDocumentSearch(options: UseDocumentSearchOptions) {
   const activeMatch = computed<TextSearchMatch | undefined>(() => matches.value[activeIndex.value]);
   const matchCount = computed(() => matches.value.length);
 
+  /**
+   * 実行中の検索が最新のものかどうかを判定する世代カウンタ。
+   * `searchDocumentText`はデバウンス経由で連続して呼ばれ得るため、後発の検索が始まった後に
+   * 先発の検索が完了しても、その結果で現在の状態を上書きしないようにする（クエリ変更・
+   * 検索バーを閉じた後に古い検索が完了するケースを含む）
+   */
+  let searchGeneration = 0;
+
   /** 現在のqueryで実際に検索を実行する（デバウンスなし版。Enter即時確定等から直接呼ぶ用） */
   async function runSearch(): Promise<void> {
+    const generation = ++searchGeneration;
     const pdf = options.getDocument();
     const trimmed = query.value.trim();
     if (!pdf || trimmed === '') {
@@ -47,13 +56,18 @@ export function useDocumentSearch(options: UseDocumentSearchOptions) {
     }
 
     isSearching.value = true;
+    let result: TextSearchMatch[];
     try {
-      matches.value = await searchDocumentText(pdf, trimmed);
+      result = await searchDocumentText(pdf, trimmed);
     } finally {
-      isSearching.value = false;
+      if (generation === searchGeneration) isSearching.value = false;
     }
+    if (generation !== searchGeneration) return; // 検索完了時点で既に後発の検索が始まっている
+
+    matches.value = result;
     activeIndex.value = 0;
-    if (matches.value.length > 0) options.onNavigate(matches.value[0]);
+    const firstMatch = matches.value[0];
+    if (firstMatch !== undefined) options.onNavigate(firstMatch);
   }
 
   const debouncedRunSearch = debounce(() => void runSearch(), SEARCH_DEBOUNCE_MS);
@@ -65,14 +79,16 @@ export function useDocumentSearch(options: UseDocumentSearchOptions) {
   function goToNext(): void {
     if (matches.value.length === 0) return;
     activeIndex.value = (activeIndex.value + 1) % matches.value.length;
-    options.onNavigate(matches.value[activeIndex.value]);
+    const match = matches.value[activeIndex.value];
+    if (match !== undefined) options.onNavigate(match);
   }
 
   /** 前のマッチへ移動する（先頭からは末尾へ循環する） */
   function goToPrevious(): void {
     if (matches.value.length === 0) return;
     activeIndex.value = (activeIndex.value - 1 + matches.value.length) % matches.value.length;
-    options.onNavigate(matches.value[activeIndex.value]);
+    const match = matches.value[activeIndex.value];
+    if (match !== undefined) options.onNavigate(match);
   }
 
   /** 検索バーを開く（Ctrl+F）。既に開いている場合は入力欄へのフォーカスのみ呼び出し側で行う */
@@ -82,6 +98,7 @@ export function useDocumentSearch(options: UseDocumentSearchOptions) {
 
   /** 検索バーを閉じ、検索状態を破棄する（Esc、閉じるボタン） */
   function close(): void {
+    searchGeneration++; // 実行中の検索があれば、完了時に結果を適用させない
     isOpen.value = false;
     query.value = '';
     matches.value = [];

@@ -4,24 +4,28 @@ import { ContainerElementFile } from 'src/models/container';
 /**
  * 文書内テキスト検索の1マッチ結果
  *
- * `itemIndex`はページ内で何番目のテキストアイテム（`TextItemBox`）内のマッチかを、
- * `matchIndexInItem`は同一アイテム内で何番目の出現かを表す（同じアイテム内でクエリが複数回
- * 出現する場合の一意なキーとして、DOM要素のidやactiveMatch比較に使う）。
- * `box`はスケール1（`getViewport({scale:1})`基準）での左上原点バウンディングボックスで、
- * 表示側は現在のズーム倍率を掛けて画面座標に変換する
+ * `matchIndex`はページ内で何番目のマッチかを表す通し番号（DOM要素のidやactiveMatch比較に使う
+ * 一意なキー）。マッチはページ内のテキストアイテムを連結した論理テキストに対して探索するため、
+ * 複数のテキストアイテムにまたがる場合がある（`boxes`が2件以上になる）。
+ * `boxes`はスケール1（`getViewport({scale:1})`基準）での左上原点バウンディングボックス一覧
+ * （マッチに寄与した各テキストアイテムの部分矩形）で、表示側は現在のズーム倍率を掛けて
+ * 画面座標に変換したうえですべて描画する
  */
 export const TextSearchMatch = z.object({
   pageNumber: z.number().int().positive(),
-  itemIndex: z.number().int().nonnegative(),
-  matchIndexInItem: z.number().int().nonnegative(),
-  /** マッチしたテキストアイテム全体の文字列（デバッグ・一覧表示のスニペット用） */
+  matchIndex: z.number().int().nonnegative(),
+  /** マッチした文字列そのもの（デバッグ・一覧表示のスニペット用） */
   text: z.string(),
-  box: z.object({
-    x: z.number(),
-    y: z.number(),
-    width: z.number(),
-    height: z.number(),
-  }),
+  boxes: z
+    .array(
+      z.object({
+        x: z.number(),
+        y: z.number(),
+        width: z.number(),
+        height: z.number(),
+      }),
+    )
+    .min(1),
 });
 export type TextSearchMatch = z.infer<typeof TextSearchMatch>;
 

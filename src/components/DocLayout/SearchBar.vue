@@ -93,7 +93,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import { useEditorStore } from 'src/stores/editorStore';
@@ -165,18 +165,33 @@ function fileKeyOf(file: ContainerElementFile): string {
 
 /** 現在のqueryでコンテナ内の全PDF文書を検索する（issue #33の「できれば」要件） */
 async function runContainerSearch(): Promise<void> {
-  const trimmed = props.query.trim();
-  if (trimmed === '') return;
+  const searchStartQuery = props.query.trim();
+  if (searchStartQuery === '') return;
 
   isContainerSearching.value = true;
   containerResultsVisible.value = true;
   try {
-    const res = await api.searchContainerText(props.containerID, trimmed);
-    containerResults.value = res.ok ? res.data : [];
+    const res = await api.searchContainerText(props.containerID, searchStartQuery);
+    // 検索中にユーザーがqueryを変更していた場合、この結果は既に古いため反映しない
+    // （変更された時点で下のwatchが結果をクリア済みのはずだが、念のため二重にガードする）
+    if (props.query.trim() === searchStartQuery) {
+      containerResults.value = res.ok ? res.data : [];
+    }
   } finally {
     isContainerSearching.value = false;
   }
 }
+
+// 検索実行中（または結果表示中）にqueryが変更された場合、古いコンテナ検索結果を
+// 表示し続けないようクリアする（実際の検索開始は明示的なボタン操作でのみ行う）
+watch(
+  () => props.query,
+  () => {
+    if (!containerResultsVisible.value) return;
+    containerResults.value = [];
+    containerResultsVisible.value = false;
+  },
+);
 
 /** コンテナ横断検索の結果をクリックした際、該当文書の該当ページをタブで開く */
 function openContainerResult(file: ContainerElementFile, pageNumber: number): void {

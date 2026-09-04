@@ -6,15 +6,23 @@
       v-for="match in matches"
       :id="searchMatchDomId(match)"
       :key="searchMatchDomId(match)"
-      class="search-highlight-layer__box"
-      :class="{ 'search-highlight-layer__box--active': searchMatchDomId(match) === activeMatchId }"
-      :style="boxStyle(match)"
-    />
+      class="search-highlight-layer__match"
+    >
+      <!-- アイテム境界をまたぐマッチは複数の矩形（boxes）を持つため、すべて描画する -->
+      <div
+        v-for="(box, boxIndex) in match.boxes"
+        :key="boxIndex"
+        class="search-highlight-layer__box"
+        :class="{ 'search-highlight-layer__box--active': searchMatchDomId(match) === activeMatchId }"
+        :style="boxStyle(box)"
+      />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { TextSearchMatch } from 'src/models/document/search';
+import type { BoundingBox } from 'src/models/common';
 import { searchMatchDomId } from 'src/utils/document/textSearch';
 
 interface Props {
@@ -27,12 +35,12 @@ interface Props {
 }
 const props = defineProps<Props>();
 
-function boxStyle(match: TextSearchMatch): Record<string, string> {
+function boxStyle(box: BoundingBox): Record<string, string> {
   return {
-    left: `${match.box.x * props.scale}px`,
-    top: `${match.box.y * props.scale}px`,
-    width: `${match.box.width * props.scale}px`,
-    height: `${match.box.height * props.scale}px`,
+    left: `${box.x * props.scale}px`,
+    top: `${box.y * props.scale}px`,
+    width: `${box.width * props.scale}px`,
+    height: `${box.height * props.scale}px`,
   };
 }
 </script>
@@ -42,6 +50,11 @@ function boxStyle(match: TextSearchMatch): Record<string, string> {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+.search-highlight-layer__match {
+  position: absolute;
+  inset: 0;
 }
 
 .search-highlight-layer__box {

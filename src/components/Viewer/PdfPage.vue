@@ -185,6 +185,9 @@ const currentPageSearchMatches = computed(() => {
 /** 現在ページのテキストアイテムを取得し直す。取得中にページが切り替わっていた場合は結果を捨てる */
 async function refreshPageTextBlocks(): Promise<void> {
   const requestedPage = page.value;
+  // 取得中は前ページ分のブロックを表示し続けないよう先に空にする（TextLayerが新ページのcanvas上に
+  // 旧ページのテキスト選択範囲を透明のまま重ねて表示してしまうのを防ぐ）
+  pageTextBlocks.value = [];
   const blocks = await props.onGetPageTextBlocks(requestedPage);
   if (requestedPage !== page.value) return;
   pageTextBlocks.value = blocks;

@@ -49,7 +49,7 @@
         :match-count="searchMatchCount"
         :active-index="searchActiveIndex"
         :is-searching="searchIsSearching"
-        :container-id="prop.file.containerID"
+        :container-i-d="prop.file.containerID"
         @next="searchGoToNext"
         @previous="searchGoToPrevious"
         @close="closeSearch"
@@ -775,6 +775,18 @@ const NUDGE_STEP = 1;
 function handleGlobalKeydown(e: KeyboardEvent) {
   if (editorStore.activeSide !== prop.layoutSide) return;
 
+  const isModifierPressed = e.ctrlKey || e.metaKey;
+
+  // Ctrl+Fは検索バーの入力欄にフォーカスが乗っている間も奪う必要がある（さもないと検索バーを
+  // 開いた直後にCtrl+Fを押すとブラウザ標準のページ内検索が開いてしまう）ため、
+  // 下のテキスト入力中の早期returnより先に判定する
+  if (isModifierPressed && e.key.toLowerCase() === 'f') {
+    // ブラウザ標準のページ内検索と衝突するため必ずpreventDefaultする（issue #33）
+    e.preventDefault();
+    openSearch();
+    return;
+  }
+
   const activeEl = document.activeElement;
   const isTextInput =
     activeEl instanceof HTMLElement &&
@@ -808,15 +820,6 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     const dx = e.key === 'ArrowLeft' ? -NUDGE_STEP : e.key === 'ArrowRight' ? NUDGE_STEP : 0;
     const dy = e.key === 'ArrowUp' ? -NUDGE_STEP : e.key === 'ArrowDown' ? NUDGE_STEP : 0;
     void annotationActions.nudgeSelected(dx, dy);
-    return;
-  }
-
-  const isModifierPressed = e.ctrlKey || e.metaKey;
-
-  if (isModifierPressed && e.key.toLowerCase() === 'f') {
-    // ブラウザ標準のページ内検索と衝突するため必ずpreventDefaultする（issue #33）
-    e.preventDefault();
-    openSearch();
     return;
   }
 
