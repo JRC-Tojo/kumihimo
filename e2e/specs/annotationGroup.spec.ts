@@ -537,16 +537,31 @@ test.describe('アノテーショングループ化', () => {
     });
     const lineId1 = 'aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa';
     const lineId2 = 'bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb';
-    // (50,50)-(150,150)と(150,50)-(50,150)は(100,100)で交差する
+    // (50,50)-(150,150)と(150,50)-(50,150)は(100,100)で交差する。containsPointの当たり判定は
+    // 実際の線幅（strokeWidth/2）そのものになった（Issue #82）ため、既定の細い線幅のままだと、
+    // このテスト側の座標変換（docPointToPagePosition。canvasの実表示サイズから逆算するため、
+    // アプリ内部のスケール計算とは独立に丸め誤差が生じうる）による1px未満のズレでも
+    // クリックが線を外れてしまうことがある。太さ自体はこのテストの検証対象ではないため、
+    // strokeWidthを大きくして当たり判定に余裕を持たせ、クリック位置のわずかな誤差を吸収する
     await registerAnnotation(
       page,
       seeded.file,
-      buildLineAnnotationStyle({ id: lineId1, pageNumber: 1, points: [50, 50, 150, 150] }),
+      buildLineAnnotationStyle({
+        id: lineId1,
+        pageNumber: 1,
+        points: [50, 50, 150, 150],
+        strokeWidth: 10,
+      }),
     );
     await registerAnnotation(
       page,
       seeded.file,
-      buildLineAnnotationStyle({ id: lineId2, pageNumber: 1, points: [150, 50, 50, 150] }),
+      buildLineAnnotationStyle({
+        id: lineId2,
+        pageNumber: 1,
+        points: [150, 50, 50, 150],
+        strokeWidth: 10,
+      }),
     );
 
     const canvas = await openFileInSelectMode(page, 'group-line-resize');
