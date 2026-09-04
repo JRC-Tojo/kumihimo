@@ -222,7 +222,7 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(box).toEqual({ x: 8, y: 8, width: 104, height: 54 });
   });
 
-  it('arrow: boundingBoxはlineと同じ計算式（線幅を考慮した外接矩形）を使う', () => {
+  it('arrow: boundingBoxはlineと同じ計算式（線幅を考慮した外接矩形）に加え、矢じりの張り出しも含める', () => {
     const bbox = ANNOTATION_GEOMETRY.arrow.boundingBox({
       id: '00000000-0000-4000-8000-000000000000' as never,
       pageNumber: 1,
@@ -244,7 +244,9 @@ describe('ANNOTATION_GEOMETRY', () => {
     expect(bbox.x).toBe(0);
     expect(bbox.y).toBe(0);
     expect(bbox.width).toBe(18);
-    expect(bbox.height).toBe(8);
+    // シャフトの太さ（strokeWidth 4→halfStroke 2+padding 2=4）だけならheight=8だが、
+    // headSize 12のtriangle矢じり（半幅6）の方が広く張り出すため、その分を含めてheight=12になる
+    expect(bbox.height).toBe(12);
   });
 
   it('line: 始点アンカー（points[0]/points[1]）だけを動かした場合でもboundingBoxに反映される（Issue #76: 始点だけ動かすと関係性の読み取り値が更新されない不具合の回帰テスト）', () => {
@@ -718,7 +720,7 @@ describe('containsPoint（実形状に基づく点の内外判定。関係性の
   });
 
   it('line: 外接矩形（AABB）の内側でも、実際の太さを超えて線から離れた点はfalseを返す', () => {
-    // strokeWidth 6 → halfStroke = 6/2 + BOUNDING_BOX_PADDING(2) = 5
+    // strokeWidth 6 → halfStroke = 6/2 = 3
     const style = {
       ...containsPointBaseFields(6),
       type: 'line' as const,
@@ -754,8 +756,28 @@ describe('containsPoint（実形状に基づく点の内外判定。関係性の
     expect(ANNOTATION_GEOMETRY.arrow.containsPoint(style, { x: 95, y: 5 })).toBeFalse();
   });
 
+  it('arrow: 矢じり（headSizeで線幅より外側へ張り出す部分）の内側もtrueを返す（Issue #82の回帰テスト）', () => {
+    // シャフトは水平（0,0)-(20,0)）、strokeWidth 2 → halfStroke = 1
+    const style = {
+      ...containsPointBaseFields(2),
+      type: 'arrow' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 20, 0],
+      startHead: 'none' as const,
+      endHead: 'triangle' as const,
+      headSize: 12,
+    };
+
+    // (12, 3)はシャフトの帯（|y| <= 1）からは外れているが、終点(20,0)に付く
+    // triangle矢じり（半幅6の三角形）の内側にあるため、trueを返すべき
+    expect(ANNOTATION_GEOMETRY.arrow.containsPoint(style, { x: 12, y: 3 })).toBeTrue();
+    // (25, 0)は矢じりの先端(20,0)よりさらに外側で、シャフトの延長にも矢じりの三角形にも含まれない
+    expect(ANNOTATION_GEOMETRY.arrow.containsPoint(style, { x: 25, y: 0 })).toBeFalse();
+  });
+
   it('polyline: 各線分から実際の太さ分だけ離れた範囲のみtrueを返す', () => {
-    // strokeWidth 4 → halfStroke = 4/2 + 2 = 4
+    // strokeWidth 4 → halfStroke = 4/2 = 2
     const style = {
       ...containsPointBaseFields(4),
       type: 'polyline' as const,
@@ -773,7 +795,7 @@ describe('containsPoint（実形状に基づく点の内外判定。関係性の
   });
 
   it('polygon: 塗りがある場合は面の内側も対象に含み、塗りが無い場合は輪郭線付近のみが対象になる', () => {
-    // strokeWidth 2 → halfStroke = 2/2 + 2 = 3
+    // strokeWidth 2 → halfStroke = 2/2 = 1
     const filled = {
       ...containsPointBaseFields(2),
       type: 'polygon' as const,

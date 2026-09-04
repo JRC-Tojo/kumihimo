@@ -18,11 +18,22 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
-import { AnnotationID, ColorCode, type AnnotationStyle } from 'src/models/document/pdf';
+import {
+  AnnotationID,
+  ColorCode,
+  type AnnotationStyle,
+  type ArrowHeadType,
+} from 'src/models/document/pdf';
 import type { DrawingAnnotationStyle } from 'src/models/docPage';
 import type { BoundingBox } from 'src/models/common';
 import { hexToRgba } from 'src/utils/color/hexToRgba';
 import { strokeTypeToDash } from 'src/utils/document/strokeDash';
+import {
+  computeHeadTransform,
+  getHeadLocalPoints,
+  getHeadRadius,
+  isClosedHead,
+} from './arrowHeadGeometry';
 
 export interface Point {
   x: number;
@@ -209,13 +220,113 @@ function pointInPolygon(originX: number, originY: number, points: number[], poin
   return inside;
 }
 
+/** 矢じりのローカル座標（先端=原点、+x=外向き）の点を、実際の先端位置・線分の向きへ回転・平行移動する */
+function transformHeadPoint(local: Point, tip: Point, angleDeg: number): Point {
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return {
+    x: tip.x + local.x * cos - local.y * sin,
+    y: tip.y + local.x * sin + local.y * cos,
+  };
+}
+
+/**
+ * 矢印共通: 指定した端（start/end）の矢じりの実際の先端位置（絶対座標）と、ローカル座標系の
+ * +x（外向き）を実際の線分方向へ合わせる回転角度を求める（`computeHeadTransform`参照）。
+ * 始点・終点が一致していて向きを算出できない場合はnull
+ */
+function resolveHeadTransform(
+  originX: number,
+  originY: number,
+  points: number[],
+  end: 'start' | 'end',
+): { tip: Point; angleDeg: number } | null {
+  const transform = computeHeadTransform(points, end);
+  if (!transform) return null;
+  return {
+    tip: { x: originX + transform.tipX, y: originY + transform.tipY },
+    angleDeg: transform.angleDeg,
+  };
+}
+
+/**
+ * 矢印共通: 指定した端の矢じりを、実際の位置・向きへ変換した絶対座標の頂点列として返す
+ * （`boundingBox`計算・`pointInHead`の多角形判定の双方から使う）。circle矢じりは中心から見た
+ * 上下左右4点で近似する（この4点のmin/maxは実際の円の外接矩形と一致するため、boundingBox用途では
+ * 正確。`pointInHead`側は真円判定を別途行うため、この近似はboundingBox専用と考えてよい）。
+ * 矢じりが無い（'none'）・向きを算出できない場合はnull
+ */
+function resolveHeadAbsolutePoints(
+  originX: number,
+  originY: number,
+  points: number[],
+  end: 'start' | 'end',
+  headType: ArrowHeadType,
+  headSize: number,
+): Point[] | null {
+  const resolved = resolveHeadTransform(originX, originY, points, end);
+  if (!resolved) return null;
+  const { tip, angleDeg } = resolved;
+
+  const radius = getHeadRadius(headType, headSize);
+  if (radius !== null) {
+    return [
+      { x: tip.x - radius, y: tip.y },
+      { x: tip.x + radius, y: tip.y },
+      { x: tip.x, y: tip.y - radius },
+      { x: tip.x, y: tip.y + radius },
+    ];
+  }
+
+  const localPoints = getHeadLocalPoints(headType, headSize);
+  if (!localPoints) return null;
+
+  const abs: Point[] = [];
+  for (let i = 0; i + 1 < localPoints.length; i += 2) {
+    abs.push(transformHeadPoint({ x: localPoints[i]!, y: localPoints[i + 1]! }, tip, angleDeg));
+  }
+  return abs;
+}
+
+/**
+ * 矢印共通: 点が指定した端の矢じり内（塗りつぶし多角形の内側、または輪郭のみの矢じりは
+ * 実際の太さを考慮した帯の中）にあるかどうかを判定する。矢じりが無い（'none'）場合は常にfalse
+ */
+function pointInHead(
+  originX: number,
+  originY: number,
+  points: number[],
+  end: 'start' | 'end',
+  headType: ArrowHeadType,
+  headSize: number,
+  point: Point,
+  halfStroke: number,
+): boolean {
+  if (headType === 'none') return false;
+
+  const radius = getHeadRadius(headType, headSize);
+  if (radius !== null) {
+    const resolved = resolveHeadTransform(originX, originY, points, end);
+    return resolved !== null && Math.hypot(point.x - resolved.tip.x, point.y - resolved.tip.y) <= radius;
+  }
+
+  const abs = resolveHeadAbsolutePoints(originX, originY, points, end, headType, headSize);
+  if (!abs) return false;
+  const flat = abs.flatMap((p) => [p.x, p.y]);
+  return isClosedHead(headType)
+    ? pointInPolygon(0, 0, flat, point)
+    : pointNearPolyline(0, 0, flat, point, halfStroke, false);
+}
+
 /**
  * 直線・矢印・折れ線・塗りなしポリゴン共通: 当たり判定用の帯の半幅（strokeWidth/2）を求める。
- * `boundingBox`計算（`lineLikeBoundingBox`/`multiPointBoundingBox`）と同じ`BOUNDING_BOX_PADDING`を
- * 加えることで、外接矩形のギリギリ内側にある点まで一貫して拾えるようにする
+ * `BOUNDING_BOX_PADDING`は`boundingBox`計算（`lineLikeBoundingBox`/`multiPointBoundingBox`）側の
+ * 余白であり実際の線幅ではないため、containsPointの判定には含めない（含めると可視の線の外側まで
+ * 当たり判定・`extractTextByAnnot`の対象になってしまう）
  */
 function lineLikeHalfStroke(strokeWidth: number | undefined): number {
-  return (strokeWidth ?? 2) / 2 + BOUNDING_BOX_PADDING;
+  return (strokeWidth ?? 2) / 2;
 }
 
 /** 初期設定として投入されるプリセット1件分の元データ（id/表示順はsettings層で採番する） */
@@ -457,9 +568,9 @@ const boxGeometry: AnnotationGeometryModule = {
       style.y <= rect.y + rect.height
     );
   },
+  /** box: 面方向全体が制御可能な種別のため、塗りの有無に関わらず矩形全体を対象に点の内外を判定する */
   containsPoint(style, point) {
     if (style.type !== 'box') return false;
-    // 面方向全体が制御可能な種別のため、塗りの有無に関わらず矩形全体を対象とする
     return (
       point.x >= style.x &&
       point.x <= style.x + style.width &&
@@ -492,12 +603,18 @@ const boxGeometry: AnnotationGeometryModule = {
  * アンカーを動かした場合でも`x`/`y`自体は変えず`points[0]`/`points[1]`だけを更新するため、
  * 始点側のオフセットを無視して`x`をそのまま起点とみなすと、始点だけを動かした変更が
  * 外接矩形（＝内容再読み込みの要否判定）に一切反映されなくなってしまう
+ *
+ * `heads`（矢印のみ）を渡すと、矢じりの頂点も外接矩形へ含める。矢じりは`headSize`次第で
+ * 線幅より大きく外側へ張り出すため、これを含めないと矢じりの先端がはみ出た状態のまま
+ * 外接矩形が計算されてしまう（OCR/プレビュー画像切り出し・関係性のテキスト読み取り範囲事前
+ * フィルタの双方に影響する）
  */
 function lineLikeBoundingBox(
   x: number,
   y: number,
   points: number[],
   strokeWidth: number,
+  heads?: { startHead: ArrowHeadType; endHead: ArrowHeadType; headSize: number },
 ): BoundingBox {
   const [x1, y1, dx, dy] = points;
   const x1Abs = x + (x1 ?? 0);
@@ -506,10 +623,23 @@ function lineLikeBoundingBox(
   const y2 = y + (dy ?? 2);
 
   const halfStroke = strokeWidth / 2 + BOUNDING_BOX_PADDING;
-  const minX = Math.min(x1Abs, x2) - halfStroke;
-  const maxX = Math.max(x1Abs, x2) + halfStroke;
-  const minY = Math.min(y1Abs, y2) - halfStroke;
-  const maxY = Math.max(y1Abs, y2) + halfStroke;
+  let minX = Math.min(x1Abs, x2) - halfStroke;
+  let maxX = Math.max(x1Abs, x2) + halfStroke;
+  let minY = Math.min(y1Abs, y2) - halfStroke;
+  let maxY = Math.max(y1Abs, y2) + halfStroke;
+
+  if (heads) {
+    for (const end of ['start', 'end'] as const) {
+      const headType = end === 'start' ? heads.startHead : heads.endHead;
+      const headPoints = resolveHeadAbsolutePoints(x, y, points, end, headType, heads.headSize) ?? [];
+      for (const p of headPoints) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+    }
+  }
 
   return {
     x: Math.max(0, minX),
@@ -682,9 +812,9 @@ const lineGeometry: AnnotationGeometryModule = {
       rect,
     );
   },
+  /** line: 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する */
   containsPoint(style, point) {
     if (style.type !== 'line') return false;
-    // 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する
     return pointNearPolyline(
       style.x,
       style.y,
@@ -801,9 +931,9 @@ const circleGeometry: AnnotationGeometryModule = {
     const radiusY = style.radiusY ?? style.radius;
     return ellipseIntersectsRect(style.x, style.y, radiusX, radiusY, rect);
   },
+  /** circle: 面方向全体が制御可能な種別のため、塗りの有無に関わらず楕円の内側全体を対象に判定する */
   containsPoint(style, point) {
     if (style.type !== 'circle') return false;
-    // 面方向全体が制御可能な種別のため、塗りの有無に関わらず楕円の内側全体を対象とする
     const radiusX = style.radiusX ?? style.radius;
     const radiusY = style.radiusY ?? style.radius;
     if (radiusX <= 0 || radiusY <= 0) return false;
@@ -872,7 +1002,11 @@ const arrowGeometry: AnnotationGeometryModule = {
   },
   boundingBox(style) {
     if (style.type !== 'arrow') return { x: 0, y: 0, width: 0, height: 0 };
-    return lineLikeBoundingBox(style.x, style.y, style.points, style.strokeWidth ?? 2);
+    return lineLikeBoundingBox(style.x, style.y, style.points, style.strokeWidth ?? 2, {
+      startHead: style.startHead,
+      endHead: style.endHead,
+      headSize: style.headSize ?? 10,
+    });
   },
   getSize(style) {
     if (style.type !== 'arrow') return { width: 0, height: 0 };
@@ -892,17 +1026,16 @@ const arrowGeometry: AnnotationGeometryModule = {
       rect,
     );
   },
+  /** arrow: シャフトは実際の太さを考慮した帯（カプセル形状）との距離で、矢じりはその実形状で判定する */
   containsPoint(style, point) {
     if (style.type !== 'arrow') return false;
-    // 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する
-    // （矢じり部分は軸方向の延長に含まれるとみなし、シャフトの帯のみで判定する）
-    return pointNearPolyline(
-      style.x,
-      style.y,
-      style.points,
-      point,
-      lineLikeHalfStroke(style.strokeWidth),
-      false,
+    const halfStroke = lineLikeHalfStroke(style.strokeWidth);
+    if (pointNearPolyline(style.x, style.y, style.points, point, halfStroke, false)) return true;
+
+    const headSize = style.headSize ?? 10;
+    return (
+      pointInHead(style.x, style.y, style.points, 'start', style.startHead, headSize, point, halfStroke) ||
+      pointInHead(style.x, style.y, style.points, 'end', style.endHead, headSize, point, halfStroke)
     );
   },
   defaultPresets: [
@@ -983,9 +1116,9 @@ const polylineGeometry: AnnotationGeometryModule = {
     if (style.type !== 'polyline') return false;
     return polylineIntersectsRect(style.x, style.y, style.points, rect, false);
   },
+  /** polyline: 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する */
   containsPoint(style, point) {
     if (style.type !== 'polyline') return false;
-    // 延長方向のみ制御可能な種別のため、実際の太さを考慮した帯（カプセル形状）との距離で判定する
     return pointNearPolyline(
       style.x,
       style.y,
@@ -1093,11 +1226,13 @@ const polygonGeometry: AnnotationGeometryModule = {
     if (style.type !== 'polygon') return false;
     return polylineIntersectsRect(style.x, style.y, style.points, rect, true);
   },
+  /**
+   * polygon: 塗りの有無に関わらず、輪郭線付近（実際の太さを考慮した帯、終点-始点間の辺も含む）は
+   * 常に対象に含める（偶奇則による内外判定だけでは境界上の点を安定して拾えないため）。
+   * 加えて塗りを持つ場合は面方向全体が制御可能とみなし、面の内外判定（偶奇則）も対象に含める
+   */
   containsPoint(style, point) {
     if (style.type !== 'polygon') return false;
-    // 塗りの有無に関わらず、輪郭線付近（実際の太さを考慮した帯、終点-始点間の辺も含む）は
-    // 常に対象に含める（偶奇則による内外判定だけでは境界上の点を安定して拾えないため）。
-    // 加えて塗りを持つ場合は面方向全体が制御可能とみなし、面の内外判定（偶奇則）も対象に含める
     const nearEdge = pointNearPolyline(
       style.x,
       style.y,
@@ -1211,9 +1346,9 @@ const textGeometry: AnnotationGeometryModule = {
       style.y <= rect.y + rect.height
     );
   },
+  /** text: boxと同じく矩形全体が実体のため、矩形の内外判定のみで良い */
   containsPoint(style, point) {
     if (style.type !== 'text') return false;
-    // boxと同じく矩形全体が実体のため、矩形の内外判定のみで良い
     return (
       point.x >= style.x &&
       point.x <= style.x + style.width &&
