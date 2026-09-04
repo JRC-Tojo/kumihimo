@@ -31,13 +31,19 @@ import type {
 } from 'src/models/container';
 import type { AppSettings } from 'src/models/settings';
 import type { DocumentSource } from 'src/models/document/common';
-import type { ContainerTextSearchResult, TextSearchMatch } from 'src/models/document/search';
+import type {
+  ContainerTextSearchResult,
+  TextSearchMatch,
+  TextSearchOptions,
+} from 'src/models/document/search';
 import type {
   AnnotationID,
   AnnotationStyle,
   ColorCode,
   TextAnnotationStyle,
+  TextItemBox,
 } from 'src/models/document/pdf';
+import { annotationTextItemsByPage } from 'src/utils/document/textSearch';
 import type {
   AnnotationGroup,
   AnnotationGroupID,
@@ -273,7 +279,23 @@ class BackendApi {
   }
 
   /**
+   * 指定ファイルのアノテーションのうちテキストボックス（type: 'text'）の内容を、
+   * `pdfRepo.searchTextByFile`の`extraItemsByPage`にそのまま渡せる形で取得する
+   *
+   * 取得に失敗した場合はPDF自体のテキストのみで検索を続行する（アノテーションが検索対象から
+   * 漏れるだけで、文書自体の検索結果までブロックする必要はないため）
+   */
+  private async getAnnotationSearchItemsByPage(
+    file: ContainerElementFile,
+  ): Promise<Map<number, TextItemBox[]>> {
+    const annotationsRes = await annotationService.getAnnotationsByFile(file);
+    if (!annotationsRes.ok) return new Map();
+    return annotationTextItemsByPage(annotationsRes.value.map((info) => info.style));
+  }
+
+  /**
    * 文書内テキスト検索（Ctrl+F）: 指定ファイルの全ページからクエリにマッチする箇所を位置情報付きで返す
+   * （PDF自体のテキストに加え、テキストボックスアノテーションの内容も検索対象に含める）
    *
    * ビューア表示中の文書自体に対する検索は、既に取得済みのPDFDocumentProxyを再利用できる
    * `src/components/Viewer/pdfManager.ts`の`searchDocumentText`を直接使う方が効率的なため、
@@ -282,15 +304,21 @@ class BackendApi {
   async searchDocumentText(
     file: ContainerElementFile,
     query: string,
+    searchOptions?: Partial<TextSearchOptions>,
   ): Promise<ApiResponse<TextSearchMatch[]>> {
     const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
     if (!docSrc.ok) return toApiResponse(docSrc, 'INVALID_DOCUMENT');
-    const res = await pdfRepo.searchTextByFile(file, docSrc.value, query);
+    const extraItemsByPage = await this.getAnnotationSearchItemsByPage(file);
+    const res = await pdfRepo.searchTextByFile(file, docSrc.value, query, {
+      searchOptions,
+      extraItemsByPage,
+    });
     return toApiResponse(res, 'DOC_SEARCH_FAILED');
   }
 
   /**
    * コンテナ横断のテキスト検索: コンテナ内の全PDF文書を対象にクエリを検索する
+   * （PDF自体のテキストに加え、テキストボックスアノテーションの内容も検索対象に含める）
    *
    * 文書ごとの読み込み・検索は`CONTAINER_SEARCH_CONCURRENCY`件まで並列化する（issue #91と
    * 同根の「重いファイルが多いコンテナで遅い」問題への対応）。`onResult`を渡すと、各文書の
@@ -301,6 +329,7 @@ class BackendApi {
   async searchContainerText(
     cId: ContainerID,
     query: string,
+    searchOptions?: Partial<TextSearchOptions>,
     onResult?: (result: ContainerTextSearchResult) => void,
   ): Promise<ApiResponse<ContainerTextSearchResult[]>> {
     const containerRes = await containerService.loadContainer(cId, false);
@@ -315,7 +344,11 @@ class BackendApi {
       (file) => async (): Promise<ContainerTextSearchResult | undefined> => {
         const docSrc = await containerService.loadFileAsDocumentSource(file.containerID, file.path);
         if (!docSrc.ok) return undefined;
-        const matchesRes = await pdfRepo.searchTextByFile(file, docSrc.value, query);
+        const extraItemsByPage = await this.getAnnotationSearchItemsByPage(file);
+        const matchesRes = await pdfRepo.searchTextByFile(file, docSrc.value, query, {
+          searchOptions,
+          extraItemsByPage,
+        });
         if (!matchesRes.ok || matchesRes.value.length === 0) return undefined;
 
         const result: ContainerTextSearchResult = { file, matches: matchesRes.value };
@@ -327,6 +360,31 @@ class BackendApi {
     const settled = await runConcurrently(searchTasks, CONTAINER_SEARCH_CONCURRENCY);
     const results = settled.filter((r): r is ContainerTextSearchResult => r !== undefined);
     return toApiResponse(Success(results), 'CONTAINER_SEARCH_FAILED');
+  }
+
+  /**
+   * 登録済みの全コンテナを横断したテキスト検索（サイドパネルの検索タブから使う想定。
+   * VSCodeのワークスペース全体検索に相当）
+   *
+   * コンテナ単位は逐次実行するが、各コンテナ内部の文書検索自体は`searchContainerText`が
+   * `CONTAINER_SEARCH_CONCURRENCY`件まで並列化するため、コンテナ数が増えてもこの上限を超えて
+   * 同時アクセス数が際限なく膨らむことはない。`onResult`は文書単位で（コンテナをまたいで）
+   * 随時呼ばれるため、呼び出し側は全コンテナの完了を待たず結果が出た文書から順次表示できる
+   */
+  async searchAllContainersText(
+    query: string,
+    searchOptions?: Partial<TextSearchOptions>,
+    onResult?: (result: ContainerTextSearchResult) => void,
+  ): Promise<ApiResponse<ContainerTextSearchResult[]>> {
+    const containersRes = await containerService.getAllContainers();
+    if (!containersRes.ok) return toApiResponse(containersRes, 'CONTAINER_SEARCH_FAILED');
+
+    const allResults: ContainerTextSearchResult[] = [];
+    for (const container of containersRes.value) {
+      const res = await this.searchContainerText(container.id, query, searchOptions, onResult);
+      if (res.ok) allResults.push(...res.data);
+    }
+    return toApiResponse(Success(allResults), 'CONTAINER_SEARCH_FAILED');
   }
 
   /**

@@ -46,10 +46,10 @@
       <SearchBar
         v-if="searchOpen"
         v-model:query="searchQuery"
+        v-model:options="searchOptions"
         :match-count="searchMatchCount"
         :active-index="searchActiveIndex"
         :is-searching="searchIsSearching"
-        :container-i-d="prop.file.containerID"
         @next="searchGoToNext"
         @previous="searchGoToPrevious"
         @close="closeSearch"
@@ -110,7 +110,7 @@ import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
 import { useGroupStore } from 'src/stores/groupStore';
 import { useDocumentSearch } from './composables/useDocumentSearch';
-import { searchMatchDomId } from 'src/utils/document/textSearch';
+import { annotationTextItemsByPage, searchMatchDomId } from 'src/utils/document/textSearch';
 import type { TextItemBox } from 'src/models/document/pdf';
 import type { TextSearchMatch } from 'src/models/document/search';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
@@ -302,6 +302,7 @@ if (storedTabViewState !== undefined) zoomLevel.value = storedTabViewState.zoomL
 const {
   isOpen: searchOpen,
   query: searchQuery,
+  searchOptions,
   activeMatch: searchActiveMatch,
   matches: searchMatches,
   activeIndex: searchActiveIndex,
@@ -314,6 +315,8 @@ const {
 } = useDocumentSearch({
   getDocument: () => acquiredPdf?.document,
   onNavigate: (match) => void scrollToSearchMatch(match),
+  // アノテーションのテキストボックス内容もPDF自体のテキストと同様に検索対象へ含める
+  getExtraItemsByPage: () => annotationTextItemsByPage(annotations.value),
 });
 const activeSearchMatchId = computed(() =>
   searchActiveMatch.value ? searchMatchDomId(searchActiveMatch.value) : undefined,

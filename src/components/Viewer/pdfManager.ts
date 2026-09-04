@@ -12,7 +12,11 @@ import {
   acquirePdfDocument,
   type AcquiredPdfDocument,
 } from 'src/repositories/document/pdfDocumentCache';
-import { extractTextBlocksByPageFromDoc, searchTextInDoc } from 'src/repositories/document/pdf';
+import {
+  extractTextBlocksByPageFromDoc,
+  searchTextInDoc,
+  type SearchTextInDocOptions,
+} from 'src/repositories/document/pdf';
 import {
   getCachedRender,
   renderCacheKey,
@@ -384,8 +388,9 @@ export async function getPageTextBlocks(
 export async function searchDocumentText(
   pdfDocument: PdfDocument,
   query: string,
+  options: SearchTextInDocOptions = {},
 ): Promise<TextSearchMatch[]> {
-  const res = await searchTextInDoc(pdfDocument, query);
+  const res = await searchTextInDoc(pdfDocument, query, options);
   if (!res.ok) {
     console.error(`文書内検索エラー: ${res.error.message}`);
     return [];

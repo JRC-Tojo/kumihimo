@@ -10,33 +10,98 @@
  * 対して文字位置に比例したサブ矩形（アイテム内で文字幅が一様であると仮定した近似値。
  * `extractTextByAnnot`が抽出用に採用している考え方と同じ）を算出する
  */
-import type { TextItemBox } from 'src/models/document/pdf';
-import type { TextSearchMatch } from 'src/models/document/search';
+import type { AnnotationStyle, TextItemBox } from 'src/models/document/pdf';
+import type { TextSearchMatch, TextSearchOptions } from 'src/models/document/search';
 import type { BoundingBox } from 'src/models/common';
 
-export interface FindMatchesOptions {
-  /** 大文字小文字を区別するかどうか（既定: 区別しない） */
-  caseSensitive?: boolean;
+/** 元テキストの1文字（UTF-16コード単位）ごとの正規化結果と、正規化後位置→元位置の対応表 */
+interface NormalizedText {
+  normalized: string;
+  /** `normalized`の各位置が、元テキストの何文字目に由来するかを示す対応表 */
+  originalIndexOf: number[];
 }
 
 /**
- * `haystack`内に出現する`needle`の（重複しない）開始インデックス一覧を返す
+ * オプションに従ってテキストを検索用に正規化し、正規化後位置→元位置の対応表とともに返す
  *
- * `needle`が空文字の場合は無限マッチになってしまうため空配列を返す
+ * `ignoreWidth`時は半角・全角の吸収（NFKC正規化）を1文字ずつ行う（`String.prototype.normalize`を
+ * 文字列全体に対して呼ぶと、結合文字等で長さが変わった際に元位置との対応が取れなくなるため）。
+ * `useRegex`時の大文字小文字は`RegExp`の`i`フラグ側に任せるため、ここでは折りたたまない
  */
-function findAllOccurrences(haystack: string, needle: string, caseSensitive: boolean): number[] {
-  if (needle === '') return [];
-  const h = caseSensitive ? haystack : haystack.toLowerCase();
-  const n = caseSensitive ? needle : needle.toLowerCase();
-  const indices: number[] = [];
+function normalizeForSearch(text: string, options: Partial<TextSearchOptions>): NormalizedText {
+  const foldCase = !options.caseSensitive && !options.useRegex;
+
+  if (!options.ignoreWidth) {
+    // 半角全角を吸収しない場合は1文字=1文字の対応が保証されるため、単純な変換で済む
+    const normalized = foldCase ? text.toLowerCase() : text;
+    const originalIndexOf = Array.from({ length: normalized.length }, (_, i) => i);
+    return { normalized, originalIndexOf };
+  }
+
+  let normalized = '';
+  const originalIndexOf: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    let part = text[i]!.normalize('NFKC');
+    if (foldCase) part = part.toLowerCase();
+    for (let j = 0; j < part.length; j++) originalIndexOf.push(i);
+    normalized += part;
+  }
+  return { normalized, originalIndexOf };
+}
+
+/**
+ * `haystack`内に出現する`query`の（重複しない）出現範囲`[start, end)`一覧を、
+ * 常に元テキスト（`haystack`）のインデックスで返す
+ *
+ * `options.useRegex`が真の場合は`query`を正規表現として解釈する。不正な正規表現
+ * （入力途中の状態を含む）はマッチ0件として扱い、例外を投げない
+ */
+function findOccurrenceRanges(
+  haystack: string,
+  query: string,
+  options: Partial<TextSearchOptions>,
+): Array<{ start: number; end: number }> {
+  if (query === '') return [];
+  const { normalized, originalIndexOf } = normalizeForSearch(haystack, options);
+
+  const toOriginalRange = (normStart: number, normEnd: number): { start: number; end: number } => {
+    const start = originalIndexOf[normStart] ?? haystack.length;
+    const lastCharOriginal = originalIndexOf[normEnd - 1] ?? haystack.length - 1;
+    return { start, end: lastCharOriginal + 1 };
+  };
+
+  if (options.useRegex) {
+    let regex: RegExp;
+    try {
+      regex = new RegExp(query, `g${options.caseSensitive ? '' : 'i'}`);
+    } catch {
+      return [];
+    }
+    const ranges: Array<{ start: number; end: number }> = [];
+    for (;;) {
+      const m = regex.exec(normalized);
+      if (m === null) break;
+      const len = m[0].length;
+      if (len === 0) {
+        regex.lastIndex++; // ゼロ幅マッチで無限ループしないよう1文字分進める
+        continue;
+      }
+      ranges.push(toOriginalRange(m.index, m.index + len));
+    }
+    return ranges;
+  }
+
+  const normalizedQuery = normalizeForSearch(query, options).normalized;
+  if (normalizedQuery === '') return [];
+  const ranges: Array<{ start: number; end: number }> = [];
   let from = 0;
   for (;;) {
-    const idx = h.indexOf(n, from);
+    const idx = normalized.indexOf(normalizedQuery, from);
     if (idx === -1) break;
-    indices.push(idx);
-    from = idx + n.length; // 同じ箇所を重複してマッチさせない
+    ranges.push(toOriginalRange(idx, idx + normalizedQuery.length));
+    from = idx + normalizedQuery.length; // 同じ箇所を重複してマッチさせない
   }
-  return indices;
+  return ranges;
 }
 
 /** 論理テキスト中で、1件のテキストアイテムが占める文字範囲（`[start, end)`） */
@@ -100,28 +165,25 @@ function boxesForRange(
  *
  * アイテムを連結した論理テキストに対して検索するため、クエリがアイテムの境界をまたいでいても
  * マッチする。ページ内での出現順に振った通し番号を`matchIndex`とし、`searchMatchDomId`が
- * 一意なキーを生成できるようにする
+ * 一意なキーを生成できるようにする。`options`省略時は従来どおり（大文字小文字を区別せず、
+ * 半角全角は区別し、正規表現は使わない）
  */
 export function findMatchesOnPage(
   items: TextItemBox[],
   pageNumber: number,
   query: string,
-  options?: FindMatchesOptions,
+  options: Partial<TextSearchOptions> = {},
 ): TextSearchMatch[] {
   if (query === '') return [];
-  const caseSensitive = options?.caseSensitive ?? false;
   const { text, positioned } = buildLogicalText(items);
-  const occurrences = findAllOccurrences(text, query, caseSensitive);
+  const ranges = findOccurrenceRanges(text, query, options);
 
-  return occurrences.map((startOffset, matchIndex) => {
-    const endOffset = startOffset + query.length;
-    return {
-      pageNumber,
-      matchIndex,
-      text: text.slice(startOffset, endOffset),
-      boxes: boxesForRange(positioned, startOffset, endOffset),
-    };
-  });
+  return ranges.map(({ start, end }, matchIndex) => ({
+    pageNumber,
+    matchIndex,
+    text: text.slice(start, end),
+    boxes: boxesForRange(positioned, start, end),
+  }));
 }
 
 /**
@@ -129,4 +191,32 @@ export function findMatchesOnPage(
  */
 export function searchMatchDomId(match: TextSearchMatch): string {
   return `search-match-p${match.pageNumber}-m${match.matchIndex}`;
+}
+
+/**
+ * テキストボックスアノテーションの内容を、`TextItemBox`と同じ形（位置・サイズ付き）で
+ * ページ番号ごとにグルーピングして返す
+ *
+ * PDF自体のテキスト（`extractTextBlocksByPageFromDoc`）と同じ座標系（スケール1、左上原点）で
+ * `x`/`y`/`width`/`height`を保持しているため、`findMatchesOnPage`へPDFテキストのアイテム一覧と
+ * 単純に連結して渡すだけで、既存のハイライト表示・ページ内スクロールの仕組みをそのまま使い回せる
+ * （アノテーションのテキストも検索対象に含める、issue由来の要望への対応）
+ */
+export function annotationTextItemsByPage(
+  annotations: AnnotationStyle[],
+): Map<number, TextItemBox[]> {
+  const byPage = new Map<number, TextItemBox[]>();
+  for (const annotation of annotations) {
+    if (annotation.type !== 'text' || annotation.text === '') continue;
+    const items = byPage.get(annotation.pageNumber) ?? [];
+    items.push({
+      text: annotation.text,
+      x: annotation.x,
+      y: annotation.y,
+      width: annotation.width,
+      height: annotation.height,
+    });
+    byPage.set(annotation.pageNumber, items);
+  }
+  return byPage;
 }

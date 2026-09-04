@@ -208,7 +208,10 @@ describe('extractTextBlocksByPageFromDoc（pdfItemToBox）', () => {
     const second = await extractTextBlocksByPageFromDoc(pdf, 1);
 
     expect(getPageCallCount).toBe(1);
-    expect(first.ok && second.ok && first.value).toEqual(second.ok ? second.value : undefined);
+    expect(first.ok).toBeTrue();
+    expect(second.ok).toBeTrue();
+    if (!first.ok || !second.ok) return;
+    expect(first.value).toEqual(second.value);
   });
 
   it('別のPDFDocumentProxyインスタンスにはキャッシュが共有されない', async () => {

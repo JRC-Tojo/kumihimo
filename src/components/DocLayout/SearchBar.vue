@@ -1,7 +1,8 @@
 <template>
-  <!-- 文書内テキスト検索（Ctrl+F）バー。issue #33の要件1（文書内検索）・要件2（コンテナ横断検索、
-       「できれば」の追加要件）に対応する。ハイライト・スクロール自体は親（DocumentTabView.vue）が
-       activeMatch/matchesをPdfPageへ渡して行うため、ここでは検索クエリの入力とナビゲーションUIに徹する -->
+  <!-- 文書内テキスト検索（Ctrl+F）バー。issue #33の要件1（文書内検索）に対応する。
+       ハイライト・スクロール自体は親（DocumentTabView.vue）がactiveMatch/matchesをPdfPageへ渡して
+       行うため、ここでは検索クエリの入力・検索オプション・ナビゲーションUIに徹する。
+       コンテナ横断検索は左サイドパネルの検索タブ（SearchView.vue）に分離されている -->
   <div class="search-bar">
     <q-card flat bordered class="search-bar__card">
       <div class="search-bar__row">
@@ -50,78 +51,72 @@
         />
       </div>
 
-      <!-- コンテナ横断検索（issue #33の「できれば」要件）: 現在のクエリでコンテナ内の全PDFを検索する。
-           キーストロークごとの自動実行は行わず、明示的なボタン操作でのみ実行する
-           （多数ファイルを毎回全走査すると重くなるため） -->
-      <div class="search-bar__container-row">
+      <!-- 検索オプション（大文字小文字・半角全角・正規表現）: VSCodeの検索ウィジェットに倣い、
+           トグルボタンで切り替える。切り替えるとすぐに現在のクエリで再検索される -->
+      <div class="search-bar__options-row">
         <q-btn
           flat
           dense
-          no-caps
+          round
           size="sm"
-          icon="folder_open"
-          :label="$t('pdfEditor.search.searchContainer')"
-          :disable="query.trim() === '' || isContainerSearching"
-          :loading="isContainerSearching"
-          @click="runContainerSearch"
+          label="Aa"
+          class="search-bar__option-btn"
+          :class="{ 'search-bar__option-btn--active': options.caseSensitive }"
+          :title="$t('pdfEditor.search.matchCase')"
+          @click="toggleOption('caseSensitive')"
+        />
+        <q-btn
+          flat
+          dense
+          round
+          size="sm"
+          label="全/半"
+          class="search-bar__option-btn"
+          :class="{ 'search-bar__option-btn--active': options.ignoreWidth }"
+          :title="$t('pdfEditor.search.ignoreWidth')"
+          @click="toggleOption('ignoreWidth')"
+        />
+        <q-btn
+          flat
+          dense
+          round
+          size="sm"
+          label=".*"
+          class="search-bar__option-btn"
+          :class="{ 'search-bar__option-btn--active': options.useRegex }"
+          :title="$t('pdfEditor.search.useRegex')"
+          @click="toggleOption('useRegex')"
         />
       </div>
-
-      <q-list v-if="containerResultsVisible" dense bordered class="search-bar__results">
-        <q-item v-if="containerResults.length === 0" class="search-bar__results-empty">
-          <q-item-section>{{ $t('pdfEditor.search.containerNoMatches') }}</q-item-section>
-        </q-item>
-        <template v-for="result in containerResults" :key="fileKeyOf(result.file)">
-          <q-item
-            v-for="(match, idx) in result.matches"
-            :key="`${fileKeyOf(result.file)}-${idx}`"
-            clickable
-            @click="openContainerResult(result.file, match.pageNumber)"
-          >
-            <q-item-section>
-              <q-item-label>{{ result.file.path }}</q-item-label>
-              <q-item-label caption>
-                {{ $t('pdfEditor.search.pageLabel', { page: match.pageNumber }) }}
-                — {{ match.text }}
-              </q-item-label>
-            </q-item-section>
-          </q-item>
-        </template>
-      </q-list>
     </q-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useBackendApi } from 'src/apis/backendApi';
-import { useEditorStore } from 'src/stores/editorStore';
-import { fileKey } from 'src/utils/document/fileKey';
-import type { ContainerElementFile, ContainerID } from 'src/models/container';
-import type { ContainerTextSearchResult } from 'src/models/document/search';
+import type { TextSearchOptions } from 'src/models/document/search';
 
 interface Props {
   /** 検索クエリ（v-model） */
   query: string;
+  /** 検索オプション（大文字小文字・半角全角・正規表現、v-model） */
+  options: TextSearchOptions;
   matchCount: number;
   /** 現在アクティブなマッチの0始まりインデックス（表示用。matchCountが0の場合は無視される） */
   activeIndex: number;
   isSearching: boolean;
-  /** コンテナ横断検索の対象コンテナ */
-  containerID: ContainerID;
 }
 const props = defineProps<Props>();
 const emit = defineEmits<{
   'update:query': [value: string];
+  'update:options': [value: TextSearchOptions];
   next: [];
   previous: [];
   close: [];
 }>();
 
 const { t } = useI18n();
-const api = useBackendApi();
-const editorStore = useEditorStore();
 
 const inputRef = ref<HTMLInputElement | null>(null);
 onMounted(() => {
@@ -131,6 +126,11 @@ onMounted(() => {
 
 function onInput(e: Event): void {
   emit('update:query', (e.target as HTMLInputElement).value);
+}
+
+/** 検索オプションの1項目を反転させて emit する */
+function toggleOption(key: keyof TextSearchOptions): void {
+  emit('update:options', { ...props.options, [key]: !props.options[key] });
 }
 
 /** Enter/Shift+Enterでのマッチ間ナビゲーション、Escでの検索バー終了をまとめて扱う */
@@ -152,57 +152,6 @@ const matchCountLabel = computed(() => {
     total: props.matchCount,
   });
 });
-
-// ============ コンテナ横断検索 ============
-
-const containerResults = ref<ContainerTextSearchResult[]>([]);
-const isContainerSearching = ref(false);
-const containerResultsVisible = ref(false);
-
-function fileKeyOf(file: ContainerElementFile): string {
-  return fileKey(file);
-}
-
-/**
- * 現在のqueryでコンテナ内の全PDF文書を検索する（issue #33の「できれば」要件）
- *
- * `searchContainerText`は文書ごとの検索を並列実行しつつ、1文書分が完了するたびに
- * `onResult`を呼ぶ（issue #91と同根の「重いファイルが多いコンテナで遅い」対応）。全文書分の
- * 完了を待たず、結果が出た文書から順次一覧に追加することで、UIをブロックせず体感を改善する
- */
-async function runContainerSearch(): Promise<void> {
-  const searchStartQuery = props.query.trim();
-  if (searchStartQuery === '') return;
-
-  isContainerSearching.value = true;
-  containerResultsVisible.value = true;
-  containerResults.value = [];
-  try {
-    await api.searchContainerText(props.containerID, searchStartQuery, (result) => {
-      // 検索中にユーザーがqueryを変更していた場合、この結果は既に古いため反映しない
-      // （クエリ変更時は下のwatchが同時にcontainerResultsVisibleを落とすため、それと同じ条件で判定する）
-      if (props.query.trim() === searchStartQuery) containerResults.value.push(result);
-    });
-  } finally {
-    isContainerSearching.value = false;
-  }
-}
-
-// 検索実行中（または結果表示中）にqueryが変更された場合、古いコンテナ検索結果を
-// 表示し続けないようクリアする（実際の検索開始は明示的なボタン操作でのみ行う）
-watch(
-  () => props.query,
-  () => {
-    if (!containerResultsVisible.value) return;
-    containerResults.value = [];
-    containerResultsVisible.value = false;
-  },
-);
-
-/** コンテナ横断検索の結果をクリックした際、該当文書の該当ページをタブで開く */
-function openContainerResult(file: ContainerElementFile, pageNumber: number): void {
-  editorStore.openTab(file, pageNumber);
-}
 </script>
 
 <style scoped lang="scss">
@@ -249,20 +198,21 @@ function openContainerResult(file: ContainerElementFile, pageNumber: number): vo
   align-items: center;
 }
 
-.search-bar__container-row {
+.search-bar__options-row {
   display: flex;
   justify-content: flex-end;
+  gap: 2px;
   padding-top: 2px;
 }
 
-.search-bar__results {
-  max-height: 260px;
-  overflow-y: auto;
-  margin-top: 4px;
+.search-bar__option-btn {
+  font-size: 11px;
+  font-weight: 700;
+  width: 28px;
 }
 
-.search-bar__results-empty {
-  color: $grey-6;
-  font-size: 12px;
+.search-bar__option-btn--active {
+  color: $primary;
+  background: rgba($primary, 0.12);
 }
 </style>

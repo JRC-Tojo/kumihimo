@@ -56,6 +56,7 @@
             <div class="rail-container">
               <q-tabs v-model="selectedTab" vertical switch-indicator class="rail-tabs">
                 <q-tab name="docs" icon="library_books" class="rail-tab" />
+                <q-tab name="search" icon="search" class="rail-tab" />
                 <q-tab name="exts" icon="extension" class="rail-tab" />
               </q-tabs>
 
@@ -81,6 +82,9 @@
                 <q-tab-panel name="docs" class="q-pa-none">
                   <explorer-view />
                 </q-tab-panel>
+                <q-tab-panel name="search" class="q-pa-none">
+                  <search-view />
+                </q-tab-panel>
                 <q-tab-panel name="exts" class="q-pa-none">
                   <plugin-list-view />
                 </q-tab-panel>
@@ -102,6 +106,7 @@
 
 <script setup lang="ts">
 import ExplorerView from 'src/components/MainLayout/ExplorerView.vue';
+import SearchView from 'src/components/MainLayout/SearchView.vue';
 import PluginListView from 'src/components/MainLayout/PluginListView.vue';
 import EditorPage from 'src/pages/EditorPage.vue';
 import { computed, ref } from 'vue';

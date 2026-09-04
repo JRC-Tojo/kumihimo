@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'bun:test';
-import type { TextItemBox } from 'src/models/document/pdf';
-import { findMatchesOnPage, searchMatchDomId } from '../textSearch';
+import type { AnnotationStyle, TextItemBox } from 'src/models/document/pdf';
+import { BoxAnnotationStyle, TextAnnotationStyle } from 'src/models/document/pdf';
+import { annotationTextItemsByPage, findMatchesOnPage, searchMatchDomId } from '../textSearch';
+
+const baseAnnotationFields = {
+  id: '00000000-0000-4000-8000-000000000000',
+  color: '#000000',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+  textColor: '#000000',
+} as const;
 
 function box(text: string, overrides: Partial<TextItemBox> = {}): TextItemBox {
   return { text, x: 0, y: 0, width: text.length * 10, height: 10, ...overrides };
@@ -115,5 +124,123 @@ describe('searchMatchDomId', () => {
       boxes: [{ x: 0, y: 0, width: 0, height: 0 }],
     });
     expect(id).toBe('search-match-p2-m5');
+  });
+});
+
+describe('findMatchesOnPage（ignoreWidth: 半角全角を区別しない）', () => {
+  it('既定（ignoreWidth未指定）では全角と半角は別物としてマッチしない', () => {
+    const items = [box('ABC１２３')]; // 全角数字
+    expect(findMatchesOnPage(items, 1, '123')).toHaveLength(0);
+  });
+
+  it('ignoreWidth: trueの場合、全角数字・全角英字にも半角クエリでマッチする', () => {
+    const items = [box('ABC１２３')];
+    const matches = findMatchesOnPage(items, 1, '123', { ignoreWidth: true });
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.text).toBe('１２３');
+  });
+
+  it('ignoreWidth: trueかつ全角クエリでも、半角本文にマッチする', () => {
+    const items = [box('ABC123')];
+    const matches = findMatchesOnPage(items, 1, '１２３', { ignoreWidth: true });
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.text).toBe('123');
+  });
+});
+
+describe('findMatchesOnPage（useRegex: 正規表現検索）', () => {
+  it('正規表現パターンにマッチする箇所を返す', () => {
+    const items = [box('foo123bar456')];
+    const matches = findMatchesOnPage(items, 1, '\\d+', { useRegex: true });
+    expect(matches.map((m) => m.text)).toEqual(['123', '456']);
+  });
+
+  it('useRegex: trueかつcaseSensitive: falseの場合、大文字小文字を区別しない', () => {
+    const items = [box('Hello World')];
+    const matches = findMatchesOnPage(items, 1, 'world', { useRegex: true });
+    expect(matches).toHaveLength(1);
+  });
+
+  it('useRegex: trueかつcaseSensitive: trueの場合、大文字小文字を区別する', () => {
+    const items = [box('Hello World')];
+    expect(
+      findMatchesOnPage(items, 1, 'world', { useRegex: true, caseSensitive: true }),
+    ).toHaveLength(0);
+  });
+
+  it('不正な正規表現（入力途中の状態を含む）はエラーを投げずマッチ0件になる', () => {
+    const items = [box('Hello World')];
+    expect(() =>
+      findMatchesOnPage(items, 1, '[unterminated', { useRegex: true }),
+    ).not.toThrow();
+    expect(findMatchesOnPage(items, 1, '[unterminated', { useRegex: true })).toHaveLength(0);
+  });
+
+  it('ゼロ幅マッチ（例: "a*"がクエリ非該当の位置でもマッチしうる）で無限ループしない', () => {
+    const items = [box('bbb')];
+    const matches = findMatchesOnPage(items, 1, 'a*', { useRegex: true });
+    // 各文字位置＋末尾でゼロ幅マッチしうるが、ここでは長さ0の結果は除外されている
+    expect(matches.every((m) => m.text.length > 0)).toBeTrue();
+  });
+});
+
+describe('annotationTextItemsByPage', () => {
+  function textAnnotation(
+    text: string,
+    pageNumber: number,
+    overrides: Partial<{ x: number; y: number; width: number; height: number }> = {},
+  ): AnnotationStyle {
+    return TextAnnotationStyle.parse({
+      ...baseAnnotationFields,
+      type: 'text',
+      pageNumber,
+      x: overrides.x ?? 0,
+      y: overrides.y ?? 0,
+      width: overrides.width ?? 100,
+      height: overrides.height ?? 20,
+      text,
+    });
+  }
+
+  it('textタイプのアノテーションのみをページ番号ごとにグルーピングして返す', () => {
+    const annotations: AnnotationStyle[] = [
+      textAnnotation('hello', 1),
+      textAnnotation('world', 2),
+      textAnnotation('again', 1),
+    ];
+    const byPage = annotationTextItemsByPage(annotations);
+    expect(byPage.get(1)?.map((i) => i.text)).toEqual(['hello', 'again']);
+    expect(byPage.get(2)?.map((i) => i.text)).toEqual(['world']);
+  });
+
+  it('text以外のタイプ・空文字のtextは除外する', () => {
+    const boxAnnotation = BoxAnnotationStyle.parse({
+      ...baseAnnotationFields,
+      type: 'box',
+      pageNumber: 1,
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+    });
+    const emptyText = textAnnotation('', 1);
+    const annotations: AnnotationStyle[] = [boxAnnotation, emptyText];
+    expect(annotationTextItemsByPage(annotations).size).toBe(0);
+  });
+
+  it('位置・サイズをTextItemBoxと同じ形（x/y/width/height）で引き継ぐ', () => {
+    const annotations = [textAnnotation('hi', 1, { x: 10, y: 20, width: 30, height: 40 })];
+    const items = annotationTextItemsByPage(annotations).get(1);
+    expect(items).toEqual([{ text: 'hi', x: 10, y: 20, width: 30, height: 40 }]);
+  });
+
+  it('アノテーションのテキストもfindMatchesOnPageでPDFテキストと同様に検索できる', () => {
+    const pdfItems = [box('apple', { x: 0 })];
+    const annotationItems = annotationTextItemsByPage([textAnnotation('banana', 1, { x: 200 })]).get(
+      1,
+    )!;
+    const matches = findMatchesOnPage([...pdfItems, ...annotationItems], 1, 'banana');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.boxes[0]?.x).toBe(200);
   });
 });

@@ -2,6 +2,21 @@ import z from 'zod';
 import { ContainerElementFile } from 'src/models/container';
 
 /**
+ * 文書内テキスト検索・コンテナ横断検索に共通の検索オプション
+ *
+ * `caseSensitive`は既定で区別しない（従来どおり）。`ignoreWidth`は半角・全角の違いを
+ * 無視するかどうか（既定: 区別する＝従来どおりの厳密一致）。`useRegex`はクエリを
+ * リテラル文字列ではなく正規表現として解釈するかどうか。`useRegex`が真の場合、
+ * `caseSensitive`は`RegExp`の`i`フラグとして適用される
+ */
+export const TextSearchOptions = z.object({
+  caseSensitive: z.boolean().default(false),
+  ignoreWidth: z.boolean().default(false),
+  useRegex: z.boolean().default(false),
+});
+export type TextSearchOptions = z.infer<typeof TextSearchOptions>;
+
+/**
  * 文書内テキスト検索の1マッチ結果
  *
  * `matchIndex`はページ内で何番目のマッチかを表す通し番号（DOM要素のidやactiveMatch比較に使う

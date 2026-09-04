@@ -51,7 +51,7 @@ import type {
   PdfOutlineEntry,
   TextItemBox,
 } from 'src/models/document/pdf';
-import type { TextSearchMatch } from 'src/models/document/search';
+import type { TextSearchMatch, TextSearchOptions } from 'src/models/document/search';
 import { findMatchesOnPage } from 'src/utils/document/textSearch';
 import type { AnnotationInfo, BookmarkInfo } from 'src/models/relational/fileSchema';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
@@ -381,6 +381,23 @@ export async function extractTextBlocksByPage(
   }
 }
 
+export interface SearchTextInDocOptions {
+  /** 大文字小文字・半角全角・正規表現の扱い（省略時は従来どおりの既定値） */
+  searchOptions?: Partial<TextSearchOptions> | undefined;
+  /**
+   * ページごとの追加検索対象を`TextItemBox`と同じ形で渡す（アノテーションのテキストボックス内容等、
+   * PDF自体のテキストではないが検索対象に含めたい文字列）。同一ページのPDFテキストと連結して
+   * 検索されるため、アイテム境界をまたぐマッチにも対応する
+   */
+  extraItemsByPage?: Map<number, TextItemBox[]> | undefined;
+  /**
+   * 1ページ分の検索が完了するたびに、そのページのマッチ結果とともに呼ばれる。
+   * ページ数の多い巨大な文書を検索する際、全ページの完了を待たずヒットした時点から
+   * 呼び出し側（UI）へ反映できるようにするためのフック
+   */
+  onPageMatches?: ((pageNumber: number, matches: TextSearchMatch[]) => void) | undefined;
+}
+
 /**
  * 文書全ページを対象にテキスト検索を行う（マッチ箇所の位置情報付き）
  *
@@ -392,6 +409,7 @@ export async function extractTextBlocksByPage(
 export async function searchTextInDoc(
   pdf: PDFDocumentProxy,
   query: string,
+  options: SearchTextInDocOptions = {},
 ): Promise<Result<TextSearchMatch[]>> {
   if (query.trim() === '') return Success([]);
   try {
@@ -399,7 +417,15 @@ export async function searchTextInDoc(
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
       const blocksRes = await extractTextBlocksByPageFromDoc(pdf, pageNumber);
       if (!blocksRes.ok) return Failure(blocksRes.error);
-      matches.push(...findMatchesOnPage(blocksRes.value, pageNumber, query));
+      const extraItems = options.extraItemsByPage?.get(pageNumber) ?? [];
+      const pageMatches = findMatchesOnPage(
+        [...blocksRes.value, ...extraItems],
+        pageNumber,
+        query,
+        options.searchOptions,
+      );
+      matches.push(...pageMatches);
+      options.onPageMatches?.(pageNumber, pageMatches);
     }
     return Success(matches);
   } catch (e) {
@@ -417,11 +443,12 @@ export async function searchTextByFile(
   file: FileIdentity,
   src64: DocumentSource,
   query: string,
+  options: SearchTextInDocOptions = {},
 ): Promise<Result<TextSearchMatch[]>> {
   const acquired = await acquirePdfDocument(file, src64);
   if (!acquired.ok) return Failure(acquired.error);
   try {
-    return await searchTextInDoc(acquired.value.document, query);
+    return await searchTextInDoc(acquired.value.document, query, options);
   } finally {
     acquired.value.release();
   }
