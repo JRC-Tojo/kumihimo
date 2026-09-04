@@ -13,6 +13,8 @@
           :file="prop.file"
           :annotations="annotations"
           :page-size1x="pageSizes[currentPage - 1]!"
+          :search-matches="searchMatches"
+          :active-search-match-id="activeSearchMatchId"
           v-model:selected-annot-ids="selectedAnnotIds"
           v-model:page="currentPage"
           v-model:scale="scale"
@@ -22,6 +24,7 @@
           @remove-annot="removeAnnotation"
           @render="onRender"
           @render-tile="onRenderTile"
+          @get-page-text-blocks="onGetPageTextBlocks"
         />
       </div>
 
@@ -46,6 +49,8 @@
               :page="page"
               :annotations="annotations"
               :page-size1x="pageSizes[page - 1]!"
+              :search-matches="searchMatches"
+              :active-search-match-id="activeSearchMatchId"
               v-model:selected-annot-ids="selectedAnnotIds"
               v-model:scale="scale"
               @register-annot="registAnnotation"
@@ -54,6 +59,7 @@
               @remove-annot="removeAnnotation"
               @render="onRender"
               @render-tile="onRenderTile"
+              @get-page-text-blocks="onGetPageTextBlocks"
             />
           </div>
         </div>
@@ -87,7 +93,8 @@ import type { ComponentPublicInstance } from 'vue';
 import PdfPage from 'src/components/Viewer/PdfPage.vue';
 import DocumentPageListView from './DocumentPageListView.vue';
 import type { ViewMode } from 'src/models/docPage';
-import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
+import type { AnnotationID, AnnotationStyle, TextItemBox } from 'src/models/document/pdf';
+import type { TextSearchMatch } from 'src/models/document/search';
 import type { AnnotationGroup } from 'src/models/document/group';
 import { useAnnotationHistory } from './composables/useAnnotationHistory';
 import { useBackendApi } from 'src/apis/backendApi';
@@ -111,6 +118,7 @@ type RenderTileFunc = (
   dpr: number,
 ) => Promise<void>;
 type GenerateThumbnailFunc = (pageNumber: number, maxWidth: number) => Promise<string>;
+type GetPageTextBlocksFunc = (pageNumber: number) => Promise<TextItemBox[]>;
 interface Prop {
   pageCount: number;
   pageSizes: PageSize[];
@@ -124,6 +132,12 @@ interface Prop {
   onZoomOut: (clientX?: number, clientY?: number) => void;
   onScrollToCurrentPage: (viewerContainerHeight: number) => void;
   onSelectPage: (page: number) => void;
+  /** 指定ページのテキストアイテム一覧を取得する（選択可能テキストレイヤー用、issue #33） */
+  onGetPageTextBlocks: GetPageTextBlocksFunc;
+  /** 文書内検索（Ctrl+F）のマッチ一覧（文書全体分。各PdfPageが自身のページ番号でフィルタする） */
+  searchMatches: TextSearchMatch[];
+  /** 現在アクティブな検索マッチのDOM id */
+  activeSearchMatchId?: string | undefined;
 }
 const prop = defineProps<Prop>();
 

@@ -6,10 +6,13 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import type { ContainerElementFile } from 'src/models/container';
 import type { DocumentSource } from 'src/models/document/common';
+import type { TextItemBox } from 'src/models/document/pdf';
+import type { TextSearchMatch } from 'src/models/document/search';
 import {
   acquirePdfDocument,
   type AcquiredPdfDocument,
 } from 'src/repositories/document/pdfDocumentCache';
+import { extractTextBlocksByPageFromDoc, searchTextInDoc } from 'src/repositories/document/pdf';
 import {
   getCachedRender,
   renderCacheKey,
@@ -351,6 +354,43 @@ export async function getPageViewportSizes(pdfDocument: PdfDocument): Promise<Pa
     sizes.push({ width: viewport.width, height: viewport.height });
   }
   return sizes;
+}
+
+/**
+ * 指定ページの全テキストアイテムを、位置情報（スケール1でのバウンディングボックス）付きで取得する
+ *
+ * 選択可能なテキストレイヤー（`TextLayer.vue`）の描画に使う。ビューア表示中の文書は既に
+ * `acquirePdf`でPDFDocumentProxyを取得済みのため、`BackendApi`を経由した再読み込みは行わず
+ * ここで直接リポジトリ関数を呼ぶ（`renderPage`等、他のビューア描画関数と同じ扱い）。
+ * 抽出に失敗した場合はコンソールにログを出すのみで、空配列（テキストレイヤーなし）にフォールバックする
+ */
+export async function getPageTextBlocks(
+  pdfDocument: PdfDocument,
+  pageNumber: number,
+): Promise<TextItemBox[]> {
+  const res = await extractTextBlocksByPageFromDoc(pdfDocument, pageNumber);
+  if (!res.ok) {
+    console.error(`テキストブロック抽出エラー (page=${pageNumber}): ${res.error.message}`);
+    return [];
+  }
+  return res.value;
+}
+
+/**
+ * 現在開いている文書全ページを対象に、クエリにマッチするテキストの位置一覧を取得する（Ctrl+F検索）
+ *
+ * `getPageTextBlocks`と同じ理由で、既に取得済みのPDFDocumentProxyをそのまま使う
+ */
+export async function searchDocumentText(
+  pdfDocument: PdfDocument,
+  query: string,
+): Promise<TextSearchMatch[]> {
+  const res = await searchTextInDoc(pdfDocument, query);
+  if (!res.ok) {
+    console.error(`文書内検索エラー: ${res.error.message}`);
+    return [];
+  }
+  return res.value;
 }
 
 // ワーカー初期化

@@ -51,6 +51,8 @@ import type {
   PdfOutlineEntry,
   TextItemBox,
 } from 'src/models/document/pdf';
+import type { TextSearchMatch } from 'src/models/document/search';
+import { findMatchesOnPage } from 'src/utils/document/textSearch';
 import type { AnnotationInfo, BookmarkInfo } from 'src/models/relational/fileSchema';
 import { base64ToUint8Array, uint8ArrayToBase64 } from 'src/utils/binary/base64';
 import type { BoundingBox } from 'src/models/common';
@@ -353,6 +355,52 @@ export async function extractTextBlocksByPage(
     return await extractTextBlocksByPageFromDoc(loaded.value, pageNumber);
   } finally {
     void loaded.value.destroy();
+  }
+}
+
+/**
+ * 文書全ページを対象にテキスト検索を行う（マッチ箇所の位置情報付き）
+ *
+ * 既に取得済みのPDFDocumentProxyを使い回す版（`getPageSizeFromDoc`と同じ理由。ビューア表示中の
+ * 文書に対する検索は`pdfManager.ts`経由でこちらを直接使い、PDFの再読み込みを避ける）。
+ * ページ単位で`extractTextBlocksByPageFromDoc`を呼び、純粋関数`findMatchesOnPage`
+ * （`src/utils/document/textSearch.ts`）でマッチ箇所を求める
+ */
+export async function searchTextInDoc(
+  pdf: PDFDocumentProxy,
+  query: string,
+): Promise<Result<TextSearchMatch[]>> {
+  if (query.trim() === '') return Success([]);
+  try {
+    const matches: TextSearchMatch[] = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const blocksRes = await extractTextBlocksByPageFromDoc(pdf, pageNumber);
+      if (!blocksRes.ok) return Failure(blocksRes.error);
+      matches.push(...findMatchesOnPage(blocksRes.value, pageNumber, query));
+    }
+    return Success(matches);
+  } catch (e) {
+    return Failure(toError(e));
+  }
+}
+
+/**
+ * `searchTextInDoc`の、ファイル単位でキャッシュされたPDFDocumentProxyを取得して使う版
+ *
+ * `extractTextByAnnot`と同じく`pdfDocumentCache`経由で取得するため、コンテナ横断検索のように
+ * 複数文書を短時間に連続して開く場合でも、同一ファイルへの重複読み込みを避けられる
+ */
+export async function searchTextByFile(
+  file: FileIdentity,
+  src64: DocumentSource,
+  query: string,
+): Promise<Result<TextSearchMatch[]>> {
+  const acquired = await acquirePdfDocument(file, src64);
+  if (!acquired.ok) return Failure(acquired.error);
+  try {
+    return await searchTextInDoc(acquired.value.document, query);
+  } finally {
+    acquired.value.release();
   }
 }
 
@@ -2431,6 +2479,8 @@ export default {
   extractTextByAnnot,
   extractTextByPage,
   extractAllText,
+  searchTextInDoc,
+  searchTextByFile,
   renderPageToCanvas,
   extractImageFromRegion,
   addBlankPageToPdf,

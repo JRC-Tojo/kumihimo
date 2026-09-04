@@ -14,16 +14,19 @@
         @mousedown="onViewerMouseDown"
       >
         <DocumentViewer
-          v-if="!loading && onRender && onRenderTile && onGenerateThumbnail"
+          v-if="!loading && onRender && onRenderTile && onGenerateThumbnail && onGetPageTextBlocks"
           ref="documentViewer"
           :file="file"
           :page-count="pageCount"
           :page-sizes="pageSizes"
           :view-mode="viewMode"
           :annotations="annotations"
+          :search-matches="searchMatches"
+          :active-search-match-id="activeSearchMatchId"
           @render="onRender"
           @render-tile="onRenderTile"
           @generate-thumbnail="onGenerateThumbnail"
+          @get-page-text-blocks="onGetPageTextBlocks"
           @select-page="onSelectPageFromList"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
@@ -37,6 +40,20 @@
           <p class="q-mt-md">{{ $t('pdfEditor.document.loading') }}</p>
         </div>
       </div>
+
+      <!-- Ctrl+F 文書内検索バー（issue #33）。`.document-viewer-wrapper`のスクロールに巻き込まれず
+           常に同じ位置に留まるよう、スクロールしない`.document-main-content`側に置く -->
+      <SearchBar
+        v-if="searchOpen"
+        v-model:query="searchQuery"
+        :match-count="searchMatchCount"
+        :active-index="searchActiveIndex"
+        :is-searching="searchIsSearching"
+        :container-i-d="prop.file.containerID"
+        @next="searchGoToNext"
+        @previous="searchGoToPrevious"
+        @close="closeSearch"
+      />
 
       <!-- フッター：ページネーション、ズーム等 -->
       <DocumentFooter
@@ -71,12 +88,14 @@
 <script setup lang="ts">
 import DocumentViewer from 'src/components/DocLayout/DocumentViewer.vue';
 import DocumentFooter from 'src/components/DocLayout/DocumentFooter.vue';
+import SearchBar from 'src/components/DocLayout/SearchBar.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useBackendApi } from 'src/apis/backendApi';
 import {
   acquirePdf,
   generateThumbnail,
+  getPageTextBlocks,
   getPageViewportSizes,
   renderPage,
   renderPageTile,
@@ -90,6 +109,10 @@ import type { LayoutSide, PeekTarget } from 'src/stores/editorStore';
 import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
 import { useGroupStore } from 'src/stores/groupStore';
+import { useDocumentSearch } from './composables/useDocumentSearch';
+import { searchMatchDomId } from 'src/utils/document/textSearch';
+import type { TextItemBox } from 'src/models/document/pdf';
+import type { TextSearchMatch } from 'src/models/document/search';
 import type { ContainerElementFile, ContainerID } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
 import { buildRelationalRule } from 'src/models/relational/ruleUtils';
@@ -196,6 +219,9 @@ type RenderTileFunc = (
 const onRenderTile = ref<RenderTileFunc>();
 type GenerateThumbnailFunc = (pageNumber: number, maxWidth: number) => Promise<string>;
 const onGenerateThumbnail = ref<GenerateThumbnailFunc>();
+// 選択可能なテキストレイヤー（issue #33）用に、指定ページのテキストアイテム一覧を返す
+type GetPageTextBlocksFunc = (pageNumber: number) => Promise<TextItemBox[]>;
+const onGetPageTextBlocks = ref<GetPageTextBlocksFunc>();
 
 // このタブ（このファイル）宛てのページ遷移要求（`editorStore.openTab(file, targetPage)`）を、
 // コンポーネント生成時点（初回描画より前）で同期的に取り出しておく。onMounted以降に
@@ -270,6 +296,50 @@ const { zoomLevel, setZoomLevel, zoomIn, zoomOut, fitToWidth, fitToPage } = useZ
   maxZoom: zoomMax,
 });
 if (storedTabViewState !== undefined) zoomLevel.value = storedTabViewState.zoomLevel;
+
+// ============ 文書内テキスト検索（Ctrl+F、issue #33） ============
+
+const {
+  isOpen: searchOpen,
+  query: searchQuery,
+  activeMatch: searchActiveMatch,
+  matches: searchMatches,
+  activeIndex: searchActiveIndex,
+  matchCount: searchMatchCount,
+  isSearching: searchIsSearching,
+  goToNext: searchGoToNext,
+  goToPrevious: searchGoToPrevious,
+  open: openSearch,
+  close: closeSearch,
+} = useDocumentSearch({
+  getDocument: () => acquiredPdf?.document,
+  onNavigate: (match) => void scrollToSearchMatch(match),
+});
+const activeSearchMatchId = computed(() =>
+  searchActiveMatch.value ? searchMatchDomId(searchActiveMatch.value) : undefined,
+);
+
+/**
+ * 検索マッチへ実際にジャンプする（ページ移動 + そのページ内でのハイライト位置へのスクロール）
+ *
+ * ページ切り替え直後はPdfPage側の非同期処理（canvas描画・テキストブロック取得）が完了するまで
+ * ハイライト矩形のDOM要素がまだ存在しないため、要素が見つかるまで短い間隔でリトライする
+ */
+async function scrollToSearchMatch(match: TextSearchMatch): Promise<void> {
+  goToPage(match.pageNumber);
+  const id = searchMatchDomId(match);
+  const MAX_ATTEMPTS = 20;
+  const RETRY_INTERVAL_MS = 50;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    await nextTick();
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, RETRY_INTERVAL_MS));
+  }
+}
 
 // for relational peek dialog
 const peekTarget = ref<PeekTarget>();
@@ -388,6 +458,9 @@ async function loadDocument() {
   };
   onGenerateThumbnail.value = (pageNumber: number, maxWidth: number): Promise<string> => {
     return generateThumbnail(loadedDocument, pageNumber, maxWidth);
+  };
+  onGetPageTextBlocks.value = (pageNumber: number): Promise<TextItemBox[]> => {
+    return getPageTextBlocks(loadedDocument, pageNumber);
   };
 
   loading.value = false;
@@ -709,6 +782,18 @@ const NUDGE_STEP = 1;
 function handleGlobalKeydown(e: KeyboardEvent) {
   if (editorStore.activeSide !== prop.layoutSide) return;
 
+  const isModifierPressed = e.ctrlKey || e.metaKey;
+
+  // Ctrl+Fは検索バーの入力欄にフォーカスが乗っている間も奪う必要がある（さもないと検索バーを
+  // 開いた直後にCtrl+Fを押すとブラウザ標準のページ内検索が開いてしまう）ため、
+  // 下のテキスト入力中の早期returnより先に判定する
+  if (isModifierPressed && e.key.toLowerCase() === 'f') {
+    // ブラウザ標準のページ内検索と衝突するため必ずpreventDefaultする（issue #33）
+    e.preventDefault();
+    openSearch();
+    return;
+  }
+
   const activeEl = document.activeElement;
   const isTextInput =
     activeEl instanceof HTMLElement &&
@@ -744,8 +829,6 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     void annotationActions.nudgeSelected(dx, dy);
     return;
   }
-
-  const isModifierPressed = e.ctrlKey || e.metaKey;
 
   if (isModifierPressed && e.key.toLowerCase() === 'c') {
     if (selectedAnnotationIds.value.length === 0) return;
@@ -1073,6 +1156,9 @@ onBeforeUnmount(() => {
   background: $grey-1;
   height: 100%;
   width: 100%;
+  // SearchBarの position: absolute の基準（スクロールする.document-viewer-wrapperではなく
+  // ここを基準にすることで、検索バーが文書のスクロールに巻き込まれず常に同じ位置に留まる）
+  position: relative;
 }
 
 .body--dark .document-main-content {
