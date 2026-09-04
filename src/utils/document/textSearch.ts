@@ -178,7 +178,11 @@ function extractContext(
   }
 
   let afterEnd = end;
-  while (afterEnd < text.length && afterEnd - end < MAX_CONTEXT_CHARS && lineIndex[afterEnd] === endLine) {
+  while (
+    afterEnd < text.length &&
+    afterEnd - end < MAX_CONTEXT_CHARS &&
+    lineIndex[afterEnd] === endLine
+  ) {
     afterEnd++;
   }
 

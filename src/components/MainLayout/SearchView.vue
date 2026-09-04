@@ -71,9 +71,7 @@
               <!-- ヒット文字とその前後（同一行のみ）をハイライト表示する。ファイル単位検索の
                    PDF上ハイライトと同じ配色（$search-highlight）を使い、表示の一貫性を保つ -->
               <q-item-label class="search-view-snippet"
-                ><span class="search-view-snippet__context">{{
-                  match.contextBefore
-                }}</span
+                ><span class="search-view-snippet__context">{{ match.contextBefore }}</span
                 ><mark class="search-view-snippet__hit">{{ match.text }}</mark
                 ><span class="search-view-snippet__context">{{
                   match.contextAfter
