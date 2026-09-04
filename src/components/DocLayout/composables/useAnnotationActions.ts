@@ -22,6 +22,7 @@ import type {
 } from 'src/models/document/group';
 import type { LayerOrderAction } from 'src/utils/document/annotationOrder';
 import { fileKey } from 'src/utils/document/fileKey';
+import { markAnnotationWriteIntent } from 'src/utils/document/annotationWritePending';
 
 /** 連続ペースト・複製時に位置をずらす基準量（px、文書座標） */
 const PASTE_OFFSET_STEP = 20;
@@ -203,22 +204,26 @@ export function useAnnotationActions(deps: UseAnnotationActionsDeps) {
    *
    * ツールバー（editorStore.layerOrderActionのwatch）・将来の右クリックメニューの両方から呼ぶ
    *
-   * 同じ注釈一覧を毎回渡すと、選択内の各注釈が同じzIndex（front/backならmaxKey+1/minKey-1）を
-   * 取得してしまい選択内の相対順が不定になる。処理済みの注釈のzIndexをローカルで反映しながら
-   * 順に処理することで、次のcomputeReorderedZIndexが最新の状態を参照できるようにする
+   * サービス層（`reorderAnnotationStyle`）がファイル単位のロック内でDBから最新の注釈一覧を
+   * 読み直してからzIndexを算出するため、選択内で複数件を連続処理しても前の処理結果が
+   * 次のcomputeReorderedZIndexへ確実に反映される。undo履歴用の「変更前」は各注釈につき
+   * このバッチ開始時点の状態を保持しておけば十分（同一IDを複数回処理することはないため）
    */
   async function reorderSelected(action: LayerOrderAction): Promise<void> {
     const ids = deps.selectedAnnotationIds.value;
     if (ids.length === 0) return;
 
-    let workingAnnotations = deps.annotations.value;
+    const beforeById = new Map(deps.annotations.value.map((a) => [a.id, a]));
     const pairs: { before: AnnotationStyle; after: AnnotationStyle }[] = [];
     for (const id of ids) {
-      const before = workingAnnotations.find((a) => a.id === id);
-      const res = await api.reorderAnnotation(deps.file, workingAnnotations, id, action);
+      const before = beforeById.get(id);
+      const res = await api.reorderAnnotation(deps.file, id, action);
       if (!res.ok || !before) continue;
+      // zIndex・updatedAtはサービス層側で計算されるため、呼び出し前には内容が分からず
+      // 事前に目印を立てられない。解決直後に立てるため、書き込み確定からDB購読側の反映までの
+      // ごく短い間はガード対象外になる（重ね順のみの変更で位置・形状は動かないため実害は小さい）
+      markAnnotationWriteIntent(id, res.data.style.updatedAt);
       pairs.push({ before, after: res.data.style });
-      workingAnnotations = workingAnnotations.map((a) => (a.id === id ? res.data.style : a));
     }
     history.recordChangedBatch(deps.file, pairs);
   }

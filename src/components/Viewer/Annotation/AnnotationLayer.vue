@@ -35,6 +35,7 @@
           :group-id="groupIdFor(annotation.id)"
           :allow-drag="canDragUnselected"
           :stage-scale="props.scale"
+          :relational-load-error="relationalLoadError"
           @update="onShapeUpdate"
           @delete="onRemoveAnnot"
         />
@@ -125,6 +126,7 @@ import {
 import { bindGroupDragSync } from './composables/useGroupDragSync';
 import { groupAnnotationsByBlendMode } from './annotationBlendGrouping';
 import { useGroupStore } from 'src/stores/groupStore';
+import { useRelationalStore } from 'src/stores/relationalStore';
 import { fileKey } from 'src/utils/document/fileKey';
 
 type KonvaMouseEvent = Konva.KonvaEventObject<MouseEvent>;
@@ -136,7 +138,9 @@ interface Props {
   // Konvaステージの座標系のスケール（PdfPage側で解像度上限にクランプされた「実描画スケール」）。
   // 見た目上のズーム倍率そのものではない点に注意（PdfPage.vueのrenderScaleを参照）
   scale: number;
-  onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
+  // 戻り値は登録が成功したかどうか（confirmNewAnnotation参照。失敗時は確定待ち表示を
+  // DB購読の反映を待たずその場で片付けるために使う）
+  onRegisterAnnot: (annot: AnnotationStyle) => Promise<boolean>;
   // 複数シェイプの同時ドラッグ/リサイズ（グループ・複数選択）をまとめて1件の
   // Undoステップとして記録するためのバッチ登録コールバック（onShapeUpdate参照）
   onRegisterAnnotBatch: (annots: AnnotationStyle[]) => Promise<void>;
@@ -234,6 +238,13 @@ function groupIdFor(annotId: AnnotationID): AnnotationGroupID | undefined {
   return groupStore.groupContaining(fileKey(props.file), annotId)?.id;
 }
 
+const relationalStore = useRelationalStore();
+
+// このファイルの関係性一覧読み込みが直近で失敗しているか。trueの間は、実際に関係性を持つかどうか
+// 自体が判定できないため、このファイルの全アノテーションをNGと同じスタイルで警告表示する
+// （useAnnotationShape参照。ダイアログ側の表示は`RelationalPeekDialog.vue`が別途行う）
+const relationalLoadError = computed(() => relationalStore.hasLoadError(props.file));
+
 const stageRef = ref<{ getNode: () => Konva.Stage | null } | null>(null);
 const transformerRef = ref<{ getNode: () => Konva.Transformer | null } | null>(null);
 // アノテーションIDごとのコンポーネントハンドル。種別ごとの配列(boxRefs等)を廃止し、単一のMapに統一する
@@ -296,6 +307,10 @@ const duplicateDragSources = ref<AnnotationStyle[] | null>(null);
 const duplicateDragWasGroup = ref(false);
 const duplicateDragStageStart = ref<{ x: number; y: number } | null>(null);
 const duplicateDragOffsetDoc = ref<Point>({ x: 0, y: 0 });
+// mouseup後、複製確定のAPI呼び出しが解決するまでの間trueにする。この間もゴーストプレビューを
+// ドロップ位置に固定表示し続けるためduplicateDragSources等はまだ解除しないが、
+// その間にマウスが動いてもゴーストの位置が追従してしまわないようこのフラグで別途ガードする
+const duplicateDragConfirming = ref(false);
 // 複製元は一切変更せず、ドラッグ位置に追従する見た目上のプレビューのみを別途描画する
 // （結合バウンディングボックスではなく、ソースごとの簡易プレビューを重ねる近似表示とする）
 const duplicatePreviewAnnotations = computed<AnnotationStyle[]>(() => {
@@ -421,13 +436,91 @@ const editingTextAnnotation = computed<TextAnnotationStyle | null>(() => {
   return found && found.type === 'text' ? found : null;
 });
 
+// 新規描画（ドラッグ確定・クリック点確定・Ctrl+drag複製）を終えてから、DB登録（DB購読経由で
+// props.annotationsに反映されるまで）の間、確定した見た目のまま切れ目なく表示し続けるための
+// 一時的な「確定待ち」注釈一覧。これが無いと、確定と同時にプレビューだけを消してから登録処理を
+// 待つ間、何も描画されない一瞬の間隙が生じてしまう（`confirmNewAnnotation`・
+// `confirmDuplicatedAnnotations`参照）。複製は複数選択・グループをまとめて複製できるため配列で持つ
+const pendingConfirmAnnotations = ref<AnnotationStyle[]>([]);
+
+/** 指定IDの確定待ち注釈を取り下げる（DB購読側への反映確認・フォールバックの片付け共通） */
+function clearPendingConfirm(ids: Set<AnnotationID>): void {
+  if (pendingConfirmAnnotations.value.length === 0) return;
+  pendingConfirmAnnotations.value = pendingConfirmAnnotations.value.filter((a) => !ids.has(a.id));
+}
+
+// props.annotations（DB購読）に現れたIDは、本物のデータへ切り替わったとみなし
+// 確定待ち表示を片付ける（以降はdisplayedAnnotationsが自動的に本物だけを返すようになる）
+watch(
+  () => props.annotations,
+  (annots) => {
+    if (pendingConfirmAnnotations.value.length === 0) return;
+    const arrivedIds = new Set(
+      pendingConfirmAnnotations.value
+        .filter((pending) => annots.some((a) => a.id === pending.id))
+        .map((pending) => pending.id),
+    );
+    if (arrivedIds.size > 0) clearPendingConfirm(arrivedIds);
+  },
+);
+
+// 確定待ちの注釈のうち、まだDB購読側に反映されていないものだけを、実際の注釈と同じ扱いで
+// 末尾に混ぜて描画する（既にprops.annotations側に同じIDが現れていれば、そちらが正なので混ぜない）
+const displayedAnnotations = computed(() => {
+  const pending = pendingConfirmAnnotations.value.filter(
+    (p) => !props.annotations.some((a) => a.id === p.id),
+  );
+  return pending.length === 0 ? props.annotations : [...props.annotations, ...pending];
+});
+
+/**
+ * 新規描画（ドラッグ確定・クリック点確定）で作成した注釈を登録しつつ、登録完了までの間も
+ * この注釈を確定済みの見た目のまま表示し続ける
+ *
+ * 登録が成功した場合、DBへの書き込み自体は`onRegisterAnnot`のawaitが解決した時点で既に
+ * 完了している。あとはDB購読（liveQuery）側がその変更を検知してprops.annotationsへ反映する
+ * のを待つだけであり、それは上のwatchが検知した瞬間に確定待ち表示を片付ける。反映までの
+ * 所要時間を`nextTick`等で見積もって片付けを急ぐと、実際の反映がそれより遅れた場合に
+ * 「まだprops.annotations側に現れていないのに確定待ち表示だけ消える」瞬間が生じ、注釈が
+ * 一瞬消えてから再び現れるちらつきになる。そのため成功時は上のwatchにすべて任せ、ここでは
+ * 何もしない。登録が失敗した場合はprops.annotations側に現れることが無いため、
+ * いつまでも確定待ちに残り続けないようここで直接片付ける
+ *
+ * @returns 登録が成功したかどうか。呼び出し元は失敗時、存在しない注釈に対して選択状態や
+ * テキスト編集状態を設定してしまわないよう、この戻り値を見て後続処理を切り替えること
+ */
+async function confirmNewAnnotation(annotation: AnnotationStyle): Promise<boolean> {
+  pendingConfirmAnnotations.value = [...pendingConfirmAnnotations.value, annotation];
+  const registered = await props.onRegisterAnnot(annotation);
+  if (!registered) clearPendingConfirm(new Set([annotation.id]));
+  return registered;
+}
+
+/**
+ * Ctrl+drag複製で作成された注釈群を確定待ちとして表示に混ぜる
+ *
+ * 複製先の注釈IDはサービス層（`duplicateAnnotation`）が新規発行するため、`confirmNewAnnotation`と
+ * 異なりAPI呼び出しが解決する（＝`created`が判明する）までは確定後の見た目を組み立てられない。
+ * そのため呼び出し元（`handleMouseUp`）で半透明のゴーストプレビューをAPI解決まで残しておき、
+ * `created`が判明した瞬間（＝ゴーストを消すのと同一tick）にこちらを呼んで確定済みの見た目へ
+ * 引き継ぐ。呼び出し元は`created`が空でない場合のみ呼ぶため、ここに来た時点で登録は既に成功して
+ * おり、DBへの書き込みも完了済み。あとはDB購読側の反映を待つだけなので、`confirmNewAnnotation`と
+ * 同じ理由で片付けは上のwatch（props.annotationsの到着検知）に任せ、ここでは確定待ちに
+ * 加えるだけにする（`nextTick`等で反映を待ち構えて片付けを急ぐと、実際の反映がそれより
+ * 遅れた場合に注釈が一瞬消えてから再び現れるちらつきになる）
+ */
+function confirmDuplicatedAnnotations(created: AnnotationStyle[]): void {
+  if (created.length === 0) return;
+  pendingConfirmAnnotations.value = [...pendingConfirmAnnotations.value, ...created];
+}
+
 // テキスト編集中のアノテーションはKonva側の描画から除外する。
 // <textarea>オーバーレイに表示は完全に一任し、確定前の古いテキストが背後に二重表示されるのを防ぐ。
 // 重ね順（zIndex未設定の場合はcreatedAt）の昇順で並べることで、後に描画される＝手前に表示される
 const visibleAnnotations = computed(() => {
   const filtered = editingTextId.value
-    ? props.annotations.filter((a) => a.id !== editingTextId.value)
-    : props.annotations;
+    ? displayedAnnotations.value.filter((a) => a.id !== editingTextId.value)
+    : displayedAnnotations.value;
   return [...filtered].sort((a, b) => getAnnotationSortKey(a) - getAnnotationSortKey(b));
 });
 
@@ -671,7 +764,10 @@ function finishClickPointsDrawing() {
   const annotation = createAnnotationFromPoints(page.value, points, style);
   if (annotation) {
     const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
-    void props.onRegisterAnnot(annotation).then(() => {
+    void confirmNewAnnotation(annotation).then((registered) => {
+      // 登録が失敗した注釈はprops.annotationsに存在しないため、選択状態・テキスト編集状態を
+      // 設定してしまうと実在しない注釈を指す無効な状態が残ってしまう
+      if (!registered) return;
       // 描き終えたら選択モードへ自動的に戻る（テキストは直後にインライン編集へ入るため対象外。
       // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）。
       // 選択状態自体は連続描画モードかどうかに関わらず常に描いたアノテーションへ移す
@@ -885,7 +981,11 @@ function handleMouseMove(e: KonvaMouseEvent) {
     }
   }
 
-  if (duplicateDragSources.value && duplicateDragStageStart.value) {
+  if (
+    duplicateDragSources.value &&
+    duplicateDragStageStart.value &&
+    !duplicateDragConfirming.value
+  ) {
     const stage = e.target?.getStage();
     const pos = stage?.getPointerPosition();
     if (pos) {
@@ -999,17 +1099,32 @@ function handleMouseMove(e: KonvaMouseEvent) {
 }
 
 function handleMouseUp(e: KonvaMouseEvent) {
-  if (duplicateDragSources.value) {
+  // duplicateDragSourcesは、確定APIが解決してゴーストを消すまでの間わざと保持し続けている
+  // （ゴーストをドロップ位置に固定表示し続けるため）。そのため、直前の複製がまだ確定待ち
+  // （duplicateDragConfirming）の間に発生した後続のmouseup（新しいCtrl+drag・単なるクリック等、
+  // どの経路であっても）をここで素通りさせてしまうと、まだ残っている古いsources/offsetのまま
+  // props.onDuplicateBatchが再度呼ばれ、直前と全く同じ複製が同じ場所にもう1件作られてしまう
+  // （同一アノテーションが同じ位置に複数貼り付けられる不具合の原因）。確定待ちの間はこの分岐へ
+  // 入らないようにガードする
+  if (duplicateDragSources.value && !duplicateDragConfirming.value) {
     const sources = duplicateDragSources.value;
     const isGroup = duplicateDragWasGroup.value;
     const offset = { dx: duplicateDragOffsetDoc.value.x, dy: duplicateDragOffsetDoc.value.y };
-    duplicateDragSources.value = null;
-    duplicateDragWasGroup.value = false;
-    duplicateDragStageStart.value = null;
-    duplicateDragOffsetDoc.value = { x: 0, y: 0 };
     pendingPointerTarget.value = null;
+    // 確定待ちの間、後続のmousemoveでゴーストの位置がドロップ位置からずれてしまわないようにする
+    duplicateDragConfirming.value = true;
 
+    // 複製先IDはAPI解決時に初めて判明するため、それまでは半透明のゴーストプレビュー
+    // （duplicateDragSources等）をドロップ位置に固定表示したまま残す。解決後、ゴーストの解除と
+    // 確定済み見た目への切り替え（confirmDuplicatedAnnotations）を同一コールバック内（同一tick）で
+    // 行うことで、「ゴーストは消えたが確定図形はまだ現れていない」間隙が生じないようにする
     void props.onDuplicateBatch(sources, offset, page.value, isGroup).then((created) => {
+      duplicateDragSources.value = null;
+      duplicateDragWasGroup.value = false;
+      duplicateDragStageStart.value = null;
+      duplicateDragOffsetDoc.value = { x: 0, y: 0 };
+      duplicateDragConfirming.value = false;
+      confirmDuplicatedAnnotations(created);
       if (created.length > 0) {
         selectedAnnotIds.value = expandToGroups(created.map((a) => a.id));
       }
@@ -1086,7 +1201,10 @@ function handleMouseUp(e: KonvaMouseEvent) {
       const annotation = endDrawingAnnotation(adjustedPos.x, adjustedPos.y);
       if (annotation) {
         const shouldStartTextEdit = ANNOTATION_REGISTRY[annotation.type].supportsInlineTextEdit;
-        void props.onRegisterAnnot(annotation).then(() => {
+        void confirmNewAnnotation(annotation).then((registered) => {
+          // 登録が失敗した注釈はprops.annotationsに存在しないため、選択状態・テキスト編集状態を
+          // 設定してしまうと実在しない注釈を指す無効な状態が残ってしまう
+          if (!registered) return;
           // 描き終えたら選択モードへ自動的に戻る（テキストは直後にインライン編集へ入るため対象外。
           // プリセットのダブルクリックでstickyDrawModeが有効な場合は戻さず連続して描き続けられるようにする）。
           // 選択状態自体は連続描画モードかどうかに関わらず常に描いたアノテーションへ移す

@@ -327,12 +327,15 @@ function handleZoomWheel(event: WheelEvent) {
 }
 
 /**
- * アノテーションを登録
+ * アノテーションを登録する。戻り値は登録が成功したかどうか
+ * （AnnotationLayer.vueのconfirmNewAnnotationが、DB購読側の反映を待たず確定待ち表示を
+ * 片付けてよいかどうかの判定に使う）
  */
-async function registAnnotation(annot: AnnotationStyle): Promise<void> {
+async function registAnnotation(annot: AnnotationStyle): Promise<boolean> {
   const previous = prop.annotations.find((a) => a.id === annot.id);
   const registRes = await history.registerWithHistory(prop.file, previous, annot);
   if (!registRes.ok) console.log(registRes.error); // TODO: エラーハンドリング
+  return registRes.ok;
 }
 
 /**

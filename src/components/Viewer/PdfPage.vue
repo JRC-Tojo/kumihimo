@@ -78,7 +78,8 @@ interface Props {
     tile: TileDescriptor,
     dpr: number,
   ) => Promise<void>;
-  onRegisterAnnot: (annot: AnnotationStyle) => Promise<void>;
+  // 戻り値は登録が成功したかどうか（AnnotationLayer.vueのconfirmNewAnnotation参照）
+  onRegisterAnnot: (annot: AnnotationStyle) => Promise<boolean>;
   onRegisterAnnotBatch: (annots: AnnotationStyle[]) => Promise<void>;
   onDuplicateBatch: (
     sources: AnnotationStyle[],

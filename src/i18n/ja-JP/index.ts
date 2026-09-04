@@ -364,6 +364,8 @@ export default {
       openDocument: '文書を開く',
       rowHint: 'クリックでプレビュー、ダブルクリックで新規タブを開きます',
       noRelations: 'リンクはありません',
+      loadError:
+        'このファイルの関係性一覧を読み込めませんでした。表示中の内容は最新ではない可能性があります。',
       selfValue: '自身の値',
       otherValue: '相手の値',
       verifying: '検証中...',

@@ -17,15 +17,17 @@ export interface RelationalStyleOverride {
  * 検証状態に応じたスタイル上書き値を返す
  *
  * 検証保留中（pending）や関連なし（undefined）の場合は元のアノテーションスタイルを
- * そのまま使ってほしいのでundefinedを返す
+ * そのまま使ってほしいのでundefinedを返す。'error'（関係性一覧の読み込み自体が失敗しており、
+ * 実際に検証すべきかどうかも判定できない状態）は、あえて専用の見た目を用意せず'ng'と
+ * 同じスタイルで警告表示する
  */
 export function getRelationalStyleOverride(
   status: RelationalStatus,
   style: RelationalVerificationStyle,
 ): RelationalStyleOverride | undefined {
-  if (status !== 'ok' && status !== 'ng') return undefined;
+  if (status !== 'ok' && status !== 'ng' && status !== 'error') return undefined;
 
-  const statusStyle = style[status];
+  const statusStyle = style[status === 'error' ? 'ng' : status];
   return {
     stroke: statusStyle.strokeColor,
     strokeWidth: statusStyle.strokeWidth,

@@ -27,6 +27,19 @@
  * （スタックの構造上、より新しい操作から順にundoされることが保証されているため）。
  * 巻き添え解散のように「エンティティ自体を対象としたUndoステップが存在しないまま関係性ごと
  * 消える」パターンにだけ、上記のスナップショット捕捉が必要になる
+ *
+ * ## Undo/Redo中の関係性キャッシュ再検証について
+ * `DocumentTabView.vue`の`handleAnnotationsChanged`はアノテーション一覧の変化を検知するたび
+ * `relationalStore.refreshFile`を呼び、OCR結果読み込み完了等による「検証保留→OK/NG」遷移を
+ * 拾っている。この汎用パスは`historyStore.isBusy(file)`がtrueの間（＝Undo/Redo実行中）は
+ * スキップされる。1ファイル分の関係性検証は全エッジをOCR照合し直す重い処理のため、Undo/Redoの
+ * 完了自体で発火するアノテーション一覧の変化と汎用watcherの両方で毎回検証すると、関係性を
+ * 多く持つ文書ほどUndo/Redoが遅く感じられる原因になっていたため。したがって、アノテーション
+ * 本体を書き換えるundo/redoコマンド（`registerWithHistory`・`registerManyWithHistory`等）は、
+ * 自分の変更が関係性の検証結果に影響しうる場合、必ず自分のundo/redoの最後で
+ * `relationalStore.refreshFile`（または`restoreRelationalSnapshot`等）を呼んで再検証を
+ * 保証すること。呼び忘れると、汎用watcherに再検証を頼れないままUndo/Redo後の関係性表示が
+ * 古いままになる
  */
 
 import dayjs from 'dayjs';
@@ -35,6 +48,10 @@ import { useHistoryStore } from 'src/stores/historyStore';
 import { useRelationalStore } from 'src/stores/relationalStore';
 import { useGroupStore } from 'src/stores/groupStore';
 import { fileKey } from 'src/utils/document/fileKey';
+import {
+  markAnnotationWriteIntent,
+  cancelAnnotationWriteIntent,
+} from 'src/utils/document/annotationWritePending';
 import type { ApiResponse } from 'src/models/error/api';
 import type { ContainerElementFile } from 'src/models/container';
 import type { AnnotationID, AnnotationStyle } from 'src/models/document/pdf';
@@ -62,6 +79,36 @@ export function useAnnotationHistory() {
   const historyStore = useHistoryStore();
   const relationalStore = useRelationalStore();
   const groupStore = useGroupStore();
+
+  /**
+   * `api.registerAnnotationStyle`を、対象IDの「ローカルで意図した内容」の目印
+   * （`annotationWritePending.ts`）を立てた状態で呼ぶ
+   *
+   * このファイル内の登録系関数はUndo/Redoのコールバックも含め、必ずこのラッパー経由で
+   * `api.registerAnnotationStyle(s)`を呼ぶこと。素の`api`を直接呼ぶと、DB購読側の反映
+   * （liveQuery）が書き込みの完了より遅れて届いた場合に、確定直後の画面が一時的に古い状態へ
+   * 巻き戻って見える（`useAnnotationShape.ts`のdisplayAnnotation・resolveAnnotationEcho参照）
+   */
+  async function registerStyleTracked(
+    file: ContainerElementFile,
+    style: AnnotationStyle,
+  ): Promise<ApiResponse<AnnotationInfo>> {
+    markAnnotationWriteIntent(style.id, style.updatedAt);
+    const res = await api.registerAnnotationStyle(file, style);
+    if (!res.ok) cancelAnnotationWriteIntent(style.id, style.updatedAt);
+    return res;
+  }
+
+  /** `registerStyleTracked`の複数件版（`api.registerAnnotationStyles`用） */
+  async function registerStylesTracked(
+    file: ContainerElementFile,
+    styles: AnnotationStyle[],
+  ): Promise<ApiResponse<AnnotationInfo[]>> {
+    styles.forEach((s) => markAnnotationWriteIntent(s.id, s.updatedAt));
+    const res = await api.registerAnnotationStyles(file, styles);
+    if (!res.ok) styles.forEach((s) => cancelAnnotationWriteIntent(s.id, s.updatedAt));
+    return res;
+  }
 
   /**
    * 指定端点（アノテーションまたはグループ）がsrc・target問わず関わる関係性一覧を捕捉する
@@ -140,40 +187,61 @@ export function useAnnotationHistory() {
     previous: AnnotationStyle | undefined,
     next: AnnotationStyle,
   ): Promise<ApiResponse<AnnotationInfo>> {
-    const res = await api.registerAnnotationStyle(file, next);
+    const res = await registerStyleTracked(file, next);
     if (res.ok) {
       historyStore.push(file, {
         undo: async () => {
-          if (previous) await api.registerAnnotationStyle(file, previous);
+          if (previous) await registerStyleTracked(file, previous);
           else await api.removeAnnotation(next.id);
+          // ファイル冒頭「Undo/Redo中の関係性キャッシュ再検証について」参照
+          await relationalStore.refreshFile(file);
         },
         redo: async () => {
-          await api.registerAnnotationStyle(file, next);
+          await registerStyleTracked(file, next);
+          await relationalStore.refreshFile(file);
         },
       });
     }
     return res;
   }
 
-  /** 複数アノテーションの登録（作成/更新）をまとめて1つのUndoステップとして扱う */
+  /**
+   * 複数アノテーションの登録（作成/更新）をまとめて1つのUndoステップとして扱う
+   *
+   * `registerAnnotationStyle`を件数分`Promise.all`で呼ぶと、DB書き込み（≒UI側のライブクエリ
+   * 再発火）も件数分に分かれてしまい、グループドラッグ・複数選択の一括微調整・一括スタイル編集で
+   * まとめて動かしたはずの複数要素が、画面上では1件ずつ遅れて動くように見えてしまう
+   * （アノテーションDB書き込みをファイル単位で直列化するようになったことで、この遅れがより
+   * はっきり現れるようになった）。1回のDB書き込みにまとめる`registerAnnotationStyles`を
+   * 使うことで、対象全件が同時に確定・同時に画面へ反映されるようにする
+   */
   async function registerManyWithHistory(
     file: ContainerElementFile,
     items: { previous: AnnotationStyle; next: AnnotationStyle }[],
   ): Promise<void> {
     if (items.length === 0) return;
 
-    const results = await Promise.all(
-      items.map((item) => api.registerAnnotationStyle(file, item.next)),
+    const res = await registerStylesTracked(
+      file,
+      items.map((item) => item.next),
     );
-    // 1件でも失敗していれば、undo/redoの対象が不完全になるため履歴には積まない
-    if (!results.every((res) => res.ok)) return;
+    if (!res.ok) return;
 
     historyStore.push(file, {
       undo: async () => {
-        await Promise.all(items.map((item) => api.registerAnnotationStyle(file, item.previous)));
+        await registerStylesTracked(
+          file,
+          items.map((item) => item.previous),
+        );
+        // registerWithHistoryのundo/redoと同じ理由（ファイル冒頭コメント参照）で再検証する
+        await relationalStore.refreshFile(file);
       },
       redo: async () => {
-        await Promise.all(items.map((item) => api.registerAnnotationStyle(file, item.next)));
+        await registerStylesTracked(
+          file,
+          items.map((item) => item.next),
+        );
+        await relationalStore.refreshFile(file);
       },
     });
   }
@@ -260,7 +328,7 @@ export function useAnnotationHistory() {
       );
       historyStore.push(file, {
         undo: async () => {
-          await api.registerAnnotationStyle(file, removed);
+          await registerStyleTracked(file, removed);
           await Promise.all(affectedGroups.map((g) => api.restoreGroup(file, g)));
           if (affectedGroups.length > 0) await groupStore.refreshFile(file);
           await restoreRelationalSnapshot(
@@ -284,7 +352,14 @@ export function useAnnotationHistory() {
     return res;
   }
 
-  /** 複数アノテーションの削除をまとめて1つのUndoステップとして扱う（関係性の捕捉・復元も同様） */
+  /**
+   * 複数アノテーションの削除をまとめて1つのUndoステップとして扱う（関係性の捕捉・復元も同様）
+   *
+   * 削除・undoでの復元・redoでの再削除のいずれも、件数分の個別API呼び出しではなく
+   * `removeAnnotations`/`registerAnnotationStyles`で1回にまとめる。個別に呼ぶとDB書き込み
+   * （≒UI側のライブクエリ再発火）も件数分に分かれ、まとめて操作したはずの複数選択・グループが
+   * 画面上で1件ずつ遅れて消える・現れるように見えてしまう
+   */
   async function removeManyWithHistory(
     file: ContainerElementFile,
     removedList: AnnotationStyle[],
@@ -293,9 +368,8 @@ export function useAnnotationHistory() {
 
     const ids = removedList.map((a) => a.id);
     const ownSnapshot = captureRelationalSnapshot(ids);
-    const results = await Promise.all(removedList.map((a) => api.removeAnnotation(a.id)));
-    // 1件でも失敗していれば、undo/redoの対象が不完全になるため履歴には積まない
-    if (!results.every((res) => res.ok)) return;
+    const res = await api.removeAnnotations(file, ids);
+    if (!res.ok) return;
 
     // 複数削除で2つ以上のグループを同時に縮小・解散させる場合も、影響適用はまとめて1回で行う
     const { groups: affectedGroups, snapshot: groupSnapshot } = await applyGroupImpactForRemoval(
@@ -305,14 +379,14 @@ export function useAnnotationHistory() {
 
     historyStore.push(file, {
       undo: async () => {
-        await Promise.all(removedList.map((a) => api.registerAnnotationStyle(file, a)));
+        await registerStylesTracked(file, removedList);
         await Promise.all(affectedGroups.map((g) => api.restoreGroup(file, g)));
         if (affectedGroups.length > 0) await groupStore.refreshFile(file);
         await restoreRelationalSnapshot(file, mergeRelationalSnapshots(ownSnapshot, groupSnapshot));
       },
       redo: async () => {
         const redoneOwnSnapshot = captureRelationalSnapshot(ids);
-        await Promise.all(removedList.map((a) => api.removeAnnotation(a.id)));
+        await api.removeAnnotations(file, ids);
         const { snapshot: redoneGroupSnapshot } = await applyGroupImpactForRemoval(file, ids);
         await refreshRelationalSnapshotCaches(
           file,
@@ -335,10 +409,13 @@ export function useAnnotationHistory() {
 
     historyStore.push(file, {
       undo: async () => {
-        await Promise.all(created.map((a) => api.removeAnnotation(a.id)));
+        await api.removeAnnotations(
+          file,
+          created.map((a) => a.id),
+        );
       },
       redo: async () => {
-        await Promise.all(created.map((a) => api.registerAnnotationStyle(file, a)));
+        await registerStylesTracked(file, created);
       },
     });
   }
@@ -355,10 +432,16 @@ export function useAnnotationHistory() {
 
     historyStore.push(file, {
       undo: async () => {
-        await Promise.all(pairs.map((p) => api.registerAnnotationStyle(file, p.before)));
+        await registerStylesTracked(
+          file,
+          pairs.map((p) => p.before),
+        );
       },
       redo: async () => {
-        await Promise.all(pairs.map((p) => api.registerAnnotationStyle(file, p.after)));
+        await registerStylesTracked(
+          file,
+          pairs.map((p) => p.after),
+        );
       },
     });
   }
@@ -381,11 +464,14 @@ export function useAnnotationHistory() {
     historyStore.push(file, {
       undo: async () => {
         if (createdGroup) await api.ungroupAnnotations(file, createdGroup.id);
-        await Promise.all(created.map((a) => api.removeAnnotation(a.id)));
+        await api.removeAnnotations(
+          file,
+          created.map((a) => a.id),
+        );
         if (createdGroup) await groupStore.refreshFile(file);
       },
       redo: async () => {
-        await Promise.all(created.map((a) => api.registerAnnotationStyle(file, a)));
+        await registerStylesTracked(file, created);
         if (createdGroup) {
           await api.restoreGroup(file, createdGroup);
           await groupStore.refreshFile(file);
