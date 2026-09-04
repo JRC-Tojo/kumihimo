@@ -13,7 +13,9 @@ import { computed, ref, watch } from 'vue';
 import { debounce } from 'quasar';
 import type { PdfDocument } from 'src/components/Viewer/pdfManager';
 import { searchDocumentText } from 'src/components/Viewer/pdfManager';
+import type { TextItemBox } from 'src/models/document/pdf';
 import type { TextSearchMatch } from 'src/models/document/search';
+import { TextSearchOptions } from 'src/models/document/search';
 
 /** 検索の度にキー入力を待つデバウンス時間（ミリ秒） */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -23,6 +25,11 @@ export interface UseDocumentSearchOptions {
   getDocument: () => PdfDocument | undefined;
   /** マッチへジャンプする際に呼ばれる（ページ移動・スクロールは呼び出し側の責務） */
   onNavigate: (match: TextSearchMatch) => void;
+  /**
+   * PDF自体のテキストに加えて検索対象へ含めたいテキストアイテムを、ページ番号ごとに返す
+   * （アノテーションのテキストボックス内容等）。呼び出し時点の最新状態を参照できるよう関数で受け取る
+   */
+  getExtraItemsByPage?: () => Map<number, TextItemBox[]>;
 }
 
 export function useDocumentSearch(options: UseDocumentSearchOptions) {
@@ -32,6 +39,8 @@ export function useDocumentSearch(options: UseDocumentSearchOptions) {
   const matches = ref<TextSearchMatch[]>([]);
   const activeIndex = ref(0);
   const isSearching = ref(false);
+  /** 大文字小文字・半角全角・正規表現の扱い（検索バーのトグルボタンからv-modelされる） */
+  const searchOptions = ref<TextSearchOptions>(TextSearchOptions.parse({}));
 
   const activeMatch = computed<TextSearchMatch | undefined>(() => matches.value[activeIndex.value]);
   const matchCount = computed(() => matches.value.length);
@@ -44,36 +53,48 @@ export function useDocumentSearch(options: UseDocumentSearchOptions) {
    */
   let searchGeneration = 0;
 
-  /** 現在のqueryで実際に検索を実行する（デバウンスなし版。Enter即時確定等から直接呼ぶ用） */
+  /**
+   * 現在のqueryで実際に検索を実行する（デバウンスなし版。Enter即時確定等から直接呼ぶ用）
+   *
+   * ページ単位の完了ごとに`matches`へ追記していく（全ページの完了を待たない）ため、
+   * ページ数の多い巨大なPDFを検索してもヒットが見つかった時点からUIに反映され、
+   * 検索バーがブロックされたように見える時間を短縮できる
+   */
   async function runSearch(): Promise<void> {
     const generation = ++searchGeneration;
     const pdf = options.getDocument();
     const trimmed = query.value.trim();
-    if (!pdf || trimmed === '') {
-      matches.value = [];
-      activeIndex.value = 0;
-      return;
-    }
+    matches.value = [];
+    activeIndex.value = 0;
+    if (!pdf || trimmed === '') return;
 
     isSearching.value = true;
-    let result: TextSearchMatch[];
+    let navigatedToFirst = false;
     try {
-      result = await searchDocumentText(pdf, trimmed);
+      await searchDocumentText(pdf, trimmed, {
+        searchOptions: searchOptions.value,
+        extraItemsByPage: options.getExtraItemsByPage?.(),
+        onPageMatches: (_pageNumber, pageMatches) => {
+          if (generation !== searchGeneration || pageMatches.length === 0) return;
+          matches.value.push(...pageMatches);
+          if (!navigatedToFirst) {
+            navigatedToFirst = true;
+            const first = pageMatches[0];
+            if (first !== undefined) options.onNavigate(first);
+          }
+        },
+      });
     } finally {
       if (generation === searchGeneration) isSearching.value = false;
     }
-    if (generation !== searchGeneration) return; // 検索完了時点で既に後発の検索が始まっている
-
-    matches.value = result;
-    activeIndex.value = 0;
-    const firstMatch = matches.value[0];
-    if (firstMatch !== undefined) options.onNavigate(firstMatch);
   }
 
   const debouncedRunSearch = debounce(() => void runSearch(), SEARCH_DEBOUNCE_MS);
   // 入力欄はqueryへ直接v-modelできるようにし（呼び出し側での destructure を前提とした
   // useZoomControl等と同じ流儀）、実際の検索はキー入力のたびにデバウンスして実行する
   watch(query, () => debouncedRunSearch());
+  // 検索オプション（大文字小文字・半角全角・正規表現）が変わった場合も、デバウンスなしで即座に検索し直す
+  watch(searchOptions, () => void runSearch(), { deep: true });
 
   /** 次のマッチへ移動する（末尾からは先頭へ循環する） */
   function goToNext(): void {
@@ -108,6 +129,7 @@ export function useDocumentSearch(options: UseDocumentSearchOptions) {
   return {
     isOpen,
     query,
+    searchOptions,
     matches,
     activeIndex,
     activeMatch,

@@ -9,9 +9,19 @@ import * as fsHandleDB from 'src/repositories/inMemory/fsHandleDB';
 import { arrayBufferToBase64, base64ToUint8Array } from 'src/utils/binary/base64';
 import { Path } from 'src/utils/binary/path';
 import { fromEntries } from 'src/utils/obj/obj';
+import { runConcurrently } from 'src/utils/promise/concurrent';
 
 /** コンテナルートに配置する本システムの管理フォルダ名（一覧には含めない） */
 const CONTAINER_CONFIG_FOLDER = '.kumihimo';
+
+/**
+ * 同一ディレクトリ内でのファイルメタ情報取得（`getFile()`）を同時に実行する上限数
+ *
+ * Box Drive等、実体がクラウド側にありローカルには仮想化されただけのファイルシステムでは、
+ * `getFile()`1回ごとにネットワーク往復が発生し得る。無制限に並列実行すると大量ファイルの
+ * フォルダでかえって輻輳し得るため、上限を設けたうえで並列化する（issue #91）
+ */
+const FILE_STAT_CONCURRENCY = 8;
 
 /**
  * `pickDirectory()`で選択された直後のハンドルを一時的に保持する
@@ -166,15 +176,19 @@ async function getParentDirectoryHandle(
 /**
  * 指定ディレクトリ配下を再帰的に辿り、要素一覧を返す（本体データは読まずメタ情報のみ取得する）
  *
- * サブディレクトリは並行して辿ることで、深い階層構造でも取得時間を抑える
+ * サブディレクトリは並行して辿ることで、深い階層構造でも取得時間を抑える。同一ディレクトリ内の
+ * ファイルのメタ情報取得（`getFile()`）も、サイズの大きいファイルが多いフォルダで逐次実行が
+ * ボトルネックにならないよう`runConcurrently`で並列化する（issue #91: サブディレクトリ側は
+ * 既に並列化されていたが、同一階層のファイル同士は1件ずつawaitしていたのが真因だった）
  */
 async function walkDirectory(
   dirHandle: FileSystemDirectoryHandle,
   cId: ContainerID,
   relativePath: string,
 ): Promise<ContainerElement[]> {
-  const elements: ContainerElement[] = [];
+  const folderElements: ContainerElement[] = [];
   const subDirWalks: Promise<ContainerElement[]>[] = [];
+  const fileStatTasks: (() => Promise<ContainerElement>)[] = [];
 
   for await (const [name, handle] of dirHandle.entries()) {
     // 本システムの管理フォルダはコンテナ要素一覧には含めない
@@ -185,34 +199,44 @@ async function walkDirectory(
     const entryPath = relativePath === '' ? name : new Path(relativePath).child(name).path;
 
     if (handle.kind === 'directory') {
-      elements.push({ containerID: cId, type: 'Folder', path: entryPath, createdAt: new Date() });
+      folderElements.push({
+        containerID: cId,
+        type: 'Folder',
+        path: entryPath,
+        createdAt: new Date(),
+      });
       subDirWalks.push(walkDirectory(handle, cId, entryPath));
     } else {
-      let fileSize: number | undefined;
-      let updatedAt = new Date();
-      try {
-        const file = await handle.getFile();
-        fileSize = file.size;
-        updatedAt = new Date(file.lastModified);
-      } catch {
-        // メタ情報の取得に失敗しても一覧表示自体は継続する
-      }
-      elements.push({
-        containerID: cId,
-        type: 'File',
-        path: entryPath,
-        fileSize,
-        createdAt: updatedAt,
-        updatedAt,
-        description: '',
-        genre: '',
-        tags: [],
+      fileStatTasks.push(async () => {
+        let fileSize: number | undefined;
+        let updatedAt = new Date();
+        try {
+          const file = await handle.getFile();
+          fileSize = file.size;
+          updatedAt = new Date(file.lastModified);
+        } catch {
+          // メタ情報の取得に失敗しても一覧表示自体は継続する
+        }
+        return {
+          containerID: cId,
+          type: 'File',
+          path: entryPath,
+          fileSize,
+          createdAt: updatedAt,
+          updatedAt,
+          description: '',
+          genre: '',
+          tags: [],
+        };
       });
     }
   }
 
-  const subResults = await Promise.all(subDirWalks);
-  return elements.concat(subResults.flat());
+  const [fileElements, subResults] = await Promise.all([
+    runConcurrently(fileStatTasks, FILE_STAT_CONCURRENCY),
+    Promise.all(subDirWalks),
+  ]);
+  return folderElements.concat(fileElements, subResults.flat());
 }
 
 /**

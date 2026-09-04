@@ -87,6 +87,17 @@ import { Path } from 'src/utils/binary/path';
 import type { SaveAsMode } from 'src/utils/document/saveDocumentAs';
 import type { SaveAsDialogResult } from 'src/components/Dialog/saveAsDialog';
 import { confirmDialog } from 'src/components/Dialog/confirmDialog';
+import { runConcurrently } from 'src/utils/promise/concurrent';
+
+/**
+ * コンテナ一覧の読み込みを同時に実行する上限数（issue #91）
+ *
+ * 各`loadContainer`はコンテナ内の全要素を再帰的に辿るため、逐次実行だとコンテナ数分の
+ * 待ち時間がそのまま積み上がっていた。並列化しつつも上限を設けるのは、各コンテナ内部の
+ * ファイル走査（`local.ts`側で既に並列化済み）と掛け合わさって同時アクセス数が
+ * 際限なく膨らまないようにするため
+ */
+const CONTAINER_LOAD_CONCURRENCY = 4;
 
 interface Prop {
   sourceFile: ContainerElementFile;
@@ -152,9 +163,16 @@ function buildFolderNodes(
 onMounted(async () => {
   const containersRes = await api.getAllContainers();
   if (containersRes.ok) {
+    // 各コンテナの読み込み（内部で全要素を再帰的に辿る）を並列化する。ツリー構築自体は
+    // containersRes.data の順序を保ったまま行うため、並列化するのは読み込みのみに留める
+    const loadTasks = containersRes.data.map((skel) => async () => ({
+      skel,
+      loadedRes: await api.loadContainer(skel.id),
+    }));
+    const loaded = await runConcurrently(loadTasks, CONTAINER_LOAD_CONCURRENCY);
+
     const containerNodes: QTreeNode[] = [];
-    for (const skel of containersRes.data) {
-      const loadedRes = await api.loadContainer(skel.id);
+    for (const { skel, loadedRes } of loaded) {
       if (!loadedRes.ok) continue;
       elementsByContainer.set(skel.id, loadedRes.data.elements);
 

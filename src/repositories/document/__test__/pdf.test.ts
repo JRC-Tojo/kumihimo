@@ -183,6 +183,47 @@ describe('extractTextBlocksByPageFromDoc（pdfItemToBox）', () => {
     expect(res.value).toHaveLength(1);
     expectBoxCloseTo(res.value[0], { text: 'AB', x: 68, y: 120, width: 12, height: 30 });
   });
+
+  it('同一のPDFDocumentProxyへの2回目の呼び出しは、getPage/getTextContentを呼ばずキャッシュを返す', async () => {
+    let getPageCallCount = 0;
+    const item = {
+      str: 'AB',
+      dir: 'ltr',
+      transform: [1, 0, 0, 1, 50, 20],
+      width: 30,
+      height: 12,
+      fontName: 'f1',
+      hasEOL: false,
+    };
+    const pdf = {
+      getPage: () => {
+        getPageCallCount++;
+        return Promise.resolve({
+          getTextContent: () => Promise.resolve({ items: [item], styles: {} }),
+          getViewport: () => buildViewport(0),
+        });
+      },
+    } as unknown as PDFDocumentProxy;
+
+    const first = await extractTextBlocksByPageFromDoc(pdf, 1);
+    const second = await extractTextBlocksByPageFromDoc(pdf, 1);
+
+    expect(getPageCallCount).toBe(1);
+    expect(first.ok).toBeTrue();
+    expect(second.ok).toBeTrue();
+    if (!first.ok || !second.ok) return;
+    expect(first.value).toEqual(second.value);
+  });
+
+  it('別のPDFDocumentProxyインスタンスにはキャッシュが共有されない', async () => {
+    const first = await extractTextBlocksByPageFromDoc(buildFakePdf(0), 1);
+    const second = await extractTextBlocksByPageFromDoc(buildFakePdf(90), 1);
+    expect(first.ok).toBeTrue();
+    expect(second.ok).toBeTrue();
+    if (!first.ok || !second.ok) return;
+    // 回転が異なる別インスタンスなので、キャッシュ混在があれば矩形が一致してしまうはず
+    expect(first.value[0]?.width).not.toBe(second.value[0]?.width);
+  });
 });
 
 // ============================================================

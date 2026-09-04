@@ -24,7 +24,12 @@ $negative: #e94709;
 $info: #31ccec;
 $warning: #d9a62e;
 
-.body--dark {
-  // ダークモードではPrimaryを金色に切り替える
-  --q-primary: #d9a62e;
-}
+// ダークモードでのPrimary（$warningと同じ金色）。CSSカスタムプロパティへの反映は
+// app.scssの`.body--dark`ブロックでまとめて行う（--q-primaryに加え、rgba()で使うための
+// --q-primary-rgbも同時に更新する必要があるため）
+$primary-dark: #d9a62e;
+
+// 検索ヒット箇所のハイライト色（文書内検索のPDF上オーバーレイ、コンテナ横断検索の
+// 一覧スニペットの両方で同じ配色にするための共有トークン）。ライト/ダークモード共通
+$search-highlight: rgba(255, 213, 0, 0.45);
+$search-highlight-active: rgba(255, 128, 0, 0.65);

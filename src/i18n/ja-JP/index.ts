@@ -365,9 +365,9 @@ export default {
       next: '次を検索',
       previous: '前を検索',
       close: '検索を終了',
-      searchContainer: 'コンテナ全体を検索',
-      containerNoMatches: '一致する文書がありません',
-      pageLabel: '{page}ページ',
+      matchCase: '大文字と小文字を区別',
+      distinguishWidth: '半角・全角を区別',
+      useRegex: '正規表現を使用',
     },
     peek: {
       title: '関係性の一覧',
@@ -521,6 +521,15 @@ export default {
       deleteConfirmWithChildren: '子要素もまとめて削除されます。削除しますか？',
       operationFailed: 'ブックマークの操作に失敗しました',
     },
+  },
+
+  searchPanel: {
+    title: '検索',
+    placeholder: '検索文字列を入力（Enterで検索）',
+    noContainers: '検索対象のコンテナがありません',
+    noResults: '一致する結果がありません',
+    pageLabel: '{page}ページ',
+    searching: '検索中...',
   },
 
   plugins: {

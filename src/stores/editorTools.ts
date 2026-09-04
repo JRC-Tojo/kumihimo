@@ -308,7 +308,10 @@ function callPointerTools(t: (key: string) => string): IDocTool[] {
     },
     {
       id: 'text-select-mode',
-      icon: 'text_fields',
+      // 'text_select_move_forward_character'はMaterial Symbols専用のアイコンで、本プロジェクトが
+      // バンドルしている@quasar/extrasの'material-icons'（クラシックMaterial Icons）には
+      // 含まれていないため、同セット内で選択操作を表す'select_all'を代わりに使う
+      icon: 'select_all',
       label: t('pdfEditor.tools.textSelectMode'),
       noMenu: true,
       isActive: () => {

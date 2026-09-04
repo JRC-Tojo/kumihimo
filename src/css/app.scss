@@ -26,6 +26,15 @@ a {
 
 // ダークモード共通スタイル
 .body--dark {
+  // Primaryを金色（$primary-dark）に切り替える。--q-primaryだけでなく、rgba()で使う
+  // --q-primary-rgbも同時に更新しないと、rgba(var(--q-primary-rgb), n)を使う箇所は
+  // ライトモードの紫のまま取り残される（過去にこの箇所だけ更新漏れしていた実装の修正）
+  --q-primary: #{$primary-dark};
+  --q-primary-rgb:
+    #{color.channel($primary-dark, 'red', $space: rgb)},
+    #{color.channel($primary-dark, 'green', $space: rgb)},
+    #{color.channel($primary-dark, 'blue', $space: rgb)};
+
   a,
   a:visited {
     color: color-mix(in srgb, var(--q-primary) 80%, white);

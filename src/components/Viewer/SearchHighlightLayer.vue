@@ -61,11 +61,11 @@ function boxStyle(box: BoundingBox): Record<string, string> {
 
 .search-highlight-layer__box {
   position: absolute;
-  background: rgba(255, 213, 0, 0.45);
+  background: $search-highlight;
   border-radius: 2px;
 
   &--active {
-    background: rgba(255, 128, 0, 0.65);
+    background: $search-highlight-active;
     outline: 2px solid rgba(255, 90, 0, 0.9);
   }
 }
