@@ -138,7 +138,7 @@ export const deskew = (ctx: CanvasRenderingContext2D) => {
   const imageData = ctx.getImageData(0, 0, oldW, oldH);
   const data = imageData.data;
 
-  // --- 1. モーメント法による角度算出 (ここは変更なし) ---
+  // --- 1. モーメント法による角度算出 ---
   let m00 = 0,
     m10 = 0,
     m01 = 0,
@@ -147,8 +147,15 @@ export const deskew = (ctx: CanvasRenderingContext2D) => {
     m02 = 0;
   for (let y = 0; y < oldH; y++) {
     for (let x = 0; x < oldW; x++) {
-      if ((data.at((y * oldW + x) * 4) ?? 255) < 128) {
-        // 黒いピクセル
+      const i = (y * oldW + x) * 4;
+      // 輝度（Rチャンネルのみでは赤系の文字が「黒いピクセル」として拾えず、
+      // 傾き角度の算出から抜け落ちてしまうため、R/G/Bを合成した輝度で判定する（Issue #110）
+      const r = data.at(i) ?? 255;
+      const g = data.at(i + 1) ?? 255;
+      const b = data.at(i + 2) ?? 255;
+      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (luminance < 128) {
+        // 黒い（暗い色の）ピクセル
         m00 += 1;
         m10 += x;
         m01 += y;

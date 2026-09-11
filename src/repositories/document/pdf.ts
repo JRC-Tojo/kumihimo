@@ -600,9 +600,68 @@ function estimateCharWidths(
 }
 
 /**
+ * 実形状によるマスクが有効な種別。box/textは外接矩形そのものが実形状と一致するため対象外
+ * （マスクしても何も変わらないうえ、外接矩形に含まれる`BOUNDING_BOX_PADDING`分の余白まで
+ * 削ってしまうと逆に見た目が変わってしまう）
+ */
+const MASKABLE_ANNOTATION_TYPES = new Set<AnnotationStyle['type']>([
+  'line',
+  'arrow',
+  'circle',
+  'polyline',
+  'polygon',
+]);
+
+/**
+ * 切り出した画像のうち、アノテーションの実形状（`ANNOTATION_GEOMETRY[type].containsPoint`。
+ * Issue #82で選択・関係性のテキスト読み取り範囲判定に使っているものと同じ実装）の外側を
+ * 白へ塗りつぶす。
+ *
+ * `extractTextByAnnot`（PDFに埋め込まれたテキスト）は文字単位でこの実形状判定を行っているが、
+ * OCR経由の抽出（本関数が返す画像が入力になる）は今まで外接矩形をそのまま切り出すだけで、
+ * 実形状によるフィルタが一切適用されていなかった。斜めの直線・大判文書（A1等）の込み入った
+ * 文字の中を通る細い寸法線などでは、外接矩形が実際の線から大きく離れた周辺文字まで含んでしまい、
+ * OCRがそれらを一緒に読み取ってしまうため、OCRへ渡す前にここでマスクする（Issue #110）
+ */
+function maskImageOutsideShape(
+  canvas: HTMLCanvasElement,
+  style: AnnotationStyle,
+  targetRect: BoundingBox,
+  scale: number,
+): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const geometry = ANNOTATION_GEOMETRY[style.type];
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+
+  for (let py = 0; py < canvas.height; py++) {
+    for (let px = 0; px < canvas.width; px++) {
+      // ピクセル中心をドキュメント座標系（scale未適用）へ変換して実形状判定にかける
+      const docX = targetRect.x + (px + 0.5) / scale;
+      const docY = targetRect.y + (py + 0.5) / scale;
+      if (geometry.containsPoint(style, { x: docX, y: docY })) continue;
+
+      const idx = (py * canvas.width + px) * 4;
+      data[idx] = 255;
+      data[idx + 1] = 255;
+      data[idx + 2] = 255;
+      data[idx + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+}
+
+/**
  * 指定ページの矩形領域を切り出して PNG の dataURL を返す。Result でラップ。
  * annotStyle で指定された領域の外接矩形を計算して切り出す
  * 直線の場合は線幅を考慮する
+ *
+ * line/arrow/circle/polyline/polygonは、切り出し後にアノテーションの実形状の外側を
+ * 白へマスクする（`maskImageOutsideShape`参照。Issue #110）。box/textは外接矩形＝
+ * 実形状のためマスクしない
  */
 export async function extractImageFromRegion(
   file: FileIdentity,
@@ -641,6 +700,10 @@ export async function extractImageFromRegion(
       Math.round(targetRect.width * scale),
       Math.round(targetRect.height * scale),
     );
+
+    if (MASKABLE_ANNOTATION_TYPES.has(annotStyle.type)) {
+      maskImageOutsideShape(tmp, annotStyle, targetRect, scale);
+    }
     return Success(tmp.toDataURL('image/png'));
   } catch (e) {
     return Failure(toError(e));

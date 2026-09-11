@@ -160,10 +160,16 @@ function ellipseIntersectsRect(
  * 直交距離に関わらず常にfalse）。これは大判文書（A1等）で文字サイズが線幅に対して
  * 小さくなる場合でも、線の両端では隣接する行・列の文字を誤って拾わないようにするための挙動
  *
- * `pointSize`（判定対象の実サイズ。文字要素の幅・高さなど）を渡した場合、その矩形を進行方向に
- * 直交する軸へ投影した全体サイズ（SAT法）が線幅（halfStroke*2）に収まるときは、投影範囲全体が
- * 帯へ完全に収まっているかどうかで判定する（拡張を考慮しない厳密判定）。線幅に収まらない場合・
- * `pointSize`省略時は、従来通りpoint自体と帯中心線との直交距離のみで判定する（多少の拡張を許容）
+ * `pointSize`（判定対象の実サイズ。文字要素の幅・高さなど）を渡した場合、進行方向は必ず
+ * その矩形全体（SAT法で進行軸へ投影した全体サイズ）が線分の範囲[0, length]に完全に収まって
+ * いるかどうかで判定する（Issue #110: 文字が密に並ぶ大判文書の寸法線では、文字の一部でも
+ * 端部の外へはみ出すことを許容してしまうと、終端のすぐ外側にある別の文字まで拾ってしまうため、
+ * 拡張を一切許容しない。#108時点ではこの端部の厳密判定が直交方向の判定条件に連動して無効化
+ * されており、線幅より文字の方が大きい――実際にはほとんどのケースが該当する――場合には
+ * 機能していなかった）。
+ * 直交方向は、その矩形が線幅（halfStroke*2）に収まるときは投影範囲全体が帯へ完全に収まって
+ * いるかどうかで判定し（拡張を考慮しない厳密判定）、収まらない場合・`pointSize`省略時は、
+ * 従来通りpoint自体と帯中心線との直交距離のみで判定する（多少の拡張を許容）
  */
 function pointNearSegment(
   p: Point,
@@ -190,22 +196,20 @@ function pointNearSegment(
   const along = relX * ux + relY * uy;
   const perp = relX * perpX + relY * perpY;
 
-  if (pointSize) {
-    const alongHalfExtent =
-      (pointSize.width / 2) * Math.abs(ux) + (pointSize.height / 2) * Math.abs(uy);
-    // 矩形の半幅・半高を直交軸へ投影し、進行方向に直交する向きの実サイズを求める（分離軸定理）
-    const crossHalfExtent =
-      (pointSize.width / 2) * Math.abs(perpX) + (pointSize.height / 2) * Math.abs(perpY);
-    if (crossHalfExtent <= halfStroke) {
-      return (
-        along - alongHalfExtent >= 0 &&
-        along + alongHalfExtent <= length &&
-        Math.abs(perp) + crossHalfExtent <= halfStroke
-      );
-    }
-  }
+  const alongHalfExtent = pointSize
+    ? (pointSize.width / 2) * Math.abs(ux) + (pointSize.height / 2) * Math.abs(uy)
+    : 0;
+  // 矩形の半幅・半高を直交軸へ投影し、進行方向に直交する向きの実サイズを求める（分離軸定理）
+  const crossHalfExtent = pointSize
+    ? (pointSize.width / 2) * Math.abs(perpX) + (pointSize.height / 2) * Math.abs(perpY)
+    : 0;
 
-  if (along < 0 || along > length) return false;
+  // 進行方向: 直交方向の判定条件に関わらず、常にこの厳密な端部カットを適用する（Issue #110）
+  if (along - alongHalfExtent < 0 || along + alongHalfExtent > length) return false;
+
+  if (crossHalfExtent <= halfStroke) {
+    return Math.abs(perp) + crossHalfExtent <= halfStroke;
+  }
   return Math.abs(perp) <= halfStroke;
 }
 
@@ -411,11 +415,12 @@ interface AnnotationGeometryModuleCommon<T extends AnnotationStyle> {
    * 塗りを持つ図形（box/circle/塗りありのpolygon）は面としての内外判定で行う（Issue #82）。
    *
    * 直線・矢印・折れ線は`pointSize`（`point`の実サイズ。文字要素の幅・高さなど）を渡すこともできる。
-   * 大判文書（A1等）で文字サイズが線幅に対して小さくなる場合でも、線幅に文字が収まる範囲では
-   * 拡張を考慮しない厳密な判定に切り替わり、隣接する行・列の文字を誤って拾わないようにする
-   * （収まらない場合は`pointSize`省略時と同じ、従来通りの多少の拡張を許容する判定になる）。
-   * また進行方向の端部は`pointSize`の有無に関わらず常に厳密に切る（丸めキャップを設けない）ため、
-   * 線分の延長線上にある点は対象外となる
+   * 進行方向の端部は`pointSize`の有無に関わらず常に厳密に切る（丸めキャップを設けない）ため、
+   * 文字の実サイズ全体が線分の範囲に収まらない限り対象外となる（線分の延長線上・端部のすぐ外側に
+   * ある文字を誤って拾わないため。Issue #110）。直交方向は、大判文書（A1等）で文字サイズが
+   * 線幅に対して小さくなる場合でも、線幅に文字が収まる範囲では拡張を考慮しない厳密な判定に
+   * 切り替わり、隣接する行・列の文字を誤って拾わないようにする（収まらない場合は`pointSize`
+   * 省略時と同じ、従来通りの多少の拡張を許容する判定になる）
    */
   containsPoint(style: T, point: Point, pointSize?: { width: number; height: number }): boolean;
   /** 初期設定（初回起動時・既存設定への補完時）に投入するこの種別のデフォルトプリセット。1件以上必須 */

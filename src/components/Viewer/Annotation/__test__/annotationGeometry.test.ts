@@ -908,6 +908,32 @@ describe('containsPoint（大判文書での誤認識対策: 進行方向の端�
     const pointSize = { width: 8, height: 10 };
     expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 50, y: 1.5 }, pointSize)).toBeTrue();
   });
+
+  it('line: 直交方向が「多少の拡張を許容する」判定になる場合でも、進行方向の端部カットはpointSizeの実サイズ全体で厳密に行う（Issue #110）', () => {
+    // 水平線 (0,0)-(100,0)、strokeWidth 4 → halfStroke = 2。
+    // strokeWidthが文字より大幅に細いのは、寸法線が文字サイズよりも細く描かれる典型的な
+    // ケース（A1等の大判文書で多くの実案件がこちらに該当する）
+    const style = {
+      ...containsPointBaseFields(4),
+      type: 'line' as const,
+      x: 0,
+      y: 0,
+      points: [0, 0, 100, 0],
+    };
+
+    // 幅・高さ10の文字要素。中心(99, 1)は終点(100)の内側かつ|perp|=1<=halfStroke(2)を
+    // 満たすため、直交方向は（線幅に収まらないので）拡張ありの判定になる。
+    // しかし文字の右端（along + alongHalfExtent = 99 + 5 = 104）は終点(100)を4も超えており、
+    // 密に並んだ文字列では終端のすぐ外側にある別の文字（次の数値）である可能性が高い。
+    // #108時点の実装は進行方向の判定を中心点(along=99<=100)のみで行っていたため、この
+    // ケースを誤ってtrueと判定してしまっていた（直交方向の判定条件に関わらず、進行方向は
+    // 常に文字の実サイズ全体で厳密にカットする必要がある）
+    const pointSize = { width: 10, height: 10 };
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 99, y: 1 }, pointSize)).toBeFalse();
+    // 対照として、文字の右端がちょうど終点に収まる位置（along=95, alongHalfExtent=5→右端100）
+    // ならtrueを返す
+    expect(ANNOTATION_GEOMETRY.line.containsPoint(style, { x: 95, y: 1 }, pointSize)).toBeTrue();
+  });
 });
 
 describe('previewFromDrag / previewFromPoints（ドラッグ・クリック中のプレビュー形状）', () => {

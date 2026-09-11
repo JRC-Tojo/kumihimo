@@ -16,9 +16,10 @@ import {
   type PDFNumber,
 } from 'pdf-lib';
 import { JSDOM } from 'jsdom';
-import { createCanvas } from 'canvas';
+import { createCanvas, Image } from 'canvas';
 import type { TextItemBox, AnnotationStyle } from 'src/models/document/pdf';
 import { AnnotationID, ColorCode } from 'src/models/document/pdf';
+import { ANNOTATION_GEOMETRY } from 'src/components/Viewer/Annotation/annotationGeometry';
 import type { BookmarkID, BookmarkInfo } from 'src/models/relational/fileSchema';
 import { DocumentSource } from 'src/models/document/common';
 import type { FileIdentity } from 'src/utils/document/fileKey';
@@ -1017,6 +1018,39 @@ function setupCanvasDom(): void {
   };
 }
 
+/**
+ * `extractImageFromRegion`が返すPNGのdata URLを実際にデコードし、生のピクセル列（RGBA）を返す。
+ * マスク処理（`maskImageOutsideShape`）が想定通りピクセルを白へ塗り替えているかを検証するために使う
+ */
+async function decodePngDataUrlPixels(
+  dataUrl: string,
+  width: number,
+  height: number,
+): Promise<Uint8ClampedArray> {
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = (err) => reject(err instanceof Error ? err : new Error('image load failed'));
+    img.src = dataUrl;
+  });
+
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return ctx.getImageData(0, 0, width, height).data;
+}
+
+/** `decodePngDataUrlPixels`で得たピクセル列から、指定座標のRGBAを取り出す */
+function getPixel(
+  pixels: Uint8ClampedArray,
+  rowWidth: number,
+  x: number,
+  y: number,
+): [number, number, number, number] {
+  const idx = (y * rowWidth + x) * 4;
+  return [pixels[idx]!, pixels[idx + 1]!, pixels[idx + 2]!, pixels[idx + 3]!];
+}
+
 describe('renderPageToCanvasFromDoc / renderPageToCanvas / extractImageFromRegion / extractAnnotationContextPreview（Canvas依存）', () => {
   setupCanvasDom();
 
@@ -1083,6 +1117,79 @@ describe('renderPageToCanvasFromDoc / renderPageToCanvas / extractImageFromRegio
 
     const res = await extractImageFromRegion(testFile, DUMMY_SRC, buildSmallBoxAnnotation(1));
     expect(res.ok).toBeFalse();
+  });
+
+  it('extractImageFromRegion: line種別は外接矩形のうち実際の線の帯（実形状）の外側を白でマスクする（Issue #110）', async () => {
+    const releaseSpy = mock(() => {});
+    // ページ全体を単色（マゼンタ）で塗りつぶすフェイクページ。renderPageToCanvasFromDocが
+    // これをそのままCanvasへ描画するため、マスク前は切り出し範囲の全域が同じ色になる
+    const fakePage = {
+      getViewport: () => ({ width: 100, height: 100 }),
+      render: ({ canvasContext }: { canvasContext: CanvasRenderingContext2D }) => {
+        canvasContext.fillStyle = 'rgb(255,0,255)';
+        canvasContext.fillRect(0, 0, 100, 100);
+        return { promise: Promise.resolve() };
+      },
+    };
+    fakeAcquireImpl = () =>
+      Promise.resolve(Success({ document: buildFakeDoc([fakePage]), release: releaseSpy }));
+
+    // 水平な直線（(0,0)-(40,0)、strokeWidth 10 → containsPoint上の半幅は5）。
+    // 外接矩形（boundingBoxのpadding込み）は縦方向に線の帯より広く取られるため、
+    // 外接矩形の四隅・上下端は実際の帯の外側になる
+    const lineAnnotation: AnnotationStyle = {
+      ...buildAnnotationBase(1),
+      type: 'line',
+      x: 0,
+      y: 0,
+      strokeWidth: 10,
+      points: [0, 0, 40, 0],
+    };
+
+    const res = await extractImageFromRegion(testFile, DUMMY_SRC, lineAnnotation, 1);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const targetRect = ANNOTATION_GEOMETRY.line.boundingBox(lineAnnotation);
+    const pixels = await decodePngDataUrlPixels(
+      res.value,
+      Math.round(targetRect.width),
+      Math.round(targetRect.height),
+    );
+    // 帯の内側（線の中心付近）: マゼンタのまま
+    expect(getPixel(pixels, Math.round(targetRect.width), 20, 2)).toEqual([255, 0, 255, 255]);
+    // 帯の外側（外接矩形の下端付近。線からは大きく離れている）: 白へマスクされる
+    expect(getPixel(pixels, Math.round(targetRect.width), 20, 12)).toEqual([255, 255, 255, 255]);
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('extractImageFromRegion: box種別は外接矩形をそのまま返す（マスク対象外）', async () => {
+    const releaseSpy = mock(() => {});
+    const fakePage = {
+      getViewport: () => ({ width: 100, height: 100 }),
+      render: ({ canvasContext }: { canvasContext: CanvasRenderingContext2D }) => {
+        canvasContext.fillStyle = 'rgb(255,0,255)';
+        canvasContext.fillRect(0, 0, 100, 100);
+        return { promise: Promise.resolve() };
+      },
+    };
+    fakeAcquireImpl = () =>
+      Promise.resolve(Success({ document: buildFakeDoc([fakePage]), release: releaseSpy }));
+
+    const boxAnnotation = buildSmallBoxAnnotation(1);
+    const res = await extractImageFromRegion(testFile, DUMMY_SRC, boxAnnotation, 1);
+    expect(res.ok).toBeTrue();
+    if (!res.ok) return;
+
+    const targetRect = ANNOTATION_GEOMETRY.box.boundingBox(boxAnnotation);
+    const pixels = await decodePngDataUrlPixels(
+      res.value,
+      Math.round(targetRect.width),
+      Math.round(targetRect.height),
+    );
+    // BOUNDING_BOX_PADDING分の余白を含む四隅も、マスクされず元の色のまま
+    expect(getPixel(pixels, Math.round(targetRect.width), 0, 0)).toEqual([255, 0, 255, 255]);
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
   });
 
   it('extractAnnotationContextPreview: 正常系でdata:image/pngのdataURLを返す', async () => {
@@ -1185,6 +1292,123 @@ describe('extractTextByAnnot（pdfDocumentCacheをモック。実形状（contai
     expect(res.value).toBe('A');
     expect(releaseSpy).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * 3行×5列の文字グリッド（1文字＝1テキストアイテム）を、指定した文字サイズ・原点座標で
+   * 生成する（Issue #110: 文字を縦横密に並べ、その中心部の文字を正しく認識できることを
+   * 確認するテスト用）。列間・行間の隙間は文字サイズに対して狭く取り、込み入った寸法線の
+   * 数値列を模す。中心セル（1行目・2列目、0始まり）の文字だけを対象とする、その文字の
+   * 実際の幅ぴったりの短い水平線アノテーションを一緒に返す
+   *
+   * 1文字＝1アイテムにしているのは、`estimateCharWidths`（canvas測定によるブロック内の
+   * 文字幅の按分）の近似誤差を排除し、`ANNOTATION_GEOMETRY.containsPoint`の判定そのものを
+   * 検証するため
+   */
+  function buildDenseCharGridCase(fontSize: number, originX: number, originY: number) {
+    const cellWidth = fontSize * 0.6;
+    const cellHeight = fontSize;
+    const colGap = fontSize * 0.2;
+    const rowGap = fontSize * 0.3;
+    const rows = 3;
+    const cols = 5;
+    const centerRow = 1;
+    const centerCol = 2;
+    const chars = 'ABCDEFGHIJKLMNO';
+
+    const items: Array<{
+      str: string;
+      transform: [number, number, number, number, number, number];
+      width: number;
+      height: number;
+      fontName: string;
+    }> = [];
+    let centerChar = '';
+    let centerCellX = 0;
+    let centerLineY = 0;
+
+    let charIdx = 0;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const char = chars[charIdx]!;
+        charIdx++;
+        const cellX = originX + col * (cellWidth + colGap);
+        const cellTopY = originY + row * (cellHeight + rowGap);
+        // pdfItemToBoxはベースライン起点（transform[4]/[5]）から上方向へheight分広がる
+        // 矩形として計算するため、セル上端をcellTopYにするにはbaseY = cellTopY + heightにする
+        items.push({
+          str: char,
+          transform: [1, 0, 0, 1, cellX, cellTopY + cellHeight],
+          width: cellWidth,
+          height: cellHeight,
+          fontName: 'f1',
+        });
+        if (row === centerRow && col === centerCol) {
+          centerChar = char;
+          centerCellX = cellX;
+          centerLineY = cellTopY + cellHeight / 2;
+        }
+      }
+    }
+
+    // アノテーション（水平線）: 中心セルの実際の幅ちょうどに、隙間の1/4だけ余白を持たせる。
+    // 隙間（colGap）より十分狭いため、隣接列へはみ出さない
+    const margin = colGap / 4;
+    const lineStartX = centerCellX - margin;
+    const lineEndX = centerCellX + cellWidth + margin;
+
+    return {
+      items,
+      centerChar,
+      lineAnnotation: {
+        ...buildAnnotationBase(1),
+        type: 'line' as const,
+        x: lineStartX,
+        y: centerLineY,
+        // strokeWidthは文字サイズより大幅に細く固定する（寸法線が文字より細く描かれる、
+        // A1等の大判文書で典型的なケース。#108時点はこの比率では実質的に機能していなかった）
+        strokeWidth: 2,
+        points: [0, 0, lineEndX - lineStartX, 0],
+      } satisfies AnnotationStyle,
+    };
+  }
+
+  const gridFontSizes = [4, 8, 16];
+  const gridPageOrigins: Array<{ label: string; x: number; y: number }> = [
+    { label: 'A4的な小さいページ座標', x: 50, y: 50 },
+    { label: 'A1的な大きなページ座標', x: 2000, y: 1500 },
+  ];
+
+  for (const fontSize of gridFontSizes) {
+    for (const origin of gridPageOrigins) {
+      it(`密な文字グリッド（文字サイズ${fontSize}・${origin.label}）: 中心セルの文字のみが抽出され、上下・左右に隣接する文字は抽出されない`, async () => {
+        const releaseSpy = mock(() => {});
+        const { items, centerChar, lineAnnotation } = buildDenseCharGridCase(
+          fontSize,
+          origin.x,
+          origin.y,
+        );
+        const identityViewport = { transform: [1, 0, 0, 1, 0, 0] };
+        fakeAcquireImpl = () =>
+          Promise.resolve(
+            Success({
+              document: buildFakeDoc([
+                {
+                  getTextContent: () => Promise.resolve({ items, styles: {} }),
+                  getViewport: () => identityViewport,
+                },
+              ]),
+              release: releaseSpy,
+            }),
+          );
+
+        const res = await extractTextByAnnot(testFile, DUMMY_SRC, lineAnnotation);
+        expect(res.ok).toBeTrue();
+        if (!res.ok) return;
+        expect(res.value).toBe(centerChar);
+        expect(releaseSpy).toHaveBeenCalledTimes(1);
+      });
+    }
+  }
 });
 
 describe('extractAllTextBlocksByFile（pdfDocumentCacheをモック。全ページ抽出のみでクエリマッチングは持たないことを確認）', () => {
